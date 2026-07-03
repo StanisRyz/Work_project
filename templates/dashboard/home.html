@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block title %}Главная - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block content %}
+<section class="welcome-panel" aria-labelledby="welcome-title">
+    <p class="section-label">D1 базовая настройка</p>
+    <h1 id="welcome-title">Единая цифровая экосистема управления качеством</h1>
+    <p class="lead">Первый этап: внутреннее веб-приложение для актов, протоколов, задач и несоответствий</p>
+    <p class="note">Проект находится на этапе базовой настройки Django.</p>
+</section>
+
+<section class="status-grid" aria-label="Состояние проекта">
+    <article class="status-card">
+        <span class="status-card__label">Основа</span>
+        <strong>Django проект</strong>
+        <p>Подготовлены настройки, шаблоны и статические файлы.</p>
+    </article>
+    <article class="status-card">
+        <span class="status-card__label">Данные</span>
+        <strong>SQLite локально</strong>
+        <p>База оставлена простой для начального этапа разработки.</p>
+    </article>
+    <article class="status-card">
+        <span class="status-card__label">Следующий шаг</span>
+        <strong>D2 структура</strong>
+        <p>Бизнес-модули будут добавляться поэтапно позднее.</p>
+    </article>
+</section>
+{% endblock %}
