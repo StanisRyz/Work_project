@@ -3,4 +3,26 @@
         <p class="topbar__eyebrow">Внутренняя система</p>
         <span class="topbar__title">Управление качеством</span>
     </div>
+    <div class="topbar__user">
+        {% if user.is_authenticated %}
+            <div class="topbar__identity">
+                <strong>{{ user.get_full_name|default:user.username }}</strong>
+                {% if user.userprofile %}
+                    <span>{{ user.userprofile.role_label }}{% if user.userprofile.department %} · {{ user.userprofile.department.name }}{% endif %}</span>
+                {% else %}
+                    <span>Профиль не заполнен</span>
+                {% endif %}
+            </div>
+            <form method="post" action="{% url 'accounts:logout' %}">
+                {% csrf_token %}
+                <button class="link-button link-button--secondary" type="submit">Выйти</button>
+            </form>
+        {% else %}
+            <div class="topbar__identity">
+                <strong>Гость</strong>
+                <span>Вход не выполнен</span>
+            </div>
+            <a class="link-button link-button--secondary" href="{% url 'accounts:login' %}">Войти</a>
+        {% endif %}
+    </div>
 </header>

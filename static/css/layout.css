@@ -30,6 +30,8 @@
 .topbar {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 20px;
     min-height: 72px;
     padding: 16px 32px;
     background: var(--color-surface);
@@ -49,5 +51,10 @@
     .content,
     .topbar {
         padding: 20px;
+    }
+
+    .topbar {
+        align-items: flex-start;
+        flex-direction: column;
     }
 }

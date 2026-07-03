@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block title %}Вход - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block content %}
+<section class="auth-panel" aria-labelledby="login-title">
+    <span class="badge">Авторизация</span>
+    <h1 id="login-title">Вход в систему</h1>
+    <p>Используйте учетную запись Django для доступа к внутренним разделам.</p>
+
+    <form class="auth-form" method="post">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+            <div class="form-error">{{ form.non_field_errors }}</div>
+        {% endif %}
+        <label>
+            <span>Имя пользователя</span>
+            {{ form.username }}
+        </label>
+        <label>
+            <span>Пароль</span>
+            {{ form.password }}
+        </label>
+        <button class="link-button" type="submit">Войти</button>
+    </form>
+</section>
+{% endblock %}

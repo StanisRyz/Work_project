@@ -1,6 +1,8 @@
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
 
+@login_required
 def task_list(request):
     context = {
         'active_page': 'tasks',
@@ -8,5 +10,3 @@ def task_list(request):
         'page_description': 'Раздел будет использоваться для контроля задач по актам и протоколам.',
     }
     return render(request, 'tasks/list.html', context)
-
-# Create your views here.

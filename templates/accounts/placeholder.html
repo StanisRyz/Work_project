@@ -3,10 +3,20 @@
 {% block title %}Пользователи и роли - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-{% include 'includes/page_header.html' with page_badge='Раздел D2' %}
+{% include 'includes/page_header.html' with page_badge='Раздел D3' %}
 
 <section class="placeholder-card">
-    <span class="badge">Заготовка</span>
+    <span class="badge">Ролевая основа</span>
     <p>{{ page_description }}</p>
+</section>
+
+<section class="placeholder-card">
+    <span class="badge">Поддерживаемые роли</span>
+    <ul class="simple-list">
+        {% for role in supported_roles %}
+            <li>{{ role }}</li>
+        {% endfor %}
+    </ul>
+    <p>Управление пользователями остается в Django Admin. Отдельный интерфейс управления пользователями в этом патче не добавляется.</p>
 </section>
 {% endblock %}
