@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ act.number }} - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block content %}
+<section class="page-header" aria-labelledby="act-title">
+    <span class="badge">Акт</span>
+    <h1 id="act-title">{{ act.number }}</h1>
+    <p>{{ act.party_number }} · {{ act.nomenclature }}</p>
+</section>
+
+<section class="route-summary" aria-label="Маршрут акта">
+    <span>ОТК</span>
+    <span>КО</span>
+    <span>ТО</span>
+    <span>Мероприятия</span>
+</section>
+
+<section class="action-panel">
+    <strong>Текущий статус: <span class="status-badge">{{ act.status }}</span></strong>
+    <div class="form-actions">
+        {% if can_send_to_ko %}
+            <form method="post" action="{% url 'acts:send_to_ko' act.pk %}">
+                {% csrf_token %}
+                <button class="link-button" type="submit">Передать в КО</button>
+            </form>
+        {% endif %}
+        {% if can_add_ko_decision %}
+            <a class="link-button" href="{% url 'acts:ko_decision' act.pk %}">Внести решение КО</a>
+        {% endif %}
+        {% if can_add_to_analysis %}
+            <a class="link-button" href="{% url 'acts:to_analysis' act.pk %}">Внести анализ ТО</a>
+        {% endif %}
+        <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">К списку</a>
+    </div>
+</section>
+
+<section class="detail-grid">
+    <article class="detail-section">
+        <h2>Основные данные</h2>
+        <dl>
+            <dt>Партия</dt><dd>{{ act.party_number }}</dd>
+            <dt>Номенклатура</dt><dd>{{ act.nomenclature }}</dd>
+            <dt>Операция</dt><dd>{{ act.operation }}</dd>
+            <dt>Вид дефекта</dt><dd>{{ act.defect_type }}</dd>
+            <dt>Приоритет</dt><dd>{{ act.priority|default:'-' }}</dd>
+            <dt>Срок</dt><dd>{{ act.due_date|date:'d.m.Y'|default:'-' }}</dd>
+            <dt>Создал</dt><dd>{{ act.created_by.get_full_name|default:act.created_by.username }}</dd>
+        </dl>
+        <p>{{ act.description }}</p>
+    </article>
+    <article class="detail-section">
+        <h2>Решение КО</h2>
+        <dl>
+            <dt>Решение</dt><dd>{{ act.get_ko_decision_display|default:'-' }}</dd>
+            <dt>Автор</dt><dd>{{ act.ko_decision_by|default:'-' }}</dd>
+            <dt>Дата</dt><dd>{{ act.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</dd>
+        </dl>
+        <p>{{ act.ko_comment|default:'Комментарий КО пока не внесен.' }}</p>
+    </article>
+    <article class="detail-section">
+        <h2>Анализ ТО</h2>
+        <dl>
+            <dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd>
+            <dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd>
+        </dl>
+        <h3>Корневая причина</h3>
+        <p>{{ act.to_root_cause|default:'Не заполнено.' }}</p>
+        <h3>Предлагаемые мероприятия</h3>
+        <p>{{ act.to_action_summary|default:'Не заполнено.' }}</p>
+    </article>
+</section>
+{% endblock %}

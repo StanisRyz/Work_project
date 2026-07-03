@@ -8,18 +8,15 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D4 references foundation.
+D5 acts module.
 
-D4 adds the first managed reference dictionaries:
+D5 adds the first MVP business module:
 
-- `Operation`
-- `DefectType`
-- `ActStatus`
-- `TaskStatus`
-- `Priority`
-
-References are managed through Django Admin for now. Custom reference CRUD
-screens are intentionally not part of this stage.
+- `Act` model for acts of operational control.
+- Act list, create, and detail pages.
+- Simple route: ОТК -> КО -> ТО -> мероприятия.
+- MVP role-based act visibility through `UserProfile.role`.
+- Demo acts seed command for local validation.
 
 ## Create and Activate a Virtual Environment
 
@@ -40,16 +37,13 @@ If script execution is restricted in PowerShell, use:
 python -m pip install -r requirements.txt
 ```
 
-## Run Migrations
+## Setup Local Data
 
 ```powershell
 python manage.py migrate
-```
-
-## Seed Demo Accounts
-
-```powershell
 python manage.py seed_demo_accounts
+python manage.py seed_references
+python manage.py seed_demo_acts
 ```
 
 Demo accounts for local development only:
@@ -62,14 +56,6 @@ Demo accounts for local development only:
 
 These demo passwords must not be used for production or shared environments.
 
-## Seed References
-
-```powershell
-python manage.py seed_references
-```
-
-The command is idempotent and safe to run multiple times.
-
 ## Start the Local Server
 
 ```powershell
@@ -80,17 +66,16 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Intentionally Not Implemented Yet
 
-- Acts model or act workflows.
-- Tasks model or task workflows.
+- Task objects or corrective action tasks.
 - Protocols.
 - Nonconformities.
 - Reports.
-- Custom reference CRUD outside Django Admin.
-- Role-based object filtering or access-control matrix.
+- File attachments.
+- Word/PDF export.
 - PostgreSQL configuration.
 - REST API or realtime features.
 - Frontend frameworks.
 
 ## Next Planned Stages
 
-- D5 acts module.
+- D6 tasks for act corrective actions.

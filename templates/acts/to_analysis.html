@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block title %}Анализ ТО - {{ act.number }}{% endblock %}
+
+{% block content %}
+<section class="page-header" aria-labelledby="to-title">
+    <span class="badge">ТО</span>
+    <h1 id="to-title">Анализ ТО</h1>
+    <p>{{ act.number }} · {{ act.nomenclature }}</p>
+</section>
+
+<form class="form-card" method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}
+        <label>
+            <span>{{ field.label }}</span>
+            {{ field }}
+            {{ field.errors }}
+        </label>
+    {% endfor %}
+    <div class="form-actions">
+        <button class="link-button" type="submit">Сохранить</button>
+        <a class="link-button link-button--secondary" href="{% url 'acts:detail' act.pk %}">Отмена</a>
+    </div>
+</form>
+{% endblock %}

@@ -11,6 +11,9 @@
 - `UserProfile.role` is the source for MVP role awareness.
 - Reference data belongs in the `references` app.
 - Use reference models instead of free-text fields in future business models where possible.
+- Acts belong in the `acts` app.
+- Use `references.Operation`, `DefectType`, `ActStatus`, and `Priority` in act models/forms.
+- `UserProfile.role` is used for MVP act visibility.
 
 ## Patch Rules
 
@@ -21,6 +24,8 @@
 - Seed commands must be idempotent and safe to run multiple times.
 - Do not implement a real access-control matrix before the relevant business module patch.
 - Do not add custom CRUD for references until explicitly requested.
+- Do not implement task objects inside acts; tasks belong to a later `tasks` module patch.
+- Keep act workflow simple until tasks/protocols are implemented.
 - Do not add backend complexity before it is needed.
 - Do not add frontend frameworks.
 - Keep navigation server-rendered unless a later patch asks for frontend behavior.

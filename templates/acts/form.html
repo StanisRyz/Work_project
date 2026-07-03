@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block title %}Создание акта - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block content %}
+<section class="page-header" aria-labelledby="act-form-title">
+    <span class="badge">Раздел D5</span>
+    <h1 id="act-form-title">Создание акта</h1>
+    <p>Заполните основные данные акта операционного контроля.</p>
+</section>
+
+<form class="form-card" method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}
+        <label>
+            <span>{{ field.label }}</span>
+            {{ field }}
+            {{ field.errors }}
+        </label>
+    {% endfor %}
+    <div class="form-actions">
+        <button class="link-button" type="submit">Сохранить</button>
+        <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">Отмена</a>
+    </div>
+</form>
+{% endblock %}

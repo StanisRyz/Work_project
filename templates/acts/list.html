@@ -3,10 +3,87 @@
 {% block title %}Акты - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-{% include 'includes/page_header.html' with page_badge='Раздел D2' %}
+{% include 'includes/page_header.html' with page_badge='Раздел D5' %}
 
-<section class="placeholder-card">
-    <span class="badge">Заготовка</span>
+<section class="action-panel">
     <p>{{ page_description }}</p>
+    {% if can_create %}
+        <a class="link-button" href="{% url 'acts:create' %}">Создать акт</a>
+    {% endif %}
+</section>
+
+<form class="filter-form" method="get">
+    <label>
+        <span>Поиск</span>
+        <input type="search" name="search" value="{{ selected.search }}" placeholder="Номер, партия, номенклатура">
+    </label>
+    <label>
+        <span>Статус</span>
+        <select name="status">
+            <option value="">Все</option>
+            {% for status in statuses %}
+                <option value="{{ status.id }}"{% if selected.status == status.id|stringformat:'s' %} selected{% endif %}>{{ status.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label>
+        <span>Операция</span>
+        <select name="operation">
+            <option value="">Все</option>
+            {% for operation in operations %}
+                <option value="{{ operation.id }}"{% if selected.operation == operation.id|stringformat:'s' %} selected{% endif %}>{{ operation.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label>
+        <span>Вид дефекта</span>
+        <select name="defect_type">
+            <option value="">Все</option>
+            {% for defect_type in defect_types %}
+                <option value="{{ defect_type.id }}"{% if selected.defect_type == defect_type.id|stringformat:'s' %} selected{% endif %}>{{ defect_type.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <button class="link-button" type="submit">Применить</button>
+    <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">Сбросить</a>
+</form>
+
+<section class="table-card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Номер</th>
+                <th>Дата</th>
+                <th>Партия</th>
+                <th>Номенклатура</th>
+                <th>Операция</th>
+                <th>Вид дефекта</th>
+                <th>Приоритет</th>
+                <th>Статус</th>
+                <th>Срок</th>
+                <th>Создал</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for act in acts %}
+                <tr>
+                    <td><a class="table-link" href="{% url 'acts:detail' act.pk %}">{{ act.number }}</a></td>
+                    <td>{{ act.created_at|date:'d.m.Y' }}</td>
+                    <td>{{ act.party_number }}</td>
+                    <td>{{ act.nomenclature }}</td>
+                    <td>{{ act.operation }}</td>
+                    <td>{{ act.defect_type }}</td>
+                    <td>{{ act.priority|default:'-' }}</td>
+                    <td><span class="status-badge">{{ act.status }}</span></td>
+                    <td>{{ act.due_date|date:'d.m.Y'|default:'-' }}</td>
+                    <td>{{ act.created_by.get_full_name|default:act.created_by.username }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="10">Акты не найдены.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </section>
 {% endblock %}

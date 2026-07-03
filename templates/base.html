@@ -15,6 +15,13 @@
         <div class="app-main">
             {% include 'includes/header.html' %}
             <main class="content page-container">
+                {% if messages %}
+                    <section class="message-list" aria-label="Сообщения">
+                        {% for message in messages %}
+                            <div class="message message--{{ message.tags }}">{{ message }}</div>
+                        {% endfor %}
+                    </section>
+                {% endif %}
                 {% block content %}{% endblock %}
             </main>
         </div>
