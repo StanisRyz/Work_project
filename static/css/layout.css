@@ -13,6 +13,11 @@
     padding: 32px;
 }
 
+.page-container {
+    display: grid;
+    gap: 20px;
+}
+
 .sidebar {
     display: flex;
     flex-direction: column;

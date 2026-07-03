@@ -1,0 +1,7 @@
+<section class="page-header" aria-labelledby="page-title">
+    <span class="badge">{{ page_badge|default:'Раздел' }}</span>
+    <h1 id="page-title">{{ page_title }}</h1>
+    {% if page_description %}
+        <p>{{ page_description }}</p>
+    {% endif %}
+</section>

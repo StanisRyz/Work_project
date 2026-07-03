@@ -8,11 +8,15 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D1 base Django setup.
+D2 apps and base layout structure.
 
-This stage prepares the clean Django foundation: project settings, templates,
-static files, a minimal home page, local SQLite database settings, documentation,
-and validation commands.
+D2 adds a modular Django skeleton for the future internal system:
+
+- Core apps: `dashboard`, `accounts`, `references`, `acts`, and `tasks`.
+- URL structure for the main sections.
+- Base layout with sidebar, header, and content area.
+- Server-rendered sidebar navigation.
+- Placeholder pages for future modules.
 
 ## Create and Activate a Virtual Environment
 
@@ -49,17 +53,18 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Intentionally Not Implemented Yet
 
-- Business apps for acts, tasks, protocols, nonconformities, and reports.
-- User, role, department, and permission customization.
+- Business models.
+- Roles, permissions, departments, or authentication customization.
+- Act, task, protocol, nonconformity, or report workflows.
+- Act/task CRUD screens or forms.
+- References data.
 - PostgreSQL configuration.
-- Docker or production deployment configuration.
-- REST API, WebSocket, Channels, or realtime updates.
+- REST API.
+- WebSocket, Channels, realtime updates, or polling.
 - Frontend frameworks.
-- Real navigation pages beyond placeholders.
 
 ## Next Planned Stages
 
-- D2 apps and base layout structure.
 - D3 users, roles, departments.
 - D4 references.
 - D5 acts module.

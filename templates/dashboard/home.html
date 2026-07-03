@@ -4,27 +4,41 @@
 
 {% block content %}
 <section class="welcome-panel" aria-labelledby="welcome-title">
-    <p class="section-label">D1 базовая настройка</p>
+    <p class="section-label">D2 структура приложения</p>
     <h1 id="welcome-title">Единая цифровая экосистема управления качеством</h1>
-    <p class="lead">Первый этап: внутреннее веб-приложение для актов, протоколов, задач и несоответствий</p>
-    <p class="note">Проект находится на этапе базовой настройки Django.</p>
+    <p class="lead">Внутреннее веб-приложение для будущей работы с актами, задачами, справочниками и ролями.</p>
+    <p class="note">D2 - каркас приложений и базовая структура интерфейса</p>
 </section>
 
 <section class="status-grid" aria-label="Состояние проекта">
     <article class="status-card">
-        <span class="status-card__label">Основа</span>
-        <strong>Django проект</strong>
-        <p>Подготовлены настройки, шаблоны и статические файлы.</p>
+        <span class="status-card__label">Модуль</span>
+        <strong>Акты</strong>
+        <p>Будущая работа с актами операционного контроля.</p>
+        <a class="link-button" href="{% url 'acts:list' %}">Открыть</a>
     </article>
     <article class="status-card">
-        <span class="status-card__label">Данные</span>
-        <strong>SQLite локально</strong>
-        <p>База оставлена простой для начального этапа разработки.</p>
+        <span class="status-card__label">Модуль</span>
+        <strong>Задачи</strong>
+        <p>Будущий контроль задач и мероприятий.</p>
+        <a class="link-button" href="{% url 'tasks:list' %}">Открыть</a>
     </article>
     <article class="status-card">
-        <span class="status-card__label">Следующий шаг</span>
-        <strong>D2 структура</strong>
-        <p>Бизнес-модули будут добавляться поэтапно позднее.</p>
+        <span class="status-card__label">Модуль</span>
+        <strong>Справочники</strong>
+        <p>Будущие настройки операций, дефектов и статусов.</p>
+        <a class="link-button" href="{% url 'references:index' %}">Открыть</a>
     </article>
+    <article class="status-card">
+        <span class="status-card__label">Модуль</span>
+        <strong>Пользователи и роли</strong>
+        <p>Будущая структура участников и зон ответственности.</p>
+        <a class="link-button" href="{% url 'accounts:placeholder' %}">Открыть</a>
+    </article>
+</section>
+
+<section class="placeholder-card">
+    <span class="badge">Без бизнес-логики</span>
+    <p>Бизнес-логика будет добавляться поэтапно в следующих патчах.</p>
 </section>
 {% endblock %}

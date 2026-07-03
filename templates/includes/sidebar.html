@@ -1,13 +1,13 @@
 <aside class="sidebar" aria-label="Основная навигация">
-    <a class="sidebar__brand" href="{% url 'home' %}">
+    <a class="sidebar__brand" href="{% url 'dashboard:home' %}">
         <span class="sidebar__mark">К</span>
         <span>Экосистема качества</span>
     </a>
     <nav class="sidebar__nav">
-        <a class="sidebar__link sidebar__link--active" href="{% url 'home' %}">Главная</a>
-        <span class="sidebar__link sidebar__link--disabled">Акты</span>
-        <span class="sidebar__link sidebar__link--disabled">Протоколы</span>
-        <span class="sidebar__link sidebar__link--disabled">Задачи</span>
-        <span class="sidebar__link sidebar__link--disabled">Несоответствия</span>
+        <a class="sidebar__link{% if active_page == 'dashboard' %} sidebar__link--active{% endif %}" href="{% url 'dashboard:home' %}">Главная</a>
+        <a class="sidebar__link{% if active_page == 'acts' %} sidebar__link--active{% endif %}" href="{% url 'acts:list' %}">Акты</a>
+        <a class="sidebar__link{% if active_page == 'tasks' %} sidebar__link--active{% endif %}" href="{% url 'tasks:list' %}">Задачи</a>
+        <a class="sidebar__link{% if active_page == 'references' %} sidebar__link--active{% endif %}" href="{% url 'references:index' %}">Справочники</a>
+        <a class="sidebar__link{% if active_page == 'accounts' %} sidebar__link--active{% endif %}" href="{% url 'accounts:placeholder' %}">Пользователи и роли</a>
     </nav>
 </aside>
