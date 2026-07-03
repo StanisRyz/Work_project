@@ -100,7 +100,14 @@
     margin-top: 20px;
 }
 
+.reference-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 16px;
+}
+
 .status-card,
+.reference-card,
 .placeholder-card,
 .page-header {
     padding: 18px;
@@ -112,6 +119,18 @@
 .status-card strong {
     display: block;
     margin-top: 8px;
+}
+
+.reference-card {
+    display: grid;
+    gap: 8px;
+}
+
+.reference-card__count {
+    color: var(--color-primary-dark);
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1;
 }
 
 .status-card p {
@@ -231,7 +250,8 @@
 }
 
 @media (max-width: 900px) {
-    .status-grid {
+    .status-grid,
+    .reference-grid {
         grid-template-columns: 1fr;
     }
 

@@ -3,10 +3,20 @@
 {% block title %}Справочники - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-{% include 'includes/page_header.html' with page_badge='Раздел D2' %}
+{% include 'includes/page_header.html' with page_badge='Раздел D4' %}
+
+<section class="reference-grid" aria-label="Состав справочников">
+    {% for card in reference_cards %}
+        <article class="reference-card">
+            <span class="reference-card__count">{{ card.count }}</span>
+            <strong>{{ card.title }}</strong>
+        </article>
+    {% endfor %}
+</section>
 
 <section class="placeholder-card">
-    <span class="badge">Заготовка</span>
-    <p>{{ page_description }}</p>
+    <span class="badge">Django Admin</span>
+    <p>Редактирование справочников выполняется через Django Admin.</p>
+    <a class="link-button" href="/admin/">Открыть Admin</a>
 </section>
 {% endblock %}

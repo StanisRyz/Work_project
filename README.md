@@ -8,15 +8,18 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D3 users, roles, departments.
+D4 references foundation.
 
-D3 adds the first real user foundation for the future internal system:
+D4 adds the first managed reference dictionaries:
 
-- `Department` for internal departments.
-- `UserProfile` linked one-to-one with the standard Django `User`.
-- Role awareness for ОТК, КО, ТО, Руководитель, and Администратор.
-- Login and logout with standard Django authentication views.
-- Demo seed command for local development accounts.
+- `Operation`
+- `DefectType`
+- `ActStatus`
+- `TaskStatus`
+- `Priority`
+
+References are managed through Django Admin for now. Custom reference CRUD
+screens are intentionally not part of this stage.
 
 ## Create and Activate a Virtual Environment
 
@@ -59,6 +62,14 @@ Demo accounts for local development only:
 
 These demo passwords must not be used for production or shared environments.
 
+## Seed References
+
+```powershell
+python manage.py seed_references
+```
+
+The command is idempotent and safe to run multiple times.
+
 ## Start the Local Server
 
 ```powershell
@@ -74,7 +85,7 @@ Open http://127.0.0.1:8000/ in a browser.
 - Protocols.
 - Nonconformities.
 - Reports.
-- References data.
+- Custom reference CRUD outside Django Admin.
 - Role-based object filtering or access-control matrix.
 - PostgreSQL configuration.
 - REST API or realtime features.
@@ -82,5 +93,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stages
 
-- D4 references.
 - D5 acts module.
