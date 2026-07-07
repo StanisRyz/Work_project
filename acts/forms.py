@@ -124,3 +124,24 @@ class ActAttachmentForm(forms.ModelForm):
         if uploaded_file.size > MAX_ATTACHMENT_SIZE:
             raise ValidationError('Размер файла превышает допустимый лимит.')
         return uploaded_file
+
+
+class ActCloseForm(forms.ModelForm):
+    class Meta:
+        model = Act
+        fields = ('closing_comment',)
+        labels = {
+            'closing_comment': 'Комментарий закрытия',
+        }
+        widgets = {
+            'closing_comment': forms.Textarea(
+                attrs={
+                    'rows': 4,
+                    'placeholder': 'Кратко укажите основание закрытия акта...',
+                }
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['closing_comment'].required = False

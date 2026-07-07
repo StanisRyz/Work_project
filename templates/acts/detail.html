@@ -67,6 +67,17 @@
         {% endif %}
     </article>
 
+    {% if act.status.code == 'CLOSED' %}
+        <article class="detail-section act-closed-block">
+            <h2>Закрытие</h2>
+            <dl>
+                <dt>Закрыл</dt><dd>{{ act.closed_by|default:'-' }}</dd>
+                <dt>Дата</dt><dd>{{ act.closed_at|date:'d.m.Y H:i'|default:'-' }}</dd>
+                <dt>Комментарий</dt><dd>{{ act.closing_comment|default:'-' }}</dd>
+            </dl>
+        </article>
+    {% endif %}
+
     <article class="detail-section action-panel act-action-panel">
         <div>
             <h2>Доступные действия</h2>
@@ -85,7 +96,13 @@
             {% if available_actions.to_analysis %}
                 <a class="link-button" href="{% url 'acts:to_analysis' act.pk %}">Внести анализ ТО</a>
             {% endif %}
-            {% if not available_actions.send_to_ko and not available_actions.ko_decision and not available_actions.to_analysis %}
+            {% if available_actions.close_act %}
+                <a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a>
+            {% endif %}
+            {% if available_actions.print_act %}
+                <a class="link-button link-button--secondary" href="{% url 'acts:print' act.pk %}">Печатная форма</a>
+            {% endif %}
+            {% if not available_actions.send_to_ko and not available_actions.ko_decision and not available_actions.to_analysis and not available_actions.close_act %}
                 <span class="placeholder-text">Нет доступных действий для текущего статуса.</span>
             {% endif %}
             <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">К списку</a>

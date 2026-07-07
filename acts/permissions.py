@@ -56,7 +56,9 @@ def can_view_act(act, user):
     if is_ko(user):
         return _status_code(act) == 'KO_REVIEW'
     if is_to(user):
-        return _status_code(act) == 'TO_ANALYSIS'
+        return _status_code(act) == 'TO_ANALYSIS' or (
+            _status_code(act) == 'ACTIONS_ASSIGNED' and act.to_analysis_by_id == user.id
+        )
     return False
 
 
@@ -74,6 +76,14 @@ def can_apply_ko_decision(act, user):
 
 def can_apply_to_analysis(act, user):
     return _status_code(act) == 'TO_ANALYSIS' and (is_to(user) or is_manager_or_admin(user))
+
+
+def can_close_act(act, user):
+    if _status_code(act) != 'ACTIONS_ASSIGNED':
+        return False
+    if is_manager_or_admin(user):
+        return True
+    return is_to(user) and act.to_analysis_by_id == user.id
 
 
 def can_add_attachment(act, user):
@@ -109,7 +119,10 @@ def get_visible_acts_queryset(user):
     if is_ko(user):
         return queryset.filter(status__code='KO_REVIEW')
     if is_to(user):
-        return queryset.filter(status__code='TO_ANALYSIS')
+        return queryset.filter(status__code='TO_ANALYSIS') | queryset.filter(
+            status__code='ACTIONS_ASSIGNED',
+            to_analysis_by=user,
+        )
     return queryset.none()
 
 

@@ -5,8 +5,10 @@ from .models import Act, ActAttachment, ActComment, ActHistoryEvent, get_act_sta
 from .permissions import (
     can_apply_ko_decision,
     can_apply_to_analysis,
+    can_close_act,
     can_delete_attachment,
     can_send_to_ko,
+    can_view_act,
     get_user_role,
     get_visible_acts_queryset,
 )
@@ -195,11 +197,60 @@ def format_file_size(size_bytes):
     return f'{size_bytes / (1024 * 1024):.1f} МБ'
 
 
+def validate_act_can_be_closed(act):
+    if _status_code(act) != 'ACTIONS_ASSIGNED':
+        raise ActWorkflowError('Акт можно закрыть только после назначения мероприятий.')
+    required_fields = (
+        (act.ko_decision, 'Перед закрытием нужно внести решение КО.'),
+        (act.ko_decision_by_id, 'Перед закрытием должен быть указан автор решения КО.'),
+        (act.ko_decision_at, 'Перед закрытием должна быть указана дата решения КО.'),
+        (act.to_root_cause, 'Перед закрытием нужно заполнить корневую причину ТО.'),
+        (act.to_action_summary, 'Перед закрытием нужно заполнить мероприятия ТО.'),
+        (act.to_analysis_by_id, 'Перед закрытием должен быть указан автор анализа ТО.'),
+        (act.to_analysis_at, 'Перед закрытием должна быть указана дата анализа ТО.'),
+    )
+    for value, message in required_fields:
+        if not value:
+            raise ActWorkflowError(message)
+
+
+def close_act(act, user, closing_comment=''):
+    if not can_close_act(act, user):
+        raise ActWorkflowError('Закрытие акта недоступно для вашей роли или текущего статуса.')
+    validate_act_can_be_closed(act)
+    from_status = act.status
+    to_status = _get_required_status('CLOSED')
+    act.status = to_status
+    act.closed_by = user
+    act.closed_at = timezone.now()
+    act.closing_comment = closing_comment
+    act.save(
+        update_fields=[
+            'status',
+            'closed_by',
+            'closed_at',
+            'closing_comment',
+            'updated_at',
+        ]
+    )
+    add_act_history_event(
+        act,
+        user,
+        ActHistoryEvent.EventType.ACT_CLOSED,
+        'Акт закрыт.',
+        from_status=from_status,
+        to_status=to_status,
+    )
+    return act
+
+
 def get_available_act_actions(act, user):
     return {
         'send_to_ko': can_send_to_ko(act, user),
         'ko_decision': can_apply_ko_decision(act, user),
         'to_analysis': can_apply_to_analysis(act, user),
+        'close_act': can_close_act(act, user),
+        'print_act': can_view_act(act, user),
     }
 
 

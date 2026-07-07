@@ -11,6 +11,8 @@ urlpatterns = [
     path('<int:pk>/send-to-ko/', views.act_send_to_ko, name='send_to_ko'),
     path('<int:pk>/ko-decision/', views.act_ko_decision, name='ko_decision'),
     path('<int:pk>/to-analysis/', views.act_to_analysis, name='to_analysis'),
+    path('<int:pk>/close/', views.act_close, name='close'),
+    path('<int:pk>/print/', views.act_print, name='print'),
     path('<int:pk>/comments/add/', views.act_add_comment, name='add_comment'),
     path('<int:pk>/attachments/add/', views.act_add_attachment, name='add_attachment'),
     path(

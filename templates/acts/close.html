@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block title %}Закрытие акта - {{ act.number }}{% endblock %}
+
+{% block content %}
+<section class="page-header" aria-labelledby="close-title">
+    <span class="badge">Закрытие</span>
+    <h1 id="close-title">Закрытие акта {{ act.number }}</h1>
+    <p>Закрытие завершает MVP-маршрут акта и является финальным действием для текущего workflow.</p>
+</section>
+
+<section class="detail-section act-context act-close-context">
+    <h2>Контекст акта</h2>
+    <dl>
+        <dt>Номер</dt><dd>{{ act.number }}</dd>
+        <dt>Партия</dt><dd>{{ act.party_number }}</dd>
+        <dt>Номенклатура</dt><dd>{{ act.nomenclature }}</dd>
+        <dt>Операция</dt><dd>{{ act.operation }}</dd>
+        <dt>Вид дефекта</dt><dd>{{ act.defect_type }}</dd>
+        <dt>Статус</dt><dd>{% include 'acts/includes/status_badge.html' with status=act.status %}</dd>
+        <dt>Решение КО</dt><dd>{{ act.get_ko_decision_display|default:'-' }}</dd>
+        <dt>Корневая причина ТО</dt><dd>{{ act.to_root_cause|default:'-' }}</dd>
+        <dt>Мероприятия ТО</dt><dd>{{ act.to_action_summary|default:'-' }}</dd>
+    </dl>
+</section>
+
+<form class="form-card act-form act-close-form" method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <section class="form-section">
+        <h2>Комментарий закрытия</h2>
+        <label>
+            <span>{{ form.closing_comment.label }}</span>
+            {{ form.closing_comment }}
+            {{ form.closing_comment.errors }}
+        </label>
+    </section>
+    <div class="form-actions">
+        <button class="link-button" type="submit">Закрыть акт</button>
+        <a class="link-button link-button--secondary" href="{% url 'acts:detail' act.pk %}">Отмена</a>
+    </div>
+</form>
+{% endblock %}

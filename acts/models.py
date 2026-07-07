@@ -90,6 +90,16 @@ class Act(models.Model):
         verbose_name='Анализ ТО внес',
     )
     to_analysis_at = models.DateTimeField('Дата анализа ТО', blank=True, null=True)
+    closed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='closed_acts',
+        blank=True,
+        null=True,
+        verbose_name='Закрыл',
+    )
+    closed_at = models.DateTimeField('Дата закрытия', blank=True, null=True)
+    closing_comment = models.TextField('Комментарий закрытия', blank=True)
     created_at = models.DateTimeField('Создан', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлен', auto_now=True)
 
@@ -131,6 +141,7 @@ class ActHistoryEvent(models.Model):
         COMMENT_ADDED = 'COMMENT_ADDED', 'Комментарий добавлен'
         ATTACHMENT_ADDED = 'ATTACHMENT_ADDED', 'Вложение добавлено'
         ATTACHMENT_DELETED = 'ATTACHMENT_DELETED', 'Вложение удалено'
+        ACT_CLOSED = 'ACT_CLOSED', 'Акт закрыт'
 
     act = models.ForeignKey(
         Act,

@@ -1,0 +1,114 @@
+{% load static %}
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Печатная форма {{ act.number }}</title>
+    <link rel="stylesheet" href="{% static 'css/base.css' %}">
+    <link rel="stylesheet" href="{% static 'css/components.css' %}">
+    <link rel="stylesheet" href="{% static 'css/print.css' %}">
+</head>
+<body class="print-page">
+    <main class="print-document">
+        <div class="print-actions">
+            <button class="link-button" type="button" onclick="window.print()">Печать</button>
+            <a class="link-button link-button--secondary" href="{% url 'acts:detail' act.pk %}">К акту</a>
+        </div>
+
+        <header class="print-header">
+            <p>Акт операционного контроля</p>
+            <h1>{{ act.number }}</h1>
+        </header>
+
+        <section class="print-section">
+            <h2>Основные данные</h2>
+            <table>
+                <tr><th>Создан</th><td>{{ act.created_at|date:'d.m.Y H:i' }}</td></tr>
+                <tr><th>Создал</th><td>{{ act.created_by.get_full_name|default:act.created_by.username }}</td></tr>
+                <tr><th>Партия</th><td>{{ act.party_number }}</td></tr>
+                <tr><th>Номенклатура</th><td>{{ act.nomenclature }}</td></tr>
+                <tr><th>Операция</th><td>{{ act.operation }}</td></tr>
+                <tr><th>Вид дефекта</th><td>{{ act.defect_type }}</td></tr>
+                <tr><th>Приоритет</th><td>{{ act.priority|default:'-' }}</td></tr>
+                <tr><th>Описание</th><td>{{ act.description }}</td></tr>
+                <tr><th>Статус</th><td>{{ act.status }}</td></tr>
+                <tr><th>Срок</th><td>{{ act.due_date|date:'d.m.Y'|default:'-' }}</td></tr>
+            </table>
+        </section>
+
+        <section class="print-section">
+            <h2>Решение КО</h2>
+            <table>
+                <tr><th>Решение</th><td>{{ act.get_ko_decision_display|default:'-' }}</td></tr>
+                <tr><th>Комментарий</th><td>{{ act.ko_comment|default:'-' }}</td></tr>
+                <tr><th>Автор</th><td>{{ act.ko_decision_by|default:'-' }}</td></tr>
+                <tr><th>Дата</th><td>{{ act.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</td></tr>
+            </table>
+        </section>
+
+        <section class="print-section">
+            <h2>Анализ ТО</h2>
+            <table>
+                <tr><th>Корневая причина</th><td>{{ act.to_root_cause|default:'-' }}</td></tr>
+                <tr><th>Мероприятия</th><td>{{ act.to_action_summary|default:'-' }}</td></tr>
+                <tr><th>Автор</th><td>{{ act.to_analysis_by|default:'-' }}</td></tr>
+                <tr><th>Дата</th><td>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</td></tr>
+            </table>
+        </section>
+
+        <section class="print-section">
+            <h2>Закрытие</h2>
+            <table>
+                <tr><th>Закрыл</th><td>{{ act.closed_by|default:'-' }}</td></tr>
+                <tr><th>Дата закрытия</th><td>{{ act.closed_at|date:'d.m.Y H:i'|default:'-' }}</td></tr>
+                <tr><th>Комментарий</th><td>{{ act.closing_comment|default:'-' }}</td></tr>
+            </table>
+        </section>
+
+        <section class="print-section">
+            <h2>Вложения</h2>
+            {% if attachments %}
+                <ul>
+                    {% for attachment in attachments %}
+                        <li>
+                            <strong>{{ attachment.original_name }}</strong>
+                            {% if attachment.description %} — {{ attachment.description }}{% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>Вложения не добавлены.</p>
+            {% endif %}
+        </section>
+
+        <section class="print-section">
+            <h2>Ключевые события истории</h2>
+            {% if history_events %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Событие</th>
+                            <th>Пользователь</th>
+                            <th>Комментарий</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in history_events %}
+                            <tr>
+                                <td>{{ event.created_at|date:'d.m.Y H:i' }}</td>
+                                <td>{{ event.get_event_type_display }}</td>
+                                <td>{{ event.user.get_full_name|default:event.user.username|default:'Система' }}</td>
+                                <td>{{ event.message }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>История акта пока пуста.</p>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

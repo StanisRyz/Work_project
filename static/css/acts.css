@@ -95,7 +95,7 @@
 
 .act-route {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 10px;
 }
 
@@ -115,6 +115,12 @@
     color: var(--color-primary-dark);
 }
 
+.act-route__step--final {
+    border-color: #16a34a;
+    background: #f0fdf4;
+    color: #166534;
+}
+
 .act-detail-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -126,6 +132,11 @@
 
 .act-action-panel h2 {
     margin: 0 0 6px;
+}
+
+.act-closed-block {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
 }
 
 .placeholder-text {
@@ -315,6 +326,14 @@
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
+}
+
+.act-close-context dl {
+    grid-template-columns: 180px minmax(0, 1fr);
+}
+
+.act-close-form {
+    max-width: 760px;
 }
 
 .link-button--danger {

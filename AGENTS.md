@@ -19,11 +19,13 @@
 - Regular users see only acts currently assigned to their processing stage.
 - Act visibility must be enforced in backend permissions, not only templates.
 - Act workflow transitions belong in `acts/services.py`.
+- Act closing belongs in `acts/services.py`.
 - Workflow services should record history when act status changes.
 - Comments are manual user notes and should not replace workflow history.
 - Act history should be append-only from normal UI flow.
 - Attachment actions should record history when history models are available.
 - Act role and action checks belong in `acts/permissions.py`.
+- Closing permissions belong in `acts/permissions.py`.
 
 ## Patch Rules
 
@@ -44,7 +46,11 @@
 - Direct media links should not be used for protected act files.
 - Upload validation must check file size and extension.
 - Attachment delete permission is author, manager, or admin.
+- Closed acts are read-only in the normal workflow.
+- Print view is HTML/browser-print only until an explicit export request.
+- PDF/Word export must not be added without explicit request.
 - D8 intentionally uses manual validation instead of automated tests.
+- D10 intentionally uses manual validation instead of automated tests.
 - Templates must not decide act permissions directly.
 - All act workflow actions must be covered by tests.
 - Do not add backend complexity before it is needed.

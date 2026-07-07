@@ -19,7 +19,7 @@ class ActAdmin(admin.ModelAdmin):
     )
     search_fields = ('number', 'party_number', 'nomenclature', 'description')
     list_filter = ('status', 'operation', 'defect_type', 'priority', 'created_at')
-    readonly_fields = ('created_at', 'updated_at', 'ko_decision_at', 'to_analysis_at')
+    readonly_fields = ('created_at', 'updated_at', 'ko_decision_at', 'to_analysis_at', 'closed_at')
     fieldsets = (
         (
             None,
@@ -57,6 +57,16 @@ class ActAdmin(admin.ModelAdmin):
                     'to_action_summary',
                     'to_analysis_by',
                     'to_analysis_at',
+                )
+            },
+        ),
+        (
+            'Закрытие',
+            {
+                'fields': (
+                    'closed_by',
+                    'closed_at',
+                    'closing_comment',
                 )
             },
         ),

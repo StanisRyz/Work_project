@@ -8,9 +8,9 @@ from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation
 
-from .forms import ActAttachmentForm, ActCommentForm, ActCreateForm, KoDecisionForm, ToAnalysisForm
+from .forms import ActAttachmentForm, ActCloseForm, ActCommentForm, ActCreateForm, KoDecisionForm, ToAnalysisForm
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
-from .permissions import can_add_attachment, can_create_act, can_delete_attachment, can_download_attachment, can_view_act
+from .permissions import can_add_attachment, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_view_act
 from .services import (
     ActWorkflowError,
     add_act_comment,
@@ -18,6 +18,7 @@ from .services import (
     add_act_history_event,
     apply_ko_decision,
     apply_to_analysis,
+    close_act,
     delete_act_attachment,
     format_file_size,
     get_available_act_actions,
@@ -124,18 +125,7 @@ def act_create(request):
 
 @login_required
 def act_detail(request, pk):
-    act = get_object_or_404(
-        Act.objects.select_related(
-            'created_by',
-            'operation',
-            'defect_type',
-            'priority',
-            'status',
-            'ko_decision_by',
-            'to_analysis_by',
-        ),
-        pk=pk,
-    )
+    act = _get_act_for_detail(pk)
     if not can_view_act(act, request.user):
         raise Http404('No Act matches the given query.')
     context = _get_act_detail_context(act, request.user)
@@ -245,6 +235,56 @@ def act_delete_attachment(request, pk, attachment_id):
 
 
 @login_required
+def act_close(request, pk):
+    act = _get_act_for_detail(pk)
+    if not can_view_act(act, request.user):
+        raise Http404('No Act matches the given query.')
+    if not can_close_act(act, request.user):
+        messages.error(request, 'Закрытие этого акта недоступно.')
+        return redirect('acts:detail', pk=act.pk)
+
+    if request.method == 'POST':
+        form = ActCloseForm(request.POST, instance=act)
+        if form.is_valid():
+            try:
+                close_act(act, request.user, form.cleaned_data.get('closing_comment', ''))
+            except ActWorkflowError as exc:
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, 'Акт закрыт.')
+                return _redirect_after_transition(act, request.user)
+    else:
+        form = ActCloseForm(instance=act)
+
+    return render(
+        request,
+        'acts/close.html',
+        {
+            'active_page': 'acts',
+            'act': act,
+            'form': form,
+        },
+    )
+
+
+@login_required
+def act_print(request, pk):
+    act = _get_act_for_detail(pk)
+    if not can_view_act(act, request.user):
+        raise Http404('No Act matches the given query.')
+
+    return render(
+        request,
+        'acts/print.html',
+        {
+            'act': act,
+            'attachments': act.attachments.select_related('uploaded_by'),
+            'history_events': act.history_events.select_related('user', 'from_status', 'to_status')[:20],
+        },
+    )
+
+
+@login_required
 def act_send_to_ko(request, pk):
     act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
     if request.method != 'POST':
@@ -347,6 +387,7 @@ def _get_act_for_detail(pk):
             'status',
             'ko_decision_by',
             'to_analysis_by',
+            'closed_by',
         ),
         pk=pk,
     )

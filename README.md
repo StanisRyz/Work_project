@@ -8,45 +8,44 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D9 act attachments.
+D10 act closing and print view.
 
-D9 adds protected file attachments to the existing acts module without adding new business modules:
+D10 completes the MVP lifecycle for the existing acts module without adding new business modules:
 
 - `Act` remains the MVP model for acts of operational control.
-- `ActHistoryEvent` stores append-only history events for act creation, workflow transitions, comments, and attachment actions.
+- Act closing fields are stored on `Act`: `closed_by`, `closed_at`, and `closing_comment`.
+- `ActHistoryEvent` stores append-only history events for act creation, workflow transitions, comments, attachments, and `ACT_CLOSED`.
 - `ActComment` stores manual user notes on an act.
-- `ActAttachment` stores files uploaded to acts under `MEDIA_ROOT/acts/attachments/<act_id>/`.
-- Allowed attachment types: `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.txt`.
-- Maximum attachment size: 10 MB.
+- `ActAttachment` stores protected files uploaded to acts under `MEDIA_ROOT/acts/attachments/<act_id>/`.
+- Closing is allowed only for `ACTIONS_ASSIGNED` acts that completed the MVP route.
+- Closing validation requires KO decision data and TO analysis data to be filled before the act can move to `CLOSED`.
+- Closing permissions:
+  - Руководитель and Администратор can close any `ACTIONS_ASSIGNED` act.
+  - ТО can close only `ACTIONS_ASSIGNED` acts where that user performed the TO analysis.
+  - ОТК, КО, and users without a profile cannot close acts.
+- Closed acts are visible only to Руководитель and Администратор in the normal workflow.
+- The print view is an HTML/browser-print page only; no PDF or Word export is generated.
 - Attachment downloads go through access-checked Django views, not direct media links.
-- Users who can view an act can upload and download its attachments.
-- Attachment deletion is limited to the attachment author, manager, or admin, and still requires act visibility.
-- Attachment upload and delete actions record history events when D8 history models are available.
-- Act list, create, detail, KO decision, TO analysis, add-comment, and attachment routes stay server-rendered.
-- Workflow transitions are centralized in `acts/services.py`.
 - Role and action checks are centralized in `acts/permissions.py`.
-- Backend visibility remains strict for regular processing roles:
-  - ОТК sees only own `CREATED_OTK` acts.
-  - КО sees only `KO_REVIEW` acts.
-  - ТО sees only `TO_ANALYSIS` acts.
-  - Руководитель and Администратор see all acts.
-- `ACTIONS_ASSIGNED`, `CLOSED`, and `CANCELLED` are visible only to manager/admin until task and closing ownership is implemented.
-- The act detail page shows history, comments, attachments, status transitions, authors, timestamps, and service-provided available actions.
-- The simple route remains: ОТК -> КО -> ТО -> мероприятия.
+- Workflow transitions and closing logic are centralized in `acts/services.py`.
+- The simple route is now complete: ОТК -> КО -> ТО -> мероприятия -> закрытие.
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
 
-- Upload an allowed file to a visible act.
-- Verify the attachment appears on the act detail page.
-- Download the attachment through the act detail page.
-- Try an unsupported extension and verify the validation error.
-- Try a file larger than 10 MB and verify the validation error.
-- Delete your own attachment.
-- Verify a regular user cannot delete another user’s attachment.
-- Verify manager/admin can delete attachments.
-- Verify a hidden act attachment URL cannot be downloaded by a user without act access.
-- Verify `ATTACHMENT_ADDED` and `ATTACHMENT_DELETED` history events appear.
+- Create or open an act that reached `ACTIONS_ASSIGNED`.
+- Verify the ТО user who performed analysis can close the act.
+- Verify an unrelated ТО user cannot close the act.
+- Verify manager/admin can close the act.
+- Verify ОТК/КО cannot close the act.
+- Verify an act cannot close before KO decision data is filled.
+- Verify an act cannot close before TO analysis data is filled.
+- Verify `closed_by`, `closed_at`, and `closing_comment` are saved.
+- Verify `ACT_CLOSED` appears in act history.
+- Verify a closed act shows the closed block.
+- Verify the print view opens.
+- Verify the print view contains main act data, KO, TO, attachments, history, and closing data.
+- Verify print CSS hides navigation and action buttons when printing.
 
 ## Create and Activate a Virtual Environment
 
@@ -111,6 +110,6 @@ Open http://127.0.0.1:8000/ in a browser.
 - REST API or realtime features.
 - Frontend frameworks.
 
-## Next Planned Stages
+## Next Planned Stage
 
-- D10 act closing and print view.
+- D11 act module review and stabilization.
