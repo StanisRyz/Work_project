@@ -3,7 +3,7 @@
 {% block title %}Акты - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-{% include 'includes/page_header.html' with page_badge='Раздел D6' %}
+{% include 'includes/page_header.html' with page_badge='Раздел D7' %}
 
 <section class="action-panel">
     <p>{{ page_description }}</p>
@@ -12,7 +12,30 @@
     {% endif %}
 </section>
 
-<form class="filter-form" method="get">
+<section class="act-kpi-grid" aria-label="Показатели актов">
+    <article class="act-kpi-card">
+        <span>Всего на проработке</span>
+        <strong>{{ kpis.total }}</strong>
+    </article>
+    <article class="act-kpi-card act-kpi-card--warning">
+        <span>Просрочено</span>
+        <strong>{{ kpis.overdue }}</strong>
+    </article>
+    <article class="act-kpi-card">
+        <span>На этапе ОТК</span>
+        <strong>{{ kpis.created_otk }}</strong>
+    </article>
+    <article class="act-kpi-card">
+        <span>На этапе КО</span>
+        <strong>{{ kpis.ko_review }}</strong>
+    </article>
+    <article class="act-kpi-card">
+        <span>На этапе ТО</span>
+        <strong>{{ kpis.to_analysis }}</strong>
+    </article>
+</section>
+
+<form class="filter-form act-filter-panel" method="get">
     <label>
         <span>Поиск</span>
         <input type="search" name="search" value="{{ selected.search }}" placeholder="Номер, партия, номенклатура">
@@ -48,42 +71,52 @@
     <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">Сбросить</a>
 </form>
 
-<section class="table-card">
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Номер</th>
-                <th>Дата</th>
-                <th>Партия</th>
-                <th>Номенклатура</th>
-                <th>Операция</th>
-                <th>Вид дефекта</th>
-                <th>Приоритет</th>
-                <th>Статус</th>
-                <th>Срок</th>
-                <th>Создал</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for act in acts %}
+{% if not has_visible_acts %}
+    {% include 'acts/includes/empty_state.html' with title='Акты недоступны' message='Для текущей роли нет актов на проработке.' %}
+{% elif has_filters and not acts %}
+    {% include 'acts/includes/empty_state.html' with title='По фильтрам ничего не найдено' message='Измените параметры поиска или сбросьте фильтры.' %}
+{% else %}
+    <section class="table-card act-table-card">
+        <table class="data-table">
+            <thead>
                 <tr>
-                    <td><a class="table-link" href="{% url 'acts:detail' act.pk %}">{{ act.number }}</a></td>
-                    <td>{{ act.created_at|date:'d.m.Y' }}</td>
-                    <td>{{ act.party_number }}</td>
-                    <td>{{ act.nomenclature }}</td>
-                    <td>{{ act.operation }}</td>
-                    <td>{{ act.defect_type }}</td>
-                    <td>{{ act.priority|default:'-' }}</td>
-                    <td><span class="status-badge">{{ act.status }}</span></td>
-                    <td>{{ act.due_date|date:'d.m.Y'|default:'-' }}</td>
-                    <td>{{ act.created_by.get_full_name|default:act.created_by.username }}</td>
+                    <th>Номер</th>
+                    <th>Дата</th>
+                    <th>Партия</th>
+                    <th>Номенклатура</th>
+                    <th>Операция</th>
+                    <th>Вид дефекта</th>
+                    <th>Приоритет</th>
+                    <th>Статус</th>
+                    <th>Срок</th>
+                    <th>Создал</th>
                 </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="10">Акты не найдены.</td>
-                </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</section>
+            </thead>
+            <tbody>
+                {% for act in acts %}
+                    <tr>
+                        <td><a class="table-link" href="{% url 'acts:detail' act.pk %}">{{ act.number }}</a></td>
+                        <td>{{ act.created_at|date:'d.m.Y' }}</td>
+                        <td>{{ act.party_number }}</td>
+                        <td>{{ act.nomenclature }}</td>
+                        <td>{{ act.operation }}</td>
+                        <td>{{ act.defect_type }}</td>
+                        <td>{% include 'acts/includes/priority_badge.html' with priority=act.priority %}</td>
+                        <td>{% include 'acts/includes/status_badge.html' with status=act.status %}</td>
+                        <td>
+                            {% if act.due_date %}
+                                <span class="{% if act.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">
+                                    {{ act.due_date|date:'d.m.Y' }}
+                                </span>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>{{ act.created_by.get_full_name|default:act.created_by.username }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+{% endif %}
 {% endblock %}

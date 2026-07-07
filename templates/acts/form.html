@@ -4,21 +4,62 @@
 
 {% block content %}
 <section class="page-header" aria-labelledby="act-form-title">
-    <span class="badge">Раздел D5</span>
+    <span class="badge">Раздел D7</span>
     <h1 id="act-form-title">Создание акта</h1>
-    <p>Заполните основные данные акта операционного контроля.</p>
+    <p>Заполните данные акта операционного контроля.</p>
 </section>
 
-<form class="form-card" method="post">
+<form class="form-card act-form" method="post">
     {% csrf_token %}
     {{ form.non_field_errors }}
-    {% for field in form %}
+
+    <section class="form-section">
+        <h2>Данные партии</h2>
         <label>
-            <span>{{ field.label }}</span>
-            {{ field }}
-            {{ field.errors }}
+            <span>{{ form.party_number.label }}</span>
+            {{ form.party_number }}
+            {{ form.party_number.errors }}
         </label>
-    {% endfor %}
+        <label>
+            <span>{{ form.nomenclature.label }}</span>
+            {{ form.nomenclature }}
+            {{ form.nomenclature.errors }}
+        </label>
+        <label>
+            <span>{{ form.operation.label }}</span>
+            {{ form.operation }}
+            {{ form.operation.errors }}
+        </label>
+    </section>
+
+    <section class="form-section">
+        <h2>Данные несоответствия</h2>
+        <label>
+            <span>{{ form.defect_type.label }}</span>
+            {{ form.defect_type }}
+            {{ form.defect_type.errors }}
+        </label>
+        <label>
+            <span>{{ form.priority.label }}</span>
+            {{ form.priority }}
+            {{ form.priority.errors }}
+        </label>
+        <label>
+            <span>{{ form.description.label }}</span>
+            {{ form.description }}
+            {{ form.description.errors }}
+        </label>
+    </section>
+
+    <section class="form-section">
+        <h2>Сроки</h2>
+        <label>
+            <span>{{ form.due_date.label }}</span>
+            {{ form.due_date }}
+            {{ form.due_date.errors }}
+        </label>
+    </section>
+
     <div class="form-actions">
         <button class="link-button" type="submit">Сохранить</button>
         <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">Отмена</a>

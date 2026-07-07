@@ -14,6 +14,8 @@
 - Acts belong in the `acts` app.
 - Use `references.Operation`, `DefectType`, `ActStatus`, and `Priority` in act models/forms.
 - `UserProfile.role` is used for MVP act visibility.
+- Regular users see only acts currently assigned to their processing stage.
+- Act visibility must be enforced in backend permissions, not only templates.
 - Act workflow transitions belong in `acts/services.py`.
 - Act role and action checks belong in `acts/permissions.py`.
 
@@ -29,6 +31,9 @@
 - Do not implement task objects inside acts; tasks belong to a later `tasks` module patch.
 - Keep act workflow simple until tasks/protocols are implemented.
 - Views must not duplicate act workflow business logic.
+- Act UI must use service-provided available actions.
+- Act templates must not duplicate role/status permission logic.
+- UI patches must not change workflow transitions unless explicitly requested.
 - Templates must not decide act permissions directly.
 - All act workflow actions must be covered by tests.
 - Do not add backend complexity before it is needed.

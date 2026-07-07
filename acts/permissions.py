@@ -1,5 +1,3 @@
-from django.db.models import Q
-
 from accounts.models import UserProfile
 
 from .models import Act
@@ -54,11 +52,11 @@ def can_view_act(act, user):
     if is_manager_or_admin(user):
         return True
     if is_otk(user):
-        return act.created_by_id == user.id
+        return act.created_by_id == user.id and _status_code(act) == 'CREATED_OTK'
     if is_ko(user):
-        return _status_code(act) == 'KO_REVIEW' or act.ko_decision_by_id == user.id
+        return _status_code(act) == 'KO_REVIEW'
     if is_to(user):
-        return _status_code(act) in {'TO_ANALYSIS', 'ACTIONS_ASSIGNED'} or act.to_analysis_by_id == user.id
+        return _status_code(act) == 'TO_ANALYSIS'
     return False
 
 
@@ -89,11 +87,11 @@ def get_visible_acts_queryset(user):
     if is_manager_or_admin(user):
         return queryset
     if is_otk(user):
-        return queryset.filter(created_by=user)
+        return queryset.filter(created_by=user, status__code='CREATED_OTK')
     if is_ko(user):
-        return queryset.filter(Q(status__code='KO_REVIEW') | Q(ko_decision_by=user))
+        return queryset.filter(status__code='KO_REVIEW')
     if is_to(user):
-        return queryset.filter(Q(status__code__in=['TO_ANALYSIS', 'ACTIONS_ASSIGNED']) | Q(to_analysis_by=user))
+        return queryset.filter(status__code='TO_ANALYSIS')
     return queryset.none()
 
 

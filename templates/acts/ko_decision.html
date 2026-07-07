@@ -9,16 +9,31 @@
     <p>{{ act.number }} · {{ act.nomenclature }}</p>
 </section>
 
-<form class="form-card" method="post">
+<section class="detail-section act-context">
+    <h2>Контекст акта</h2>
+    <dl>
+        <dt>Номер</dt><dd>{{ act.number }}</dd>
+        <dt>Партия</dt><dd>{{ act.party_number }}</dd>
+        <dt>Номенклатура</dt><dd>{{ act.nomenclature }}</dd>
+        <dt>Операция</dt><dd>{{ act.operation }}</dd>
+        <dt>Вид дефекта</dt><dd>{{ act.defect_type }}</dd>
+    </dl>
+    <p>{{ act.description }}</p>
+</section>
+
+<form class="form-card act-form" method="post">
     {% csrf_token %}
     {{ form.non_field_errors }}
-    {% for field in form %}
-        <label>
-            <span>{{ field.label }}</span>
-            {{ field }}
-            {{ field.errors }}
-        </label>
-    {% endfor %}
+    <section class="form-section">
+        <h2>Решение</h2>
+        {% for field in form %}
+            <label>
+                <span>{{ field.label }}</span>
+                {{ field }}
+                {{ field.errors }}
+            </label>
+        {% endfor %}
+    </section>
     <div class="form-actions">
         <button class="link-button" type="submit">Сохранить</button>
         <a class="link-button link-button--secondary" href="{% url 'acts:detail' act.pk %}">Отмена</a>

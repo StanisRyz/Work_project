@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation
 
@@ -23,13 +24,16 @@ from .services import (
 
 @login_required
 def act_list(request):
-    acts = get_visible_acts_for_user(request.user)
+    visible_acts = get_visible_acts_for_user(request.user)
+    has_visible_acts = visible_acts.exists()
+    today = timezone.localdate()
 
     status = request.GET.get('status')
     operation = request.GET.get('operation')
     defect_type = request.GET.get('defect_type')
     search = request.GET.get('search', '').strip()
 
+    acts = visible_acts
     if status:
         acts = acts.filter(status_id=status)
     if operation:
@@ -42,12 +46,24 @@ def act_list(request):
             | Q(party_number__icontains=search)
             | Q(nomenclature__icontains=search)
         )
+    has_filters = bool(status or operation or defect_type or search)
+    kpis = {
+        'total': acts.count(),
+        'overdue': acts.filter(due_date__lt=today).count(),
+        'created_otk': acts.filter(status__code='CREATED_OTK').count(),
+        'ko_review': acts.filter(status__code='KO_REVIEW').count(),
+        'to_analysis': acts.filter(status__code='TO_ANALYSIS').count(),
+    }
 
     context = {
         'active_page': 'acts',
         'page_title': 'Акты операционного контроля',
         'page_description': get_role_context_text(request.user),
         'acts': acts,
+        'kpis': kpis,
+        'today': today,
+        'has_visible_acts': has_visible_acts,
+        'has_filters': has_filters,
         'statuses': ActStatus.objects.filter(is_active=True),
         'operations': Operation.objects.filter(is_active=True),
         'defect_types': DefectType.objects.filter(is_active=True),
@@ -113,6 +129,7 @@ def act_detail(request, pk):
     context = {
         'active_page': 'acts',
         'act': act,
+        'today': timezone.localdate(),
         'available_actions': get_available_act_actions(act, request.user),
     }
     return render(request, 'acts/detail.html', context)
@@ -130,7 +147,7 @@ def act_send_to_ko(request, pk):
         messages.error(request, str(exc))
     else:
         messages.success(request, 'Акт передан в КО.')
-    return redirect('acts:detail', pk=act.pk)
+    return _redirect_after_transition(act, request.user)
 
 
 @login_required
@@ -154,7 +171,7 @@ def act_ko_decision(request, pk):
                 form.add_error(None, str(exc))
             else:
                 messages.success(request, 'Решение КО сохранено.')
-                return redirect('acts:detail', pk=act.pk)
+                return _redirect_after_transition(act, request.user)
     else:
         form = KoDecisionForm(instance=act)
 
@@ -190,7 +207,7 @@ def act_to_analysis(request, pk):
                 form.add_error(None, str(exc))
             else:
                 messages.success(request, 'Анализ ТО сохранен.')
-                return redirect('acts:detail', pk=act.pk)
+                return _redirect_after_transition(act, request.user)
     else:
         form = ToAnalysisForm(instance=act)
 
@@ -203,3 +220,9 @@ def act_to_analysis(request, pk):
             'form': form,
         },
     )
+
+
+def _redirect_after_transition(act, user):
+    if can_view_act(act, user):
+        return redirect('acts:detail', pk=act.pk)
+    return redirect('acts:list')
