@@ -4,26 +4,26 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation
 
 from .forms import ActCreateForm, KoDecisionForm, ToAnalysisForm
 from .models import Act, get_act_status
+from .permissions import can_create_act, can_view_act
 from .services import (
-    can_add_ko_decision,
-    can_add_to_analysis,
-    can_create_act,
-    can_send_to_ko,
-    can_view_act_detail,
+    ActWorkflowError,
+    apply_ko_decision,
+    apply_to_analysis,
+    get_available_act_actions,
     get_role_context_text,
-    get_visible_acts,
+    get_visible_acts_for_user,
+    send_to_ko,
 )
 
 
 @login_required
 def act_list(request):
-    acts = get_visible_acts(request.user)
+    acts = get_visible_acts_for_user(request.user)
 
     status = request.GET.get('status')
     operation = request.GET.get('operation')
@@ -108,32 +108,26 @@ def act_detail(request, pk):
         ),
         pk=pk,
     )
-    if not can_view_act_detail(request.user, act):
+    if not can_view_act(act, request.user):
         raise Http404('No Act matches the given query.')
     context = {
         'active_page': 'acts',
         'act': act,
-        'can_send_to_ko': can_send_to_ko(request.user, act),
-        'can_add_ko_decision': can_add_ko_decision(request.user, act),
-        'can_add_to_analysis': can_add_to_analysis(request.user, act),
+        'available_actions': get_available_act_actions(act, request.user),
     }
     return render(request, 'acts/detail.html', context)
 
 
 @login_required
 def act_send_to_ko(request, pk):
-    act = get_object_or_404(get_visible_acts(request.user), pk=pk)
+    act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
     if request.method != 'POST':
-        return redirect('acts:detail', pk=act.pk)
-    if not can_send_to_ko(request.user, act):
-        messages.error(request, 'Передача акта в КО недоступна.')
         return redirect('acts:detail', pk=act.pk)
 
     try:
-        act.status = get_act_status('KO_REVIEW')
-        act.save(update_fields=['status', 'updated_at'])
-    except ValidationError as exc:
-        messages.error(request, exc.message)
+        send_to_ko(act, request.user)
+    except ActWorkflowError as exc:
+        messages.error(request, str(exc))
     else:
         messages.success(request, 'Акт передан в КО.')
     return redirect('acts:detail', pk=act.pk)
@@ -141,25 +135,23 @@ def act_send_to_ko(request, pk):
 
 @login_required
 def act_ko_decision(request, pk):
-    act = get_object_or_404(get_visible_acts(request.user), pk=pk)
-    if not can_add_ko_decision(request.user, act):
+    act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
+    if not get_available_act_actions(act, request.user)['ko_decision']:
         messages.error(request, 'Решение КО для этого акта недоступно.')
         return redirect('acts:detail', pk=act.pk)
 
     if request.method == 'POST':
         form = KoDecisionForm(request.POST, instance=act)
         if form.is_valid():
-            act = form.save(commit=False)
-            act.ko_decision_by = request.user
-            act.ko_decision_at = timezone.now()
             try:
-                if act.ko_decision == Act.KoDecision.RETURN:
-                    act.status = get_act_status('CREATED_OTK')
-                else:
-                    act.status = get_act_status('TO_ANALYSIS')
-                act.save()
-            except ValidationError as exc:
-                form.add_error(None, exc)
+                act = apply_ko_decision(
+                    act,
+                    request.user,
+                    form.cleaned_data['ko_decision'],
+                    form.cleaned_data['ko_comment'],
+                )
+            except ActWorkflowError as exc:
+                form.add_error(None, str(exc))
             else:
                 messages.success(request, 'Решение КО сохранено.')
                 return redirect('acts:detail', pk=act.pk)
@@ -179,22 +171,23 @@ def act_ko_decision(request, pk):
 
 @login_required
 def act_to_analysis(request, pk):
-    act = get_object_or_404(get_visible_acts(request.user), pk=pk)
-    if not can_add_to_analysis(request.user, act):
+    act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
+    if not get_available_act_actions(act, request.user)['to_analysis']:
         messages.error(request, 'Анализ ТО для этого акта недоступен.')
         return redirect('acts:detail', pk=act.pk)
 
     if request.method == 'POST':
         form = ToAnalysisForm(request.POST, instance=act)
         if form.is_valid():
-            act = form.save(commit=False)
-            act.to_analysis_by = request.user
-            act.to_analysis_at = timezone.now()
             try:
-                act.status = get_act_status('ACTIONS_ASSIGNED')
-                act.save()
-            except ValidationError as exc:
-                form.add_error(None, exc)
+                act = apply_to_analysis(
+                    act,
+                    request.user,
+                    form.cleaned_data['to_root_cause'],
+                    form.cleaned_data['to_action_summary'],
+                )
+            except ActWorkflowError as exc:
+                form.add_error(None, str(exc))
             else:
                 messages.success(request, 'Анализ ТО сохранен.')
                 return redirect('acts:detail', pk=act.pk)

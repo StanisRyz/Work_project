@@ -8,15 +8,18 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D5 acts module.
+D6 act workflow hardening.
 
-D5 adds the first MVP business module:
+D6 strengthens the existing acts module without adding new business modules:
 
-- `Act` model for acts of operational control.
-- Act list, create, and detail pages.
-- Simple route: ОТК -> КО -> ТО -> мероприятия.
-- MVP role-based act visibility through `UserProfile.role`.
-- Demo acts seed command for local validation.
+- `Act` remains the MVP model for acts of operational control.
+- Act list, create, detail, KO decision, and TO analysis routes stay stable.
+- Workflow transitions are centralized in `acts/services.py`.
+- Role and action checks are centralized in `acts/permissions.py`.
+- Backend workflow actions protect direct URL access.
+- The simple route remains: ОТК -> КО -> ТО -> мероприятия.
+- Workflow logic uses `ActStatus.code`, not Russian status names.
+- Tests cover the main ОТК -> КО -> ТО route, blocked roles, visibility, and view actions.
 
 ## Create and Activate a Virtual Environment
 
@@ -56,6 +59,13 @@ Demo accounts for local development only:
 
 These demo passwords must not be used for production or shared environments.
 
+## Validation
+
+```powershell
+python manage.py check
+python manage.py test acts
+```
+
 ## Start the Local Server
 
 ```powershell
@@ -78,4 +88,7 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stages
 
-- D6 tasks for act corrective actions.
+- D7 act UI improvements.
+- D8 act history and comments.
+- D9 act attachments.
+- D10 act closing and print view.

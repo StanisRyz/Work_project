@@ -1,83 +1,111 @@
-from django.db.models import Q
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 
-from .models import Act
-
-
-def get_user_role(user):
-    if not user.is_authenticated:
-        return ''
-    try:
-        return user.userprofile.role
-    except Exception:
-        return ''
-
-
-def is_manager_or_admin(user):
-    return get_user_role(user) in {'manager', 'admin'}
+from .models import Act, get_act_status
+from .permissions import (
+    can_apply_ko_decision,
+    can_apply_to_analysis,
+    can_send_to_ko,
+    get_user_role,
+    get_visible_acts_queryset,
+)
 
 
-def can_create_act(user):
-    return get_user_role(user) in {'otk', 'manager', 'admin'}
+class ActWorkflowError(Exception):
+    pass
 
 
-def get_visible_acts(user):
-    role = get_user_role(user)
-    queryset = Act.objects.select_related(
-        'created_by',
-        'operation',
-        'defect_type',
-        'priority',
-        'status',
+def send_to_ko(act, user):
+    if not can_send_to_ko(act, user):
+        raise ActWorkflowError('Передача акта в КО недоступна для вашей роли или текущего статуса.')
+    _require_status(act, 'CREATED_OTK')
+    act.status = _get_required_status('KO_REVIEW')
+    act.save(update_fields=['status', 'updated_at'])
+    return act
+
+
+def apply_ko_decision(act, user, decision, comment):
+    if not can_apply_ko_decision(act, user):
+        raise ActWorkflowError('Решение КО недоступно для вашей роли или текущего статуса.')
+    _require_status(act, 'KO_REVIEW')
+    if decision not in Act.KoDecision.values:
+        raise ActWorkflowError('Недопустимое решение КО.')
+
+    next_status_code = 'CREATED_OTK' if decision == Act.KoDecision.RETURN else 'TO_ANALYSIS'
+    act.ko_decision = decision
+    act.ko_comment = comment
+    act.ko_decision_by = user
+    act.ko_decision_at = timezone.now()
+    act.status = _get_required_status(next_status_code)
+    act.save(
+        update_fields=[
+            'ko_decision',
+            'ko_comment',
+            'ko_decision_by',
+            'ko_decision_at',
+            'status',
+            'updated_at',
+        ]
     )
-    if role in {'admin', 'manager'}:
-        return queryset
-    if role == 'otk':
-        return queryset.filter(Q(created_by=user) | Q(status__code='CREATED_OTK'))
-    if role == 'ko':
-        return queryset.filter(status__code='KO_REVIEW')
-    if role == 'to':
-        return queryset.filter(status__code__in=['TO_ANALYSIS', 'ACTIONS_ASSIGNED'])
-    return queryset.none()
+    return act
 
 
-def can_view_act_detail(user, act):
-    role = get_user_role(user)
-    if role in {'admin', 'manager'}:
-        return True
-    if role == 'otk':
-        return act.created_by_id == user.id or act.status.code == 'CREATED_OTK'
-    if role == 'ko':
-        return act.status.code == 'KO_REVIEW' or act.ko_decision_by_id == user.id
-    if role == 'to':
-        return act.status.code in {'TO_ANALYSIS', 'ACTIONS_ASSIGNED'} or act.to_analysis_by_id == user.id
-    return False
-
-
-def can_send_to_ko(user, act):
-    role = get_user_role(user)
-    return (
-        act.status.code == 'CREATED_OTK'
-        and role in {'otk', 'manager', 'admin'}
-        and (act.created_by_id == user.id or role in {'manager', 'admin'})
+def apply_to_analysis(act, user, root_cause, action_summary):
+    if not can_apply_to_analysis(act, user):
+        raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
+    _require_status(act, 'TO_ANALYSIS')
+    act.to_root_cause = root_cause
+    act.to_action_summary = action_summary
+    act.to_analysis_by = user
+    act.to_analysis_at = timezone.now()
+    act.status = _get_required_status('ACTIONS_ASSIGNED')
+    act.save(
+        update_fields=[
+            'to_root_cause',
+            'to_action_summary',
+            'to_analysis_by',
+            'to_analysis_at',
+            'status',
+            'updated_at',
+        ]
     )
+    return act
 
 
-def can_add_ko_decision(user, act):
-    return act.status.code == 'KO_REVIEW' and get_user_role(user) in {'ko', 'manager', 'admin'}
+def get_available_act_actions(act, user):
+    return {
+        'send_to_ko': can_send_to_ko(act, user),
+        'ko_decision': can_apply_ko_decision(act, user),
+        'to_analysis': can_apply_to_analysis(act, user),
+    }
 
 
-def can_add_to_analysis(user, act):
-    return act.status.code == 'TO_ANALYSIS' and get_user_role(user) in {'to', 'manager', 'admin'}
+def get_visible_acts_for_user(user):
+    return get_visible_acts_queryset(user)
 
 
 def get_role_context_text(user):
     role = get_user_role(user)
     if role == 'otk':
-        return 'Показаны акты, созданные вами или ожидающие уточнения ОТК.'
+        return 'Показаны акты, созданные вами.'
     if role == 'ko':
-        return 'Показаны акты на этапе решения КО.'
+        return 'Показаны акты на этапе решения КО и обработанные вами акты.'
     if role == 'to':
-        return 'Показаны акты на этапе анализа ТО и мероприятий.'
+        return 'Показаны акты на этапе анализа ТО, мероприятий и обработанные вами акты.'
     if role in {'manager', 'admin'}:
         return 'Показаны все акты.'
     return 'Для пользователя без роли список актов ограничен.'
+
+
+def _require_status(act, expected_code):
+    actual_code = getattr(getattr(act, 'status', None), 'code', '')
+    if actual_code != expected_code:
+        raise ActWorkflowError('Акт находится в неподходящем статусе для этого действия.')
+
+
+def _get_required_status(code):
+    try:
+        return get_act_status(code)
+    except ValidationError as exc:
+        message = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
+        raise ActWorkflowError(message) from exc

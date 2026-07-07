@@ -1,0 +1,101 @@
+from django.db.models import Q
+
+from accounts.models import UserProfile
+
+from .models import Act
+
+
+def get_user_profile(user):
+    if not getattr(user, 'is_authenticated', False):
+        return None
+    try:
+        profile = user.userprofile
+    except (AttributeError, UserProfile.DoesNotExist):
+        return None
+    if profile.pk is None:
+        return None
+    return profile
+
+
+def get_user_role(user):
+    profile = get_user_profile(user)
+    return profile.role if profile else ''
+
+
+def is_otk(user):
+    return get_user_role(user) == UserProfile.Role.OTK
+
+
+def is_ko(user):
+    return get_user_role(user) == UserProfile.Role.KO
+
+
+def is_to(user):
+    return get_user_role(user) == UserProfile.Role.TO
+
+
+def is_manager(user):
+    return get_user_role(user) == UserProfile.Role.MANAGER
+
+
+def is_admin(user):
+    return get_user_role(user) == UserProfile.Role.ADMIN
+
+
+def is_manager_or_admin(user):
+    return is_manager(user) or is_admin(user)
+
+
+def can_create_act(user):
+    return is_otk(user) or is_manager_or_admin(user)
+
+
+def can_view_act(act, user):
+    if is_manager_or_admin(user):
+        return True
+    if is_otk(user):
+        return act.created_by_id == user.id
+    if is_ko(user):
+        return _status_code(act) == 'KO_REVIEW' or act.ko_decision_by_id == user.id
+    if is_to(user):
+        return _status_code(act) in {'TO_ANALYSIS', 'ACTIONS_ASSIGNED'} or act.to_analysis_by_id == user.id
+    return False
+
+
+def can_send_to_ko(act, user):
+    if _status_code(act) != 'CREATED_OTK':
+        return False
+    if is_manager_or_admin(user):
+        return True
+    return is_otk(user) and act.created_by_id == user.id
+
+
+def can_apply_ko_decision(act, user):
+    return _status_code(act) == 'KO_REVIEW' and (is_ko(user) or is_manager_or_admin(user))
+
+
+def can_apply_to_analysis(act, user):
+    return _status_code(act) == 'TO_ANALYSIS' and (is_to(user) or is_manager_or_admin(user))
+
+
+def get_visible_acts_queryset(user):
+    queryset = Act.objects.select_related(
+        'created_by',
+        'operation',
+        'defect_type',
+        'priority',
+        'status',
+    )
+    if is_manager_or_admin(user):
+        return queryset
+    if is_otk(user):
+        return queryset.filter(created_by=user)
+    if is_ko(user):
+        return queryset.filter(Q(status__code='KO_REVIEW') | Q(ko_decision_by=user))
+    if is_to(user):
+        return queryset.filter(Q(status__code__in=['TO_ANALYSIS', 'ACTIONS_ASSIGNED']) | Q(to_analysis_by=user))
+    return queryset.none()
+
+
+def _status_code(act):
+    return getattr(getattr(act, 'status', None), 'code', '')

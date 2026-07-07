@@ -19,16 +19,16 @@
 <section class="action-panel">
     <strong>Текущий статус: <span class="status-badge">{{ act.status }}</span></strong>
     <div class="form-actions">
-        {% if can_send_to_ko %}
+        {% if available_actions.send_to_ko %}
             <form method="post" action="{% url 'acts:send_to_ko' act.pk %}">
                 {% csrf_token %}
                 <button class="link-button" type="submit">Передать в КО</button>
             </form>
         {% endif %}
-        {% if can_add_ko_decision %}
+        {% if available_actions.ko_decision %}
             <a class="link-button" href="{% url 'acts:ko_decision' act.pk %}">Внести решение КО</a>
         {% endif %}
-        {% if can_add_to_analysis %}
+        {% if available_actions.to_analysis %}
             <a class="link-button" href="{% url 'acts:to_analysis' act.pk %}">Внести анализ ТО</a>
         {% endif %}
         <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">К списку</a>
