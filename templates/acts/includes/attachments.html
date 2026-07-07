@@ -1,0 +1,49 @@
+<section class="detail-section act-attachments-section">
+    <h2>Вложения</h2>
+    <form class="attachment-form" method="post" action="{% url 'acts:add_attachment' act.pk %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ attachment_form.non_field_errors }}
+        <label>
+            <span>{{ attachment_form.file.label }}</span>
+            {{ attachment_form.file }}
+            {{ attachment_form.file.errors }}
+        </label>
+        <label>
+            <span>{{ attachment_form.description.label }}</span>
+            {{ attachment_form.description }}
+            {{ attachment_form.description.errors }}
+        </label>
+        <button class="link-button" type="submit">Добавить вложение</button>
+    </form>
+
+    {% if attachments %}
+        <div class="attachment-list">
+            {% for item in attachments %}
+                <article class="attachment-card">
+                    <div class="attachment-card__main">
+                        <strong>{{ item.object.original_name }}</strong>
+                        {% if item.object.description %}
+                            <p>{{ item.object.description }}</p>
+                        {% endif %}
+                    </div>
+                    <div class="attachment-card__meta">
+                        <span>{{ item.formatted_size }}</span>
+                        <span>{{ item.object.uploaded_by.get_full_name|default:item.object.uploaded_by.username|default:'Без автора' }}</span>
+                        <time datetime="{{ item.object.uploaded_at|date:'c' }}">{{ item.object.uploaded_at|date:'d.m.Y H:i' }}</time>
+                    </div>
+                    <div class="attachment-card__actions">
+                        <a class="link-button link-button--secondary" href="{% url 'acts:download_attachment' act.pk item.object.pk %}">Скачать</a>
+                        {% if item.can_delete %}
+                            <form method="post" action="{% url 'acts:delete_attachment' act.pk item.object.pk %}">
+                                {% csrf_token %}
+                                <button class="link-button link-button--danger" type="submit">Удалить</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </article>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="placeholder-text">Вложения пока не добавлены.</p>
+    {% endif %}
+</section>

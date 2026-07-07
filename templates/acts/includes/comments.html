@@ -1,0 +1,29 @@
+<section class="detail-section act-comments-section">
+    <h2>Комментарии</h2>
+    <form class="comment-form" method="post" action="{% url 'acts:add_comment' act.pk %}">
+        {% csrf_token %}
+        {{ comment_form.non_field_errors }}
+        <label>
+            <span>{{ comment_form.text.label }}</span>
+            {{ comment_form.text }}
+            {{ comment_form.text.errors }}
+        </label>
+        <button class="link-button" type="submit">Добавить комментарий</button>
+    </form>
+
+    {% if comments %}
+        <div class="comment-list">
+            {% for comment in comments %}
+                <article class="comment-card">
+                    <div class="comment-card__meta">
+                        <strong>{{ comment.author.get_full_name|default:comment.author.username|default:'Без автора' }}</strong>
+                        <time datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:'d.m.Y H:i' }}</time>
+                    </div>
+                    <p>{{ comment.text|linebreaksbr }}</p>
+                </article>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="placeholder-text">Комментариев пока нет.</p>
+    {% endif %}
+</section>

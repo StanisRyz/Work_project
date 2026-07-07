@@ -1,10 +1,11 @@
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
-from .models import Act, get_act_status
+from .models import Act, ActAttachment, ActComment, ActHistoryEvent, get_act_status
 from .permissions import (
     can_apply_ko_decision,
     can_apply_to_analysis,
+    can_delete_attachment,
     can_send_to_ko,
     get_user_role,
     get_visible_acts_queryset,
@@ -19,8 +20,18 @@ def send_to_ko(act, user):
     if not can_send_to_ko(act, user):
         raise ActWorkflowError('Передача акта в КО недоступна для вашей роли или текущего статуса.')
     _require_status(act, 'CREATED_OTK')
-    act.status = _get_required_status('KO_REVIEW')
+    from_status = act.status
+    to_status = _get_required_status('KO_REVIEW')
+    act.status = to_status
     act.save(update_fields=['status', 'updated_at'])
+    add_act_history_event(
+        act,
+        user,
+        ActHistoryEvent.EventType.SENT_TO_KO,
+        'Акт передан в КО для рассмотрения.',
+        from_status=from_status,
+        to_status=to_status,
+    )
     return act
 
 
@@ -31,12 +42,14 @@ def apply_ko_decision(act, user, decision, comment):
     if decision not in Act.KoDecision.values:
         raise ActWorkflowError('Недопустимое решение КО.')
 
+    from_status = act.status
     next_status_code = 'CREATED_OTK' if decision == Act.KoDecision.RETURN else 'TO_ANALYSIS'
+    to_status = _get_required_status(next_status_code)
     act.ko_decision = decision
     act.ko_comment = comment
     act.ko_decision_by = user
     act.ko_decision_at = timezone.now()
-    act.status = _get_required_status(next_status_code)
+    act.status = to_status
     act.save(
         update_fields=[
             'ko_decision',
@@ -47,6 +60,32 @@ def apply_ko_decision(act, user, decision, comment):
             'updated_at',
         ]
     )
+    if decision == Act.KoDecision.RETURN:
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.RETURNED_TO_OTK,
+            'Акт возвращён в ОТК на уточнение.',
+            from_status=from_status,
+            to_status=to_status,
+        )
+    else:
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.KO_DECISION_APPLIED,
+            f'Решение КО внесено: {act.get_ko_decision_display()}.',
+            from_status=from_status,
+            to_status=to_status,
+        )
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.SENT_TO_TO,
+            'Акт передан в ТО для анализа.',
+            from_status=from_status,
+            to_status=to_status,
+        )
     return act
 
 
@@ -54,11 +93,13 @@ def apply_to_analysis(act, user, root_cause, action_summary):
     if not can_apply_to_analysis(act, user):
         raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
     _require_status(act, 'TO_ANALYSIS')
+    from_status = act.status
+    to_status = _get_required_status('ACTIONS_ASSIGNED')
     act.to_root_cause = root_cause
     act.to_action_summary = action_summary
     act.to_analysis_by = user
     act.to_analysis_at = timezone.now()
-    act.status = _get_required_status('ACTIONS_ASSIGNED')
+    act.status = to_status
     act.save(
         update_fields=[
             'to_root_cause',
@@ -69,7 +110,89 @@ def apply_to_analysis(act, user, root_cause, action_summary):
             'updated_at',
         ]
     )
+    add_act_history_event(
+        act,
+        user,
+        ActHistoryEvent.EventType.TO_ANALYSIS_APPLIED,
+        'Анализ ТО внесён, мероприятия ожидают дальнейшей проработки.',
+        from_status=from_status,
+        to_status=to_status,
+    )
     return act
+
+
+def add_act_history_event(act, user, event_type, message, from_status=None, to_status=None):
+    return ActHistoryEvent.objects.create(
+        act=act,
+        user=user if getattr(user, 'is_authenticated', False) else None,
+        event_type=event_type,
+        message=message,
+        from_status=from_status,
+        to_status=to_status,
+    )
+
+
+def add_act_comment(act, user, text):
+    comment = ActComment.objects.create(
+        act=act,
+        author=user if getattr(user, 'is_authenticated', False) else None,
+        text=text,
+    )
+    add_act_history_event(
+        act,
+        user,
+        ActHistoryEvent.EventType.COMMENT_ADDED,
+        'Комментарий добавлен пользователем.',
+    )
+    return comment
+
+
+def add_act_attachment(act, user, uploaded_file, description=''):
+    attachment = ActAttachment.objects.create(
+        act=act,
+        uploaded_by=user if getattr(user, 'is_authenticated', False) else None,
+        file=uploaded_file,
+        original_name=uploaded_file.name,
+        description=description,
+        file_size=getattr(uploaded_file, 'size', 0) or 0,
+        content_type=getattr(uploaded_file, 'content_type', '') or '',
+    )
+    add_act_history_event(
+        act,
+        user,
+        ActHistoryEvent.EventType.ATTACHMENT_ADDED,
+        f'Вложение добавлено: {attachment.original_name}.',
+    )
+    return attachment
+
+
+def delete_act_attachment(attachment, user):
+    if not can_delete_attachment(attachment, user):
+        raise ActWorkflowError('Удаление вложения недоступно для вашей роли.')
+
+    act = attachment.act
+    original_name = attachment.original_name
+    file_field = attachment.file
+    attachment.delete()
+    if file_field:
+        try:
+            file_field.delete(save=False)
+        except OSError:
+            pass
+    add_act_history_event(
+        act,
+        user,
+        ActHistoryEvent.EventType.ATTACHMENT_DELETED,
+        f'Вложение удалено: {original_name}.',
+    )
+
+
+def format_file_size(size_bytes):
+    if size_bytes < 1024:
+        return f'{size_bytes} Б'
+    if size_bytes < 1024 * 1024:
+        return f'{size_bytes / 1024:.1f} КБ'
+    return f'{size_bytes / (1024 * 1024):.1f} МБ'
 
 
 def get_available_act_actions(act, user):

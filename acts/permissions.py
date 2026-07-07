@@ -76,6 +76,24 @@ def can_apply_to_analysis(act, user):
     return _status_code(act) == 'TO_ANALYSIS' and (is_to(user) or is_manager_or_admin(user))
 
 
+def can_add_attachment(act, user):
+    return can_view_act(act, user)
+
+
+def can_download_attachment(attachment, user):
+    return can_view_act(attachment.act, user)
+
+
+def can_delete_attachment(attachment, user):
+    if is_manager_or_admin(user):
+        return True
+    return (
+        getattr(user, 'is_authenticated', False)
+        and attachment.uploaded_by_id is not None
+        and attachment.uploaded_by_id == user.id
+    )
+
+
 def get_visible_acts_queryset(user):
     queryset = Act.objects.select_related(
         'created_by',

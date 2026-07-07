@@ -2,19 +2,24 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db.models import Q
-from django.http import Http404
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation
 
-from .forms import ActCreateForm, KoDecisionForm, ToAnalysisForm
-from .models import Act, get_act_status
-from .permissions import can_create_act, can_view_act
+from .forms import ActAttachmentForm, ActCommentForm, ActCreateForm, KoDecisionForm, ToAnalysisForm
+from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
+from .permissions import can_add_attachment, can_create_act, can_delete_attachment, can_download_attachment, can_view_act
 from .services import (
     ActWorkflowError,
+    add_act_comment,
+    add_act_attachment,
+    add_act_history_event,
     apply_ko_decision,
     apply_to_analysis,
+    delete_act_attachment,
+    format_file_size,
     get_available_act_actions,
     get_role_context_text,
     get_visible_acts_for_user,
@@ -92,6 +97,13 @@ def act_create(request):
             try:
                 act.status = get_act_status('CREATED_OTK')
                 act.save()
+                add_act_history_event(
+                    act,
+                    request.user,
+                    ActHistoryEvent.EventType.CREATED,
+                    'Акт создан пользователем.',
+                    to_status=act.status,
+                )
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:
@@ -126,13 +138,110 @@ def act_detail(request, pk):
     )
     if not can_view_act(act, request.user):
         raise Http404('No Act matches the given query.')
-    context = {
-        'active_page': 'acts',
-        'act': act,
-        'today': timezone.localdate(),
-        'available_actions': get_available_act_actions(act, request.user),
-    }
+    context = _get_act_detail_context(act, request.user)
     return render(request, 'acts/detail.html', context)
+
+
+@login_required
+def act_add_comment(request, pk):
+    act = get_object_or_404(
+        Act.objects.select_related(
+            'created_by',
+            'operation',
+            'defect_type',
+            'priority',
+            'status',
+            'ko_decision_by',
+            'to_analysis_by',
+        ),
+        pk=pk,
+    )
+    if not can_view_act(act, request.user):
+        raise Http404('No Act matches the given query.')
+    if request.method != 'POST':
+        messages.error(request, 'Комментарий можно добавить только из формы на странице акта.')
+        return redirect('acts:detail', pk=act.pk)
+
+    form = ActCommentForm(request.POST)
+    if form.is_valid():
+        add_act_comment(act, request.user, form.cleaned_data['text'])
+        messages.success(request, 'Комментарий добавлен.')
+        return redirect('acts:detail', pk=act.pk)
+
+    messages.error(request, 'Проверьте текст комментария.')
+    context = _get_act_detail_context(act, request.user, comment_form=form)
+    return render(request, 'acts/detail.html', context)
+
+
+@login_required
+def act_add_attachment(request, pk):
+    act = _get_act_for_detail(pk)
+    if not can_add_attachment(act, request.user):
+        raise Http404('No Act matches the given query.')
+    if request.method != 'POST':
+        messages.error(request, 'Вложение можно добавить только из формы на странице акта.')
+        return redirect('acts:detail', pk=act.pk)
+
+    form = ActAttachmentForm(request.POST, request.FILES)
+    if form.is_valid():
+        add_act_attachment(
+            act,
+            request.user,
+            form.cleaned_data['file'],
+            form.cleaned_data.get('description', ''),
+        )
+        messages.success(request, 'Вложение добавлено.')
+        return redirect('acts:detail', pk=act.pk)
+
+    messages.error(request, 'Проверьте файл вложения.')
+    context = _get_act_detail_context(act, request.user, attachment_form=form)
+    return render(request, 'acts/detail.html', context)
+
+
+@login_required
+def act_download_attachment(request, pk, attachment_id):
+    attachment = get_object_or_404(
+        ActAttachment.objects.select_related('act', 'act__status', 'act__created_by', 'uploaded_by'),
+        pk=attachment_id,
+        act_id=pk,
+    )
+    if not can_download_attachment(attachment, request.user):
+        raise Http404('No Act matches the given query.')
+    if not attachment.file:
+        raise Http404('Attachment file is missing.')
+
+    return FileResponse(
+        attachment.file.open('rb'),
+        as_attachment=True,
+        filename=attachment.original_name,
+        content_type=attachment.content_type or 'application/octet-stream',
+    )
+
+
+@login_required
+def act_delete_attachment(request, pk, attachment_id):
+    attachment = get_object_or_404(
+        ActAttachment.objects.select_related('act', 'act__status', 'act__created_by', 'uploaded_by'),
+        pk=attachment_id,
+        act_id=pk,
+    )
+    if request.method != 'POST':
+        messages.error(request, 'Вложение можно удалить только подтверждённым действием.')
+        return redirect('acts:detail', pk=attachment.act_id)
+    if not can_view_act(attachment.act, request.user):
+        raise Http404('No Act matches the given query.')
+    if not can_delete_attachment(attachment, request.user):
+        messages.error(request, 'Недостаточно прав для удаления вложения.')
+        return redirect('acts:detail', pk=attachment.act_id)
+
+    act_id = attachment.act_id
+    try:
+        delete_act_attachment(attachment, request.user)
+    except ActWorkflowError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Вложение удалено.')
+    return redirect('acts:detail', pk=act_id)
 
 
 @login_required
@@ -226,3 +335,42 @@ def _redirect_after_transition(act, user):
     if can_view_act(act, user):
         return redirect('acts:detail', pk=act.pk)
     return redirect('acts:list')
+
+
+def _get_act_for_detail(pk):
+    return get_object_or_404(
+        Act.objects.select_related(
+            'created_by',
+            'operation',
+            'defect_type',
+            'priority',
+            'status',
+            'ko_decision_by',
+            'to_analysis_by',
+        ),
+        pk=pk,
+    )
+
+
+def _get_act_detail_context(act, user, comment_form=None, attachment_form=None):
+    history_events = act.history_events.select_related('user', 'from_status', 'to_status')
+    comments = act.comments.select_related('author')
+    attachments = [
+        {
+            'object': attachment,
+            'formatted_size': format_file_size(attachment.file_size),
+            'can_delete': can_delete_attachment(attachment, user),
+        }
+        for attachment in act.attachments.select_related('uploaded_by')
+    ]
+    return {
+        'active_page': 'acts',
+        'act': act,
+        'today': timezone.localdate(),
+        'available_actions': get_available_act_actions(act, user),
+        'history_events': history_events,
+        'comments': comments,
+        'comment_form': comment_form or ActCommentForm(),
+        'attachments': attachments,
+        'attachment_form': attachment_form or ActAttachmentForm(),
+    }

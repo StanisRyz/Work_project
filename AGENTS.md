@@ -12,11 +12,17 @@
 - Reference data belongs in the `references` app.
 - Use reference models instead of free-text fields in future business models where possible.
 - Acts belong in the `acts` app.
+- Act history events belong in the `acts` module.
+- Act attachments belong in the `acts` module.
 - Use `references.Operation`, `DefectType`, `ActStatus`, and `Priority` in act models/forms.
 - `UserProfile.role` is used for MVP act visibility.
 - Regular users see only acts currently assigned to their processing stage.
 - Act visibility must be enforced in backend permissions, not only templates.
 - Act workflow transitions belong in `acts/services.py`.
+- Workflow services should record history when act status changes.
+- Comments are manual user notes and should not replace workflow history.
+- Act history should be append-only from normal UI flow.
+- Attachment actions should record history when history models are available.
 - Act role and action checks belong in `acts/permissions.py`.
 
 ## Patch Rules
@@ -34,6 +40,11 @@
 - Act UI must use service-provided available actions.
 - Act templates must not duplicate role/status permission logic.
 - UI patches must not change workflow transitions unless explicitly requested.
+- Downloads for protected act files must go through access-checked Django views.
+- Direct media links should not be used for protected act files.
+- Upload validation must check file size and extension.
+- Attachment delete permission is author, manager, or admin.
+- D8 intentionally uses manual validation instead of automated tests.
 - Templates must not decide act permissions directly.
 - All act workflow actions must be covered by tests.
 - Do not add backend complexity before it is needed.

@@ -1,0 +1,24 @@
+<section class="detail-section act-history-section">
+    <h2>История акта</h2>
+    {% if history_events %}
+        <div class="history-timeline">
+            {% for event in history_events %}
+                <article class="history-event">
+                    <div class="history-event__meta">
+                        <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:'d.m.Y H:i' }}</time>
+                        <span>{{ event.user.get_full_name|default:event.user.username|default:'Система' }}</span>
+                    </div>
+                    <strong>{{ event.get_event_type_display }}</strong>
+                    <p>{{ event.message }}</p>
+                    {% if event.from_status or event.to_status %}
+                        <div class="history-event__transition">
+                            {{ event.from_status|default:'-' }} -> {{ event.to_status|default:'-' }}
+                        </div>
+                    {% endif %}
+                </article>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="placeholder-text">История акта пока пуста.</p>
+    {% endif %}
+</section>
