@@ -178,6 +178,87 @@
     font-size: 18px;
 }
 
+.act-form-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.act-defect-section {
+    align-items: start;
+}
+
+.defect-form-list {
+    display: grid;
+    gap: 14px;
+}
+
+.defect-form-block {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.defect-form-block__actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.add-defect-button {
+    margin-top: 0;
+}
+
+.remove-defect-button {
+    margin-top: 0;
+}
+
+.act-form .errorlist {
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid #fecaca;
+    border-radius: var(--radius);
+    background: #fef2f2;
+    color: #991b1b;
+    list-style-position: inside;
+    font-size: 13px;
+}
+
+.act-defect-count {
+    display: inline-flex;
+    margin-left: 6px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.act-defect-detail {
+    grid-column: span 2;
+}
+
+.act-defect-list {
+    display: grid;
+    gap: 12px;
+}
+
+.act-defect-card {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: #fbfcfe;
+}
+
+.act-defect-card dl {
+    margin-bottom: 0;
+}
+
 .act-context dl {
     display: grid;
     grid-template-columns: 150px minmax(0, 1fr);
@@ -359,5 +440,11 @@
 
     .act-detail-header__badges {
         justify-content: flex-start;
+    }
+
+    .act-form-row,
+    .act-defect-detail {
+        grid-template-columns: 1fr;
+        grid-column: auto;
     }
 }

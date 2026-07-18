@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from acts.models import Act
+from acts.models import Act, ActDefect
 from references.models import ActStatus, DefectType, Operation, Priority
 
 
@@ -73,5 +73,13 @@ class Command(BaseCommand):
                 act.to_analysis_by = to_user
                 act.to_analysis_at = timezone.now()
             act.save()
+            ActDefect.objects.update_or_create(
+                act=act,
+                defect_type=defect_type,
+                defaults={
+                    'description': act.description,
+                    'detected_at': act.due_date or today,
+                },
+            )
 
         self.stdout.write(self.style.SUCCESS('Demo acts ready: 5 acts across MVP statuses.'))

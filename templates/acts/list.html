@@ -100,7 +100,12 @@
                         <td>{{ act.party_number }}</td>
                         <td>{{ act.nomenclature }}</td>
                         <td>{{ act.operation }}</td>
-                        <td>{{ act.defect_type }}</td>
+                        <td>
+                            {{ act.defect_type }}
+                            {% if act.defects_total|default:0 > 1 %}
+                                <span class="act-defect-count">+{{ act.defects_total|add:'-1' }} деф.</span>
+                            {% endif %}
+                        </td>
                         <td>{% include 'acts/includes/priority_badge.html' with priority=act.priority %}</td>
                         <td>{% include 'acts/includes/status_badge.html' with status=act.status %}</td>
                         <td>

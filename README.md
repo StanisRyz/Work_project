@@ -8,44 +8,48 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D10 act closing and print view.
+D11 act create form redesign for OTK.
 
-D10 completes the MVP lifecycle for the existing acts module without adding new business modules:
+D11 keeps the existing `/acts/create/` server-rendered route and reshapes act creation around the production OTK form:
 
 - `Act` remains the MVP model for acts of operational control.
-- Act closing fields are stored on `Act`: `closed_by`, `closed_at`, and `closing_comment`.
+- `Act` now stores optional party/order fields: `customer`, `order_number`, and `znp_number`.
+- Existing `Act.defect_type`, `Act.description`, and `Act.due_date` remain summary compatibility fields.
+- `ActDefect` stores one or more defect rows for an act: defect type, description, and detected date.
+- When a new act is created, the first `ActDefect` row is copied into the summary fields on `Act`.
+- The create form has a `Данные партии` block with two-column rows:
+  - `Заказчик` + `Номер заказа`
+  - `Номер ЗНП` + `Номер партии`
+  - `Номенклатура` + `Операция`
+- The `Вид дефекта` block supports one or more defect rows using a Django formset.
+- The create form operation dropdown is limited to `Операционный контроль` and `Выпускной контроль`.
+- The create form defect dropdown is limited to the D11 production defect list.
+- `order_number`, `znp_number`, and `party_number` accept only digits, hyphen, and slash.
 - `ActHistoryEvent` stores append-only history events for act creation, workflow transitions, comments, attachments, and `ACT_CLOSED`.
 - `ActComment` stores manual user notes on an act.
 - `ActAttachment` stores protected files uploaded to acts under `MEDIA_ROOT/acts/attachments/<act_id>/`.
-- Closing is allowed only for `ACTIONS_ASSIGNED` acts that completed the MVP route.
-- Closing validation requires KO decision data and TO analysis data to be filled before the act can move to `CLOSED`.
-- Closing permissions:
-  - Руководитель and Администратор can close any `ACTIONS_ASSIGNED` act.
-  - ТО can close only `ACTIONS_ASSIGNED` acts where that user performed the TO analysis.
-  - ОТК, КО, and users without a profile cannot close acts.
-- Closed acts are visible only to Руководитель and Администратор in the normal workflow.
-- The print view is an HTML/browser-print page only; no PDF or Word export is generated.
 - Attachment downloads go through access-checked Django views, not direct media links.
 - Role and action checks are centralized in `acts/permissions.py`.
 - Workflow transitions and closing logic are centralized in `acts/services.py`.
-- The simple route is now complete: ОТК -> КО -> ТО -> мероприятия -> закрытие.
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
 
-- Create or open an act that reached `ACTIONS_ASSIGNED`.
-- Verify the ТО user who performed analysis can close the act.
-- Verify an unrelated ТО user cannot close the act.
-- Verify manager/admin can close the act.
-- Verify ОТК/КО cannot close the act.
-- Verify an act cannot close before KO decision data is filled.
-- Verify an act cannot close before TO analysis data is filled.
-- Verify `closed_by`, `closed_at`, and `closing_comment` are saved.
-- Verify `ACT_CLOSED` appears in act history.
-- Verify a closed act shows the closed block.
-- Verify the print view opens.
-- Verify the print view contains main act data, KO, TO, attachments, history, and closing data.
-- Verify print CSS hides navigation and action buttons when printing.
+- Open `/acts/create/`.
+- Verify the `Данные партии` block layout.
+- Verify `Заказчик` + `Номер заказа` are on one row.
+- Verify `Номер ЗНП` + `Номер партии` are on one row.
+- Verify `Номенклатура` + `Операция` are on one row.
+- Verify the operation dropdown contains only `Операционный контроль` and `Выпускной контроль`.
+- Verify the defect dropdown contains the required D11 defect list.
+- Verify invalid order number characters are rejected.
+- Verify invalid ZNP number characters are rejected.
+- Verify invalid party number characters are rejected.
+- Create an act with one defect.
+- Create an act with two or more defects using `Добавить дефект`.
+- Verify the created act opens correctly.
+- Verify all defects appear on the detail page.
+- Verify old act records still display without errors.
 
 ## Create and Activate a Virtual Environment
 
@@ -112,4 +116,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- D11 act module review and stabilization.
+- D12 OTK act detail review and send-to-KO polish.

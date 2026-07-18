@@ -28,6 +28,9 @@
         <dl>
             <dt>Партия</dt><dd>{{ act.party_number }}</dd>
             <dt>Номенклатура</dt><dd>{{ act.nomenclature }}</dd>
+            <dt>Заказчик</dt><dd>{{ act.customer|default:'-' }}</dd>
+            <dt>Номер заказа</dt><dd>{{ act.order_number|default:'-' }}</dd>
+            <dt>Номер ЗНП</dt><dd>{{ act.znp_number|default:'-' }}</dd>
             <dt>Операция</dt><dd>{{ act.operation }}</dd>
             <dt>Вид дефекта</dt><dd>{{ act.defect_type }}</dd>
             <dt>Приоритет</dt><dd>{% include 'acts/includes/priority_badge.html' with priority=act.priority %}</dd>
@@ -35,6 +38,21 @@
             <dt>Создал</dt><dd>{{ act.created_by.get_full_name|default:act.created_by.username }}</dd>
         </dl>
         <p>{{ act.description }}</p>
+    </article>
+
+    <article class="detail-section act-defect-detail">
+        <h2>Дефекты</h2>
+        <div class="act-defect-list">
+            {% for defect in defect_rows %}
+                <section class="act-defect-card">
+                    <dl>
+                        <dt>Вид дефекта</dt><dd>{{ defect.defect_type }}</dd>
+                        <dt>Срок обнаружения</dt><dd>{{ defect.detected_at|date:'d.m.Y'|default:'-' }}</dd>
+                    </dl>
+                    <p>{{ defect.description }}</p>
+                </section>
+            {% endfor %}
+        </div>
     </article>
 
     <article class="detail-section">

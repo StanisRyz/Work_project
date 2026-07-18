@@ -1,13 +1,23 @@
 from django.contrib import admin
 
-from .models import Act, ActAttachment, ActComment, ActHistoryEvent
+from .models import Act, ActAttachment, ActComment, ActDefect, ActHistoryEvent
+
+
+class ActDefectInline(admin.TabularInline):
+    model = ActDefect
+    extra = 0
+    fields = ('defect_type', 'description', 'detected_at')
 
 
 @admin.register(Act)
 class ActAdmin(admin.ModelAdmin):
+    inlines = (ActDefectInline,)
     list_display = (
         'number',
         'status',
+        'customer',
+        'order_number',
+        'znp_number',
         'party_number',
         'nomenclature',
         'operation',
@@ -17,7 +27,7 @@ class ActAdmin(admin.ModelAdmin):
         'due_date',
         'created_at',
     )
-    search_fields = ('number', 'party_number', 'nomenclature', 'description')
+    search_fields = ('number', 'customer', 'order_number', 'znp_number', 'party_number', 'nomenclature', 'description')
     list_filter = ('status', 'operation', 'defect_type', 'priority', 'created_at')
     readonly_fields = ('created_at', 'updated_at', 'ko_decision_at', 'to_analysis_at', 'closed_at')
     fieldsets = (
@@ -27,6 +37,9 @@ class ActAdmin(admin.ModelAdmin):
                 'fields': (
                     'number',
                     'created_by',
+                    'customer',
+                    'order_number',
+                    'znp_number',
                     'party_number',
                     'nomenclature',
                     'operation',
@@ -80,6 +93,14 @@ class ActAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+
+@admin.register(ActDefect)
+class ActDefectAdmin(admin.ModelAdmin):
+    list_display = ('act', 'defect_type', 'detected_at', 'created_at')
+    search_fields = ('act__number', 'description', 'defect_type__name')
+    list_filter = ('defect_type', 'detected_at', 'created_at')
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(ActHistoryEvent)

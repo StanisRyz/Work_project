@@ -49,6 +49,9 @@ class Act(models.Model):
         related_name='created_acts',
         verbose_name='Создал',
     )
+    customer = models.CharField('Заказчик', max_length=160, blank=True)
+    order_number = models.CharField('Номер заказа', max_length=80, blank=True)
+    znp_number = models.CharField('Номер ЗНП', max_length=80, blank=True)
     party_number = models.CharField('Номер партии', max_length=120)
     nomenclature = models.CharField('Номенклатура', max_length=240)
     operation = models.ForeignKey(Operation, on_delete=models.PROTECT, verbose_name='Операция')
@@ -128,6 +131,32 @@ class Act(models.Model):
             except (IndexError, ValueError):
                 next_number = cls.objects.filter(number__startswith=prefix).count() + 1
         return f'{prefix}{next_number:03d}'
+
+
+class ActDefect(models.Model):
+    act = models.ForeignKey(
+        Act,
+        on_delete=models.CASCADE,
+        related_name='defects',
+        verbose_name='Акт',
+    )
+    defect_type = models.ForeignKey(
+        DefectType,
+        on_delete=models.PROTECT,
+        verbose_name='Вид дефекта',
+    )
+    description = models.TextField('Описание дефекта')
+    detected_at = models.DateField('Срок обнаружения несоответствия')
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+    updated_at = models.DateTimeField('Обновлено', auto_now=True)
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = 'Дефект акта'
+        verbose_name_plural = 'Дефекты актов'
+
+    def __str__(self):
+        return f'{self.act.number}: {self.defect_type}'
 
 
 class ActHistoryEvent(models.Model):

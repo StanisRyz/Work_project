@@ -1,14 +1,23 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Count, Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation
 
-from .forms import ActAttachmentForm, ActCloseForm, ActCommentForm, ActCreateForm, KoDecisionForm, ToAnalysisForm
+from .forms import (
+    ActAttachmentForm,
+    ActCloseForm,
+    ActCommentForm,
+    ActCreateForm,
+    ActDefectFormSet,
+    KoDecisionForm,
+    ToAnalysisForm,
+)
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
 from .permissions import can_add_attachment, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_view_act
 from .services import (
@@ -60,6 +69,7 @@ def act_list(request):
         'ko_review': acts.filter(status__code='KO_REVIEW').count(),
         'to_analysis': acts.filter(status__code='TO_ANALYSIS').count(),
     }
+    acts = acts.annotate(defects_total=Count('defects'))
 
     context = {
         'active_page': 'acts',
@@ -92,26 +102,42 @@ def act_create(request):
 
     if request.method == 'POST':
         form = ActCreateForm(request.POST)
-        if form.is_valid():
+        defect_formset = ActDefectFormSet(request.POST)
+        if form.is_valid() and defect_formset.is_valid():
             act = form.save(commit=False)
             act.created_by = request.user
+            defect_forms = [
+                defect_form
+                for defect_form in defect_formset.forms
+                if defect_form.cleaned_data and not defect_form.cleaned_data.get('DELETE', False)
+            ]
+            first_defect = defect_forms[0].cleaned_data
+            act.defect_type = first_defect['defect_type']
+            act.description = first_defect['description']
+            act.due_date = first_defect['detected_at']
             try:
-                act.status = get_act_status('CREATED_OTK')
-                act.save()
-                add_act_history_event(
-                    act,
-                    request.user,
-                    ActHistoryEvent.EventType.CREATED,
-                    'Акт создан пользователем.',
-                    to_status=act.status,
-                )
+                with transaction.atomic():
+                    act.status = get_act_status('CREATED_OTK')
+                    act.save()
+                    defect_formset.instance = act
+                    defect_formset.save()
+                    add_act_history_event(
+                        act,
+                        request.user,
+                        ActHistoryEvent.EventType.CREATED,
+                        'Акт создан пользователем.',
+                        to_status=act.status,
+                    )
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:
                 messages.success(request, 'Акт создан.')
                 return redirect('acts:detail', pk=act.pk)
+        else:
+            messages.error(request, 'Проверьте данные формы создания акта.')
     else:
         form = ActCreateForm()
+        defect_formset = ActDefectFormSet()
 
     return render(
         request,
@@ -119,6 +145,7 @@ def act_create(request):
         {
             'active_page': 'acts',
             'form': form,
+            'defect_formset': defect_formset,
         },
     )
 
@@ -388,7 +415,7 @@ def _get_act_for_detail(pk):
             'ko_decision_by',
             'to_analysis_by',
             'closed_by',
-        ),
+        ).prefetch_related('defects__defect_type'),
         pk=pk,
     )
 
@@ -396,6 +423,15 @@ def _get_act_for_detail(pk):
 def _get_act_detail_context(act, user, comment_form=None, attachment_form=None):
     history_events = act.history_events.select_related('user', 'from_status', 'to_status')
     comments = act.comments.select_related('author')
+    defect_rows = list(act.defects.select_related('defect_type'))
+    if not defect_rows:
+        defect_rows = [
+            {
+                'defect_type': act.defect_type,
+                'description': act.description,
+                'detected_at': act.due_date,
+            }
+        ]
     attachments = [
         {
             'object': attachment,
@@ -409,6 +445,7 @@ def _get_act_detail_context(act, user, comment_form=None, attachment_form=None):
         'act': act,
         'today': timezone.localdate(),
         'available_actions': get_available_act_actions(act, user),
+        'defect_rows': defect_rows,
         'history_events': history_events,
         'comments': comments,
         'comment_form': comment_form or ActCommentForm(),

@@ -26,6 +26,11 @@
 - Attachment actions should record history when history models are available.
 - Act role and action checks belong in `acts/permissions.py`.
 - Closing permissions belong in `acts/permissions.py`.
+- Act creation UI should preserve the production form structure.
+- Multiple defects belong to `ActDefect` records.
+- `Act.defect_type`, `Act.description`, and `Act.due_date` remain summary compatibility fields using the first defect.
+- `order_number`, `znp_number`, and `party_number` accept only digits, hyphen, and slash.
+- Act create form dynamic defect rows must still be backed by server-side formset validation.
 
 ## Patch Rules
 

@@ -19,6 +19,8 @@ class Command(BaseCommand):
             ('ZACHISTKA_AFTER_REZKA', 'Зачистка после резки', 90),
             ('KALIBROVKA_AFTER_REZKA', 'Калибровка после резки', 100),
             ('FINAL_OTK', 'Выпускной контроль ОТК', 110),
+            ('OPERATIONAL_CONTROL', 'Операционный контроль', 120),
+            ('FINAL_CONTROL', 'Выпускной контроль', 130),
         ]
         defect_types = [
             ('SIZE_DEVIATION', 'Размерное отклонение'),
@@ -31,6 +33,16 @@ class Command(BaseCommand):
             ('MARKING_ERROR', 'Ошибка маркировки'),
             ('DOCUMENTATION_MISSING', 'Отсутствие документации'),
             ('OTHER', 'Прочее'),
+            ('SIZE_NONCONFORMITY', 'Несоответствие размеров'),
+            ('DEFORMATION', 'Деформация'),
+            ('ASYMMETRIC_CUT', 'Несимметричный рез'),
+            ('OBLIQUE_CUT', 'Косой рез'),
+            ('GRINDING_SIZE_DEVIATION', 'Отклонение размеров при шлифовании'),
+            ('END_FACE_DELAMINATION_DAMAGE', 'Расслоения и механические повреждения на торцах'),
+            ('CUT_SURFACE_DELAMINATION', 'Расслоения на поверхности реза'),
+            ('OL_WINDING_TENSION_LOSS', 'Ослабление натяжения витков МП типа ОЛ'),
+            ('WINDING_SHIFT', 'Смещение витков'),
+            ('HIGH_ROUGHNESS', 'Повышенная шероховатость'),
         ]
         act_statuses = [
             ('CREATED_OTK', 'Создан ОТК', 10, False),
@@ -98,7 +110,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                'Reference data ready: 11 operations, 10 defect types, '
+                'Reference data ready: 13 operations, 20 defect types, '
                 '6 act statuses, 6 task statuses, 4 priorities.'
             )
         )

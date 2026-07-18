@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import UserProfile
-from acts.models import Act
+from acts.models import Act, ActDefect
 from references.models import ActStatus, DefectType, Operation, Priority
 
 
@@ -17,8 +17,8 @@ class ActViewTests(TestCase):
         cls.status_ko = ActStatus.objects.create(code='KO_REVIEW', name='На рассмотрении КО')
         cls.status_to = ActStatus.objects.create(code='TO_ANALYSIS', name='На анализе ТО')
         cls.status_actions = ActStatus.objects.create(code='ACTIONS_ASSIGNED', name='Мероприятия назначены')
-        cls.operation = Operation.objects.create(code='OP', name='Операция')
-        cls.defect_type = DefectType.objects.create(code='DEFECT', name='Дефект')
+        cls.operation = Operation.objects.create(code='OPERATIONAL_CONTROL', name='Операционный контроль')
+        cls.defect_type = DefectType.objects.create(code='SIZE_NONCONFORMITY', name='Несоответствие размеров')
         cls.priority = Priority.objects.create(code='HIGH', name='Высокий')
 
         cls.otk_user = cls._create_user('otk', UserProfile.Role.OTK)
@@ -58,20 +58,24 @@ class ActViewTests(TestCase):
         response = self.client.post(
             reverse('acts:create'),
             {
-                'party_number': 'P-100',
+                'party_number': '100-100',
                 'nomenclature': 'Катушка А',
                 'operation': self.operation.id,
-                'defect_type': self.defect_type.id,
-                'priority': '',
-                'description': 'Описание дефекта',
-                'due_date': '',
+                'defects-TOTAL_FORMS': '1',
+                'defects-INITIAL_FORMS': '0',
+                'defects-MIN_NUM_FORMS': '1',
+                'defects-MAX_NUM_FORMS': '1000',
+                'defects-0-defect_type': self.defect_type.id,
+                'defects-0-description': 'Описание дефекта',
+                'defects-0-detected_at': timezone.localdate().isoformat(),
             },
         )
 
         self.assertEqual(response.status_code, 302)
-        act = Act.objects.get(party_number='P-100')
+        act = Act.objects.get(party_number='100-100')
         self.assertEqual(act.created_by, self.otk_user)
         self.assertEqual(act.status.code, 'CREATED_OTK')
+        self.assertEqual(ActDefect.objects.filter(act=act).count(), 1)
 
     def test_otk_list_shows_only_own_created_otk_acts(self):
         visible = self._create_act(self.status_created, party_number='P-OTK')
@@ -168,10 +172,10 @@ class ActViewTests(TestCase):
             {'to_root_cause': 'Причина', 'to_action_summary': 'Мероприятия'},
         )
 
-        self.assertRedirects(response, reverse('acts:list'))
+        self.assertRedirects(response, reverse('acts:detail', args=[act.pk]))
         act.refresh_from_db()
         self.assertEqual(act.status.code, 'ACTIONS_ASSIGNED')
-        self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 200)
 
     def test_wrong_role_direct_urls_do_not_bypass_checks(self):
         ko_act = self._create_act(self.status_ko)
