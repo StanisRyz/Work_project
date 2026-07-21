@@ -12,6 +12,10 @@
     {% endif %}
 </section>
 
+{% if is_act_admin %}
+    <p class="admin-access-notice">Режим администратора: полный доступ к актам.</p>
+{% endif %}
+
 <section class="act-kpi-grid" aria-label="Показатели актов">
     <article class="act-kpi-card">
         <span>Всего на проработке</span>

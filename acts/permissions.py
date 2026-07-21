@@ -37,11 +37,27 @@ def is_manager(user):
 
 
 def is_admin(user):
-    return get_user_role(user) == UserProfile.Role.ADMIN
+    return is_act_admin(user)
+
+
+def is_act_admin(user):
+    """Return whether a user has the explicit administrator act role or superuser fallback."""
+    return bool(
+        getattr(user, 'is_authenticated', False)
+        and (
+            getattr(user, 'is_superuser', False)
+            or get_user_role(user) == UserProfile.Role.ADMIN
+        )
+    )
+
+
+def has_full_act_access(user):
+    """Return whether a user may see every act and use status-valid actions."""
+    return is_act_admin(user) or is_manager(user)
 
 
 def is_manager_or_admin(user):
-    return is_manager(user) or is_admin(user)
+    return has_full_act_access(user)
 
 
 def can_create_act(user):
@@ -49,7 +65,7 @@ def can_create_act(user):
 
 
 def can_view_act(act, user):
-    if is_manager_or_admin(user):
+    if has_full_act_access(user):
         return True
     if is_otk(user):
         return act.created_by_id == user.id and _status_code(act) == 'CREATED_OTK'
@@ -65,23 +81,23 @@ def can_view_act(act, user):
 def can_send_to_ko(act, user):
     if _status_code(act) != 'CREATED_OTK':
         return False
-    if is_manager_or_admin(user):
+    if has_full_act_access(user):
         return True
     return is_otk(user) and act.created_by_id == user.id
 
 
 def can_apply_ko_decision(act, user):
-    return _status_code(act) == 'KO_REVIEW' and (is_ko(user) or is_manager_or_admin(user))
+    return _status_code(act) == 'KO_REVIEW' and (is_ko(user) or has_full_act_access(user))
 
 
 def can_apply_to_analysis(act, user):
-    return _status_code(act) == 'TO_ANALYSIS' and (is_to(user) or is_manager_or_admin(user))
+    return _status_code(act) == 'TO_ANALYSIS' and (is_to(user) or has_full_act_access(user))
 
 
 def can_close_act(act, user):
     if _status_code(act) != 'ACTIONS_ASSIGNED':
         return False
-    if is_manager_or_admin(user):
+    if has_full_act_access(user):
         return True
     return is_to(user) and act.to_analysis_by_id == user.id
 
@@ -95,7 +111,7 @@ def can_download_attachment(attachment, user):
 
 
 def can_delete_attachment(attachment, user):
-    if is_manager_or_admin(user):
+    if has_full_act_access(user):
         return True
     return (
         getattr(user, 'is_authenticated', False)
@@ -112,7 +128,7 @@ def get_visible_acts_queryset(user):
         'priority',
         'status',
     )
-    if is_manager_or_admin(user):
+    if has_full_act_access(user):
         return queryset
     if is_otk(user):
         return queryset.filter(created_by=user, status__code='CREATED_OTK')

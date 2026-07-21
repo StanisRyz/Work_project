@@ -216,12 +216,14 @@ class ActViewTests(TestCase):
         self.assertContains(response, first_act.number)
         self.assertContains(response, second_act.number)
         self.assertContains(response, third_act.number)
+        self.assertNotContains(response, 'Режим администратора: полный доступ к актам.')
 
         self.client.force_login(self.admin_user)
         response = self.client.get(reverse('acts:list'))
         self.assertContains(response, first_act.number)
         self.assertContains(response, second_act.number)
         self.assertContains(response, third_act.number)
+        self.assertContains(response, 'Режим администратора: полный доступ к актам.')
 
     def test_user_without_profile_sees_no_acts(self):
         act = self._create_act(self.status_created)

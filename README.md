@@ -8,7 +8,15 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D11 act create form redesign for OTK.
+D11A act admin full access stabilization.
+
+D11A makes administrator access explicit and reliable throughout the acts module:
+
+- `admin_user` / `demo12345` is seeded as an `ADMIN` user in `Руководство`, with Django `is_staff=True` and `is_superuser=True`.
+- An `ADMIN` profile, or a Django superuser without a usable profile, has full visibility of all acts at every workflow stage.
+- Administrators can use every action valid for the act's current stage, including comments, protected attachments, and the print view.
+- Administrator access never bypasses invalid status transitions; for example, a KO decision remains unavailable until an act is in `KO_REVIEW`.
+- OTK, KO, and TO visibility remains restricted to their normal workflow scope.
 
 D11 keeps the existing `/acts/create/` server-rendered route and reshapes act creation around the production OTK form:
 
@@ -35,6 +43,17 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 
 ## Manual Validation Checklist
 
+- Run `python manage.py seed_demo_accounts`.
+- Log in as `admin_user` / `demo12345`.
+- Verify `/acts/` shows all acts and the administrator-mode notice.
+- Verify the administrator can open acts in `CREATED_OTK`, `KO_REVIEW`, `TO_ANALYSIS`, `ACTIONS_ASSIGNED`, and `CLOSED`.
+- Verify current-stage action buttons are shown for the administrator.
+- Verify the administrator can process `CREATED_OTK` to `KO_REVIEW`.
+- Verify the administrator can process `KO_REVIEW` to `TO_ANALYSIS` or return it to `CREATED_OTK`.
+- Verify the administrator can process `TO_ANALYSIS` to `ACTIONS_ASSIGNED`.
+- Verify the administrator can close an `ACTIONS_ASSIGNED` act.
+- Verify the administrator can download and delete attachments, and open the print view for any act.
+- Verify normal OTK, KO, and TO users still have strict visibility.
 - Open `/acts/create/`.
 - Verify the `Данные партии` block layout.
 - Verify `Заказчик` + `Номер заказа` are on one row.
@@ -116,4 +135,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- D12 OTK act detail review and send-to-KO polish.
+- D11 act create form redesign.

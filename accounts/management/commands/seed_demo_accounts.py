@@ -4,6 +4,9 @@ from django.core.management.base import BaseCommand
 from accounts.models import Department, UserProfile
 
 
+DEMO_PASSWORD = 'demo12345'
+
+
 class Command(BaseCommand):
     help = 'Create or update local demo departments and users.'
 
@@ -40,7 +43,7 @@ class Command(BaseCommand):
                     'is_superuser': is_superuser,
                 },
             )
-            user.set_password('demo12345')
+            user.set_password(DEMO_PASSWORD)
             user.save()
 
             profile, _ = UserProfile.objects.get_or_create(user=user)
@@ -51,6 +54,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                'Demo data ready: 4 departments, 5 users, password demo12345.'
+                'Demo data ready: 4 departments, 5 users, password demo12345. '
+                'admin_user is an ADMIN, staff, and superuser in Management.'
             )
         )

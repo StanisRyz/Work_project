@@ -25,6 +25,9 @@
 - Act history should be append-only from normal UI flow.
 - Attachment actions should record history when history models are available.
 - Act role and action checks belong in `acts/permissions.py`.
+- Administrator full act access must be explicit in `acts/permissions.py`; a Django superuser must retain full access as a safety fallback even when the profile is unavailable.
+- Administrators may act on any visible act only through transitions valid for its current workflow status.
+- Administrator access changes must preserve strict OTK/KO/TO visibility and be manually validated through the UI.
 - Closing permissions belong in `acts/permissions.py`.
 - Act creation UI should preserve the production form structure.
 - Multiple defects belong to `ActDefect` records.

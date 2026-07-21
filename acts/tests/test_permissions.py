@@ -12,6 +12,8 @@ from acts.permissions import (
     get_user_profile,
     get_user_role,
     get_visible_acts_queryset,
+    has_full_act_access,
+    is_act_admin,
 )
 from references.models import ActStatus, DefectType, Operation
 
@@ -37,6 +39,12 @@ class ActPermissionTests(TestCase):
         cls.no_profile_user = User.objects.create_user(username='no_profile', password='demo12345')
         cls.no_profile_user.userprofile.delete()
         cls.no_profile_user._state.fields_cache.pop('userprofile', None)
+        cls.superuser_without_profile = User.objects.create_superuser(
+            username='superuser_without_profile',
+            password='demo12345',
+        )
+        cls.superuser_without_profile.userprofile.delete()
+        cls.superuser_without_profile._state.fields_cache.pop('userprofile', None)
 
         cls.created_act = cls._create_act(cls.status_created)
         cls.other_otk_created_act = cls._create_act(cls.status_created, created_by=cls.other_otk_user)
@@ -123,3 +131,14 @@ class ActPermissionTests(TestCase):
         self.assertEqual(get_visible_acts_queryset(self.manager_user).count(), Act.objects.count())
         self.assertEqual(get_visible_acts_queryset(self.admin_user).count(), Act.objects.count())
         self.assertEqual(get_visible_acts_queryset(self.no_profile_user).count(), 0)
+
+    def test_admin_and_superuser_without_profile_have_full_act_access(self):
+        self.assertTrue(is_act_admin(self.admin_user))
+        self.assertTrue(has_full_act_access(self.admin_user))
+        self.assertTrue(is_act_admin(self.superuser_without_profile))
+        self.assertTrue(has_full_act_access(self.superuser_without_profile))
+        self.assertTrue(can_view_act(self.cancelled_act, self.superuser_without_profile))
+        self.assertEqual(
+            get_visible_acts_queryset(self.superuser_without_profile).count(),
+            Act.objects.count(),
+        )

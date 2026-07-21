@@ -19,7 +19,7 @@ from .forms import (
     ToAnalysisForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
-from .permissions import can_add_attachment, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_view_act
+from .permissions import can_add_attachment, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_view_act, is_act_admin
 from .services import (
     ActWorkflowError,
     add_act_comment,
@@ -90,6 +90,7 @@ def act_list(request):
             'search': search,
         },
         'can_create': can_create_act(request.user),
+        'is_act_admin': is_act_admin(request.user),
     }
     return render(request, 'acts/list.html', context)
 

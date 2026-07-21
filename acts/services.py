@@ -9,6 +9,7 @@ from .permissions import (
     can_delete_attachment,
     can_send_to_ko,
     can_view_act,
+    is_act_admin,
     get_user_role,
     get_visible_acts_queryset,
 )
@@ -259,6 +260,11 @@ def get_visible_acts_for_user(user):
 
 
 def get_role_context_text(user):
+    if is_act_admin(user):
+        return (
+            'Администратор: показаны все акты на всех этапах. Доступны все действия, '
+            'разрешённые текущим статусом акта.'
+        )
     role = get_user_role(user)
     if role == 'otk':
         return 'Показаны только акты, созданные вами и находящиеся на этапе ОТК.'
@@ -266,7 +272,7 @@ def get_role_context_text(user):
         return 'Показаны только акты, находящиеся на рассмотрении КО.'
     if role == 'to':
         return 'Показаны только акты, находящиеся на анализе ТО.'
-    if role in {'manager', 'admin'}:
+    if role == 'manager':
         return 'Показаны все акты.'
     return 'Для пользователя без роли список актов недоступен.'
 
