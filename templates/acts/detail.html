@@ -26,18 +26,21 @@
     <article class="detail-section">
         <h2>Основные данные</h2>
         <dl>
-            <dt>Партия</dt><dd>{{ act.party_number }}</dd>
-            <dt>Номенклатура</dt><dd>{{ act.nomenclature }}</dd>
-            <dt>Заказчик</dt><dd>{{ act.customer|default:'-' }}</dd>
-            <dt>Номер заказа</dt><dd>{{ act.order_number|default:'-' }}</dd>
-            <dt>Номер ЗНП</dt><dd>{{ act.znp_number|default:'-' }}</dd>
-            <dt>Операция</dt><dd>{{ act.operation }}</dd>
-            <dt>Вид дефекта</dt><dd>{{ act.defect_type }}</dd>
             <dt>Приоритет</dt><dd>{% include 'acts/includes/priority_badge.html' with priority=act.priority %}</dd>
-            <dt>Срок</dt><dd>{{ act.due_date|date:'d.m.Y'|default:'-' }}</dd>
             <dt>Создал</dt><dd>{{ act.created_by.get_full_name|default:act.created_by.username }}</dd>
         </dl>
-        <p>{{ act.description }}</p>
+    </article>
+
+    <article class="detail-section">
+        <h2>Данные партии</h2>
+        <dl>
+            <dt>Заказчик</dt><dd>{{ act.customer|default:'Не указан' }}</dd>
+            <dt>Номер заказа</dt><dd>{{ act.order_number|default:'Не указан' }}</dd>
+            <dt>Номер ЗНП</dt><dd>{{ act.znp_number|default:'Не указан' }}</dd>
+            <dt>Номер партии</dt><dd>{{ act.party_number|default:'Не указан' }}</dd>
+            <dt>Номенклатура</dt><dd>{{ act.nomenclature|default:'Не указана' }}</dd>
+            <dt>Операция</dt><dd>{{ act.operation|default:'Не указана' }}</dd>
+        </dl>
     </article>
 
     <article class="detail-section act-defect-detail">
@@ -45,11 +48,14 @@
         <div class="act-defect-list">
             {% for defect in defect_rows %}
                 <section class="act-defect-card">
+                    {% if defect_rows|length > 1 %}
+                        <h3>Дефект {{ forloop.counter }}</h3>
+                    {% endif %}
                     <dl>
-                        <dt>Вид дефекта</dt><dd>{{ defect.defect_type }}</dd>
-                        <dt>Срок обнаружения</dt><dd>{{ defect.detected_at|date:'d.m.Y'|default:'-' }}</dd>
+                        <dt>Вид дефекта</dt><dd>{{ defect.defect_type|default:'Не указан' }}</dd>
+                        <dt>Дата обнаружения</dt><dd>{{ defect.detected_at|date:'d.m.Y'|default:'Не указана' }}</dd>
                     </dl>
-                    <p>{{ defect.description }}</p>
+                    <p>{{ defect.description|default:'Описание дефекта не указано.' }}</p>
                 </section>
             {% endfor %}
         </div>
@@ -103,10 +109,13 @@
         </div>
         <div class="form-actions">
             {% if available_actions.send_to_ko %}
-                <form method="post" action="{% url 'acts:send_to_ko' act.pk %}">
+                <div class="act-send-to-ko">
+                    <p>После подтверждения акт будет передан в КО и исчезнет из очереди ОТК.</p>
+                    <form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">
                     {% csrf_token %}
                     <button class="link-button" type="submit">Передать в КО</button>
-                </form>
+                    </form>
+                </div>
             {% endif %}
             {% if available_actions.ko_decision %}
                 <a class="link-button" href="{% url 'acts:ko_decision' act.pk %}">Внести решение КО</a>

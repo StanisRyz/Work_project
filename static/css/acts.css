@@ -259,6 +259,28 @@
     margin-bottom: 0;
 }
 
+.act-defect-card h3 {
+    margin: 0;
+    font-size: 15px;
+}
+
+.act-send-to-ko {
+    display: grid;
+    gap: 0;
+}
+
+.act-send-to-ko p {
+    max-width: 420px;
+    margin: 14px 0 0;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.act-send-to-ko .link-button {
+    padding: 10px 16px;
+    font-size: 15px;
+}
+
 .act-context dl {
     display: grid;
     grid-template-columns: 150px minmax(0, 1fr);

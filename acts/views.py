@@ -323,7 +323,10 @@ def act_send_to_ko(request, pk):
     except ActWorkflowError as exc:
         messages.error(request, str(exc))
     else:
-        messages.success(request, 'Акт передан в КО.')
+        if can_view_act(act, request.user):
+            messages.success(request, 'Акт передан в КО.')
+        else:
+            messages.success(request, 'Акт передан в КО и больше не отображается в вашей очереди ОТК.')
     return _redirect_after_transition(act, request.user)
 
 

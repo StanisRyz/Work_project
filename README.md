@@ -8,7 +8,15 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D11A act admin full access stabilization.
+D12 — детализация акта ОТК и безопасная передача в КО.
+
+D12 улучшает детальную страницу без изменения моделей, прав доступа или правил маршрута:
+
+- Данные партии вынесены в отдельный читаемый блок.
+- Раздел `Дефекты` использует `defect_rows` как основной источник, показывает все дефекты и нумерует их при наличии нескольких записей.
+- Для старых актов без `ActDefect` сохранён вывод из совместимых полей акта.
+- Действие `Передать в КО` выделено как основное, объясняет результат и требует браузерного подтверждения.
+- После передачи ОТК-пользователь получает сообщение, что акт исчез из его очереди, и перенаправляется в реестр.
 
 D11A makes administrator access explicit and reliable throughout the acts module:
 
@@ -42,6 +50,17 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+- Log in as `otk_user` / `demo12345` and open an act in `CREATED_OTK` created by this user.
+- Verify that customer, order number, ZNP number, party number, nomenclature, and operation are shown in `Данные партии`.
+- Verify that the legacy summary defect fields are not duplicated in `Основные данные`.
+- Verify every defect is shown with its type, description, and detection date; create an act with multiple defects and verify their numbering.
+- Open an old act without `ActDefect` records and verify that its compatible defect fields are shown without an error.
+- Verify `Передать в КО` is the primary OTK action, contains the queue warning, and the browser asks for confirmation.
+- Cancel the confirmation and verify the act remains in `CREATED_OTK`.
+- Confirm the transfer; verify the success message, redirect to `/acts/`, and absence of the act from the OTK queue.
+- Log in as `ko_user` and verify the transferred act is visible in the KO queue.
+- Run `python manage.py check`.
 
 - Run `python manage.py seed_demo_accounts`.
 - Log in as `admin_user` / `demo12345`.
@@ -135,4 +154,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- D11 act create form redesign.
+- To be defined after D12 manual validation.
