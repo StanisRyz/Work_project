@@ -20,18 +20,24 @@
     </div>
 </section>
 
-{% include 'acts/includes/act_route.html' with status_code=act.status.code %}
+<nav class="act-detail-tabs" aria-label="Разделы акта">
+    <a class="act-detail-tabs__link{% if detail_tab == 'work' %} act-detail-tabs__link--active{% endif %}" href="?tab=work"{% if detail_tab == 'work' %} aria-current="page"{% endif %}>Проработка</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history"{% if detail_tab == 'history' %} aria-current="page"{% endif %}>История акта</a>
+</nav>
 
-<section class="detail-grid act-detail-grid">
-    <article class="detail-section">
+<div class="act-workspace">
+    <main class="act-workspace__main">
+    {% if detail_tab == 'work' %}
+    <section class="detail-grid act-detail-grid">
+        <article class="detail-section">
         <h2>Основные данные</h2>
         <dl>
             <dt>Приоритет</dt><dd>{% include 'acts/includes/priority_badge.html' with priority=act.priority %}</dd>
             <dt>Создал</dt><dd>{{ act.created_by.get_full_name|default:act.created_by.username }}</dd>
         </dl>
-    </article>
+        </article>
 
-    <article class="detail-section">
+        <article class="detail-section">
         <h2>Данные партии</h2>
         <dl>
             <dt>Заказчик</dt><dd>{{ act.customer|default:'Не указан' }}</dd>
@@ -41,9 +47,9 @@
             <dt>Номенклатура</dt><dd>{{ act.nomenclature|default:'Не указана' }}</dd>
             <dt>Операция</dt><dd>{{ act.operation|default:'Не указана' }}</dd>
         </dl>
-    </article>
+        </article>
 
-    <article class="detail-section act-defect-detail">
+        <article class="detail-section act-defect-detail">
         <h2>Дефекты</h2>
         <div class="act-defect-list">
             {% for defect in defect_rows %}
@@ -59,9 +65,9 @@
                 </section>
             {% endfor %}
         </div>
-    </article>
+        </article>
 
-    <article class="detail-section">
+        <article class="detail-section">
         <h2>Решение КО</h2>
         {% if act.ko_decision %}
             <dl>
@@ -70,12 +76,29 @@
                 <dt>Дата</dt><dd>{{ act.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</dd>
             </dl>
             <p>{{ act.ko_comment|default:'Комментарий КО не заполнен.' }}</p>
+        {% elif available_actions.ko_decision %}
+            <p class="act-ko-decision-hint">«Вернуть ОТК на уточнение» вернёт акт в очередь автора ОТК. «Пропустить» и «Не пропускать» передадут акт в ТО.</p>
+            <form class="act-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}">
+                {% csrf_token %}
+                {{ ko_decision_form.non_field_errors }}
+                <label>
+                    <span>{{ ko_decision_form.ko_decision.label }}</span>
+                    {{ ko_decision_form.ko_decision }}
+                    {{ ko_decision_form.ko_decision.errors }}
+                </label>
+                <label>
+                    <span>{{ ko_decision_form.ko_comment.label }}</span>
+                    {{ ko_decision_form.ko_comment }}
+                    {{ ko_decision_form.ko_comment.errors }}
+                </label>
+                <button class="link-button" type="submit">Сохранить решение КО</button>
+            </form>
         {% else %}
             <p class="placeholder-text">Решение КО ещё не внесено.</p>
         {% endif %}
-    </article>
+        </article>
 
-    <article class="detail-section">
+        <article class="detail-section">
         <h2>Анализ ТО</h2>
         {% if act.to_root_cause or act.to_action_summary %}
             <dl>
@@ -89,9 +112,9 @@
         {% else %}
             <p class="placeholder-text">Анализ ТО ещё не внесён.</p>
         {% endif %}
-    </article>
+        </article>
 
-    {% if act.status.code == 'CLOSED' %}
+        {% if act.status.code == 'CLOSED' %}
         <article class="detail-section act-closed-block">
             <h2>Закрытие</h2>
             <dl>
@@ -100,9 +123,9 @@
                 <dt>Комментарий</dt><dd>{{ act.closing_comment|default:'-' }}</dd>
             </dl>
         </article>
-    {% endif %}
+        {% endif %}
 
-    <article class="detail-section action-panel act-action-panel">
+        <article class="detail-section action-panel act-action-panel">
         <div>
             <h2>Доступные действия</h2>
             <p>Показаны только действия, разрешённые текущей ролью и статусом акта.</p>
@@ -117,9 +140,6 @@
                     </form>
                 </div>
             {% endif %}
-            {% if available_actions.ko_decision %}
-                <a class="link-button" href="{% url 'acts:ko_decision' act.pk %}">Внести решение КО</a>
-            {% endif %}
             {% if available_actions.to_analysis %}
                 <a class="link-button" href="{% url 'acts:to_analysis' act.pk %}">Внести анализ ТО</a>
             {% endif %}
@@ -129,15 +149,22 @@
             {% if available_actions.print_act %}
                 <a class="link-button link-button--secondary" href="{% url 'acts:print' act.pk %}">Печатная форма</a>
             {% endif %}
-            {% if not available_actions.send_to_ko and not available_actions.ko_decision and not available_actions.to_analysis and not available_actions.close_act %}
+            {% if not available_actions.send_to_ko and not available_actions.to_analysis and not available_actions.close_act %}
                 <span class="placeholder-text">Нет доступных действий для текущего статуса.</span>
             {% endif %}
             <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">К списку</a>
         </div>
-    </article>
-</section>
+        </article>
+    </section>
 
-{% include 'acts/includes/attachments.html' %}
-{% include 'acts/includes/history_timeline.html' %}
-{% include 'acts/includes/comments.html' %}
+    {% include 'acts/includes/attachments.html' %}
+    {% else %}
+        {% include 'acts/includes/history_timeline.html' %}
+    {% endif %}
+    </main>
+
+    <aside class="act-workspace__sidebar" aria-label="Комментарии к акту">
+        {% include 'acts/includes/comments.html' %}
+    </aside>
+</div>
 {% endblock %}

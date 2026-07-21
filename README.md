@@ -8,15 +8,14 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D12 — детализация акта ОТК и безопасная передача в КО.
+D13 — рабочее пространство акта и встроенное решение КО.
 
-D12 улучшает детальную страницу без изменения моделей, прав доступа или правил маршрута:
+D13 перестраивает детализацию акта без изменения моделей, прав доступа, видимости или правил маршрута:
 
-- Данные партии вынесены в отдельный читаемый блок.
-- Раздел `Дефекты` использует `defect_rows` как основной источник, показывает все дефекты и нумерует их при наличии нескольких записей.
-- Для старых актов без `ActDefect` сохранён вывод из совместимых полей акта.
-- Действие `Передать в КО` выделено как основное, объясняет результат и требует браузерного подтверждения.
-- После передачи ОТК-пользователь получает сообщение, что акт исчез из его очереди, и перенаправляется в реестр.
+- Детальная страница имеет вкладки `Проработка` и `История акта`; вкладки изменяют только представление.
+- Комментарии всегда доступны в правой боковой колонке, в том числе на вкладке истории.
+- Форма решения КО встроена во вкладку `Проработка` и использует прежний POST-маршрут, проверки и сервис перехода.
+- Старый GET-маршрут решения КО перенаправляет на вкладку `Проработка`.
 
 D11A makes administrator access explicit and reliable throughout the acts module:
 
@@ -50,6 +49,16 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+- Log in as `ko_user` / `demo12345` and open an act in `KO_REVIEW`.
+- Verify that `Проработка` opens by default, both tabs switch with `tab=work` and `tab=history`, and an invalid tab value opens `Проработка`.
+- Verify the comments sidebar is visible beside both tabs and becomes a lower block on a narrow screen.
+- On `Проработка`, verify the embedded KO form and its explanation of all three outcomes.
+- Submit `Вернуть ОТК на уточнение`, `Пропустить`, and `Не пропускать` on separate acts; verify the resulting queue visibility and history event for each option.
+- Submit an invalid KO form and verify validation errors remain in the embedded form.
+- Open `/acts/<id>/ko-decision/` with GET and verify redirect to `?tab=work`; verify POST still saves the decision.
+- Verify OTK, KO, TO, manager, and administrator visibility restrictions remain unchanged.
+- Run `python manage.py check`.
 
 - Log in as `otk_user` / `demo12345` and open an act in `CREATED_OTK` created by this user.
 - Verify that customer, order number, ZNP number, party number, nomenclature, and operation are shown in `Данные партии`.
@@ -154,4 +163,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D12 manual validation.
+- To be defined after D13 manual validation.

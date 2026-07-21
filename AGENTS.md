@@ -37,6 +37,9 @@
 - On the act detail page, use `defect_rows` as the primary source for defects.
 - Preserve the legacy detail-page fallback for acts that have no `ActDefect` records.
 - Send-to-KO authorization belongs in `acts/permissions.py`, and the transition implementation belongs in `acts/services.py`.
+- Detail-page tabs control presentation only; they must not change access checks, visibility, or workflow state.
+- Comments must remain available in the detail-page sidebar on every tab.
+- KO decisions must use `available_actions` for template visibility and the existing authorization in `acts/permissions.py` and transition service in `acts/services.py`.
 
 ## Patch Rules
 
@@ -60,9 +63,9 @@
 - Closed acts are read-only in the normal workflow.
 - Print view is HTML/browser-print only until an explicit export request.
 - PDF/Word export must not be added without explicit request.
-- D8, D10, and D12 intentionally use manual validation instead of adding automated tests for their scoped UI changes.
+- D8, D10, D12, and D13 intentionally use manual validation instead of adding automated tests for their scoped UI changes.
 - Templates must not decide act permissions directly.
-- Preserve existing workflow tests when workflow behavior changes; D12 is a manual-validation UI patch and does not add automated tests.
+- Preserve existing workflow tests when workflow behavior changes; D12 and D13 are manual-validation UI patches and do not add automated tests.
 - Do not add backend complexity before it is needed.
 - Do not add frontend frameworks.
 - Keep navigation server-rendered unless a later patch asks for frontend behavior.

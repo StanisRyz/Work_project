@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation
@@ -156,7 +157,7 @@ def act_detail(request, pk):
     act = _get_act_for_detail(pk)
     if not can_view_act(act, request.user):
         raise Http404('No Act matches the given query.')
-    context = _get_act_detail_context(act, request.user)
+    context = _get_act_detail_context(act, request.user, detail_tab=_get_detail_tab(request.GET.get('tab')))
     return render(request, 'acts/detail.html', context)
 
 
@@ -178,16 +179,17 @@ def act_add_comment(request, pk):
         raise Http404('No Act matches the given query.')
     if request.method != 'POST':
         messages.error(request, 'Комментарий можно добавить только из формы на странице акта.')
-        return redirect('acts:detail', pk=act.pk)
+        return _redirect_to_detail_tab(act, 'work')
 
+    detail_tab = _get_detail_tab(request.POST.get('tab'))
     form = ActCommentForm(request.POST)
     if form.is_valid():
         add_act_comment(act, request.user, form.cleaned_data['text'])
         messages.success(request, 'Комментарий добавлен.')
-        return redirect('acts:detail', pk=act.pk)
+        return _redirect_to_detail_tab(act, detail_tab)
 
     messages.error(request, 'Проверьте текст комментария.')
-    context = _get_act_detail_context(act, request.user, comment_form=form)
+    context = _get_act_detail_context(act, request.user, comment_form=form, detail_tab=detail_tab)
     return render(request, 'acts/detail.html', context)
 
 
@@ -333,37 +335,30 @@ def act_send_to_ko(request, pk):
 @login_required
 def act_ko_decision(request, pk):
     act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
+    if request.method != 'POST':
+        return _redirect_to_detail_tab(act, 'work')
+
     if not get_available_act_actions(act, request.user)['ko_decision']:
         messages.error(request, 'Решение КО для этого акта недоступно.')
-        return redirect('acts:detail', pk=act.pk)
+        return _redirect_to_detail_tab(act, 'work')
 
-    if request.method == 'POST':
-        form = KoDecisionForm(request.POST, instance=act)
-        if form.is_valid():
-            try:
-                act = apply_ko_decision(
-                    act,
-                    request.user,
-                    form.cleaned_data['ko_decision'],
-                    form.cleaned_data['ko_comment'],
-                )
-            except ActWorkflowError as exc:
-                form.add_error(None, str(exc))
-            else:
-                messages.success(request, 'Решение КО сохранено.')
-                return _redirect_after_transition(act, request.user)
-    else:
-        form = KoDecisionForm(instance=act)
+    form = KoDecisionForm(request.POST, instance=act)
+    if form.is_valid():
+        try:
+            act = apply_ko_decision(
+                act,
+                request.user,
+                form.cleaned_data['ko_decision'],
+                form.cleaned_data['ko_comment'],
+            )
+        except ActWorkflowError as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(request, 'Решение КО сохранено.')
+            return _redirect_after_transition(act, request.user)
 
-    return render(
-        request,
-        'acts/ko_decision.html',
-        {
-            'active_page': 'acts',
-            'act': act,
-            'form': form,
-        },
-    )
+    context = _get_act_detail_context(act, request.user, ko_decision_form=form, detail_tab='work')
+    return render(request, 'acts/detail.html', context)
 
 
 @login_required
@@ -408,6 +403,14 @@ def _redirect_after_transition(act, user):
     return redirect('acts:list')
 
 
+def _get_detail_tab(tab):
+    return tab if tab in {'work', 'history'} else 'work'
+
+
+def _redirect_to_detail_tab(act, tab):
+    return redirect(f"{reverse('acts:detail', args=[act.pk])}?tab={_get_detail_tab(tab)}")
+
+
 def _get_act_for_detail(pk):
     return get_object_or_404(
         Act.objects.select_related(
@@ -424,7 +427,14 @@ def _get_act_for_detail(pk):
     )
 
 
-def _get_act_detail_context(act, user, comment_form=None, attachment_form=None):
+def _get_act_detail_context(
+    act,
+    user,
+    comment_form=None,
+    attachment_form=None,
+    ko_decision_form=None,
+    detail_tab='work',
+):
     history_events = act.history_events.select_related('user', 'from_status', 'to_status')
     comments = act.comments.select_related('author')
     defect_rows = list(act.defects.select_related('defect_type'))
@@ -448,11 +458,13 @@ def _get_act_detail_context(act, user, comment_form=None, attachment_form=None):
         'active_page': 'acts',
         'act': act,
         'today': timezone.localdate(),
+        'detail_tab': _get_detail_tab(detail_tab),
         'available_actions': get_available_act_actions(act, user),
         'defect_rows': defect_rows,
         'history_events': history_events,
         'comments': comments,
         'comment_form': comment_form or ActCommentForm(),
+        'ko_decision_form': ko_decision_form or KoDecisionForm(instance=act),
         'attachments': attachments,
         'attachment_form': attachment_form or ActAttachmentForm(),
     }

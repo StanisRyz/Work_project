@@ -93,41 +93,52 @@
     gap: 8px;
 }
 
-.act-route {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 10px;
-}
-
-.act-route__step {
-    padding: 12px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-    color: var(--color-muted);
-    font-weight: 700;
-    text-align: center;
-}
-
-.act-route__step--current {
-    border-color: var(--color-primary);
-    background: #eef4ff;
-    color: var(--color-primary-dark);
-}
-
-.act-route__step--final {
-    border-color: #16a34a;
-    background: #f0fdf4;
-    color: #166534;
-}
-
 .act-detail-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .act-action-panel {
     grid-column: 1 / -1;
     align-items: flex-start;
+}
+
+.act-detail-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.act-detail-tabs__link {
+    padding: 10px 14px;
+    border-bottom: 3px solid transparent;
+    color: var(--color-muted);
+    font-weight: 700;
+}
+
+.act-detail-tabs__link:hover {
+    color: var(--color-primary-dark);
+}
+
+.act-detail-tabs__link--active {
+    border-bottom-color: var(--color-primary);
+    color: var(--color-primary-dark);
+}
+
+.act-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    gap: 16px;
+    align-items: start;
+}
+
+.act-workspace__main {
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+}
+
+.act-workspace__sidebar {
+    min-width: 0;
 }
 
 .act-action-panel h2 {
@@ -279,6 +290,33 @@
 .act-send-to-ko .link-button {
     padding: 10px 16px;
     font-size: 15px;
+}
+
+.act-decision-form {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.act-decision-form label {
+    display: grid;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.act-decision-form select,
+.act-decision-form textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.act-ko-decision-hint {
+    font-size: 14px;
 }
 
 .act-context dl {
@@ -451,7 +489,6 @@
 
 @media (max-width: 1000px) {
     .act-kpi-grid,
-    .act-route,
     .act-detail-grid {
         grid-template-columns: 1fr;
     }
@@ -468,6 +505,10 @@
     .act-defect-detail {
         grid-template-columns: 1fr;
         grid-column: auto;
+    }
+
+    .act-workspace {
+        grid-template-columns: 1fr;
     }
 }
 .admin-access-notice {
