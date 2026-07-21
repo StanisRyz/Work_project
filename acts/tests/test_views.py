@@ -122,8 +122,8 @@ class ActViewTests(TestCase):
         self.assertNotContains(response, hidden_created.number)
         self.assertNotContains(response, hidden_to.number)
 
-    def test_ko_does_not_see_act_after_allow_or_reject_decision(self):
-        for decision in (Act.KoDecision.ALLOW, Act.KoDecision.REJECT):
+    def test_ko_does_not_see_act_after_new_decision(self):
+        for decision in Act.KoDecision.new_values():
             act = self._create_act(self.status_ko)
             self.client.force_login(self.ko_user)
 
@@ -136,20 +136,6 @@ class ActViewTests(TestCase):
             act.refresh_from_db()
             self.assertEqual(act.status.code, 'TO_ANALYSIS')
             self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 404)
-
-    def test_ko_does_not_see_act_after_return_decision(self):
-        act = self._create_act(self.status_ko)
-        self.client.force_login(self.ko_user)
-
-        response = self.client.post(
-            reverse('acts:ko_decision', args=[act.pk]),
-            {'ko_decision': Act.KoDecision.RETURN, 'ko_comment': 'На уточнение'},
-        )
-
-        self.assertRedirects(response, reverse('acts:list'))
-        act.refresh_from_db()
-        self.assertEqual(act.status.code, 'CREATED_OTK')
-        self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 404)
 
     def test_to_sees_only_to_analysis_acts(self):
         visible = self._create_act(self.status_to, party_number='P-TO')
@@ -185,7 +171,7 @@ class ActViewTests(TestCase):
         self.client.force_login(self.otk_user)
         response = self.client.post(
             reverse('acts:ko_decision', args=[ko_act.pk]),
-            {'ko_decision': Act.KoDecision.ALLOW, 'ko_comment': 'Пропустить'},
+            {'ko_decision': Act.KoDecision.ALLOW_NO_REWORK, 'ko_comment': 'Пропустить'},
         )
         self.assertEqual(response.status_code, 404)
         ko_act.refresh_from_db()

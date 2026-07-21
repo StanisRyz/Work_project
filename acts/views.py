@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, Q
+from django.forms.utils import ErrorList
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -16,6 +17,7 @@ from .forms import (
     ActCommentForm,
     ActCreateForm,
     ActDefectFormSet,
+    ActDefectKoDecisionFormSet,
     KoDecisionForm,
     ToAnalysisForm,
 )
@@ -211,10 +213,10 @@ def act_add_attachment(request, pk):
             form.cleaned_data.get('description', ''),
         )
         messages.success(request, 'Вложение добавлено.')
-        return redirect('acts:detail', pk=act.pk)
+        return _redirect_to_detail_tab(act, 'attachments')
 
     messages.error(request, 'Проверьте файл вложения.')
-    context = _get_act_detail_context(act, request.user, attachment_form=form)
+    context = _get_act_detail_context(act, request.user, attachment_form=form, detail_tab='attachments')
     return render(request, 'acts/detail.html', context)
 
 
@@ -342,22 +344,35 @@ def act_ko_decision(request, pk):
         messages.error(request, 'Решение КО для этого акта недоступно.')
         return _redirect_to_detail_tab(act, 'work')
 
-    form = KoDecisionForm(request.POST, instance=act)
-    if form.is_valid():
+    defects = act.defects.select_related('defect_type')
+    if defects.exists():
+        formset = ActDefectKoDecisionFormSet(request.POST, queryset=defects)
+        is_valid = formset.is_valid()
+        defect_decisions = [
+            (form.instance, form.cleaned_data['ko_decision'], form.cleaned_data['ko_comment'])
+            for form in formset.forms
+        ] if is_valid else []
+        form = None
+    else:
+        form = KoDecisionForm(request.POST, instance=act)
+        is_valid = form.is_valid()
+        defect_decisions = [(None, form.cleaned_data['ko_decision'], form.cleaned_data['ko_comment'])] if is_valid else []
+        formset = None
+    if is_valid:
         try:
-            act = apply_ko_decision(
-                act,
-                request.user,
-                form.cleaned_data['ko_decision'],
-                form.cleaned_data['ko_comment'],
-            )
+            act = apply_ko_decision(act, request.user, defect_decisions)
         except ActWorkflowError as exc:
-            form.add_error(None, str(exc))
+            if formset is not None:
+                formset._non_form_errors = ErrorList([str(exc)])
+            else:
+                form.add_error(None, str(exc))
         else:
             messages.success(request, 'Решение КО сохранено.')
             return _redirect_after_transition(act, request.user)
 
-    context = _get_act_detail_context(act, request.user, ko_decision_form=form, detail_tab='work')
+    context = _get_act_detail_context(
+        act, request.user, ko_decision_form=form, ko_decision_formset=formset, detail_tab='work'
+    )
     return render(request, 'acts/detail.html', context)
 
 
@@ -404,7 +419,7 @@ def _redirect_after_transition(act, user):
 
 
 def _get_detail_tab(tab):
-    return tab if tab in {'work', 'history'} else 'work'
+    return tab if tab in {'work', 'history', 'attachments'} else 'work'
 
 
 def _redirect_to_detail_tab(act, tab):
@@ -433,11 +448,13 @@ def _get_act_detail_context(
     comment_form=None,
     attachment_form=None,
     ko_decision_form=None,
+    ko_decision_formset=None,
     detail_tab='work',
 ):
     history_events = act.history_events.select_related('user', 'from_status', 'to_status')
     comments = act.comments.select_related('author')
     defect_rows = list(act.defects.select_related('defect_type'))
+    has_defect_records = bool(defect_rows)
     if not defect_rows:
         defect_rows = [
             {
@@ -461,10 +478,14 @@ def _get_act_detail_context(
         'detail_tab': _get_detail_tab(detail_tab),
         'available_actions': get_available_act_actions(act, user),
         'defect_rows': defect_rows,
+        'has_defect_records': has_defect_records,
         'history_events': history_events,
         'comments': comments,
         'comment_form': comment_form or ActCommentForm(),
         'ko_decision_form': ko_decision_form or KoDecisionForm(instance=act),
+        'ko_decision_formset': ko_decision_formset or (
+            ActDefectKoDecisionFormSet(queryset=act.defects.select_related('defect_type')) if has_defect_records else None
+        ),
         'attachments': attachments,
         'attachment_form': attachment_form or ActAttachmentForm(),
     }

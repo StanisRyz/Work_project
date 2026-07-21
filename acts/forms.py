@@ -2,7 +2,7 @@ import re
 
 from django import forms
 from django.core.exceptions import ValidationError
-from django.forms import BaseInlineFormSet, inlineformset_factory
+from django.forms import BaseInlineFormSet, inlineformset_factory, modelformset_factory
 
 from references.models import DefectType, Operation
 
@@ -130,6 +130,8 @@ ActDefectFormSet = inlineformset_factory(
 
 
 class KoDecisionForm(forms.ModelForm):
+    ko_decision = forms.ChoiceField(choices=Act.KoDecision.new_choices())
+
     class Meta:
         model = Act
         fields = ('ko_decision', 'ko_comment')
@@ -140,6 +142,29 @@ class KoDecisionForm(forms.ModelForm):
         widgets = {
             'ko_comment': forms.Textarea(attrs={'rows': 5}),
         }
+
+
+class ActDefectKoDecisionForm(forms.ModelForm):
+    ko_decision = forms.ChoiceField(choices=Act.KoDecision.new_choices())
+
+    class Meta:
+        model = ActDefect
+        fields = ('ko_decision', 'ko_comment')
+        labels = {
+            'ko_decision': 'Решение КО',
+            'ko_comment': 'Комментарий КО',
+        }
+        widgets = {
+            'ko_comment': forms.Textarea(attrs={'rows': 4}),
+        }
+
+
+ActDefectKoDecisionFormSet = modelformset_factory(
+    ActDefect,
+    form=ActDefectKoDecisionForm,
+    extra=0,
+    can_delete=False,
+)
 
 
 class ToAnalysisForm(forms.ModelForm):

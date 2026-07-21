@@ -38,9 +38,26 @@ def act_attachment_upload_to(instance, filename):
 
 class Act(models.Model):
     class KoDecision(models.TextChoices):
+        ALLOW_NO_REWORK = 'ALLOW_NO_REWORK', 'Пропустить без доработок'
+        ALLOW_WITH_REWORK = 'ALLOW_WITH_REWORK', 'Пропустить с доработками'
+        PROHIBIT_USE = 'PROHIBIT_USE', 'Запретить использование'
+
+        # Legacy values remain in choices so existing acts retain readable labels.
         ALLOW = 'ALLOW', 'Пропустить'
         REJECT = 'REJECT', 'Не пропускать'
         RETURN = 'RETURN', 'Вернуть на уточнение'
+
+        @classmethod
+        def new_choices(cls):
+            return (
+                (cls.ALLOW_NO_REWORK, cls.ALLOW_NO_REWORK.label),
+                (cls.ALLOW_WITH_REWORK, cls.ALLOW_WITH_REWORK.label),
+                (cls.PROHIBIT_USE, cls.PROHIBIT_USE.label),
+            )
+
+        @classmethod
+        def new_values(cls):
+            return {choice for choice, _label in cls.new_choices()}
 
     number = models.CharField('Номер акта', max_length=32, unique=True, blank=True)
     created_by = models.ForeignKey(
@@ -147,6 +164,17 @@ class ActDefect(models.Model):
     )
     description = models.TextField('Описание дефекта')
     detected_at = models.DateField('Срок обнаружения несоответствия')
+    ko_decision = models.CharField('Решение КО', max_length=20, choices=Act.KoDecision.choices, blank=True)
+    ko_comment = models.TextField('Комментарий КО', blank=True)
+    ko_decision_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='ko_decided_defects',
+        blank=True,
+        null=True,
+        verbose_name='Решение КО внес',
+    )
+    ko_decision_at = models.DateTimeField('Дата решения КО', blank=True, null=True)
     created_at = models.DateTimeField('Создано', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлено', auto_now=True)
 

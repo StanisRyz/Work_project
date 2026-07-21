@@ -40,6 +40,11 @@
 - Detail-page tabs control presentation only; they must not change access checks, visibility, or workflow state.
 - Comments must remain available in the detail-page sidebar on every tab.
 - KO decisions must use `available_actions` for template visibility and the existing authorization in `acts/permissions.py` and transition service in `acts/services.py`.
+- The D14 work tab must keep this section order: party data, defects, KO decision, TO analysis, comments.
+- Attachments belong only on the detail-page attachments tab; preserve its validation, protected access, and attachment history.
+- Every new KO decision must transition an act from `KO_REVIEW` to `TO_ANALYSIS` through `apply_ko_decision()`.
+- When an act has multiple defects, KO must provide a separate decision for every defect before the act can transition to TO.
+- Preserve legacy KO decision values and historical events for existing acts; do not rewrite them in a data migration.
 
 ## Patch Rules
 
@@ -63,9 +68,9 @@
 - Closed acts are read-only in the normal workflow.
 - Print view is HTML/browser-print only until an explicit export request.
 - PDF/Word export must not be added without explicit request.
-- D8, D10, D12, and D13 intentionally use manual validation instead of adding automated tests for their scoped UI changes.
+- D8, D10, D12, D13, and D14 intentionally use manual validation instead of adding automated tests for their scoped UI changes.
 - Templates must not decide act permissions directly.
-- Preserve existing workflow tests when workflow behavior changes; D12 and D13 are manual-validation UI patches and do not add automated tests.
+- Preserve existing workflow tests when workflow behavior changes; D12, D13, and D14 are manual-validation UI patches and do not add automated tests.
 - Do not add backend complexity before it is needed.
 - Do not add frontend frameworks.
 - Keep navigation server-rendered unless a later patch asks for frontend behavior.

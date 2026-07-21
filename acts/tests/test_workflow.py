@@ -2,7 +2,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 
 from accounts.models import UserProfile
-from acts.models import Act
+from acts.models import Act, ActDefect
 from acts.services import ActWorkflowError, apply_ko_decision, apply_to_analysis, send_to_ko
 from references.models import ActStatus, DefectType, Operation
 
@@ -48,31 +48,60 @@ class ActWorkflowTests(TestCase):
         act.refresh_from_db()
         self.assertEqual(act.status.code, 'KO_REVIEW')
 
-    def test_ko_return_moves_act_back_to_created_otk(self):
+    def test_every_new_ko_decision_moves_act_to_to_analysis(self):
+        for decision in Act.KoDecision.new_values():
+            with self.subTest(decision=decision):
+                act = self._create_act(self.status_ko)
+
+                apply_ko_decision(act, self.ko_user, [(None, decision, 'Решение КО')])
+
+                act.refresh_from_db()
+                self.assertEqual(act.status.code, 'TO_ANALYSIS')
+                self.assertEqual(act.ko_decision_by, self.ko_user)
+                self.assertIsNotNone(act.ko_decision_at)
+
+    def test_legacy_ko_decision_cannot_be_used_for_a_new_transition(self):
         act = self._create_act(self.status_ko)
 
-        apply_ko_decision(act, self.ko_user, Act.KoDecision.RETURN, 'На уточнение')
+        with self.assertRaises(ActWorkflowError):
+            apply_ko_decision(act, self.ko_user, [(None, Act.KoDecision.RETURN, 'Старое решение')])
 
-        act.refresh_from_db()
-        self.assertEqual(act.status.code, 'CREATED_OTK')
-        self.assertEqual(act.ko_decision_by, self.ko_user)
-        self.assertIsNotNone(act.ko_decision_at)
-
-    def test_ko_allow_moves_act_to_to_analysis(self):
+    def test_every_defect_requires_a_ko_decision_before_transition_to_to(self):
         act = self._create_act(self.status_ko)
+        first_defect = ActDefect.objects.create(
+            act=act,
+            defect_type=self.defect_type,
+            description='Первый дефект',
+            detected_at='2026-07-21',
+        )
+        second_defect = ActDefect.objects.create(
+            act=act,
+            defect_type=self.defect_type,
+            description='Второй дефект',
+            detected_at='2026-07-21',
+        )
 
-        apply_ko_decision(act, self.ko_user, Act.KoDecision.ALLOW, 'Пропустить')
+        with self.assertRaises(ActWorkflowError):
+            apply_ko_decision(
+                act,
+                self.ko_user,
+                [(first_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Решение')],
+            )
 
+        apply_ko_decision(
+            act,
+            self.ko_user,
+            [
+                (first_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Решение по первому'),
+                (second_defect, Act.KoDecision.PROHIBIT_USE, 'Решение по второму'),
+            ],
+        )
         act.refresh_from_db()
+        first_defect.refresh_from_db()
+        second_defect.refresh_from_db()
         self.assertEqual(act.status.code, 'TO_ANALYSIS')
-
-    def test_ko_reject_moves_act_to_to_analysis(self):
-        act = self._create_act(self.status_ko)
-
-        apply_ko_decision(act, self.ko_user, Act.KoDecision.REJECT, 'Не пропускать')
-
-        act.refresh_from_db()
-        self.assertEqual(act.status.code, 'TO_ANALYSIS')
+        self.assertEqual(first_defect.ko_decision, Act.KoDecision.ALLOW_NO_REWORK)
+        self.assertEqual(second_defect.ko_decision, Act.KoDecision.PROHIBIT_USE)
 
     def test_to_analysis_moves_act_to_actions_assigned(self):
         act = self._create_act(self.status_to)
@@ -90,7 +119,7 @@ class ActWorkflowTests(TestCase):
         created_act = self._create_act(self.status_created)
 
         with self.assertRaises(ActWorkflowError):
-            apply_ko_decision(ko_act, self.otk_user, Act.KoDecision.ALLOW, '')
+            apply_ko_decision(ko_act, self.otk_user, [(None, Act.KoDecision.ALLOW_NO_REWORK, '')])
         with self.assertRaises(ActWorkflowError):
             apply_to_analysis(to_act, self.ko_user, 'Причина', 'Мероприятия')
         with self.assertRaises(ActWorkflowError):

@@ -38,18 +38,28 @@ def send_to_ko(act, user):
     return act
 
 
-def apply_ko_decision(act, user, decision, comment):
+def apply_ko_decision(act, user, defect_decisions):
     if not can_apply_ko_decision(act, user):
         raise ActWorkflowError('Решение КО недоступно для вашей роли или текущего статуса.')
     _require_status(act, 'KO_REVIEW')
-    if decision not in Act.KoDecision.values:
-        raise ActWorkflowError('Недопустимое решение КО.')
+    defect_decisions = list(defect_decisions)
+    defects = list(act.defects.select_related('defect_type'))
+    if defects:
+        expected_ids = {defect.pk for defect in defects}
+        received_ids = {defect.pk for defect, _decision, _comment in defect_decisions}
+        if expected_ids != received_ids:
+            raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
+    elif len(defect_decisions) != 1 or defect_decisions[0][0] is not None:
+        raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
+    for _defect, decision, _comment in defect_decisions:
+        if decision not in Act.KoDecision.new_values():
+            raise ActWorkflowError('Недопустимое решение КО.')
 
     from_status = act.status
-    next_status_code = 'CREATED_OTK' if decision == Act.KoDecision.RETURN else 'TO_ANALYSIS'
-    to_status = _get_required_status(next_status_code)
-    act.ko_decision = decision
-    act.ko_comment = comment
+    to_status = _get_required_status('TO_ANALYSIS')
+    first_defect, first_decision, first_comment = defect_decisions[0]
+    act.ko_decision = first_decision
+    act.ko_comment = first_comment
     act.ko_decision_by = user
     act.ko_decision_at = timezone.now()
     act.status = to_status
@@ -63,32 +73,25 @@ def apply_ko_decision(act, user, decision, comment):
             'updated_at',
         ]
     )
-    if decision == Act.KoDecision.RETURN:
-        add_act_history_event(
-            act,
-            user,
-            ActHistoryEvent.EventType.RETURNED_TO_OTK,
-            'Акт возвращён в ОТК на уточнение.',
-            from_status=from_status,
-            to_status=to_status,
-        )
-    else:
-        add_act_history_event(
-            act,
-            user,
-            ActHistoryEvent.EventType.KO_DECISION_APPLIED,
-            f'Решение КО внесено: {act.get_ko_decision_display()}.',
-            from_status=from_status,
-            to_status=to_status,
-        )
-        add_act_history_event(
-            act,
-            user,
-            ActHistoryEvent.EventType.SENT_TO_TO,
-            'Акт передан в ТО для анализа.',
-            from_status=from_status,
-            to_status=to_status,
-        )
+    for defect, decision, comment in defect_decisions:
+        if defect is not None:
+            defect.ko_decision = decision
+            defect.ko_comment = comment
+            defect.ko_decision_by = user
+            defect.ko_decision_at = act.ko_decision_at
+            defect.save(update_fields=['ko_decision', 'ko_comment', 'ko_decision_by', 'ko_decision_at', 'updated_at'])
+            message = f'Решение КО по дефекту «{defect.defect_type}»: {defect.get_ko_decision_display()}.'
+        else:
+            message = f'Решение КО внесено: {act.get_ko_decision_display()}.'
+        add_act_history_event(act, user, ActHistoryEvent.EventType.KO_DECISION_APPLIED, message)
+    add_act_history_event(
+        act,
+        user,
+        ActHistoryEvent.EventType.SENT_TO_TO,
+        'Акт передан в ТО для анализа.',
+        from_status=from_status,
+        to_status=to_status,
+    )
     return act
 
 

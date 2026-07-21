@@ -93,15 +93,6 @@
     gap: 8px;
 }
 
-.act-detail-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.act-action-panel {
-    grid-column: 1 / -1;
-    align-items: flex-start;
-}
-
 .act-detail-tabs {
     display: flex;
     gap: 8px;
@@ -124,30 +115,35 @@
     color: var(--color-primary-dark);
 }
 
-.act-workspace {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-    gap: 16px;
-    align-items: start;
-}
-
-.act-workspace__main {
+.act-work-sequence {
     display: grid;
     gap: 16px;
-    min-width: 0;
 }
 
-.act-workspace__sidebar {
-    min-width: 0;
+.act-work-decision-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
 }
 
-.act-action-panel h2 {
-    margin: 0 0 6px;
+.act-party-data {
+    grid-template-columns: 130px minmax(0, 1fr) 130px minmax(0, 1fr) !important;
 }
 
-.act-closed-block {
-    border-color: #bbf7d0;
-    background: #f0fdf4;
+.act-party-data dt:nth-of-type(odd) {
+    grid-column: 1;
+}
+
+.act-party-data dt:nth-of-type(even) {
+    grid-column: 3;
+}
+
+.act-party-data dt:nth-of-type(odd) + dd {
+    grid-column: 2;
+}
+
+.act-party-data dt:nth-of-type(even) + dd {
+    grid-column: 4;
 }
 
 .placeholder-text {
@@ -248,10 +244,6 @@
     font-weight: 700;
 }
 
-.act-defect-detail {
-    grid-column: span 2;
-}
-
 .act-defect-list {
     display: grid;
     gap: 12px;
@@ -290,6 +282,17 @@
 .act-send-to-ko .link-button {
     padding: 10px 16px;
     font-size: 15px;
+}
+
+.act-inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: end;
+}
+
+.act-inline-actions .link-button {
+    margin-top: 14px;
 }
 
 .act-decision-form {
@@ -488,8 +491,7 @@
 }
 
 @media (max-width: 1000px) {
-    .act-kpi-grid,
-    .act-detail-grid {
+    .act-kpi-grid {
         grid-template-columns: 1fr;
     }
 
@@ -501,14 +503,25 @@
         justify-content: flex-start;
     }
 
-    .act-form-row,
-    .act-defect-detail {
+    .act-form-row {
         grid-template-columns: 1fr;
-        grid-column: auto;
     }
 
-    .act-workspace {
-        grid-template-columns: 1fr;
+    .act-work-decision-row,
+    .act-party-data {
+        grid-template-columns: 130px minmax(0, 1fr) !important;
+    }
+
+    .act-party-data dt,
+    .act-party-data dt:nth-of-type(odd),
+    .act-party-data dt:nth-of-type(even) {
+        grid-column: 1;
+    }
+
+    .act-party-data dd,
+    .act-party-data dt:nth-of-type(odd) + dd,
+    .act-party-data dt:nth-of-type(even) + dd {
+        grid-column: 2;
     }
 }
 .admin-access-notice {

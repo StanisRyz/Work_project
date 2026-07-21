@@ -8,14 +8,15 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D13 — рабочее пространство акта и встроенное решение КО.
+D14 — структура проработки акта, вкладка вложений и обновлённые решения КО.
 
-D13 перестраивает детализацию акта без изменения моделей, прав доступа, видимости или правил маршрута:
+D14 обновляет представление и схему решений КО:
 
-- Детальная страница имеет вкладки `Проработка` и `История акта`; вкладки изменяют только представление.
-- Комментарии всегда доступны в правой боковой колонке, в том числе на вкладке истории.
-- Форма решения КО встроена во вкладку `Проработка` и использует прежний POST-маршрут, проверки и сервис перехода.
-- Старый GET-маршрут решения КО перенаправляет на вкладку `Проработка`.
+- Детальная страница имеет вкладки `Проработка`, `История акта` и `Вложения`.
+- Вкладка `Проработка` содержит последовательность данных партии, дефектов, решения КО, анализа ТО и комментариев.
+- Вложения отображаются только на одноимённой вкладке.
+- Для каждого дефекта требуется отдельное новое решение КО; после заполнения всех решений акт передаётся из `KO_REVIEW` в `TO_ANALYSIS`.
+- Старые значения решений КО и исторические события сохранены без преобразования и продолжают отображаться.
 
 D11A makes administrator access explicit and reliable throughout the acts module:
 
@@ -49,6 +50,13 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+- Log in as `ko_user` / `demo12345` and verify `Проработка`, `История акта`, and `Вложения`; verify invalid or missing `tab` opens `Проработка`.
+- On `Вложения`, upload a permitted file, download it, and delete it only with an allowed user; submit an invalid file and verify the tab remains active.
+- Submit each new KO decision on a separate `KO_REVIEW` act and verify every act moves to `TO_ANALYSIS`, leaves the KO queue, appears in the TO queue, and has KO and TO-transfer history events.
+- Log in as `to_user` and verify each transferred act is available for the existing TO analysis workflow.
+- Open an existing act with a legacy KO decision and verify its stored label still displays correctly.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, and `python manage.py check`.
 
 - Log in as `ko_user` / `demo12345` and open an act in `KO_REVIEW`.
 - Verify that `Проработка` opens by default, both tabs switch with `tab=work` and `tab=history`, and an invalid tab value opens `Проработка`.
@@ -163,4 +171,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D13 manual validation.
+- To be defined after D14 manual validation.
