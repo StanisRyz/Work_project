@@ -40,7 +40,9 @@ document.addEventListener('DOMContentLoaded', () => {
         let message = '';
         if (showRequired && field.required && !value) {
             message = 'Заполните поле.';
-        } else if (value && ['nomenclature', 'kd_designation'].some((name) => field.name.endsWith(name)) && !/^[А-Яа-яЁё0-9.-]+$/.test(value)) {
+        } else if (value && field.name.endsWith('nomenclature') && !/^[А-Яа-яЁё0-9. -]+$/.test(value)) {
+            message = 'Допустимы только русские буквы, цифры, пробелы, точки и тире.';
+        } else if (value && field.name.endsWith('kd_designation') && !/^[А-Яа-яЁё0-9.-]+$/.test(value)) {
             message = 'Допустимы только русские буквы, цифры, точки и тире.';
         } else if (value && ['order_number', 'znp_number', 'party_number'].some((name) => field.name.endsWith(name)) && !/^[0-9/-]+$/.test(value)) {
             message = 'Допустимы только цифры, дефис и слэш.';

@@ -38,6 +38,7 @@ from .services import (
     get_available_act_actions,
     get_role_context_text,
     get_visible_acts_for_user,
+    return_to_otk,
     send_to_ko,
 )
 
@@ -437,13 +438,27 @@ def act_ko_decision(request, pk):
             else:
                 form.add_error(None, str(exc))
         else:
-            messages.success(request, 'Решение КО сохранено.')
+            messages.success(request, 'Решения КО сохранены. Акт передан в ТО.')
             return _redirect_after_transition(act, request.user)
 
     context = _get_act_detail_context(
         act, request.user, ko_decision_form=form, ko_decision_formset=formset, detail_tab='work'
     )
     return render(request, 'acts/detail.html', context)
+
+
+@login_required
+def act_return_to_otk(request, pk):
+    act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
+    if request.method != 'POST':
+        return _redirect_to_detail_tab(act, 'work')
+    try:
+        return_to_otk(act, request.user)
+    except ActWorkflowError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Акт возвращён в ОТК на доработку.')
+    return _redirect_after_transition(act, request.user)
 
 
 @login_required
@@ -538,6 +553,30 @@ def _get_act_detail_context(
                 'detected_at': act.due_date,
             }
         ]
+    if ko_decision_formset is None and has_defect_records:
+        ko_decision_formset = ActDefectKoDecisionFormSet(
+            queryset=act.defects.select_related('defect_type')
+        )
+    if ko_decision_formset is not None:
+        for field in ko_decision_formset.management_form.fields.values():
+            field.widget.attrs['form'] = 'ko-decision-form'
+        ko_forms = list(ko_decision_formset)
+        for form in ko_forms:
+            for field in form.fields.values():
+                field.widget.attrs['form'] = 'ko-decision-form'
+    else:
+        ko_forms = []
+    if ko_decision_form is None:
+        ko_decision_form = KoDecisionForm(instance=act)
+    for field in ko_decision_form.fields.values():
+        field.widget.attrs['form'] = 'ko-decision-form'
+    defect_decision_rows = [
+        {
+            'defect': defect,
+            'ko_form': ko_forms[index] if index < len(ko_forms) else None,
+        }
+        for index, defect in enumerate(defect_rows)
+    ]
     attachments = [
         {
             'object': attachment,
@@ -554,14 +593,13 @@ def _get_act_detail_context(
         'detail_tab': _get_detail_tab(detail_tab),
         'available_actions': get_available_act_actions(act, user),
         'defect_rows': defect_rows,
+        'defect_decision_rows': defect_decision_rows,
         'has_defect_records': has_defect_records,
         'history_events': history_events,
         'comments': comments,
         'comment_form': comment_form or ActCommentForm(),
-        'ko_decision_form': ko_decision_form or KoDecisionForm(instance=act),
-        'ko_decision_formset': ko_decision_formset or (
-            ActDefectKoDecisionFormSet(queryset=act.defects.select_related('defect_type')) if has_defect_records else None
-        ),
+        'ko_decision_form': ko_decision_form,
+        'ko_decision_formset': ko_decision_formset,
         'attachments': attachments,
         'attachment_form': attachment_form or ActAttachmentForm(),
     }

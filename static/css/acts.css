@@ -138,6 +138,47 @@
     gap: 16px;
 }
 
+.act-defect-decision-list {
+    display: grid;
+    gap: 16px;
+}
+
+.act-defect-decision-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: stretch;
+}
+
+.act-defect-decision-pair .act-defect-card {
+    height: 100%;
+}
+
+.act-ko-decision-fields {
+    display: grid;
+    gap: 14px;
+}
+
+.act-ko-decision-fields label {
+    display: grid;
+    gap: 6px;
+}
+
+.act-ko-decision-fields label > span {
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.act-ko-decision-fields select,
+.act-ko-decision-fields textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+}
+
 .act-primary-actions {
     display: flex;
     justify-content: flex-end;
@@ -151,7 +192,11 @@
 }
 
 .act-party-data {
-    grid-template-columns: 130px minmax(0, 1fr) 130px minmax(0, 1fr) !important;
+    grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr) !important;
+}
+
+.act-party-data dt {
+    white-space: nowrap;
 }
 
 .act-party-data dt:nth-of-type(odd) {
@@ -168,6 +213,45 @@
 
 .act-party-data dt:nth-of-type(even) + dd {
     grid-column: 4;
+}
+
+.act-defect-card__grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 14px 18px;
+}
+
+.act-defect-card__grid > div {
+    display: grid;
+    gap: 4px;
+}
+
+.act-defect-card__grid span {
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.act-defect-card__grid .act-defect-card__value {
+    color: var(--color-text);
+    font-weight: 400;
+    font-size: 16px;
+}
+
+.act-defect-card__grid p {
+    margin: 0;
+    color: var(--color-text);
+}
+
+.act-defect-card__grid .act-defect-card__full {
+    grid-column: 1 / -1;
+}
+
+.act-defect-card__grid .act-defect-card__third {
+    grid-column: span 2;
+}
+
+.act-defect-card__grid .act-defect-card__half {
+    grid-column: span 3;
 }
 
 .placeholder-text {
@@ -562,9 +646,12 @@
         grid-template-columns: 1fr;
     }
 
-    .act-work-decision-row,
-    .act-party-data {
-        grid-template-columns: 130px minmax(0, 1fr) !important;
+    .act-work-decision-row {
+        grid-template-columns: 1fr;
+    }
+
+    .act-defect-decision-pair {
+        grid-template-columns: 1fr;
     }
 
     .act-party-data dt,
@@ -586,6 +673,28 @@
 
     .act-primary-actions .act-inline-actions {
         justify-content: flex-start;
+    }
+}
+
+@media (max-width: 700px) {
+    .act-party-data,
+    .act-defect-card__grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .act-party-data dt,
+    .act-party-data dd,
+    .act-party-data dt:nth-of-type(odd),
+    .act-party-data dt:nth-of-type(even),
+    .act-party-data dt:nth-of-type(odd) + dd,
+    .act-party-data dt:nth-of-type(even) + dd,
+    .act-defect-card__grid .act-defect-card__full {
+        grid-column: 1;
+    }
+
+    .act-defect-card__grid .act-defect-card__third,
+    .act-defect-card__grid .act-defect-card__half {
+        grid-column: 1;
     }
 }
 .admin-access-notice {

@@ -9,6 +9,7 @@ from .permissions import (
     can_close_act,
     can_delete_attachment,
     can_edit_act,
+    can_return_to_otk,
     can_send_to_ko,
     can_view_act,
     is_act_admin,
@@ -91,6 +92,25 @@ def apply_ko_decision(act, user, defect_decisions):
         user,
         ActHistoryEvent.EventType.SENT_TO_TO,
         'Акт передан в ТО для анализа.',
+        from_status=from_status,
+        to_status=to_status,
+    )
+    return act
+
+
+def return_to_otk(act, user):
+    if not can_return_to_otk(act, user):
+        raise ActWorkflowError('Возврат акта в ОТК недоступен для вашей роли или текущего статуса.')
+    _require_status(act, 'KO_REVIEW')
+    from_status = act.status
+    to_status = _get_required_status('CREATED_OTK')
+    act.status = to_status
+    act.save(update_fields=['status', 'updated_at'])
+    add_act_history_event(
+        act,
+        user,
+        ActHistoryEvent.EventType.RETURNED_TO_OTK,
+        'Акт возвращён в ОТК на доработку.',
         from_status=from_status,
         to_status=to_status,
     )
@@ -269,6 +289,7 @@ def get_available_act_actions(act, user):
         'edit_act': can_edit_act(act, user),
         'send_to_ko': can_send_to_ko(act, user),
         'ko_decision': can_apply_ko_decision(act, user),
+        'return_to_otk': can_return_to_otk(act, user),
         'to_analysis': can_apply_to_analysis(act, user),
         'close_act': can_close_act(act, user),
         'print_act': can_view_act(act, user),

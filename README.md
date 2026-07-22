@@ -8,6 +8,10 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D17 — corrected visual layout of the `CREATED_OTK` act detail page.
+
+D17 removes duplicate top-level detection-date metadata and uses responsive party-data and defect-card grids without changing act behavior.
+
 D16 — improved CREATED_OTK act detail page and controlled editing before transfer to KO.
 
 D16 moves the act number to the top header, keeps work data in the prescribed sequence, and allows authorized users to edit party data and defects only while an act remains in `CREATED_OTK`.
@@ -16,7 +20,7 @@ D15 — validation for product fields and detected dates in the act creation for
 
 D15 preserves the existing act creation workflow and adds the following protections:
 
-- `Наименование продукции` and `Обозначение по КД` accept only Russian letters, digits, dots, and hyphens; Django server-side validation remains authoritative.
+- `Наименование продукции` accepts Russian letters, digits, spaces, dots, and hyphens; `Обозначение по КД` accepts the same characters except spaces. Django server-side validation remains authoritative.
 - Every defect row initially uses the current local date, with that date also set as the latest selectable date.
 - Future defect detection dates are rejected by the server.
 
@@ -62,6 +66,14 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+### D17
+
+- Open a `CREATED_OTK` act on a desktop viewport: verify no top-level `Дата обнаружения`, party-data labels remain on one line, and Defects/KO remain side by side.
+- Verify each defect card has the approved five rows, with full-width defect type and description.
+- Resize to a narrow viewport and verify the outer sections and defect-card fields stack without clipping.
+- Verify an act without `ActDefect` rows still renders its legacy defect fallback.
+- Run `python manage.py check`.
 
 ### D16
 
@@ -200,4 +212,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D16 manual validation.
+- To be defined after D17 manual validation.

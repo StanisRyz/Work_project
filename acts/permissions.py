@@ -103,6 +103,10 @@ def can_apply_ko_decision(act, user):
     return _status_code(act) == 'KO_REVIEW' and (is_ko(user) or has_full_act_access(user))
 
 
+def can_return_to_otk(act, user):
+    return can_apply_ko_decision(act, user)
+
+
 def can_apply_to_analysis(act, user):
     return _status_code(act) == 'TO_ANALYSIS' and (is_to(user) or has_full_act_access(user))
 

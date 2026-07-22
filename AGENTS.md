@@ -36,6 +36,7 @@
 - Product nomenclature and KD designation input restrictions must be validated server-side; browser-side validation is supplementary.
 - Defect detected dates cannot be later than the current local date.
 - The CREATED_OTK work tab order is party data, defects and KO decision, TO analysis, comments, then the bottom-right action panel.
+- On wide screens, party-data labels must remain on one line and every defect card must use rows for ZNP/party/MP type, full-width defect type, operation/date, quantities, and full-width description.
 - Act editing is available only before transfer to KO: the OTK author and managers/administrators may edit acts in CREATED_OTK only.
 - Act create form dynamic defect rows must still be backed by server-side formset validation.
 - On the act detail page, use `defect_rows` as the primary source for defects.
