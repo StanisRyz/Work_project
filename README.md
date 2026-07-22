@@ -8,6 +8,14 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D15 — validation for product fields and detected dates in the act creation form.
+
+D15 preserves the existing act creation workflow and adds the following protections:
+
+- `Наименование продукции` and `Обозначение по КД` accept only Russian letters, digits, dots, and hyphens; Django server-side validation remains authoritative.
+- Every defect row initially uses the current local date, with that date also set as the latest selectable date.
+- Future defect detection dates are rejected by the server.
+
 D14 — структура проработки акта, вкладка вложений и обновлённые решения КО.
 
 D14 обновляет представление и схему решений КО:
@@ -50,6 +58,14 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+### D15
+
+- Open `/acts/create/` and submit valid Russian-only product and KD values, for example `Катушка-1` and `КД-12.3`.
+- Verify today is prefilled for the initial defect date and for every row added with `Добавить дефект`; verify a past date can be selected.
+- Verify future dates cannot be selected in the browser calendar and are rejected by a direct POST request.
+- Verify `Product-1`, `КД/12`, and `Катушка А` show validation errors for the product/KD fields.
+- Run `python manage.py check`.
 
 - Log in as `ko_user` / `demo12345` and verify `Проработка`, `История акта`, and `Вложения`; verify invalid or missing `tab` opens `Проработка`.
 - On `Вложения`, upload a permitted file, download it, and delete it only with an allowed user; submit an invalid file and verify the tab remains active.
@@ -171,4 +187,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D14 manual validation.
+- To be defined after D15 manual validation.
