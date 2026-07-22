@@ -91,6 +91,14 @@ def can_send_to_ko(act, user):
     return is_otk(user) and act.created_by_id == user.id
 
 
+def can_edit_act(act, user):
+    if _status_code(act) != 'CREATED_OTK':
+        return False
+    if has_full_act_access(user):
+        return True
+    return is_otk(user) and act.created_by_id == user.id
+
+
 def can_apply_ko_decision(act, user):
     return _status_code(act) == 'KO_REVIEW' and (is_ko(user) or has_full_act_access(user))
 

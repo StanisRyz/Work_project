@@ -9,6 +9,7 @@ urlpatterns = [
     path('clear-all/', views.act_clear_all, name='clear_all'),
     path('create/', views.act_create, name='create'),
     path('<int:pk>/', views.act_detail, name='detail'),
+    path('<int:pk>/edit/', views.act_edit, name='edit'),
     path('<int:pk>/send-to-ko/', views.act_send_to_ko, name='send_to_ko'),
     path('<int:pk>/ko-decision/', views.act_ko_decision, name='ko_decision'),
     path('<int:pk>/to-analysis/', views.act_to_analysis, name='to_analysis'),

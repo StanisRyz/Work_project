@@ -8,6 +8,10 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D16 — improved CREATED_OTK act detail page and controlled editing before transfer to KO.
+
+D16 moves the act number to the top header, keeps work data in the prescribed sequence, and allows authorized users to edit party data and defects only while an act remains in `CREATED_OTK`.
+
 D15 — validation for product fields and detected dates in the act creation form.
 
 D15 preserves the existing act creation workflow and adds the following protections:
@@ -58,6 +62,15 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+### D16
+
+- Open a `CREATED_OTK` act and verify its number is in the top header and the work-tab order is party data, defects/KO decision, TO analysis, comments, then actions.
+- Verify every defect card, including the legacy no-defect fallback, shows the required fields in order.
+- Edit party data and defects; add and delete a defect, and verify D15 product, KD, quantity, and detected-date validation remains active.
+- Verify only the OTK author, manager, or administrator can edit a `CREATED_OTK` act; verify later statuses cannot be edited.
+- Transfer an edited act to KO and verify the edit action is unavailable.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, and `python manage.py check`.
 
 ### D15
 
@@ -187,4 +200,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D15 manual validation.
+- To be defined after D16 manual validation.

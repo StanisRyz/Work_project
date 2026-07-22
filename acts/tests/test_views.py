@@ -60,7 +60,7 @@ class ActViewTests(TestCase):
             {
                 'customer': 'Заказчик',
                 'order_number': '100-1',
-                'nomenclature': 'Катушка А',
+                'nomenclature': 'Катушка-А',
                 'kd_designation': 'КД-100',
                 'defects-TOTAL_FORMS': '1',
                 'defects-INITIAL_FORMS': '0',
@@ -92,7 +92,7 @@ class ActViewTests(TestCase):
             {
                 'customer': 'Заказчик',
                 'order_number': '100-2',
-                'nomenclature': 'Катушка А',
+                'nomenclature': 'Катушка-А',
                 'kd_designation': 'КД-101',
                 'defects-TOTAL_FORMS': '1',
                 'defects-INITIAL_FORMS': '0',

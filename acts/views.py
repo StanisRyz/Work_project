@@ -17,12 +17,13 @@ from .forms import (
     ActCommentForm,
     ActCreateForm,
     ActDefectFormSet,
+    ActDefectEditFormSet,
     ActDefectKoDecisionFormSet,
     KoDecisionForm,
     ToAnalysisForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
-from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_view_act, is_act_admin
+from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act, is_act_admin
 from .services import (
     ActWorkflowError,
     add_act_comment,
@@ -180,6 +181,56 @@ def act_detail(request, pk):
         raise Http404('No Act matches the given query.')
     context = _get_act_detail_context(act, request.user, detail_tab=_get_detail_tab(request.GET.get('tab')))
     return render(request, 'acts/detail.html', context)
+
+
+@login_required
+def act_edit(request, pk):
+    act = _get_act_for_detail(pk)
+    if not can_view_act(act, request.user) or not can_edit_act(act, request.user):
+        raise Http404('No Act matches the given query.')
+
+    if request.method == 'POST':
+        form = ActCreateForm(request.POST, instance=act)
+        defect_formset = ActDefectEditFormSet(request.POST, instance=act)
+        if form.is_valid() and defect_formset.is_valid():
+            with transaction.atomic():
+                act = form.save(commit=False)
+                defect_formset.save()
+                first_defect = act.defects.select_related(
+                    'defect_type', 'operation'
+                ).order_by('created_at', 'pk').first()
+                act.operation = first_defect.operation
+                act.znp_number = first_defect.znp_number
+                act.party_number = first_defect.party_number
+                act.defect_type = first_defect.defect_type
+                act.description = first_defect.description
+                act.due_date = first_defect.detected_at
+                act.save()
+                add_act_history_event(
+                    act,
+                    request.user,
+                    ActHistoryEvent.EventType.ACT_EDITED,
+                    'Акт отредактирован до передачи в КО.',
+                )
+            messages.success(request, 'Акт сохранён.')
+            return _redirect_to_detail_tab(act, 'work')
+        messages.error(request, 'Проверьте данные формы редактирования акта.')
+    else:
+        form = ActCreateForm(instance=act)
+        defect_formset = ActDefectEditFormSet(instance=act)
+
+    return render(
+        request,
+        'acts/form.html',
+        {
+            'active_page': 'acts',
+            'header_title': f'Редактирование акта {act.number}',
+            'form': form,
+            'defect_formset': defect_formset,
+            'act': act,
+            'is_edit': True,
+        },
+    )
 
 
 @login_required
@@ -497,6 +548,7 @@ def _get_act_detail_context(
     ]
     return {
         'active_page': 'acts',
+        'header_title': act.number,
         'act': act,
         'today': timezone.localdate(),
         'detail_tab': _get_detail_tab(detail_tab),

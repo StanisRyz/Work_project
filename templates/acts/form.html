@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Создание акта - Единая цифровая экосистема управления качеством{% endblock %}
+{% block title %}{% if is_edit %}Редактирование акта{% else %}Создание акта{% endif %} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
 <form class="form-card act-form" method="post">
@@ -31,6 +31,7 @@
                         </div>
                     {% endif %}
                     {{ defect_form.id }}
+                    {% if is_edit %}<span hidden>{{ defect_form.DELETE }}</span>{% endif %}
                     {{ defect_form.non_field_errors }}
                     <div class="act-form-row act-form-row--five">
                         <label><span>{{ defect_form.znp_number.label }}</span>{{ defect_form.znp_number }}{{ defect_form.znp_number.errors }}</label>
@@ -54,6 +55,7 @@
                     <button class="link-button link-button--danger remove-defect-button" type="button" data-remove-defect>Удалить поле</button>
                 </div>
                 {{ defect_formset.empty_form.id }}
+                {% if is_edit %}<span hidden>{{ defect_formset.empty_form.DELETE }}</span>{% endif %}
                 {{ defect_formset.empty_form.non_field_errors }}
                 <div class="act-form-row act-form-row--five">
                     <label><span>{{ defect_formset.empty_form.znp_number.label }}</span>{{ defect_formset.empty_form.znp_number }}{{ defect_formset.empty_form.znp_number.errors }}</label>
@@ -74,8 +76,8 @@
     </section>
 
     <div class="form-actions">
-        <button class="link-button" type="submit">Сохранить</button>
-        <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">Отмена</a>
+        <button class="link-button" type="submit">{% if is_edit %}Сохранить изменения{% else %}Сохранить{% endif %}</button>
+        <a class="link-button link-button--secondary" href="{% if is_edit %}{% url 'acts:detail' act.pk %}?tab=work{% else %}{% url 'acts:list' %}{% endif %}">Отмена</a>
     </div>
 </form>
 {% endblock %}

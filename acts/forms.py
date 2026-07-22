@@ -207,6 +207,18 @@ ActDefectFormSet = inlineformset_factory(
 )
 
 
+ActDefectEditFormSet = inlineformset_factory(
+    Act,
+    ActDefect,
+    form=ActDefectForm,
+    formset=BaseActDefectFormSet,
+    extra=0,
+    min_num=1,
+    validate_min=True,
+    can_delete=True,
+)
+
+
 class KoDecisionForm(forms.ModelForm):
     ko_decision = forms.ChoiceField(choices=Act.KoDecision.new_choices())
 

@@ -124,7 +124,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const block = removeButton.closest('.defect-form-block');
-        if (!block || list.querySelectorAll('.defect-form-block').length <= 1) {
+        const visibleBlocks = [...list.querySelectorAll('.defect-form-block')]
+            .filter((formBlock) => !formBlock.hidden);
+        if (!block || visibleBlocks.length <= 1) {
+            return;
+        }
+
+        const deleteField = block.querySelector('input[name$="-DELETE"]');
+        if (deleteField) {
+            deleteField.checked = true;
+            block.hidden = true;
             return;
         }
 

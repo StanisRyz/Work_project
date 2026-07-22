@@ -3,21 +3,12 @@
 {% block title %}{{ act.number }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-<section class="page-header act-detail-header" aria-labelledby="act-title">
-    <span class="badge">Акт</span>
-    <div class="act-detail-header__main">
-        <div>
-            <h1 id="act-title">{{ act.number }}</h1>
-            <p>{{ act.party_number }} · {{ act.nomenclature }}</p>
-        </div>
-        <div class="act-detail-header__badges">
-            {% include 'acts/includes/status_badge.html' with status=act.status %}
-            {% include 'acts/includes/priority_badge.html' with priority=act.priority %}
-            <span class="{% if act.due_date and act.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">
-                Срок: {{ act.due_date|date:'d.m.Y'|default:'не задан' }}
-            </span>
-        </div>
-    </div>
+<section class="act-detail-meta">
+    <span class="badge">Акт операционного контроля</span>
+    <span>{{ act.party_number }} · {{ act.nomenclature }}</span>
+    {% include 'acts/includes/status_badge.html' with status=act.status %}
+    {% include 'acts/includes/priority_badge.html' with priority=act.priority %}
+    <span class="{% if act.due_date and act.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">Дата обнаружения: {{ act.due_date|date:'d.m.Y'|default:'не указана' }}</span>
 </section>
 
 <nav class="act-detail-tabs" aria-label="Разделы акта">
@@ -36,21 +27,6 @@
                 <dt>Наименование продукции</dt><dd>{{ act.nomenclature|default:'Не указано' }}</dd>
                 <dt>Обозначение по КД</dt><dd>{{ act.kd_designation|default:'Не указано' }}</dd>
             </dl>
-            <div class="act-inline-actions">
-                {% if available_actions.send_to_ko %}
-                    <div class="act-send-to-ko">
-                        <p>После подтверждения акт будет передан в КО и исчезнет из очереди ОТК.</p>
-                        <form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">
-                            {% csrf_token %}
-                            <button class="link-button" type="submit">Передать в КО</button>
-                        </form>
-                    </div>
-                {% endif %}
-                {% if available_actions.print_act %}
-                    <a class="link-button link-button--secondary" href="{% url 'acts:print' act.pk %}">Печатная форма</a>
-                {% endif %}
-                <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">К списку</a>
-            </div>
         </article>
 
         <div class="act-work-decision-row">
@@ -59,19 +35,18 @@
                 <div class="act-defect-list">
                 {% for defect in defect_rows %}
                     <section class="act-defect-card">
-                        {% if defect_rows|length > 1 %}
-                            <h3>Дефект {{ forloop.counter }}</h3>
-                        {% endif %}
+                        {% if defect_rows|length > 1 %}<h3>Дефект {{ forloop.counter }}</h3>{% endif %}
                         <dl>
                             <dt>Номер ЗНП</dt><dd>{{ defect.znp_number|default:'Не указан' }}</dd>
                             <dt>Номер партии</dt><dd>{{ defect.party_number|default:'Не указан' }}</dd>
+                            <dt>Тип МП</dt><dd>{{ defect.get_mp_type_display|default:'Не указан' }}</dd>
                             <dt>Вид дефекта</dt><dd>{{ defect.defect_type|default:'Не указан' }}</dd>
                             <dt>Операция</dt><dd>{{ defect.operation|default:'Не указана' }}</dd>
-                            <dt>Тип МП</dt><dd>{{ defect.get_mp_type_display|default:'Не указан' }}</dd>
+                            <dt>Дата обнаружения</dt><dd>{{ defect.detected_at|date:'d.m.Y'|default:'Не указана' }}</dd>
                             <dt>Проверено продукции</dt><dd>{{ defect.checked_quantity|default_if_none:'Не указано' }}</dd>
                             <dt>Несоответствующей продукции</dt><dd>{{ defect.nonconforming_quantity|default_if_none:'Не указано' }}</dd>
-                            <dt>Дата обнаружения</dt><dd>{{ defect.detected_at|date:'d.m.Y'|default:'Не указана' }}</dd>
                         </dl>
+                        <h3>Описание</h3>
                         <p>{{ defect.description|default:'Описание дефекта не указано.' }}</p>
                     </section>
                 {% endfor %}
@@ -81,61 +56,36 @@
             <article class="detail-section">
                 <h2>Решение КО</h2>
                 {% if act.ko_decision %}
-                {% if has_defect_records and defect_rows.0.ko_decision %}
-                    <div class="act-defect-list">
+                    {% if has_defect_records and defect_rows.0.ko_decision %}
+                        <div class="act-defect-list">
                         {% for defect in defect_rows %}
                             <section class="act-defect-card">
                                 {% if defect_rows|length > 1 %}<h3>Дефект {{ forloop.counter }}</h3>{% endif %}
-                                <dl>
-                                    <dt>Решение</dt><dd>{{ defect.get_ko_decision_display }}</dd>
-                                    <dt>Автор</dt><dd>{{ defect.ko_decision_by|default:'-' }}</dd>
-                                    <dt>Дата</dt><dd>{{ defect.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</dd>
-                                </dl>
+                                <dl><dt>Решение</dt><dd>{{ defect.get_ko_decision_display }}</dd><dt>Автор</dt><dd>{{ defect.ko_decision_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ defect.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
                                 <p>{{ defect.ko_comment|default:'Комментарий КО не заполнен.' }}</p>
                             </section>
                         {% endfor %}
-                    </div>
-                {% else %}
-                <dl>
-                    <dt>Решение</dt><dd>{{ act.get_ko_decision_display }}</dd>
-                    <dt>Автор</dt><dd>{{ act.ko_decision_by|default:'-' }}</dd>
-                    <dt>Дата</dt><dd>{{ act.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</dd>
-                </dl>
-                <p>{{ act.ko_comment|default:'Комментарий КО не заполнен.' }}</p>
-                {% endif %}
-                {% elif available_actions.ko_decision %}
-                <p class="act-ko-decision-hint">Решение требуется по каждому дефекту. После заполнения всех решений акт будет передан в ТО для анализа.</p>
-                <form class="act-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}">
-                    {% csrf_token %}
-                    {% if ko_decision_formset %}
-                        {{ ko_decision_formset.management_form }}
-                        {{ ko_decision_formset.non_form_errors }}
-                        {% for defect_form in ko_decision_formset %}
-                            <section class="act-defect-card">
-                                <h3>{% if ko_decision_formset|length > 1 %}Дефект {{ forloop.counter }}: {% endif %}{{ defect_form.instance.defect_type }}</h3>
-                                <p>{{ defect_form.instance.description }}</p>
-                                {{ defect_form.id }}
-                                <label><span>{{ defect_form.ko_decision.label }}</span>{{ defect_form.ko_decision }}{{ defect_form.ko_decision.errors }}</label>
-                                <label><span>{{ defect_form.ko_comment.label }}</span>{{ defect_form.ko_comment }}{{ defect_form.ko_comment.errors }}</label>
-                            </section>
-                        {% endfor %}
+                        </div>
                     {% else %}
-                    {{ ko_decision_form.non_field_errors }}
-                    <label>
-                        <span>{{ ko_decision_form.ko_decision.label }}</span>
-                        {{ ko_decision_form.ko_decision }}
-                        {{ ko_decision_form.ko_decision.errors }}
-                    </label>
-                    <label>
-                        <span>{{ ko_decision_form.ko_comment.label }}</span>
-                        {{ ko_decision_form.ko_comment }}
-                        {{ ko_decision_form.ko_comment.errors }}
-                    </label>
+                        <dl><dt>Решение</dt><dd>{{ act.get_ko_decision_display }}</dd><dt>Автор</dt><dd>{{ act.ko_decision_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
+                        <p>{{ act.ko_comment|default:'Комментарий КО не заполнен.' }}</p>
                     {% endif %}
-                    <button class="link-button" type="submit">Сохранить решение КО</button>
-                </form>
+                {% elif available_actions.ko_decision %}
+                    <p class="act-ko-decision-hint">Решение требуется по каждому дефекту. После заполнения всех решений акт будет передан в ТО для анализа.</p>
+                    <form class="act-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}">
+                        {% csrf_token %}
+                        {% if ko_decision_formset %}
+                            {{ ko_decision_formset.management_form }}{{ ko_decision_formset.non_form_errors }}
+                            {% for defect_form in ko_decision_formset %}
+                                <section class="act-defect-card"><h3>{% if ko_decision_formset|length > 1 %}Дефект {{ forloop.counter }}: {% endif %}{{ defect_form.instance.defect_type }}</h3><p>{{ defect_form.instance.description }}</p>{{ defect_form.id }}<label><span>{{ defect_form.ko_decision.label }}</span>{{ defect_form.ko_decision }}{{ defect_form.ko_decision.errors }}</label><label><span>{{ defect_form.ko_comment.label }}</span>{{ defect_form.ko_comment }}{{ defect_form.ko_comment.errors }}</label></section>
+                            {% endfor %}
+                        {% else %}
+                            {{ ko_decision_form.non_field_errors }}<label><span>{{ ko_decision_form.ko_decision.label }}</span>{{ ko_decision_form.ko_decision }}{{ ko_decision_form.ko_decision.errors }}</label><label><span>{{ ko_decision_form.ko_comment.label }}</span>{{ ko_decision_form.ko_comment }}{{ ko_decision_form.ko_comment.errors }}</label>
+                        {% endif %}
+                        <button class="link-button" type="submit">Сохранить решение КО</button>
+                    </form>
                 {% else %}
-                <p class="placeholder-text">Решение КО ещё не внесено.</p>
+                    <p class="placeholder-text">Решение КО ещё не внесено.</p>
                 {% endif %}
             </article>
         </div>
@@ -143,30 +93,28 @@
         <article class="detail-section">
             <h2>Анализ ТО</h2>
             {% if act.to_root_cause or act.to_action_summary %}
-                <dl>
-                    <dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd>
-                    <dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd>
-                </dl>
-                <h3>Корневая причина</h3>
-                <p>{{ act.to_root_cause|default:'Не заполнено.' }}</p>
-                <h3>Предлагаемые мероприятия</h3>
-                <p>{{ act.to_action_summary|default:'Не заполнено.' }}</p>
+                <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
+                <h3>Корневая причина</h3><p>{{ act.to_root_cause|default:'Не заполнено.' }}</p>
+                <h3>Предлагаемые мероприятия</h3><p>{{ act.to_action_summary|default:'Не заполнено.' }}</p>
             {% else %}
                 <p class="placeholder-text">Анализ ТО ещё не внесён.</p>
             {% endif %}
-            {% if available_actions.to_analysis %}
-                <div class="act-inline-actions">
-                    <a class="link-button" href="{% url 'acts:to_analysis' act.pk %}">Внести анализ ТО</a>
-                </div>
-            {% endif %}
-            {% if available_actions.close_act %}
-                <div class="act-inline-actions">
-                    <a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a>
-                </div>
-            {% endif %}
+            {% if available_actions.to_analysis %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:to_analysis' act.pk %}">Внести анализ ТО</a></div>{% endif %}
+            {% if available_actions.close_act %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a></div>{% endif %}
         </article>
 
         {% include 'acts/includes/comments.html' %}
+
+        <div class="act-primary-actions">
+            <div class="act-inline-actions">
+                {% if available_actions.print_act %}<a class="link-button link-button--secondary" href="{% url 'acts:print' act.pk %}">Печатная форма</a>{% endif %}
+                <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">К списку</a>
+            </div>
+            <div class="act-inline-actions">
+                {% if available_actions.edit_act %}<a class="link-button link-button--secondary" href="{% url 'acts:edit' act.pk %}">Редактировать</a>{% endif %}
+                {% if available_actions.send_to_ko %}<form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">{% csrf_token %}<button class="link-button" type="submit">Передать в КО</button></form>{% endif %}
+            </div>
+        </div>
     </section>
 {% elif detail_tab == 'history' %}
     {% include 'acts/includes/history_timeline.html' %}

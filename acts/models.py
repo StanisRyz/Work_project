@@ -223,6 +223,7 @@ class ActHistoryEvent(models.Model):
         COMMENT_ADDED = 'COMMENT_ADDED', 'Комментарий добавлен'
         ATTACHMENT_ADDED = 'ATTACHMENT_ADDED', 'Вложение добавлено'
         ATTACHMENT_DELETED = 'ATTACHMENT_DELETED', 'Вложение удалено'
+        ACT_EDITED = 'ACT_EDITED', 'Акт отредактирован'
         ACT_CLOSED = 'ACT_CLOSED', 'Акт закрыт'
 
     act = models.ForeignKey(

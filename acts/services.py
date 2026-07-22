@@ -8,6 +8,7 @@ from .permissions import (
     can_apply_to_analysis,
     can_close_act,
     can_delete_attachment,
+    can_edit_act,
     can_send_to_ko,
     can_view_act,
     is_act_admin,
@@ -265,6 +266,7 @@ def close_act(act, user, closing_comment=''):
 
 def get_available_act_actions(act, user):
     return {
+        'edit_act': can_edit_act(act, user),
         'send_to_ko': can_send_to_ko(act, user),
         'ko_decision': can_apply_ko_decision(act, user),
         'to_analysis': can_apply_to_analysis(act, user),
