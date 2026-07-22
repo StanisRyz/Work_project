@@ -22,7 +22,7 @@ from .forms import (
     ToAnalysisForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
-from .permissions import can_add_attachment, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_view_act, is_act_admin
+from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_view_act, is_act_admin
 from .services import (
     ActWorkflowError,
     add_act_comment,
@@ -31,6 +31,7 @@ from .services import (
     apply_ko_decision,
     apply_to_analysis,
     close_act,
+    clear_all_acts,
     delete_act_attachment,
     format_file_size,
     get_available_act_actions,
@@ -93,9 +94,23 @@ def act_list(request):
             'search': search,
         },
         'can_create': can_create_act(request.user),
+        'can_clear_all_acts': can_clear_all_acts(request.user),
         'is_act_admin': is_act_admin(request.user),
     }
     return render(request, 'acts/list.html', context)
+
+
+@login_required
+def act_clear_all(request):
+    if not can_clear_all_acts(request.user):
+        raise Http404('No Act matches the given query.')
+    if request.method != 'POST':
+        messages.error(request, 'Очистка актов требует подтверждённого действия.')
+        return redirect('acts:list')
+
+    deleted_count = clear_all_acts()
+    messages.success(request, f'Удалено актов: {deleted_count}.')
+    return redirect('acts:list')
 
 
 @login_required
@@ -116,6 +131,9 @@ def act_create(request):
                 if defect_form.cleaned_data and not defect_form.cleaned_data.get('DELETE', False)
             ]
             first_defect = defect_forms[0].cleaned_data
+            act.operation = first_defect['operation']
+            act.znp_number = first_defect['znp_number']
+            act.party_number = first_defect['party_number']
             act.defect_type = first_defect['defect_type']
             act.description = first_defect['description']
             act.due_date = first_defect['detected_at']
@@ -148,6 +166,7 @@ def act_create(request):
         'acts/form.html',
         {
             'active_page': 'acts',
+            'header_title': 'Создание акта',
             'form': form,
             'defect_formset': defect_formset,
         },
@@ -437,7 +456,7 @@ def _get_act_for_detail(pk):
             'ko_decision_by',
             'to_analysis_by',
             'closed_by',
-        ).prefetch_related('defects__defect_type'),
+        ).prefetch_related('defects__defect_type', 'defects__operation'),
         pk=pk,
     )
 
@@ -453,12 +472,17 @@ def _get_act_detail_context(
 ):
     history_events = act.history_events.select_related('user', 'from_status', 'to_status')
     comments = act.comments.select_related('author')
-    defect_rows = list(act.defects.select_related('defect_type'))
+    defect_rows = list(act.defects.select_related('defect_type', 'operation'))
     has_defect_records = bool(defect_rows)
     if not defect_rows:
         defect_rows = [
             {
                 'defect_type': act.defect_type,
+                'operation': act.operation,
+                'znp_number': act.znp_number,
+                'party_number': act.party_number,
+                'checked_quantity': None,
+                'nonconforming_quantity': None,
                 'description': act.description,
                 'detected_at': act.due_date,
             }

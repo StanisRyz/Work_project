@@ -6,7 +6,7 @@ from .models import Act, ActAttachment, ActComment, ActDefect, ActHistoryEvent
 class ActDefectInline(admin.TabularInline):
     model = ActDefect
     extra = 0
-    fields = ('defect_type', 'description', 'detected_at')
+    fields = ('znp_number', 'party_number', 'defect_type', 'operation', 'mp_type', 'checked_quantity', 'nonconforming_quantity', 'description', 'detected_at')
 
 
 @admin.register(Act)
@@ -42,6 +42,7 @@ class ActAdmin(admin.ModelAdmin):
                     'znp_number',
                     'party_number',
                     'nomenclature',
+                    'kd_designation',
                     'operation',
                     'defect_type',
                     'priority',
@@ -97,7 +98,7 @@ class ActAdmin(admin.ModelAdmin):
 
 @admin.register(ActDefect)
 class ActDefectAdmin(admin.ModelAdmin):
-    list_display = ('act', 'defect_type', 'detected_at', 'created_at')
+    list_display = ('act', 'znp_number', 'party_number', 'defect_type', 'operation', 'mp_type', 'checked_quantity', 'nonconforming_quantity', 'detected_at', 'created_at')
     search_fields = ('act__number', 'description', 'defect_type__name')
     list_filter = ('defect_type', 'detected_at', 'created_at')
     readonly_fields = ('created_at', 'updated_at')

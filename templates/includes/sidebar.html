@@ -1,8 +1,11 @@
 <aside class="sidebar" aria-label="Основная навигация">
+    <div class="sidebar__top">
     <a class="sidebar__brand" href="{% url 'dashboard:home' %}">
         <span class="sidebar__mark">К</span>
         <span>Экосистема качества</span>
     </a>
+    <button class="sidebar__close" type="button" aria-label="Закрыть меню" data-sidebar-close>×</button>
+    </div>
     <nav class="sidebar__nav">
         <a class="sidebar__link{% if active_page == 'dashboard' %} sidebar__link--active{% endif %}" href="{% url 'dashboard:home' %}">Главная</a>
         <a class="sidebar__link{% if active_page == 'acts' %} sidebar__link--active{% endif %}" href="{% url 'acts:list' %}">Акты</a>
@@ -10,4 +13,22 @@
         <a class="sidebar__link{% if active_page == 'references' %} sidebar__link--active{% endif %}" href="{% url 'references:index' %}">Справочники</a>
         <a class="sidebar__link{% if active_page == 'accounts' %} sidebar__link--active{% endif %}" href="{% url 'accounts:placeholder' %}">Пользователи и роли</a>
     </nav>
+    <div class="sidebar__account">
+        {% if user.is_authenticated %}
+            <div class="sidebar__identity">
+                <strong>{{ user.get_full_name|default:user.username }}</strong>
+                {% if user.userprofile %}
+                    <span>{{ user.userprofile.role_label }}{% if user.userprofile.department %} · {{ user.userprofile.department.name }}{% endif %}</span>
+                {% else %}
+                    <span>Профиль не заполнен</span>
+                {% endif %}
+            </div>
+            <form method="post" action="{% url 'accounts:logout' %}">
+                {% csrf_token %}
+                <button class="link-button link-button--secondary" type="submit">Выйти</button>
+            </form>
+        {% else %}
+            <a class="link-button link-button--secondary" href="{% url 'accounts:login' %}">Войти</a>
+        {% endif %}
+    </div>
 </aside>

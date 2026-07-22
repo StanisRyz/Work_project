@@ -4,12 +4,6 @@
 {% block title %}Создание акта - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-<section class="page-header" aria-labelledby="act-form-title">
-    <span class="badge">Раздел D11</span>
-    <h1 id="act-form-title">Создание акта</h1>
-    <p>Заполните данные партии и один или несколько дефектов для акта ОТК.</p>
-</section>
-
 <form class="form-card act-form" method="post">
     {% csrf_token %}
     {{ form.non_field_errors }}
@@ -17,41 +11,11 @@
 
     <section class="form-section">
         <h2>Данные партии</h2>
-        <div class="act-form-row">
-            <label>
-                <span>{{ form.customer.label }}</span>
-                {{ form.customer }}
-                {{ form.customer.errors }}
-            </label>
-            <label>
-                <span>{{ form.order_number.label }}</span>
-                {{ form.order_number }}
-                {{ form.order_number.errors }}
-            </label>
-        </div>
-        <div class="act-form-row">
-            <label>
-                <span>{{ form.znp_number.label }}</span>
-                {{ form.znp_number }}
-                {{ form.znp_number.errors }}
-            </label>
-            <label>
-                <span>{{ form.party_number.label }}</span>
-                {{ form.party_number }}
-                {{ form.party_number.errors }}
-            </label>
-        </div>
-        <div class="act-form-row">
-            <label>
-                <span>{{ form.nomenclature.label }}</span>
-                {{ form.nomenclature }}
-                {{ form.nomenclature.errors }}
-            </label>
-            <label>
-                <span>{{ form.operation.label }}</span>
-                {{ form.operation }}
-                {{ form.operation.errors }}
-            </label>
+        <div class="act-form-row act-form-row--party">
+            <label><span>{{ form.customer.label }}</span>{{ form.customer }}{{ form.customer.errors }}</label>
+            <label><span>{{ form.nomenclature.label }}</span>{{ form.nomenclature }}{{ form.nomenclature.errors }}</label>
+            <label><span>{{ form.kd_designation.label }}</span>{{ form.kd_designation }}{{ form.kd_designation.errors }}</label>
+            <label><span>{{ form.order_number.label }}</span>{{ form.order_number }}{{ form.order_number.errors }}</label>
         </div>
     </section>
 
@@ -63,60 +27,50 @@
                 <div class="defect-form-block">
                     {% if not forloop.first %}
                         <div class="defect-form-block__actions">
-                            <button class="link-button link-button--danger remove-defect-button" type="button" data-remove-defect>
-                                Удалить поле
-                            </button>
+                            <button class="link-button link-button--danger remove-defect-button" type="button" data-remove-defect>Удалить поле</button>
                         </div>
                     {% endif %}
                     {{ defect_form.id }}
                     {{ defect_form.non_field_errors }}
-                    <label>
-                        <span>{{ defect_form.defect_type.label }}</span>
-                        {{ defect_form.defect_type }}
-                        {{ defect_form.defect_type.errors }}
-                    </label>
-                    <label>
-                        <span>{{ defect_form.description.label }}</span>
-                        {{ defect_form.description }}
-                        {{ defect_form.description.errors }}
-                    </label>
-                    <label>
-                        <span>{{ defect_form.detected_at.label }}</span>
-                        {{ defect_form.detected_at }}
-                        {{ defect_form.detected_at.errors }}
-                    </label>
+                    <div class="act-form-row act-form-row--five">
+                        <label><span>{{ defect_form.znp_number.label }}</span>{{ defect_form.znp_number }}{{ defect_form.znp_number.errors }}</label>
+                        <label><span>{{ defect_form.party_number.label }}</span>{{ defect_form.party_number }}{{ defect_form.party_number.errors }}</label>
+                        <label><span>{{ defect_form.checked_quantity.label }}</span>{{ defect_form.checked_quantity }}{{ defect_form.checked_quantity.errors }}</label>
+                        <label><span>{{ defect_form.nonconforming_quantity.label }}</span>{{ defect_form.nonconforming_quantity }}{{ defect_form.nonconforming_quantity.errors }}</label>
+                        <label><span>{{ defect_form.detected_at.label }}</span>{{ defect_form.detected_at }}{{ defect_form.detected_at.errors }}</label>
+                    </div>
+                    <div class="act-form-row act-form-row--three">
+                        <label><span>{{ defect_form.defect_type.label }}</span>{{ defect_form.defect_type }}{{ defect_form.defect_type.errors }}</label>
+                        <label><span>{{ defect_form.operation.label }}</span>{{ defect_form.operation }}{{ defect_form.operation.errors }}</label>
+                        <label><span>{{ defect_form.mp_type.label }}</span>{{ defect_form.mp_type }}{{ defect_form.mp_type.errors }}</label>
+                    </div>
+                    <label><span>{{ defect_form.description.label }}</span>{{ defect_form.description }}{{ defect_form.description.errors }}</label>
                 </div>
             {% endfor %}
         </div>
         <template data-empty-defect-form>
             <div class="defect-form-block">
                 <div class="defect-form-block__actions">
-                    <button class="link-button link-button--danger remove-defect-button" type="button" data-remove-defect>
-                        Удалить поле
-                    </button>
+                    <button class="link-button link-button--danger remove-defect-button" type="button" data-remove-defect>Удалить поле</button>
                 </div>
                 {{ defect_formset.empty_form.id }}
                 {{ defect_formset.empty_form.non_field_errors }}
-                <label>
-                    <span>{{ defect_formset.empty_form.defect_type.label }}</span>
-                    {{ defect_formset.empty_form.defect_type }}
-                    {{ defect_formset.empty_form.defect_type.errors }}
-                </label>
-                <label>
-                    <span>{{ defect_formset.empty_form.description.label }}</span>
-                    {{ defect_formset.empty_form.description }}
-                    {{ defect_formset.empty_form.description.errors }}
-                </label>
-                <label>
-                    <span>{{ defect_formset.empty_form.detected_at.label }}</span>
-                    {{ defect_formset.empty_form.detected_at }}
-                    {{ defect_formset.empty_form.detected_at.errors }}
-                </label>
+                <div class="act-form-row act-form-row--five">
+                    <label><span>{{ defect_formset.empty_form.znp_number.label }}</span>{{ defect_formset.empty_form.znp_number }}{{ defect_formset.empty_form.znp_number.errors }}</label>
+                    <label><span>{{ defect_formset.empty_form.party_number.label }}</span>{{ defect_formset.empty_form.party_number }}{{ defect_formset.empty_form.party_number.errors }}</label>
+                    <label><span>{{ defect_formset.empty_form.checked_quantity.label }}</span>{{ defect_formset.empty_form.checked_quantity }}{{ defect_formset.empty_form.checked_quantity.errors }}</label>
+                    <label><span>{{ defect_formset.empty_form.nonconforming_quantity.label }}</span>{{ defect_formset.empty_form.nonconforming_quantity }}{{ defect_formset.empty_form.nonconforming_quantity.errors }}</label>
+                    <label><span>{{ defect_formset.empty_form.detected_at.label }}</span>{{ defect_formset.empty_form.detected_at }}{{ defect_formset.empty_form.detected_at.errors }}</label>
+                </div>
+                <div class="act-form-row act-form-row--three">
+                    <label><span>{{ defect_formset.empty_form.defect_type.label }}</span>{{ defect_formset.empty_form.defect_type }}{{ defect_formset.empty_form.defect_type.errors }}</label>
+                    <label><span>{{ defect_formset.empty_form.operation.label }}</span>{{ defect_formset.empty_form.operation }}{{ defect_formset.empty_form.operation.errors }}</label>
+                    <label><span>{{ defect_formset.empty_form.mp_type.label }}</span>{{ defect_formset.empty_form.mp_type }}{{ defect_formset.empty_form.mp_type.errors }}</label>
+                </div>
+                <label><span>{{ defect_formset.empty_form.description.label }}</span>{{ defect_formset.empty_form.description }}{{ defect_formset.empty_form.description.errors }}</label>
             </div>
         </template>
-        <button class="link-button link-button--secondary add-defect-button" type="button" data-add-defect>
-            Добавить дефект
-        </button>
+        <button class="link-button link-button--secondary add-defect-button" type="button" data-add-defect>Добавить дефект</button>
     </section>
 
     <div class="form-actions">
@@ -127,5 +81,5 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="{% static 'js/act_create.js' %}"></script>
+    <script src="{% static 'js/act_create.js' %}?v=20260722-4"></script>
 {% endblock %}

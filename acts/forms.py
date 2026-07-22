@@ -35,6 +35,7 @@ D11_DEFECT_TYPE_CODES = (
     'OL_WINDING_TENSION_LOSS',
     'WINDING_SHIFT',
     'HIGH_ROUGHNESS',
+    'OTHER',
 )
 
 
@@ -44,27 +45,22 @@ class ActCreateForm(forms.ModelForm):
         fields = (
             'customer',
             'order_number',
-            'znp_number',
-            'party_number',
             'nomenclature',
-            'operation',
+            'kd_designation',
         )
         labels = {
             'customer': 'Заказчик',
-            'order_number': 'Номер заказа',
-            'znp_number': 'Номер ЗНП',
-            'party_number': 'Номер партии',
-            'nomenclature': 'Номенклатура',
-            'operation': 'Операция',
+            'order_number': 'Заказ покупателя',
+            'nomenclature': 'Наименование продукции',
+            'kd_designation': 'Обозначение по КД',
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['operation'].queryset = Operation.objects.filter(
-            code__in=D11_OPERATION_CODES,
-            is_active=True,
-        ).order_by('sort_order', 'name')
-
+        for field_name in ('customer', 'order_number', 'nomenclature', 'kd_designation'):
+            self.fields[field_name].required = True
+        for field_name in ('order_number',):
+            self.fields[field_name].widget.attrs['pattern'] = r'[0-9/-]+'
     def _clean_number_field(self, field_name):
         value = self.cleaned_data.get(field_name, '').strip()
         if value and not NUMBER_PATTERN.match(value):
@@ -74,23 +70,34 @@ class ActCreateForm(forms.ModelForm):
     def clean_order_number(self):
         return self._clean_number_field('order_number')
 
-    def clean_znp_number(self):
-        return self._clean_number_field('znp_number')
-
-    def clean_party_number(self):
-        return self._clean_number_field('party_number')
-
-
 class ActDefectForm(forms.ModelForm):
     class Meta:
         model = ActDefect
-        fields = ('defect_type', 'description', 'detected_at')
+        fields = (
+            'znp_number',
+            'party_number',
+            'checked_quantity',
+            'nonconforming_quantity',
+            'detected_at',
+            'defect_type',
+            'operation',
+            'mp_type',
+            'description',
+        )
         labels = {
+            'znp_number': 'Номер ЗНП',
+            'party_number': 'Номер партии',
             'defect_type': 'Вид дефекта',
+            'operation': 'Операция',
+            'mp_type': 'Тип МП',
+            'checked_quantity': 'Проверено',
+            'nonconforming_quantity': 'С отклонением',
             'description': 'Описание дефекта',
-            'detected_at': 'Срок обнаружения несоответствия',
+            'detected_at': 'Дата обнаружения несоответствия',
         }
         widgets = {
+            'checked_quantity': forms.NumberInput(attrs={'min': 0, 'step': 1}),
+            'nonconforming_quantity': forms.NumberInput(attrs={'min': 0, 'step': 1}),
             'description': forms.Textarea(attrs={'rows': 4}),
             'detected_at': forms.DateInput(attrs={'type': 'date'}),
         }
@@ -101,6 +108,44 @@ class ActDefectForm(forms.ModelForm):
             code__in=D11_DEFECT_TYPE_CODES,
             is_active=True,
         ).order_by('name')
+        self.fields['operation'].queryset = Operation.objects.filter(
+            code__in=D11_OPERATION_CODES,
+            is_active=True,
+        ).order_by('sort_order', 'name')
+        self.fields['operation'].required = True
+        self.fields['mp_type'].required = True
+        for field_name in ('znp_number', 'party_number'):
+            self.fields[field_name].required = True
+            self.fields[field_name].widget.attrs['pattern'] = r'[0-9/-]+'
+        self.fields['checked_quantity'].required = True
+        self.fields['nonconforming_quantity'].required = True
+
+    def clean(self):
+        cleaned_data = super().clean()
+        checked_quantity = cleaned_data.get('checked_quantity')
+        nonconforming_quantity = cleaned_data.get('nonconforming_quantity')
+        if (
+            checked_quantity is not None
+            and nonconforming_quantity is not None
+            and nonconforming_quantity > checked_quantity
+        ):
+            self.add_error(
+                'nonconforming_quantity',
+                'Количество несоответствующей продукции не может превышать количество проверенной продукции.',
+            )
+        return cleaned_data
+
+    def _clean_number_field(self, field_name):
+        value = self.cleaned_data.get(field_name, '').strip()
+        if value and not NUMBER_PATTERN.match(value):
+            raise ValidationError('Допустимы только цифры, дефис и слэш.')
+        return value
+
+    def clean_znp_number(self):
+        return self._clean_number_field('znp_number')
+
+    def clean_party_number(self):
+        return self._clean_number_field('party_number')
 
 
 class BaseActDefectFormSet(BaseInlineFormSet):

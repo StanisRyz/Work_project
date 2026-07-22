@@ -1,6 +1,4 @@
 .app-shell {
-    display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
     min-height: 100vh;
 }
 
@@ -9,7 +7,8 @@
 }
 
 .content {
-    width: min(1120px, 100%);
+    width: 100%;
+    max-width: none;
     padding: 32px;
 }
 
@@ -21,40 +20,95 @@
 .sidebar {
     display: flex;
     flex-direction: column;
-    gap: 28px;
+    gap: 24px;
+    position: fixed;
+    z-index: 20;
+    inset: 0 auto 0 0;
+    width: min(300px, calc(100vw - 36px));
     padding: 24px 18px;
     background: var(--color-surface);
     border-right: 1px solid var(--color-border);
+    box-shadow: 12px 0 28px rgb(15 23 42 / 12%);
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
 }
 
 .topbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    min-height: 72px;
-    padding: 16px 32px;
+    min-height: 56px;
+    padding: 8px 32px;
     background: var(--color-surface);
     border-bottom: 1px solid var(--color-border);
 }
 
+.topbar__page-title {
+    margin: 0;
+    font-size: 20px;
+    line-height: 1.2;
+}
+
+.sidebar--open {
+    transform: translateX(0);
+}
+
+.sidebar-overlay {
+    position: fixed;
+    z-index: 10;
+    inset: 0;
+    background: rgb(15 23 42 / 35%);
+}
+
+.sidebar-toggle,
+.sidebar__close {
+    border: 0;
+    background: transparent;
+    color: var(--color-text);
+    cursor: pointer;
+    font: inherit;
+}
+
+.sidebar-toggle {
+    padding: 8px;
+    font-size: 24px;
+    line-height: 1;
+}
+
+.sidebar__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.sidebar__close {
+    padding: 4px 8px;
+    font-size: 28px;
+    line-height: 1;
+}
+
+.sidebar__account {
+    display: grid;
+    gap: 12px;
+    margin-top: auto;
+    padding-top: 18px;
+    border-top: 1px solid var(--color-border);
+}
+
+.sidebar__identity {
+    display: grid;
+    gap: 2px;
+}
+
+.sidebar__identity span {
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
 @media (max-width: 760px) {
-    .app-shell {
-        grid-template-columns: 1fr;
-    }
-
-    .sidebar {
-        border-right: 0;
-        border-bottom: 1px solid var(--color-border);
-    }
-
     .content,
     .topbar {
         padding: 20px;
     }
 
-    .topbar {
-        align-items: flex-start;
-        flex-direction: column;
-    }
 }

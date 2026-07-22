@@ -10,6 +10,12 @@
     {% if can_create %}
         <a class="link-button" href="{% url 'acts:create' %}">Создать акт</a>
     {% endif %}
+    {% if can_clear_all_acts %}
+        <form class="act-clear-form" method="post" action="{% url 'acts:clear_all' %}" onsubmit="return confirm('Удалить все акты, их историю, комментарии и вложения? Это действие нельзя отменить.');">
+            {% csrf_token %}
+            <button class="link-button link-button--danger" type="submit">Очистить акты</button>
+        </form>
+    {% endif %}
 </section>
 
 {% if is_act_admin %}

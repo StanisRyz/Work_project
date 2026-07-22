@@ -32,7 +32,7 @@ class Command(BaseCommand):
             ('DRAWING_MISMATCH', 'Несоответствие чертежу'),
             ('MARKING_ERROR', 'Ошибка маркировки'),
             ('DOCUMENTATION_MISSING', 'Отсутствие документации'),
-            ('OTHER', 'Прочее'),
+            ('OTHER', 'Другое'),
             ('SIZE_NONCONFORMITY', 'Несоответствие размеров'),
             ('DEFORMATION', 'Деформация'),
             ('ASYMMETRIC_CUT', 'Несимметричный рез'),

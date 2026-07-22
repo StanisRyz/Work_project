@@ -32,11 +32,9 @@
             <h2>Данные партии</h2>
             <dl class="act-party-data">
                 <dt>Заказчик</dt><dd>{{ act.customer|default:'Не указан' }}</dd>
-                <dt>Операция</dt><dd>{{ act.operation|default:'Не указана' }}</dd>
-                <dt>Номер заказа</dt><dd>{{ act.order_number|default:'Не указан' }}</dd>
-                <dt>Номер ЗНП</dt><dd>{{ act.znp_number|default:'Не указан' }}</dd>
-                <dt>Номер партии</dt><dd>{{ act.party_number|default:'Не указан' }}</dd>
-                <dt>Номенклатура</dt><dd>{{ act.nomenclature|default:'Не указана' }}</dd>
+                <dt>Заказ покупателя</dt><dd>{{ act.order_number|default:'Не указан' }}</dd>
+                <dt>Наименование продукции</dt><dd>{{ act.nomenclature|default:'Не указано' }}</dd>
+                <dt>Обозначение по КД</dt><dd>{{ act.kd_designation|default:'Не указано' }}</dd>
             </dl>
             <div class="act-inline-actions">
                 {% if available_actions.send_to_ko %}
@@ -65,7 +63,13 @@
                             <h3>Дефект {{ forloop.counter }}</h3>
                         {% endif %}
                         <dl>
+                            <dt>Номер ЗНП</dt><dd>{{ defect.znp_number|default:'Не указан' }}</dd>
+                            <dt>Номер партии</dt><dd>{{ defect.party_number|default:'Не указан' }}</dd>
                             <dt>Вид дефекта</dt><dd>{{ defect.defect_type|default:'Не указан' }}</dd>
+                            <dt>Операция</dt><dd>{{ defect.operation|default:'Не указана' }}</dd>
+                            <dt>Тип МП</dt><dd>{{ defect.get_mp_type_display|default:'Не указан' }}</dd>
+                            <dt>Проверено продукции</dt><dd>{{ defect.checked_quantity|default_if_none:'Не указано' }}</dd>
+                            <dt>Несоответствующей продукции</dt><dd>{{ defect.nonconforming_quantity|default_if_none:'Не указано' }}</dd>
                             <dt>Дата обнаружения</dt><dd>{{ defect.detected_at|date:'d.m.Y'|default:'Не указана' }}</dd>
                         </dl>
                         <p>{{ defect.description|default:'Описание дефекта не указано.' }}</p>

@@ -71,6 +71,7 @@ class Act(models.Model):
     znp_number = models.CharField('Номер ЗНП', max_length=80, blank=True)
     party_number = models.CharField('Номер партии', max_length=120)
     nomenclature = models.CharField('Номенклатура', max_length=240)
+    kd_designation = models.CharField('Обозначение по КД', max_length=240, blank=True)
     operation = models.ForeignKey(Operation, on_delete=models.PROTECT, verbose_name='Операция')
     defect_type = models.ForeignKey(DefectType, on_delete=models.PROTECT, verbose_name='Вид дефекта')
     priority = models.ForeignKey(
@@ -151,6 +152,24 @@ class Act(models.Model):
 
 
 class ActDefect(models.Model):
+    class MpType(models.TextChoices):
+        OL = 'OL', 'ОЛ'
+        OLS = 'OLS', 'ОЛС'
+        OLR = 'OLR', 'ОЛР'
+        OLSR = 'OLSR', 'ОЛСР'
+        PL = 'PL', 'ПЛ'
+        PLS = 'PLS', 'ПЛС'
+        PLR = 'PLR', 'ПЛР'
+        PLSR = 'PLSR', 'ПЛСР'
+        SL = 'SL', 'ШЛ'
+        SLS = 'SLS', 'ШЛС'
+        SLR = 'SLR', 'ШЛР'
+        SLSR = 'SLSR', 'ШЛСР'
+        TL = 'TL', 'ТЛ'
+        TLS = 'TLS', 'ТЛС'
+        TLR = 'TLR', 'ТЛР'
+        TLSR = 'TLSR', 'ТЛСР'
+
     act = models.ForeignKey(
         Act,
         on_delete=models.CASCADE,
@@ -162,8 +181,14 @@ class ActDefect(models.Model):
         on_delete=models.PROTECT,
         verbose_name='Вид дефекта',
     )
+    operation = models.ForeignKey(Operation, on_delete=models.PROTECT, blank=True, null=True, verbose_name='Операция')
+    mp_type = models.CharField('Тип МП', max_length=4, choices=MpType.choices, blank=True)
+    znp_number = models.CharField('Номер ЗНП', max_length=80, blank=True)
+    party_number = models.CharField('Номер партии', max_length=120, blank=True)
     description = models.TextField('Описание дефекта')
-    detected_at = models.DateField('Срок обнаружения несоответствия')
+    checked_quantity = models.PositiveIntegerField('Проверено продукции', blank=True, null=True)
+    nonconforming_quantity = models.PositiveIntegerField('Количество несоответствующей продукции', blank=True, null=True)
+    detected_at = models.DateField('Дата обнаружения несоответствия')
     ko_decision = models.CharField('Решение КО', max_length=20, choices=Act.KoDecision.choices, blank=True)
     ko_comment = models.TextField('Комментарий КО', blank=True)
     ko_decision_by = models.ForeignKey(

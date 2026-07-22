@@ -5,14 +5,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Единая цифровая экосистема управления качеством{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'css/base.css' %}">
-    <link rel="stylesheet" href="{% static 'css/layout.css' %}">
-    <link rel="stylesheet" href="{% static 'css/components.css' %}">
-    <link rel="stylesheet" href="{% static 'css/acts.css' %}">
+    <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260722-5">
+    <link rel="stylesheet" href="{% static 'css/layout.css' %}?v=20260722-5">
+    <link rel="stylesheet" href="{% static 'css/components.css' %}?v=20260722-5">
+    <link rel="stylesheet" href="{% static 'css/acts.css' %}?v=20260722-5">
 </head>
 <body>
     <div class="app-shell">
         {% include 'includes/sidebar.html' %}
+        <div class="sidebar-overlay" data-sidebar-overlay hidden></div>
         <div class="app-main">
             {% include 'includes/header.html' %}
             <main class="content page-container">
@@ -27,7 +28,7 @@
             </main>
         </div>
     </div>
-    <script src="{% static 'js/app.js' %}"></script>
+    <script src="{% static 'js/app.js' %}?v=20260722-3"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

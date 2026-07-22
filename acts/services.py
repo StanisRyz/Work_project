@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils import timezone
 
 from .models import Act, ActAttachment, ActComment, ActHistoryEvent, get_act_status
@@ -191,6 +192,20 @@ def delete_act_attachment(attachment, user):
         ActHistoryEvent.EventType.ATTACHMENT_DELETED,
         f'Вложение удалено: {original_name}.',
     )
+
+
+def clear_all_acts():
+    """Delete every act and its database records, then remove attached files."""
+    attachments = list(ActAttachment.objects.exclude(file='').only('file'))
+    with transaction.atomic():
+        deleted_count = Act.objects.count()
+        Act.objects.all().delete()
+    for attachment in attachments:
+        try:
+            attachment.file.delete(save=False)
+        except OSError:
+            pass
+    return deleted_count
 
 
 def format_file_size(size_bytes):

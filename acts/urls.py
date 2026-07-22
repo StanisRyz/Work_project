@@ -6,6 +6,7 @@ app_name = 'acts'
 
 urlpatterns = [
     path('', views.act_list, name='list'),
+    path('clear-all/', views.act_clear_all, name='clear_all'),
     path('create/', views.act_create, name='create'),
     path('<int:pk>/', views.act_detail, name='detail'),
     path('<int:pk>/send-to-ko/', views.act_send_to_ko, name='send_to_ko'),

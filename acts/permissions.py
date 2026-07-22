@@ -64,6 +64,11 @@ def can_create_act(user):
     return is_otk(user) or is_manager_or_admin(user)
 
 
+def can_clear_all_acts(user):
+    """Allow the destructive local reset only for the dedicated demo administrator."""
+    return is_act_admin(user) and getattr(user, 'username', '') == 'admin_user'
+
+
 def can_view_act(act, user):
     if has_full_act_access(user):
         return True

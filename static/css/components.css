@@ -34,34 +34,10 @@
     font-weight: 700;
 }
 
-.topbar__eyebrow,
 .section-label,
 .status-card__label,
 .badge {
     margin: 0;
-    color: var(--color-muted);
-    font-size: 13px;
-}
-
-.topbar__title {
-    display: block;
-    margin-top: 2px;
-    font-weight: 700;
-}
-
-.topbar__user {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.topbar__identity {
-    display: grid;
-    gap: 2px;
-    text-align: right;
-}
-
-.topbar__identity span {
     color: var(--color-muted);
     font-size: 13px;
 }

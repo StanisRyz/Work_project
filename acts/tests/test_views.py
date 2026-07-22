@@ -58,14 +58,21 @@ class ActViewTests(TestCase):
         response = self.client.post(
             reverse('acts:create'),
             {
-                'party_number': '100-100',
+                'customer': 'Заказчик',
+                'order_number': '100-1',
                 'nomenclature': 'Катушка А',
-                'operation': self.operation.id,
+                'kd_designation': 'КД-100',
                 'defects-TOTAL_FORMS': '1',
                 'defects-INITIAL_FORMS': '0',
                 'defects-MIN_NUM_FORMS': '1',
                 'defects-MAX_NUM_FORMS': '1000',
                 'defects-0-defect_type': self.defect_type.id,
+                'defects-0-operation': self.operation.id,
+                'defects-0-mp_type': 'OL',
+                'defects-0-znp_number': '200-1',
+                'defects-0-party_number': '100-100',
+                'defects-0-checked_quantity': '100',
+                'defects-0-nonconforming_quantity': '4',
                 'defects-0-description': 'Описание дефекта',
                 'defects-0-detected_at': timezone.localdate().isoformat(),
             },
@@ -76,6 +83,35 @@ class ActViewTests(TestCase):
         self.assertEqual(act.created_by, self.otk_user)
         self.assertEqual(act.status.code, 'CREATED_OTK')
         self.assertEqual(ActDefect.objects.filter(act=act).count(), 1)
+
+    def test_create_rejects_nonconforming_quantity_above_checked_quantity(self):
+        self.client.force_login(self.otk_user)
+
+        response = self.client.post(
+            reverse('acts:create'),
+            {
+                'customer': 'Заказчик',
+                'order_number': '100-2',
+                'nomenclature': 'Катушка А',
+                'kd_designation': 'КД-101',
+                'defects-TOTAL_FORMS': '1',
+                'defects-INITIAL_FORMS': '0',
+                'defects-MIN_NUM_FORMS': '1',
+                'defects-MAX_NUM_FORMS': '1000',
+                'defects-0-defect_type': self.defect_type.id,
+                'defects-0-operation': self.operation.id,
+                'defects-0-mp_type': 'OL',
+                'defects-0-znp_number': '200-2',
+                'defects-0-party_number': '100-101',
+                'defects-0-checked_quantity': '4',
+                'defects-0-nonconforming_quantity': '5',
+                'defects-0-description': 'Описание дефекта',
+                'defects-0-detected_at': timezone.localdate().isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'не может превышать')
 
     def test_otk_list_shows_only_own_created_otk_acts(self):
         visible = self._create_act(self.status_created, party_number='P-OTK')
@@ -88,6 +124,20 @@ class ActViewTests(TestCase):
         self.assertContains(response, visible.number)
         self.assertNotContains(response, hidden_other.number)
         self.assertNotContains(response, hidden_stage.number)
+
+    def test_only_dedicated_admin_user_can_clear_all_acts(self):
+        self._create_act(self.status_created, party_number='P-CLEAR-1')
+        self._create_act(self.status_ko, party_number='P-CLEAR-2')
+        dedicated_admin = self._create_user('admin_user', UserProfile.Role.ADMIN)
+
+        self.client.force_login(self.admin_user)
+        self.assertEqual(self.client.post(reverse('acts:clear_all')).status_code, 404)
+
+        self.client.force_login(dedicated_admin)
+        response = self.client.post(reverse('acts:clear_all'))
+
+        self.assertRedirects(response, reverse('acts:list'))
+        self.assertEqual(Act.objects.count(), 0)
 
     def test_direct_send_to_ko_uses_backend_permissions(self):
         act = self._create_act(self.status_created, created_by=self.otk_user)
