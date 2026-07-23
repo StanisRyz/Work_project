@@ -2,8 +2,8 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 
 from accounts.models import UserProfile
-from acts.models import Act, ActDefect
-from acts.services import ActWorkflowError, apply_ko_decision, apply_to_analysis, send_to_ko
+from acts.models import Act, ActComment, ActDefect, ActHistoryEvent
+from acts.services import ActWorkflowError, apply_ko_decision, apply_to_analysis, return_to_otk, send_to_ko
 from references.models import ActStatus, DefectType, Operation
 
 
@@ -112,6 +112,39 @@ class ActWorkflowTests(TestCase):
         self.assertEqual(act.status.code, 'ACTIONS_ASSIGNED')
         self.assertEqual(act.to_analysis_by, self.to_user)
         self.assertIsNotNone(act.to_analysis_at)
+
+    def test_return_to_otk_requires_comment_without_changing_act(self):
+        act = self._create_act(self.status_ko)
+
+        with self.assertRaises(ActWorkflowError):
+            return_to_otk(act, self.ko_user, '   ')
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'KO_REVIEW')
+        self.assertFalse(ActComment.objects.filter(act=act).exists())
+
+    def test_return_to_otk_saves_comment_and_history_with_transition(self):
+        act = self._create_act(self.status_ko)
+
+        return_to_otk(act, self.ko_user, 'Уточнить номер партии.')
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'CREATED_OTK')
+        self.assertEqual(ActComment.objects.get(act=act).text, 'Уточнить номер партии.')
+        self.assertEqual(
+            ActHistoryEvent.objects.filter(
+                act=act,
+                event_type=ActHistoryEvent.EventType.COMMENT_ADDED,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            ActHistoryEvent.objects.filter(
+                act=act,
+                event_type=ActHistoryEvent.EventType.RETURNED_TO_OTK,
+            ).count(),
+            1,
+        )
 
     def test_wrong_roles_raise_workflow_error(self):
         ko_act = self._create_act(self.status_ko)

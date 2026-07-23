@@ -6,7 +6,7 @@
 <nav class="act-detail-tabs" aria-label="Разделы акта">
     <a class="act-detail-tabs__link{% if detail_tab == 'work' %} act-detail-tabs__link--active{% endif %}" href="?tab=work">Проработка</a>
     <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history">История акта</a>
-    <a class="act-detail-tabs__link{% if detail_tab == 'attachments' %} act-detail-tabs__link--active{% endif %}" href="?tab=attachments">Вложения</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'attachments' %} act-detail-tabs__link--active{% endif %}" href="?tab=attachments">Вложения и комментарии</a>
 </nav>
 
 {% if detail_tab == 'work' %}
@@ -81,8 +81,6 @@
         {% if available_actions.close_act %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a></div>{% endif %}
     </article>
 
-    {% include 'acts/includes/comments.html' %}
-
     <div class="act-primary-actions">
         <div class="act-inline-actions">
             {% if available_actions.print_act %}<a class="link-button link-button--secondary" href="{% url 'acts:print' act.pk %}">Печатная форма</a>{% endif %}
@@ -90,7 +88,7 @@
         </div>
         <div class="act-inline-actions">
             {% if available_actions.edit_act %}<a class="link-button link-button--secondary" href="{% url 'acts:edit' act.pk %}">Редактировать</a>{% endif %}
-            {% if available_actions.return_to_otk %}<form method="post" action="{% url 'acts:return_to_otk' act.pk %}" onsubmit="return confirm('Вернуть акт в ОТК на доработку? Введённые решения КО не будут сохранены.');">{% csrf_token %}<button class="link-button link-button--secondary" type="submit">Вернуть ОТК</button></form>{% endif %}
+            {% if available_actions.return_to_otk %}<button class="link-button link-button--secondary" type="button" data-return-to-otk-open>Вернуть ОТК</button>{% endif %}
             {% if available_actions.ko_decision %}<form id="ko-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}" onsubmit="return confirm('Сохранить решения КО и передать акт в ТО?');">{% csrf_token %}{% if ko_decision_formset %}{{ ko_decision_formset.management_form }}{% endif %}<button class="link-button" type="submit">Передать в ТО</button></form>{% endif %}
             {% if available_actions.send_to_ko %}<form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">{% csrf_token %}<button class="link-button" type="submit">Передать в КО</button></form>{% endif %}
         </div>
@@ -100,5 +98,56 @@
     {% include 'acts/includes/history_timeline.html' %}
 {% else %}
     {% include 'acts/includes/attachments.html' %}
+    {% include 'acts/includes/comments.html' %}
 {% endif %}
+
+{% if available_actions.return_to_otk or return_dialog_open %}
+<dialog class="act-return-dialog" data-return-to-otk-dialog{% if return_dialog_open %} open{% endif %} aria-labelledby="return-to-otk-title">
+    <form method="post" action="{% url 'acts:return_to_otk' act.pk %}" class="act-return-dialog__form" data-return-to-otk-form>
+        {% csrf_token %}
+        <h2 id="return-to-otk-title">Вернуть акт в ОТК на доработку</h2>
+        <p>Укажите, какие данные необходимо уточнить или исправить.</p>
+        {{ return_to_otk_form.non_field_errors }}
+        <label>
+            <span>{{ return_to_otk_form.comment.label }}</span>
+            {{ return_to_otk_form.comment }}
+            {{ return_to_otk_form.comment.errors }}
+        </label>
+        <p class="client-field-error" data-return-to-otk-error hidden>Укажите комментарий к возврату.</p>
+        <div class="act-return-dialog__actions">
+            <button class="link-button link-button--secondary" type="button" data-return-to-otk-cancel>Отмена</button>
+            <button class="link-button" type="submit">Вернуть на доработку</button>
+        </div>
+    </form>
+</dialog>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+    const dialog = document.querySelector('[data-return-to-otk-dialog]');
+    if (!dialog) return;
+    const openButton = document.querySelector('[data-return-to-otk-open]');
+    const cancelButton = dialog.querySelector('[data-return-to-otk-cancel]');
+    const form = dialog.querySelector('[data-return-to-otk-form]');
+    const comment = form.querySelector('textarea');
+    const error = dialog.querySelector('[data-return-to-otk-error]');
+    openButton?.addEventListener('click', () => dialog.showModal());
+    cancelButton.addEventListener('click', () => dialog.close());
+    form.addEventListener('submit', (event) => {
+        if (comment.value.trim()) return;
+        event.preventDefault();
+        error.hidden = false;
+        comment.setCustomValidity('Укажите комментарий к возврату.');
+        comment.reportValidity();
+        comment.focus();
+    });
+    comment.addEventListener('input', () => {
+        const empty = !comment.value.trim();
+        error.hidden = !empty;
+        comment.setCustomValidity(empty ? 'Укажите комментарий к возврату.' : '');
+    });
+})();
+</script>
 {% endblock %}

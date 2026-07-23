@@ -298,6 +298,25 @@ class ActCommentForm(forms.ModelForm):
         }
 
 
+class ReturnToOtkForm(forms.Form):
+    comment = forms.CharField(
+        label='Комментарий к возврату',
+        widget=forms.Textarea(
+            attrs={
+                'rows': 4,
+                'placeholder': 'Укажите, какие данные необходимо уточнить или исправить.',
+                'required': True,
+            }
+        ),
+    )
+
+    def clean_comment(self):
+        comment = self.cleaned_data['comment'].strip()
+        if not comment:
+            raise forms.ValidationError('Укажите комментарий к возврату.')
+        return comment
+
+
 class ActAttachmentForm(forms.ModelForm):
     class Meta:
         model = ActAttachment

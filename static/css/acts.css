@@ -556,6 +556,57 @@
     font: inherit;
 }
 
+.act-return-dialog {
+    width: min(560px, calc(100% - 32px));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 0;
+    color: var(--color-text);
+    background: var(--color-surface);
+}
+
+.act-return-dialog::backdrop {
+    background: rgb(15 23 42 / 45%);
+}
+
+.act-return-dialog__form {
+    display: grid;
+    gap: 14px;
+    padding: 24px;
+}
+
+.act-return-dialog__form h2,
+.act-return-dialog__form p {
+    margin: 0;
+}
+
+.act-return-dialog__form > p {
+    color: var(--color-muted);
+}
+
+.act-return-dialog__form label {
+    display: grid;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.act-return-dialog__form textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.act-return-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .attachment-form {
     display: grid;
     gap: 12px;

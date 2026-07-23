@@ -8,6 +8,10 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D18 — comments moved to the attachments tab and KO return-to-OTK rationale is required.
+
+D18 renames the detail tab to `Вложения и комментарии`, placing attachments first and normal comments below them. KO users must provide a non-empty return comment in the return dialog; the comment, its history event, and the transition from `KO_REVIEW` to `CREATED_OTK` are saved atomically.
+
 D17 — corrected visual layout of the `CREATED_OTK` act detail page.
 
 D17 removes duplicate top-level detection-date metadata and uses responsive party-data and defect-card grids without changing act behavior.
@@ -66,6 +70,15 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+### D18
+
+- Open an act and verify comments are absent from `Проработка` and appear below attachments on `Вложения и комментарии`.
+- Add a normal comment and verify the response redirects to `?tab=attachments`.
+- As KO, attempt `Вернуть ОТК` with an empty or whitespace-only comment and verify the dialog shows an error without changing the act.
+- Return the act with a valid comment; verify the comment, comment-added history event, return-to-OTK history event, and status change to `CREATED_OTK`.
+- Log in as the OTK author and verify the returned act appears in the OTK queue.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, and `python manage.py check`.
 
 ### D17
 
@@ -212,4 +225,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D17 manual validation.
+- To be defined after D18 manual validation.

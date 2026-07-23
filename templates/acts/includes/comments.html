@@ -2,7 +2,6 @@
     <h2>Комментарии</h2>
     <form class="comment-form" method="post" action="{% url 'acts:add_comment' act.pk %}">
         {% csrf_token %}
-        <input type="hidden" name="tab" value="{{ detail_tab }}">
         {{ comment_form.non_field_errors }}
         <label>
             <span>{{ comment_form.text.label }}</span>

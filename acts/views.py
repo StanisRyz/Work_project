@@ -20,6 +20,7 @@ from .forms import (
     ActDefectEditFormSet,
     ActDefectKoDecisionFormSet,
     KoDecisionForm,
+    ReturnToOtkForm,
     ToAnalysisForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
@@ -252,17 +253,16 @@ def act_add_comment(request, pk):
         raise Http404('No Act matches the given query.')
     if request.method != 'POST':
         messages.error(request, 'Комментарий можно добавить только из формы на странице акта.')
-        return _redirect_to_detail_tab(act, 'work')
+        return _redirect_to_detail_tab(act, 'attachments')
 
-    detail_tab = _get_detail_tab(request.POST.get('tab'))
     form = ActCommentForm(request.POST)
     if form.is_valid():
         add_act_comment(act, request.user, form.cleaned_data['text'])
         messages.success(request, 'Комментарий добавлен.')
-        return _redirect_to_detail_tab(act, detail_tab)
+        return _redirect_to_detail_tab(act, 'attachments')
 
     messages.error(request, 'Проверьте текст комментария.')
-    context = _get_act_detail_context(act, request.user, comment_form=form, detail_tab=detail_tab)
+    context = _get_act_detail_context(act, request.user, comment_form=form, detail_tab='attachments')
     return render(request, 'acts/detail.html', context)
 
 
@@ -452,13 +452,24 @@ def act_return_to_otk(request, pk):
     act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
     if request.method != 'POST':
         return _redirect_to_detail_tab(act, 'work')
-    try:
-        return_to_otk(act, request.user)
-    except ActWorkflowError as exc:
-        messages.error(request, str(exc))
-    else:
-        messages.success(request, 'Акт возвращён в ОТК на доработку.')
-    return _redirect_after_transition(act, request.user)
+    form = ReturnToOtkForm(request.POST)
+    if form.is_valid():
+        try:
+            return_to_otk(act, request.user, form.cleaned_data['comment'])
+        except ActWorkflowError as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(request, 'Акт возвращён в ОТК на доработку.')
+            return _redirect_after_transition(act, request.user)
+
+    context = _get_act_detail_context(
+        act,
+        request.user,
+        detail_tab='work',
+        return_to_otk_form=form,
+        return_dialog_open=True,
+    )
+    return render(request, 'acts/detail.html', context)
 
 
 @login_required
@@ -535,6 +546,8 @@ def _get_act_detail_context(
     ko_decision_form=None,
     ko_decision_formset=None,
     detail_tab='work',
+    return_to_otk_form=None,
+    return_dialog_open=False,
 ):
     history_events = act.history_events.select_related('user', 'from_status', 'to_status')
     comments = act.comments.select_related('author')
@@ -598,6 +611,8 @@ def _get_act_detail_context(
         'history_events': history_events,
         'comments': comments,
         'comment_form': comment_form or ActCommentForm(),
+        'return_to_otk_form': return_to_otk_form or ReturnToOtkForm(),
+        'return_dialog_open': return_dialog_open,
         'ko_decision_form': ko_decision_form,
         'ko_decision_formset': ko_decision_formset,
         'attachments': attachments,

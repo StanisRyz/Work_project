@@ -98,22 +98,27 @@ def apply_ko_decision(act, user, defect_decisions):
     return act
 
 
-def return_to_otk(act, user):
+def return_to_otk(act, user, return_comment):
+    return_comment = (return_comment or '').strip()
+    if not return_comment:
+        raise ActWorkflowError('Укажите комментарий к возврату.')
     if not can_return_to_otk(act, user):
         raise ActWorkflowError('Возврат акта в ОТК недоступен для вашей роли или текущего статуса.')
     _require_status(act, 'KO_REVIEW')
-    from_status = act.status
-    to_status = _get_required_status('CREATED_OTK')
-    act.status = to_status
-    act.save(update_fields=['status', 'updated_at'])
-    add_act_history_event(
-        act,
-        user,
-        ActHistoryEvent.EventType.RETURNED_TO_OTK,
-        'Акт возвращён в ОТК на доработку.',
-        from_status=from_status,
-        to_status=to_status,
-    )
+    with transaction.atomic():
+        add_act_comment(act, user, return_comment)
+        from_status = act.status
+        to_status = _get_required_status('CREATED_OTK')
+        act.status = to_status
+        act.save(update_fields=['status', 'updated_at'])
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.RETURNED_TO_OTK,
+            'Акт возвращён в ОТК на доработку.',
+            from_status=from_status,
+            to_status=to_status,
+        )
     return act
 
 

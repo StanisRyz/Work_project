@@ -35,7 +35,7 @@
 - `order_number`, `znp_number`, and `party_number` accept only digits, hyphen, and slash.
 - Product nomenclature and KD designation input restrictions must be validated server-side; browser-side validation is supplementary.
 - Defect detected dates cannot be later than the current local date.
-- The CREATED_OTK work tab order is party data, defects and KO decision, TO analysis, comments, then the bottom-right action panel.
+- The CREATED_OTK work tab order is party data, defects and KO decision, TO analysis, then the bottom-right action panel.
 - On wide screens, party-data labels must remain on one line and every defect card must use rows for ZNP/party/MP type, full-width defect type, operation/date, quantities, and full-width description.
 - Act editing is available only before transfer to KO: the OTK author and managers/administrators may edit acts in CREATED_OTK only.
 - Act create form dynamic defect rows must still be backed by server-side formset validation.
@@ -43,9 +43,10 @@
 - Preserve the legacy detail-page fallback for acts that have no `ActDefect` records.
 - Send-to-KO authorization belongs in `acts/permissions.py`, and the transition implementation belongs in `acts/services.py`.
 - Detail-page tabs control presentation only; they must not change access checks, visibility, or workflow state.
-- Comments must remain available in the detail-page sidebar on every tab.
+- The `Вложения и комментарии` tab keeps attachments first, followed by the normal comment form and comment history; comments are not displayed on the work tab.
 - KO decisions must use `available_actions` for template visibility and the existing authorization in `acts/permissions.py` and transition service in `acts/services.py`.
-- The D14 work tab must keep this section order: party data, defects, KO decision, TO analysis, comments.
+- The work tab must keep this section order: party data, defects, KO decision, TO analysis, workflow actions.
+- Returning an act from KO to OTK requires a non-whitespace comment and must save that comment and both history events atomically with the transition.
 - Attachments belong only on the detail-page attachments tab; preserve its validation, protected access, and attachment history.
 - Every new KO decision must transition an act from `KO_REVIEW` to `TO_ANALYSIS` through `apply_ko_decision()`.
 - When an act has multiple defects, KO must provide a separate decision for every defect before the act can transition to TO.
