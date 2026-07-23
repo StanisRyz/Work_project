@@ -239,6 +239,7 @@ class ActViewTests(TestCase):
         self.assertNotContains(response, '<button class="link-button link-button--danger" type="button" data-remove-root-analysis>')
         self.assertNotContains(response, '<button class="link-button link-button--danger" type="button" data-remove-corrective-action>')
         self.assertContains(response, 'link-button--success')
+        self.assertContains(response, 'name="root-0-actions-TOTAL_FORMS" value="1"')
 
     def test_otk_sees_own_act_at_otk_review_stage(self):
         act = self._create_act(self.status_otk_review, created_by=self.otk_user)

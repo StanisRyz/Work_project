@@ -87,20 +87,21 @@
                                 <label><span>Корректирующее мероприятие</span><textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="3" required>{{ action.comment }}</textarea>{% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}</label>
                                 <div class="corrective-action-card__fields">
                                     <label><span>Выбор отдела</span><select name="root-{{ root.index }}-actions-{{ action.index }}-department" required data-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select>{% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}</label>
-                                    <label><span>Выбор сотрудника</span><select name="root-{{ root.index }}-actions-{{ action.index }}-responsible" required data-responsible-select><option value="">Выберите сотрудника</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department="{{ employee.userprofile.department_id|default:'' }}"{% if action.responsible == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}</option>{% endfor %}</select>{% if action.errors.responsible %}<span class="field-error">{{ action.errors.responsible }}</span>{% endif %}</label>
+                                    <label><span>Выбор сотрудника</span><select name="root-{{ root.index }}-actions-{{ action.index }}-responsible" required data-responsible-select{% if not action.department %} disabled{% endif %}><option value="">Сначала выберите отдел</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department="{{ employee.userprofile.department_id|default:'' }}"{% if action.responsible == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}</option>{% endfor %}</select>{% if action.errors.responsible %}<span class="field-error">{{ action.errors.responsible }}</span>{% endif %}</label>
                                     <label><span>Выбор срока</span><input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>{% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}</label>
                                 </div>
                                 {% if root.actions|length > 1 %}<button class="link-button link-button--danger" type="button" data-remove-corrective-action>Удалить мероприятие</button>{% endif %}
                             </section>
                             {% endfor %}
                         </div>
+                        <input type="hidden" name="root-{{ root.index }}-actions-TOTAL_FORMS" value="{{ root.actions|length }}" data-actions-total>
                         <button class="link-button link-button--success" type="button" data-add-corrective-action>Добавить корректирующее мероприятие</button>
                         {% if to_analysis_form.root_rows|length > 1 %}<button class="link-button link-button--danger" type="button" data-remove-root-analysis>Удалить корневую проработку</button>{% endif %}
                     </section>
                     {% endfor %}
                 </div>
                 <input type="hidden" name="root-TOTAL_FORMS" value="{{ to_analysis_form.root_rows|length }}" data-root-total>
-                <div class="act-inline-actions"><button class="link-button link-button--success" type="button" data-add-root-analysis>Добавить корневую проработку</button><button class="link-button link-button--secondary" type="button" data-return-to-ko-open>Вернуть КО</button><button class="link-button" type="submit" name="action" value="send_to_otk">На проверку ОТК</button></div>
+                <div class="act-inline-actions"><button class="link-button link-button--success" type="button" data-add-root-analysis>Добавить корневую проработку</button></div>
             </form>
         {% elif root_analyses %}
             <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
@@ -123,6 +124,8 @@
         <div class="act-inline-actions">
             {% if available_actions.edit_act %}<a class="link-button link-button--secondary" href="{% url 'acts:edit' act.pk %}">Редактировать</a>{% endif %}
             {% if available_actions.return_to_otk %}<button class="link-button link-button--secondary" type="button" data-return-to-otk-open>Вернуть ОТК</button>{% endif %}
+            {% if available_actions.return_to_ko %}<button class="link-button link-button--secondary" type="button" data-return-to-ko-open>Вернуть КО</button>{% endif %}
+            {% if available_actions.to_analysis %}<button class="link-button" type="submit" form="to-analysis-form" name="action" value="send_to_otk">На проверку ОТК</button>{% endif %}
             {% if available_actions.ko_decision %}<form id="ko-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}" onsubmit="return confirm('Сохранить решения КО и передать акт в ТО?');">{% csrf_token %}{% if ko_decision_formset %}{{ ko_decision_formset.management_form }}{% endif %}<button class="link-button" type="submit">Передать в ТО</button></form>{% endif %}
             {% if available_actions.send_to_ko %}<form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">{% csrf_token %}<button class="link-button" type="submit">Передать в КО</button></form>{% endif %}
         </div>
@@ -245,6 +248,9 @@
                 field.name = field.name.replace(/actions-\d+/, (match, offset, value) => match);
             });
             const actions = [...root.querySelectorAll('[data-corrective-action]')];
+            const actionsTotal = root.querySelector('[data-actions-total]');
+            actionsTotal.name = `root-${rootIndex}-actions-TOTAL_FORMS`;
+            actionsTotal.value = actions.length;
             actions.forEach((action, actionIndex) => action.querySelectorAll('[name]').forEach((field) => {
                 field.name = field.name.replace(/^root-\d+-actions-\d+/, `root-${rootIndex}-actions-${actionIndex}`);
             }));
@@ -265,6 +271,8 @@
         const department = event.target ? event.target.value : event.value;
         const card = event.target ? event.target.closest('[data-corrective-action]') : event.closest('[data-corrective-action]');
         const responsible = card.querySelector('[data-responsible-select]');
+        responsible.disabled = !department;
+        responsible.options[0].text = department ? 'Выберите сотрудника' : 'Сначала выберите отдел';
         [...responsible.options].forEach((option) => {
             if (!option.value) return;
             option.hidden = Boolean(department) && option.dataset.department !== department;
