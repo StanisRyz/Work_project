@@ -8,6 +8,10 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D20 — TO analysis is routed to OTK review.
+
+D20 adds the `OTK_REVIEW` (`Проверка ОТК`) stage. From `TO_ANALYSIS`, an authorized user may return the act to KO with a mandatory comment, or submit a fully validated structured analysis for OTK review. The initial analysis structure does not render delete controls; add controls are green and delete controls are red.
+
 D19 — structured TO analysis is embedded on the act detail page.
 
 D19 replaces the separate TO analysis page with a `Корневая проработка` form on `Проработка`. Each root cause contains one or more corrective actions with department, responsible user, and due date. Successful submission saves all records atomically, preserves concise legacy summaries, and transitions the act to `ACTIONS_ASSIGNED`; submitted analysis is then read-only.
@@ -74,6 +78,16 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+### D20
+
+- Open a `TO_ANALYSIS` act: verify the initial root cause and action do not show delete buttons; add and remove items to verify buttons appear only when removable.
+- Verify green add buttons and red delete buttons, including hover and keyboard-focus states.
+- Return to KO with an empty or whitespace-only comment and verify rejection; submit a valid comment and verify the act moves to `KO_REVIEW` with comment and two history events.
+- Submit an invalid analysis for OTK review and verify errors, unchanged status, and no saved partial structure.
+- Submit a valid analysis with `На проверку ОТК`; verify `OTK_REVIEW`, saved data, legacy summaries, and the TO history event.
+- Log in as the OTK author and verify the `OTK_REVIEW` act is visible in the OTK queue.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D19
 
@@ -238,4 +252,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D19 manual validation.
+- To be defined after D20 manual validation.

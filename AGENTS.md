@@ -56,6 +56,10 @@
 - Every root cause and corrective action text is required; each action requires a department, a responsible user from that department, and a due date no earlier than the current date.
 - Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `ACTIONS_ASSIGNED`, and create the existing TO history event.
 - Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback.
+- `TO_ANALYSIS` has two actions: return to `KO_REVIEW` with a mandatory atomic comment, or submit validated structured analysis to `OTK_REVIEW`.
+- `OTK_REVIEW` is an OTK queue stage; approval and return actions from it are intentionally outside the current scope.
+- Do not render delete buttons for the initial single root analysis or its single action. Show them only once the respective collection has more than one item.
+- Use `link-button--success` for add-analysis actions and `link-button--danger` for delete-analysis actions.
 
 ## Patch Rules
 

@@ -10,6 +10,7 @@ from .permissions import (
     can_delete_attachment,
     can_edit_act,
     can_return_to_otk,
+    can_return_to_ko,
     can_send_to_ko,
     can_view_act,
     is_act_admin,
@@ -127,7 +128,7 @@ def apply_to_analysis(act, user, root_cause, action_summary):
         raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
     _require_status(act, 'TO_ANALYSIS')
     from_status = act.status
-    to_status = _get_required_status('ACTIONS_ASSIGNED')
+    to_status = _get_required_status('OTK_REVIEW')
     act.to_root_cause = root_cause
     act.to_action_summary = action_summary
     act.to_analysis_by = user
@@ -162,7 +163,7 @@ def apply_structured_to_analysis(act, user, analysis_data):
         if not analysis_data or any(not item['actions'] for item in analysis_data):
             raise ActWorkflowError('Добавьте корневую причину и корректирующее мероприятие.')
         from_status = act.status
-        to_status = _get_required_status('ACTIONS_ASSIGNED')
+        to_status = _get_required_status('OTK_REVIEW')
         ActRootAnalysis.objects.filter(act=act).delete()
         for root_index, root_data in enumerate(analysis_data):
             root_analysis = ActRootAnalysis.objects.create(
@@ -202,6 +203,30 @@ def apply_structured_to_analysis(act, user, analysis_data):
             user,
             ActHistoryEvent.EventType.TO_ANALYSIS_APPLIED,
             'Анализ ТО внесён, мероприятия ожидают дальнейшей проработки.',
+            from_status=from_status,
+            to_status=to_status,
+        )
+    return act
+
+
+def return_to_ko(act, user, return_comment):
+    return_comment = (return_comment or '').strip()
+    if not return_comment:
+        raise ActWorkflowError('Укажите комментарий к возврату.')
+    with transaction.atomic():
+        if not can_return_to_ko(act, user):
+            raise ActWorkflowError('Возврат акта в КО недоступен для вашей роли или текущего статуса.')
+        _require_status(act, 'TO_ANALYSIS')
+        from_status = act.status
+        to_status = _get_required_status('KO_REVIEW')
+        add_act_comment(act, user, return_comment)
+        act.status = to_status
+        act.save(update_fields=['status', 'updated_at'])
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.RETURNED_TO_KO,
+            'Акт возвращён в КО на доработку.',
             from_status=from_status,
             to_status=to_status,
         )
@@ -349,6 +374,7 @@ def get_available_act_actions(act, user):
         'send_to_ko': can_send_to_ko(act, user),
         'ko_decision': can_apply_ko_decision(act, user),
         'return_to_otk': can_return_to_otk(act, user),
+        'return_to_ko': can_return_to_ko(act, user),
         'to_analysis': can_apply_to_analysis(act, user),
         'close_act': can_close_act(act, user),
         'print_act': can_view_act(act, user),

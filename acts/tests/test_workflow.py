@@ -7,7 +7,7 @@ from django.utils import timezone
 from accounts.models import Department, UserProfile
 from acts.forms import ToAnalysisStructureForm
 from acts.models import Act, ActComment, ActCorrectiveAction, ActDefect, ActHistoryEvent, ActRootAnalysis
-from acts.services import ActWorkflowError, apply_ko_decision, apply_structured_to_analysis, apply_to_analysis, return_to_otk, send_to_ko
+from acts.services import ActWorkflowError, apply_ko_decision, apply_structured_to_analysis, apply_to_analysis, return_to_ko, return_to_otk, send_to_ko
 from references.models import ActStatus, DefectType, Operation
 
 
@@ -18,6 +18,7 @@ class ActWorkflowTests(TestCase):
         cls.status_ko = ActStatus.objects.create(code='KO_REVIEW', name='На рассмотрении КО')
         cls.status_to = ActStatus.objects.create(code='TO_ANALYSIS', name='На анализе ТО')
         cls.status_actions = ActStatus.objects.create(code='ACTIONS_ASSIGNED', name='Мероприятия назначены')
+        cls.status_otk_review = ActStatus.objects.get(code='OTK_REVIEW')
         cls.operation = Operation.objects.create(code='OP', name='Операция')
         cls.defect_type = DefectType.objects.create(code='DEFECT', name='Дефект')
         cls.department = Department.objects.create(code='TO', name='Технологический отдел')
@@ -120,7 +121,7 @@ class ActWorkflowTests(TestCase):
         apply_to_analysis(act, self.to_user, 'Корневая причина', 'Мероприятия')
 
         act.refresh_from_db()
-        self.assertEqual(act.status.code, 'ACTIONS_ASSIGNED')
+        self.assertEqual(act.status.code, 'OTK_REVIEW')
         self.assertEqual(act.to_analysis_by, self.to_user)
         self.assertIsNotNone(act.to_analysis_at)
 
@@ -166,7 +167,7 @@ class ActWorkflowTests(TestCase):
         apply_structured_to_analysis(act, self.to_user, form.analysis_data)
 
         act.refresh_from_db()
-        self.assertEqual(act.status.code, 'ACTIONS_ASSIGNED')
+        self.assertEqual(act.status.code, 'OTK_REVIEW')
         self.assertEqual(act.to_root_cause, 'Корневая причина')
         self.assertEqual(act.to_action_summary, 'Корректирующее мероприятие')
         self.assertEqual(ActRootAnalysis.objects.filter(act=act).count(), 1)
@@ -209,14 +210,33 @@ class ActWorkflowTests(TestCase):
             ).count(),
             1,
         )
+
+    def test_return_to_ko_requires_comment_without_changing_act(self):
+        act = self._create_act(self.status_to)
+
+        with self.assertRaises(ActWorkflowError):
+            return_to_ko(act, self.to_user, '  ')
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'TO_ANALYSIS')
+        self.assertFalse(ActComment.objects.filter(act=act).exists())
+
+    def test_return_to_ko_saves_comment_and_history_atomically(self):
+        act = self._create_act(self.status_to)
+
+        return_to_ko(act, self.to_user, 'Уточнить решение КО.')
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'KO_REVIEW')
+        self.assertEqual(ActComment.objects.get(act=act).text, 'Уточнить решение КО.')
         self.assertEqual(
-            ActHistoryEvent.objects.filter(
-                act=act,
-                event_type=ActHistoryEvent.EventType.RETURNED_TO_OTK,
-            ).count(),
+            ActHistoryEvent.objects.filter(act=act, event_type=ActHistoryEvent.EventType.COMMENT_ADDED).count(),
             1,
         )
-
+        self.assertEqual(
+            ActHistoryEvent.objects.filter(act=act, event_type=ActHistoryEvent.EventType.RETURNED_TO_KO).count(),
+            1,
+        )
     def test_wrong_roles_raise_workflow_error(self):
         ko_act = self._create_act(self.status_ko)
         to_act = self._create_act(self.status_to)
@@ -226,5 +246,7 @@ class ActWorkflowTests(TestCase):
             apply_ko_decision(ko_act, self.otk_user, [(None, Act.KoDecision.ALLOW_NO_REWORK, '')])
         with self.assertRaises(ActWorkflowError):
             apply_to_analysis(to_act, self.ko_user, 'Причина', 'Мероприятия')
+        with self.assertRaises(ActWorkflowError):
+            return_to_ko(to_act, self.ko_user, 'Вернуть КО')
         with self.assertRaises(ActWorkflowError):
             send_to_ko(created_act, self.to_user)

@@ -90,17 +90,17 @@
                                     <label><span>Выбор сотрудника</span><select name="root-{{ root.index }}-actions-{{ action.index }}-responsible" required data-responsible-select><option value="">Выберите сотрудника</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department="{{ employee.userprofile.department_id|default:'' }}"{% if action.responsible == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}</option>{% endfor %}</select>{% if action.errors.responsible %}<span class="field-error">{{ action.errors.responsible }}</span>{% endif %}</label>
                                     <label><span>Выбор срока</span><input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>{% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}</label>
                                 </div>
-                                <button class="link-button link-button--secondary" type="button" data-remove-corrective-action>Удалить мероприятие</button>
+                                {% if root.actions|length > 1 %}<button class="link-button link-button--danger" type="button" data-remove-corrective-action>Удалить мероприятие</button>{% endif %}
                             </section>
                             {% endfor %}
                         </div>
-                        <button class="link-button link-button--secondary" type="button" data-add-corrective-action>Добавить корректирующее мероприятие</button>
-                        <button class="link-button link-button--secondary" type="button" data-remove-root-analysis>Удалить корневую проработку</button>
+                        <button class="link-button link-button--success" type="button" data-add-corrective-action>Добавить корректирующее мероприятие</button>
+                        {% if to_analysis_form.root_rows|length > 1 %}<button class="link-button link-button--danger" type="button" data-remove-root-analysis>Удалить корневую проработку</button>{% endif %}
                     </section>
                     {% endfor %}
                 </div>
                 <input type="hidden" name="root-TOTAL_FORMS" value="{{ to_analysis_form.root_rows|length }}" data-root-total>
-                <div class="act-inline-actions"><button class="link-button link-button--secondary" type="button" data-add-root-analysis>Добавить корневую проработку</button><button class="link-button" type="submit">Сохранить анализ ТО</button></div>
+                <div class="act-inline-actions"><button class="link-button link-button--success" type="button" data-add-root-analysis>Добавить корневую проработку</button><button class="link-button link-button--secondary" type="button" data-return-to-ko-open>Вернуть КО</button><button class="link-button" type="submit" name="action" value="send_to_otk">На проверку ОТК</button></div>
             </form>
         {% elif root_analyses %}
             <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
@@ -155,6 +155,19 @@
     </form>
 </dialog>
 {% endif %}
+{% if available_actions.return_to_ko or return_to_ko_dialog_open %}
+<dialog class="act-return-dialog" data-return-to-ko-dialog{% if return_to_ko_dialog_open %} open{% endif %} aria-labelledby="return-to-ko-title">
+    <form method="post" action="{% url 'acts:return_to_ko' act.pk %}" class="act-return-dialog__form" data-return-to-ko-form>
+        {% csrf_token %}
+        <h2 id="return-to-ko-title">Вернуть акт в КО на доработку</h2>
+        <p>Укажите, какое решение КО необходимо уточнить или исправить.</p>
+        {{ return_to_ko_form.non_field_errors }}
+        <label><span>{{ return_to_ko_form.comment.label }}</span>{{ return_to_ko_form.comment }}{{ return_to_ko_form.comment.errors }}</label>
+        <p class="client-field-error" data-return-to-ko-error hidden>Укажите комментарий к возврату.</p>
+        <div class="act-return-dialog__actions"><button class="link-button link-button--secondary" type="button" data-return-to-ko-cancel>Отмена</button><button class="link-button" type="submit">Вернуть на доработку</button></div>
+    </form>
+</dialog>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -186,9 +199,43 @@
 </script>
 <script>
 (() => {
+    const dialog = document.querySelector('[data-return-to-ko-dialog]');
+    if (!dialog) return;
+    const openButton = document.querySelector('[data-return-to-ko-open]');
+    const cancelButton = dialog.querySelector('[data-return-to-ko-cancel]');
+    const form = dialog.querySelector('[data-return-to-ko-form]');
+    const comment = form.querySelector('textarea');
+    const error = dialog.querySelector('[data-return-to-ko-error]');
+    openButton?.addEventListener('click', () => dialog.showModal());
+    cancelButton.addEventListener('click', () => dialog.close());
+    form.addEventListener('submit', (event) => {
+        if (comment.value.trim()) return;
+        event.preventDefault(); error.hidden = false;
+        comment.setCustomValidity('Укажите комментарий к возврату.'); comment.reportValidity(); comment.focus();
+    });
+    comment.addEventListener('input', () => {
+        const empty = !comment.value.trim(); error.hidden = !empty;
+        comment.setCustomValidity(empty ? 'Укажите комментарий к возврату.' : '');
+    });
+})();
+</script>
+<script>
+(() => {
     const form = document.querySelector('[data-root-analysis-list]');
     if (!form) return;
     const rootTotal = document.querySelector('[data-root-total]');
+    const addRemoveButton = (container, attribute, label) => {
+        let button = container.querySelector(`[${attribute}]`);
+        if (!button) {
+            button = document.createElement('button');
+            button.className = 'link-button link-button--danger';
+            button.type = 'button';
+            button.dataset[attribute.replace('data-', '').replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = '';
+            button.textContent = label;
+            container.append(button);
+        }
+        return button;
+    };
     const renumber = () => {
         const roots = [...form.querySelectorAll('[data-root-analysis]')];
         rootTotal.value = roots.length;
@@ -201,8 +248,16 @@
             actions.forEach((action, actionIndex) => action.querySelectorAll('[name]').forEach((field) => {
                 field.name = field.name.replace(/^root-\d+-actions-\d+/, `root-${rootIndex}-actions-${actionIndex}`);
             }));
-            root.querySelector('[data-remove-root-analysis]').hidden = roots.length === 1;
-            actions.forEach((action) => action.querySelector('[data-remove-corrective-action]').hidden = actions.length === 1);
+            const rootRemove = roots.length > 1
+                ? addRemoveButton(root, 'data-remove-root-analysis', 'Удалить корневую проработку')
+                : root.querySelector('[data-remove-root-analysis]');
+            if (rootRemove) rootRemove.hidden = roots.length === 1;
+            actions.forEach((action) => {
+                const actionRemove = actions.length > 1
+                    ? addRemoveButton(action, 'data-remove-corrective-action', 'Удалить мероприятие')
+                    : action.querySelector('[data-remove-corrective-action]');
+                if (actionRemove) actionRemove.hidden = actions.length === 1;
+            });
         });
         form.querySelectorAll('[data-department-select]').forEach(filterUsers);
     };

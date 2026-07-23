@@ -17,6 +17,7 @@ class ActViewTests(TestCase):
         cls.status_ko = ActStatus.objects.create(code='KO_REVIEW', name='На рассмотрении КО')
         cls.status_to = ActStatus.objects.create(code='TO_ANALYSIS', name='На анализе ТО')
         cls.status_actions = ActStatus.objects.create(code='ACTIONS_ASSIGNED', name='Мероприятия назначены')
+        cls.status_otk_review = ActStatus.objects.get(code='OTK_REVIEW')
         cls.operation = Operation.objects.create(code='OPERATIONAL_CONTROL', name='Операционный контроль')
         cls.defect_type = DefectType.objects.create(code='SIZE_NONCONFORMITY', name='Несоответствие размеров')
         cls.priority = Priority.objects.create(code='HIGH', name='Высокий')
@@ -209,6 +210,7 @@ class ActViewTests(TestCase):
         response = self.client.post(
             reverse('acts:to_analysis', args=[act.pk]),
             {
+                'action': 'send_to_otk',
                 'root-TOTAL_FORMS': '1',
                 'root-0-root_cause': 'Причина',
                 'root-0-actions-TOTAL_FORMS': '1',
@@ -219,10 +221,10 @@ class ActViewTests(TestCase):
             },
         )
 
-        self.assertRedirects(response, reverse('acts:detail', args=[act.pk]))
+        self.assertRedirects(response, reverse('acts:list'))
         act.refresh_from_db()
-        self.assertEqual(act.status.code, 'ACTIONS_ASSIGNED')
-        self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 200)
+        self.assertEqual(act.status.code, 'OTK_REVIEW')
+        self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 404)
 
     def test_to_analysis_form_is_embedded_on_work_tab(self):
         act = self._create_act(self.status_to)
@@ -230,8 +232,21 @@ class ActViewTests(TestCase):
 
         response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
 
-        self.assertContains(response, 'Сохранить анализ ТО')
+        self.assertContains(response, 'На проверку ОТК')
+        self.assertContains(response, 'Вернуть КО')
+        self.assertNotContains(response, 'Сохранить анализ ТО')
         self.assertNotContains(response, 'Внести анализ ТО')
+        self.assertNotContains(response, '<button class="link-button link-button--danger" type="button" data-remove-root-analysis>')
+        self.assertNotContains(response, '<button class="link-button link-button--danger" type="button" data-remove-corrective-action>')
+        self.assertContains(response, 'link-button--success')
+
+    def test_otk_sees_own_act_at_otk_review_stage(self):
+        act = self._create_act(self.status_otk_review, created_by=self.otk_user)
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:list'))
+
+        self.assertContains(response, act.number)
 
     def test_legacy_to_analysis_values_remain_visible_without_structured_records(self):
         act = self._create_act(self.status_actions)

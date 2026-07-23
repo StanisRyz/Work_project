@@ -14,6 +14,7 @@ ACT_STATUS_CODES = {
     'CREATED_OTK': 'CREATED_OTK',
     'KO_REVIEW': 'KO_REVIEW',
     'TO_ANALYSIS': 'TO_ANALYSIS',
+    'OTK_REVIEW': 'OTK_REVIEW',
     'ACTIONS_ASSIGNED': 'ACTIONS_ASSIGNED',
     'CLOSED': 'CLOSED',
     'CANCELLED': 'CANCELLED',
@@ -260,6 +261,7 @@ class ActHistoryEvent(models.Model):
         SENT_TO_KO = 'SENT_TO_KO', 'Акт передан в КО'
         KO_DECISION_APPLIED = 'KO_DECISION_APPLIED', 'Решение КО внесено'
         RETURNED_TO_OTK = 'RETURNED_TO_OTK', 'Акт возвращён в ОТК'
+        RETURNED_TO_KO = 'RETURNED_TO_KO', 'Акт возвращён в КО'
         SENT_TO_TO = 'SENT_TO_TO', 'Акт передан в ТО'
         TO_ANALYSIS_APPLIED = 'TO_ANALYSIS_APPLIED', 'Анализ ТО внесён'
         COMMENT_ADDED = 'COMMENT_ADDED', 'Комментарий добавлен'

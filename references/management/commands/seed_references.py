@@ -48,9 +48,10 @@ class Command(BaseCommand):
             ('CREATED_OTK', 'Создан ОТК', 10, False),
             ('KO_REVIEW', 'На рассмотрении КО', 20, False),
             ('TO_ANALYSIS', 'На анализе ТО', 30, False),
-            ('ACTIONS_ASSIGNED', 'Мероприятия назначены', 40, False),
-            ('CLOSED', 'Закрыт', 50, True),
-            ('CANCELLED', 'Отменён', 60, True),
+            ('OTK_REVIEW', 'Проверка ОТК', 40, False),
+            ('ACTIONS_ASSIGNED', 'Мероприятия назначены', 50, False),
+            ('CLOSED', 'Закрыт', 60, True),
+            ('CANCELLED', 'Отменён', 70, True),
         ]
         task_statuses = [
             ('OPEN', 'Открыта', 10, False),
@@ -111,6 +112,6 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 'Reference data ready: 13 operations, 20 defect types, '
-                '6 act statuses, 6 task statuses, 4 priorities.'
+                '7 act statuses, 6 task statuses, 4 priorities.'
             )
         )

@@ -73,7 +73,7 @@ def can_view_act(act, user):
     if has_full_act_access(user):
         return True
     if is_otk(user):
-        return act.created_by_id == user.id and _status_code(act) == 'CREATED_OTK'
+        return act.created_by_id == user.id and _status_code(act) in {'CREATED_OTK', 'OTK_REVIEW'}
     if is_ko(user):
         return _status_code(act) == 'KO_REVIEW'
     if is_to(user):
@@ -109,6 +109,10 @@ def can_return_to_otk(act, user):
 
 def can_apply_to_analysis(act, user):
     return _status_code(act) == 'TO_ANALYSIS' and (is_to(user) or has_full_act_access(user))
+
+
+def can_return_to_ko(act, user):
+    return can_apply_to_analysis(act, user)
 
 
 def can_close_act(act, user):
@@ -148,7 +152,7 @@ def get_visible_acts_queryset(user):
     if has_full_act_access(user):
         return queryset
     if is_otk(user):
-        return queryset.filter(created_by=user, status__code='CREATED_OTK')
+        return queryset.filter(created_by=user, status__code__in=['CREATED_OTK', 'OTK_REVIEW'])
     if is_ko(user):
         return queryset.filter(status__code='KO_REVIEW')
     if is_to(user):

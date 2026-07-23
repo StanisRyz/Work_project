@@ -14,6 +14,7 @@ urlpatterns = [
     path('<int:pk>/ko-decision/', views.act_ko_decision, name='ko_decision'),
     path('<int:pk>/return-to-otk/', views.act_return_to_otk, name='return_to_otk'),
     path('<int:pk>/to-analysis/', views.act_to_analysis, name='to_analysis'),
+    path('<int:pk>/return-to-ko/', views.act_return_to_ko, name='return_to_ko'),
     path('<int:pk>/close/', views.act_close, name='close'),
     path('<int:pk>/print/', views.act_print, name='print'),
     path('<int:pk>/comments/add/', views.act_add_comment, name='add_comment'),

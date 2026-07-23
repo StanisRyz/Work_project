@@ -42,6 +42,7 @@ from .services import (
     get_role_context_text,
     get_visible_acts_for_user,
     return_to_otk,
+    return_to_ko,
     send_to_ko,
 )
 
@@ -481,7 +482,9 @@ def act_to_analysis(request, pk):
         return _redirect_to_detail_tab(act, 'work')
 
     form = ToAnalysisStructureForm(request.POST)
-    if form.is_valid():
+    if request.POST.get('action') != 'send_to_otk':
+        form.non_field_errors.append('Выберите действие для анализа ТО.')
+    elif form.is_valid():
         try:
             apply_structured_to_analysis(act, request.user, form.analysis_data)
         except ActWorkflowError as exc:
@@ -491,6 +494,32 @@ def act_to_analysis(request, pk):
             return _redirect_after_transition(act, request.user)
 
     context = _get_act_detail_context(act, request.user, detail_tab='work', to_analysis_form=form)
+    return render(request, 'acts/detail.html', context)
+
+
+@login_required
+def act_return_to_ko(request, pk):
+    act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
+    if request.method != 'POST':
+        return _redirect_to_detail_tab(act, 'work')
+
+    form = ReturnToOtkForm(request.POST)
+    if form.is_valid():
+        try:
+            return_to_ko(act, request.user, form.cleaned_data['comment'])
+        except ActWorkflowError as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(request, 'Акт возвращён в КО на доработку.')
+            return _redirect_after_transition(act, request.user)
+
+    context = _get_act_detail_context(
+        act,
+        request.user,
+        detail_tab='work',
+        return_to_ko_form=form,
+        return_to_ko_dialog_open=True,
+    )
     return render(request, 'acts/detail.html', context)
 
 
@@ -535,6 +564,8 @@ def _get_act_detail_context(
     return_to_otk_form=None,
     return_dialog_open=False,
     to_analysis_form=None,
+    return_to_ko_form=None,
+    return_to_ko_dialog_open=False,
 ):
     history_events = act.history_events.select_related('user', 'from_status', 'to_status')
     comments = act.comments.select_related('author')
@@ -603,6 +634,8 @@ def _get_act_detail_context(
         'comment_form': comment_form or ActCommentForm(),
         'return_to_otk_form': return_to_otk_form or ReturnToOtkForm(),
         'return_dialog_open': return_dialog_open,
+        'return_to_ko_form': return_to_ko_form or ReturnToOtkForm(),
+        'return_to_ko_dialog_open': return_to_ko_dialog_open,
         'to_analysis_form': to_analysis_form or ToAnalysisStructureForm(),
         'root_analyses': root_analyses,
         'analysis_departments': Department.objects.filter(is_active=True),
