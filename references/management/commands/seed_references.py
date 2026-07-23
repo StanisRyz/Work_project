@@ -55,6 +55,7 @@ class Command(BaseCommand):
             ('CANCELLED', 'Отменён', 80, True),
         ]
         task_statuses = [
+            ('NEW', 'Новая', 10, False),
             ('OPEN', 'Открыта', 10, False),
             ('IN_PROGRESS', 'В работе', 20, False),
             ('ON_REVIEW', 'На проверке', 30, False),

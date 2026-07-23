@@ -9,6 +9,7 @@ from acts.forms import ToAnalysisStructureForm
 from acts.models import Act, ActComment, ActCorrectiveAction, ActDefect, ActHistoryEvent, ActRootAnalysis
 from acts.services import ActWorkflowError, apply_ko_decision, apply_structured_to_analysis, apply_to_analysis, approve_act, return_to_ko, return_to_otk, return_to_to, send_to_ko
 from references.models import ActStatus, DefectType, Operation
+from tasks.models import Task
 
 
 class ActWorkflowTests(TestCase):
@@ -263,7 +264,10 @@ class ActWorkflowTests(TestCase):
         )
 
     def test_approve_archives_act_and_records_approver(self):
-        act = self._create_act(self.status_otk_review)
+        act = self._create_act(self.status_to)
+        form = ToAnalysisStructureForm(self._structured_analysis_post())
+        self.assertTrue(form.is_valid())
+        apply_structured_to_analysis(act, self.to_user, form.analysis_data)
 
         approve_act(act, self.otk_user)
 
@@ -271,10 +275,56 @@ class ActWorkflowTests(TestCase):
         self.assertEqual(act.status.code, 'ARCHIVED')
         self.assertEqual(act.approved_by, self.otk_user)
         self.assertIsNotNone(act.approved_at)
+        self.assertEqual(Task.objects.filter(act=act).count(), 1)
+        self.assertEqual(Task.objects.get(act=act).status.code, 'NEW')
         self.assertEqual(
             ActHistoryEvent.objects.filter(act=act, event_type=ActHistoryEvent.EventType.APPROVED).count(),
             1,
         )
+
+    def test_approval_rolls_back_when_corrective_action_is_invalid(self):
+        act = self._create_act(self.status_to)
+        form = ToAnalysisStructureForm(self._structured_analysis_post())
+        self.assertTrue(form.is_valid())
+        apply_structured_to_analysis(act, self.to_user, form.analysis_data)
+        action = ActCorrectiveAction.objects.get(root_analysis__act=act)
+        action.responsible = self.other_user
+        action.save(update_fields=['responsible'])
+
+        with self.assertRaises(ActWorkflowError):
+            approve_act(act, self.otk_user)
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'OTK_REVIEW')
+        self.assertFalse(Task.objects.filter(act=act).exists())
+
+    def test_approval_does_not_create_duplicate_tasks(self):
+        act = self._create_act(self.status_to)
+        form = ToAnalysisStructureForm(self._structured_analysis_post())
+        self.assertTrue(form.is_valid())
+        apply_structured_to_analysis(act, self.to_user, form.analysis_data)
+        approve_act(act, self.otk_user)
+
+        with self.assertRaises(ActWorkflowError):
+            approve_act(act, self.otk_user)
+
+        self.assertEqual(Task.objects.filter(act=act).count(), 1)
+
+    def test_approval_rejects_due_date_before_approval_date(self):
+        act = self._create_act(self.status_to)
+        form = ToAnalysisStructureForm(self._structured_analysis_post())
+        self.assertTrue(form.is_valid())
+        apply_structured_to_analysis(act, self.to_user, form.analysis_data)
+        action = ActCorrectiveAction.objects.get(root_analysis__act=act)
+        action.due_date = timezone.localdate() - timedelta(days=1)
+        action.save(update_fields=['due_date'])
+
+        with self.assertRaises(ActWorkflowError):
+            approve_act(act, self.otk_user)
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'OTK_REVIEW')
+        self.assertFalse(Task.objects.filter(act=act).exists())
     def test_wrong_roles_raise_workflow_error(self):
         ko_act = self._create_act(self.status_ko)
         to_act = self._create_act(self.status_to)

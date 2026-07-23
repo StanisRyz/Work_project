@@ -106,7 +106,7 @@
         {% elif root_analyses %}
             <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
             {% for root in root_analyses %}
-                <section class="root-analysis-readonly"><h3>Корневая причина</h3><p>{{ root.root_cause|linebreaksbr }}</p>{% for action in root.corrective_actions.all %}<article><h4>Корректирующее мероприятие</h4><p>{{ action.comment|linebreaksbr }}</p><dl><dt>Отдел</dt><dd>{{ action.department }}</dd><dt>Ответственный</dt><dd>{{ action.responsible }}</dd><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y' }}</dd></dl></article>{% endfor %}</section>
+                <section class="root-analysis-readonly"><h3>Корневая причина</h3><p>{{ root.root_cause|linebreaksbr }}</p>{% for action in root.corrective_actions.all %}<article><h4>Корректирующее мероприятие</h4><p>{{ action.comment|linebreaksbr }}</p><dl><dt>Отдел</dt><dd>{{ action.department }}</dd><dt>Ответственный</dt><dd>{{ action.responsible }}</dd><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y' }}</dd>{% if act.status.code == 'ARCHIVED' and action.task %}<dt>Задача</dt><dd><a class="table-link" href="{% url 'tasks:detail' action.task.pk %}">Задача #{{ action.task.pk }}</a> — {{ action.task.status }}</dd>{% endif %}</dl></article>{% endfor %}</section>
             {% endfor %}
         {% elif act.to_root_cause or act.to_action_summary %}
             <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>

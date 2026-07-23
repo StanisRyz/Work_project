@@ -8,9 +8,13 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D22 — tasks from approved corrective actions.
+
+D22 creates one executable task for every corrective action during the atomic OTK approval transaction. Tasks are assigned to the selected responsible employee, start in `NEW` (`Новая`), and are visible in the task list with protected access and links back to the archived source act.
+
 D21 — OTK review, approval, and registry scopes.
 
-D21 lets the authorized OTK reviewer return an `OTK_REVIEW` act to TO with a mandatory comment or approve it to terminal `ARCHIVED`, recording the approver and date. The registry has `Мои акты`, `Все акты`, and `Архив` scopes that preserve server-side visibility rules.
+D21 lets the authorized OTK reviewer return an `OTK_REVIEW` act to TO with a mandatory comment or approve it to terminal `ARCHIVED`, recording the approver and date. D22 extends approval by creating linked executable tasks. The registry has `Мои акты`, `Все акты`, and `Архив` scopes that preserve server-side visibility rules.
 
 D20 — TO analysis is routed to OTK review.
 
@@ -82,6 +86,14 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+### D22
+
+- Approve an `OTK_REVIEW` act with one or more valid corrective actions and verify one `Новая` task per action, then verify the archived-act task links.
+- Try approval with an inactive or wrong-department responsible user, blank action text, or a past due date; verify a clear error, no tasks, and unchanged `OTK_REVIEW` status.
+- Open `/tasks/` as an assigned employee, another employee, manager, and administrator; verify protected visibility, overdue highlighting, sort order, and read-only details.
+- Verify an approved/archived act cannot create duplicate tasks.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D21
 
@@ -264,4 +276,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D21 manual validation.
+- To be defined after D22 manual validation.

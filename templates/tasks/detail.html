@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}Задача #{{ task.pk }}{% endblock %}
+
+{% block content %}
+<section class="detail-section">
+    <h1>Задача #{{ task.pk }}</h1>
+    <dl>
+        <dt>Статус</dt><dd>{{ task.status }}</dd>
+        <dt>Корневая причина</dt><dd>{{ task.root_analysis.root_cause }}</dd>
+        <dt>Исходный акт</dt><dd><a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a></dd>
+        <dt>Ответственный</dt><dd>{{ task.responsible }}</dd>
+        <dt>Отдел</dt><dd>{{ task.department }}</dd>
+        <dt>Срок</dt><dd>{{ task.due_date|date:'d.m.Y' }}</dd>
+        <dt>Создана</dt><dd>{{ task.created_at|date:'d.m.Y H:i' }}</dd>
+    </dl>
+    <h2>Задача</h2><p>{{ task.task_text|linebreaksbr }}</p>
+    <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}">К списку задач</a>
+</section>
+{% endblock %}

@@ -2,6 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from accounts.models import UserProfile
 from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActHistoryEvent, ActRootAnalysis, get_act_status
 from .permissions import (
     can_apply_ko_decision,
@@ -264,6 +265,37 @@ def approve_act(act, user):
         if not can_approve_act(act, user):
             raise ActWorkflowError('Утверждение акта недоступно для вашей роли или текущего статуса.')
         _require_status(act, 'OTK_REVIEW')
+        corrective_actions = list(
+            ActCorrectiveAction.objects.select_related('root_analysis', 'department', 'responsible__userprofile').filter(
+                root_analysis__act=act
+            )
+        )
+        _validate_corrective_actions_for_approval(corrective_actions)
+        from tasks.models import Task
+        from references.models import TaskStatus
+
+        if Task.objects.filter(source_action__in=corrective_actions).exists():
+            raise ActWorkflowError('Для корректирующих мероприятий этого акта уже созданы задачи.')
+        try:
+            new_task_status = TaskStatus.objects.get(code='NEW', is_active=True)
+        except TaskStatus.DoesNotExist as exc:
+            raise ActWorkflowError('Не найден активный статус задачи «Новая».') from exc
+        approval_date = timezone.localdate()
+        for action in corrective_actions:
+            if action.due_date < approval_date:
+                raise ActWorkflowError('Срок корректирующего мероприятия не может быть раньше даты утверждения.')
+        for action in corrective_actions:
+            Task.objects.create(
+                source_action=action,
+                act=act,
+                root_analysis=action.root_analysis,
+                task_text=action.comment,
+                department=action.department,
+                responsible=action.responsible,
+                due_date=action.due_date,
+                created_by=user,
+                status=new_task_status,
+            )
         from_status = act.status
         to_status = _get_required_status('ARCHIVED')
         act.approved_by = user
@@ -279,6 +311,28 @@ def approve_act(act, user):
             to_status=to_status,
         )
     return act
+
+
+def _validate_corrective_actions_for_approval(corrective_actions):
+    if not corrective_actions:
+        raise ActWorkflowError('Для утверждения требуется хотя бы одно корректирующее мероприятие.')
+    for action in corrective_actions:
+        if not action.comment or not action.comment.strip():
+            raise ActWorkflowError('Корректирующее мероприятие не заполнено.')
+        if not action.department_id:
+            raise ActWorkflowError('Для корректирующего мероприятия не выбран отдел.')
+        if not action.responsible_id:
+            raise ActWorkflowError('Для корректирующего мероприятия не выбран сотрудник.')
+        if not action.due_date:
+            raise ActWorkflowError('Для корректирующего мероприятия не указан срок.')
+        try:
+            profile = action.responsible.userprofile
+        except UserProfile.DoesNotExist:
+            profile = None
+        if not action.responsible.is_active or profile is None or not profile.is_active:
+            raise ActWorkflowError('Ответственный сотрудник должен быть активен.')
+        if profile.department_id != action.department_id:
+            raise ActWorkflowError('Ответственный сотрудник не относится к выбранному отделу.')
 
 
 def add_act_history_event(act, user, event_type, message, from_status=None, to_status=None):

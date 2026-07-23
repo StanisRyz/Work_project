@@ -60,9 +60,11 @@
 - `OTK_REVIEW` is an OTK queue stage; approval and return actions from it are intentionally outside the current scope.
 - Do not render delete buttons for the initial single root analysis or its single action. Show them only once the respective collection has more than one item.
 - Use `link-button--success` for add-analysis actions and `link-button--danger` for delete-analysis actions.
-- At `OTK_REVIEW`, the OTK author and managers/administrators may atomically return the act to `TO_ANALYSIS` with a mandatory comment or approve it to `ARCHIVED`.
+- At `OTK_REVIEW`, the OTK author and managers/administrators may atomically return the act to `TO_ANALYSIS` with a mandatory comment or approve it to `ARCHIVED`; approval atomically creates one `tasks.Task` for every corrective action.
 - `ARCHIVED` acts are read-only for workflow actions but retain permitted viewing, comments, attachments, history, and printing.
 - The acts registry scopes are `my`, `all`, and `archive`; scope selection must not bypass backend act visibility.
+- Tasks belong in the `tasks` app. A task is created only during successful OTK approval and is linked one-to-one with its source corrective action.
+- Regular users see only their assigned tasks; managers and administrators have full task visibility. Task links on archived acts are read-only.
 
 ## Patch Rules
 

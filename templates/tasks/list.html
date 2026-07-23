@@ -3,10 +3,27 @@
 {% block title %}Задачи - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-{% include 'includes/page_header.html' with page_badge='Раздел D2' %}
+{% include 'includes/page_header.html' with page_title='Задачи' page_description='Задачи по утверждённым корректирующим мероприятиям.' %}
 
-<section class="placeholder-card">
-    <span class="badge">Заготовка</span>
-    <p>{{ page_description }}</p>
+{% if tasks %}
+<section class="table-card act-table-card">
+    <table class="data-table">
+        <thead><tr><th>Статус</th><th>Задача</th><th>Исходный акт</th><th>Отдел</th><th>Срок</th><th>Создана</th></tr></thead>
+        <tbody>
+        {% for task in tasks %}
+            <tr{% if task.due_date < today %} class="task-row--overdue"{% endif %}>
+                <td>{{ task.status }}</td>
+                <td><a class="table-link" href="{% url 'tasks:detail' task.pk %}">{{ task.task_text }}</a></td>
+                <td><a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a></td>
+                <td>{{ task.department }}</td>
+                <td><span class="{% if task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></td>
+                <td>{{ task.created_at|date:'d.m.Y H:i' }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
 </section>
+{% else %}
+    {% include 'acts/includes/empty_state.html' with title='Задач пока нет' message='У вас нет назначенных задач.' %}
+{% endif %}
 {% endblock %}

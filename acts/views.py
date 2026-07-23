@@ -669,7 +669,11 @@ def _get_act_detail_context(
         for attachment in act.attachments.select_related('uploaded_by')
     ]
     root_analyses = list(
-        act.root_analyses.prefetch_related('corrective_actions__department', 'corrective_actions__responsible')
+        act.root_analyses.prefetch_related(
+            'corrective_actions__department',
+            'corrective_actions__responsible',
+            'corrective_actions__task__status',
+        )
     )
     return {
         'active_page': 'acts',

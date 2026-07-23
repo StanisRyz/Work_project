@@ -149,6 +149,10 @@
     color: var(--color-primary-dark);
 }
 
+.task-row--overdue td {
+    background: #fef2f2;
+}
+
 .act-work-sequence {
     display: grid;
     gap: 16px;
