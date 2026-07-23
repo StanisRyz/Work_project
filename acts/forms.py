@@ -1,10 +1,13 @@
 import re
+from datetime import date
 
 from django import forms
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.forms import BaseInlineFormSet, inlineformset_factory, modelformset_factory
 from django.utils import timezone
 
+from accounts.models import Department
 from references.models import DefectType, Operation
 
 from .models import Act, ActAttachment, ActComment, ActDefect
@@ -315,6 +318,146 @@ class ReturnToOtkForm(forms.Form):
         if not comment:
             raise forms.ValidationError('Укажите комментарий к возврату.')
         return comment
+
+
+class ToAnalysisStructureForm:
+    """Validates the nested TO analysis fields submitted from the detail page."""
+
+    ROOT_PREFIX = 'root'
+
+    def __init__(self, data=None):
+        self.data = data
+        self.root_rows = []
+        self.analysis_data = []
+        self.non_field_errors = []
+        self.is_bound = data is not None
+        self._valid = None
+        if not self.is_bound:
+            self.root_rows = [self._empty_root(0)]
+
+    @staticmethod
+    def _empty_root(index):
+        return {
+            'index': index,
+            'root_cause': '',
+            'root_cause_errors': [],
+            'actions': [
+                {
+                    'index': 0,
+                    'comment': '',
+                    'department': '',
+                    'responsible': '',
+                    'due_date': '',
+                    'errors': {},
+                }
+            ],
+        }
+
+    def is_valid(self):
+        if self._valid is not None:
+            return self._valid
+        if not self.is_bound:
+            self._valid = False
+            return False
+
+        root_count = self._parse_count(f'{self.ROOT_PREFIX}-TOTAL_FORMS', 'корневых проработок')
+        if root_count is None or root_count < 1:
+            self.non_field_errors.append('Добавьте хотя бы одну корневую проработку.')
+            self._valid = False
+            return False
+
+        departments = {department.pk: department for department in Department.objects.all()}
+        users = {
+            user.pk: user
+            for user in User.objects.select_related('userprofile').all()
+        }
+        valid = True
+        for root_index in range(root_count):
+            prefix = f'{self.ROOT_PREFIX}-{root_index}'
+            root = self._empty_root(root_index)
+            root['root_cause'] = self.data.get(f'{prefix}-root_cause', '').strip()
+            root['actions'] = []
+            if not root['root_cause']:
+                root['root_cause_errors'].append('Укажите корневую причину.')
+                valid = False
+
+            action_count = self._parse_count(f'{prefix}-actions-TOTAL_FORMS', 'корректирующих мероприятий')
+            if action_count is None or action_count < 1:
+                root['root_cause_errors'].append('Добавьте хотя бы одно корректирующее мероприятие.')
+                valid = False
+                action_count = 0
+
+            valid_actions = []
+            for action_index in range(action_count):
+                action_prefix = f'{prefix}-actions-{action_index}'
+                action = {
+                    'index': action_index,
+                    'comment': self.data.get(f'{action_prefix}-comment', '').strip(),
+                    'department': self.data.get(f'{action_prefix}-department', ''),
+                    'responsible': self.data.get(f'{action_prefix}-responsible', ''),
+                    'due_date': self.data.get(f'{action_prefix}-due_date', ''),
+                    'errors': {},
+                }
+                if not action['comment']:
+                    action['errors']['comment'] = 'Укажите корректирующее мероприятие.'
+                    valid = False
+                department = self._object_from_value(departments, action['department'])
+                if department is None:
+                    action['errors']['department'] = 'Выберите отдел.'
+                    valid = False
+                responsible = self._object_from_value(users, action['responsible'])
+                if responsible is None:
+                    action['errors']['responsible'] = 'Выберите сотрудника.'
+                    valid = False
+                elif department is not None:
+                    profile = getattr(responsible, 'userprofile', None)
+                    if profile is None or profile.department_id != department.pk:
+                        action['errors']['responsible'] = 'Сотрудник не относится к выбранному отделу.'
+                        valid = False
+                try:
+                    due_date = date.fromisoformat(action['due_date'])
+                except (TypeError, ValueError):
+                    due_date = None
+                    action['errors']['due_date'] = 'Выберите срок.'
+                    valid = False
+                if due_date and due_date < timezone.localdate():
+                    action['errors']['due_date'] = 'Срок не может быть раньше текущей даты.'
+                    valid = False
+
+                root['actions'].append(action)
+                if not action['errors']:
+                    valid_actions.append(
+                        {
+                            'comment': action['comment'],
+                            'department': department,
+                            'responsible': responsible,
+                            'due_date': due_date,
+                        }
+                    )
+            self.root_rows.append(root)
+            if root['root_cause'] and len(valid_actions) == action_count:
+                self.analysis_data.append({'root_cause': root['root_cause'], 'actions': valid_actions})
+
+        self._valid = valid and not self.non_field_errors
+        return self._valid
+
+    def _parse_count(self, key, label):
+        try:
+            value = int(self.data.get(key, ''))
+        except (TypeError, ValueError):
+            self.non_field_errors.append(f'Некорректное количество {label}.')
+            return None
+        if value > 50:
+            self.non_field_errors.append(f'Превышено допустимое количество: {label}.')
+            return None
+        return value
+
+    @staticmethod
+    def _object_from_value(objects, value):
+        try:
+            return objects.get(int(value))
+        except (TypeError, ValueError):
+            return None
 
 
 class ActAttachmentForm(forms.ModelForm):

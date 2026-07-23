@@ -1,9 +1,13 @@
+from datetime import timedelta
+
 from django.contrib.auth.models import User
 from django.test import TestCase
+from django.utils import timezone
 
-from accounts.models import UserProfile
-from acts.models import Act, ActComment, ActDefect, ActHistoryEvent
-from acts.services import ActWorkflowError, apply_ko_decision, apply_to_analysis, return_to_otk, send_to_ko
+from accounts.models import Department, UserProfile
+from acts.forms import ToAnalysisStructureForm
+from acts.models import Act, ActComment, ActCorrectiveAction, ActDefect, ActHistoryEvent, ActRootAnalysis
+from acts.services import ActWorkflowError, apply_ko_decision, apply_structured_to_analysis, apply_to_analysis, return_to_otk, send_to_ko
 from references.models import ActStatus, DefectType, Operation
 
 
@@ -16,10 +20,17 @@ class ActWorkflowTests(TestCase):
         cls.status_actions = ActStatus.objects.create(code='ACTIONS_ASSIGNED', name='Мероприятия назначены')
         cls.operation = Operation.objects.create(code='OP', name='Операция')
         cls.defect_type = DefectType.objects.create(code='DEFECT', name='Дефект')
+        cls.department = Department.objects.create(code='TO', name='Технологический отдел')
+        cls.other_department = Department.objects.create(code='OTHER', name='Другой отдел')
 
         cls.otk_user = cls._create_user('otk', UserProfile.Role.OTK)
         cls.ko_user = cls._create_user('ko', UserProfile.Role.KO)
         cls.to_user = cls._create_user('to', UserProfile.Role.TO)
+        cls.to_user.userprofile.department = cls.department
+        cls.to_user.userprofile.save()
+        cls.other_user = cls._create_user('other', UserProfile.Role.TO)
+        cls.other_user.userprofile.department = cls.other_department
+        cls.other_user.userprofile.save()
 
     @classmethod
     def _create_user(cls, username, role):
@@ -112,6 +123,66 @@ class ActWorkflowTests(TestCase):
         self.assertEqual(act.status.code, 'ACTIONS_ASSIGNED')
         self.assertEqual(act.to_analysis_by, self.to_user)
         self.assertIsNotNone(act.to_analysis_at)
+
+    def _structured_analysis_post(self, **overrides):
+        data = {
+            'root-TOTAL_FORMS': '1',
+            'root-0-root_cause': 'Корневая причина',
+            'root-0-actions-TOTAL_FORMS': '1',
+            'root-0-actions-0-comment': 'Корректирующее мероприятие',
+            'root-0-actions-0-department': str(self.department.pk),
+            'root-0-actions-0-responsible': str(self.to_user.pk),
+            'root-0-actions-0-due_date': timezone.localdate().isoformat(),
+        }
+        data.update(overrides)
+        return data
+
+    def test_structured_analysis_requires_minimum_structure(self):
+        form = ToAnalysisStructureForm({'root-TOTAL_FORMS': '0'})
+
+        self.assertFalse(form.is_valid())
+        self.assertTrue(form.non_field_errors)
+
+    def test_structured_analysis_validates_department_user_and_due_date(self):
+        form = ToAnalysisStructureForm(
+            self._structured_analysis_post(
+                **{
+                    'root-0-actions-0-department': str(self.other_department.pk),
+                    'root-0-actions-0-due_date': (timezone.localdate() - timedelta(days=1)).isoformat(),
+                }
+            )
+        )
+
+        self.assertFalse(form.is_valid())
+        errors = form.root_rows[0]['actions'][0]['errors']
+        self.assertIn('responsible', errors)
+        self.assertIn('due_date', errors)
+
+    def test_structured_analysis_saves_all_data_and_transitions_atomically(self):
+        act = self._create_act(self.status_to)
+        form = ToAnalysisStructureForm(self._structured_analysis_post())
+        self.assertTrue(form.is_valid())
+
+        apply_structured_to_analysis(act, self.to_user, form.analysis_data)
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'ACTIONS_ASSIGNED')
+        self.assertEqual(act.to_root_cause, 'Корневая причина')
+        self.assertEqual(act.to_action_summary, 'Корректирующее мероприятие')
+        self.assertEqual(ActRootAnalysis.objects.filter(act=act).count(), 1)
+        self.assertEqual(ActCorrectiveAction.objects.filter(root_analysis__act=act).count(), 1)
+
+    def test_structured_analysis_wrong_role_does_not_save_partial_data(self):
+        act = self._create_act(self.status_to)
+        form = ToAnalysisStructureForm(self._structured_analysis_post())
+        self.assertTrue(form.is_valid())
+
+        with self.assertRaises(ActWorkflowError):
+            apply_structured_to_analysis(act, self.ko_user, form.analysis_data)
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'TO_ANALYSIS')
+        self.assertFalse(ActRootAnalysis.objects.filter(act=act).exists())
 
     def test_return_to_otk_requires_comment_without_changing_act(self):
         act = self._create_act(self.status_ko)

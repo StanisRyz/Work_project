@@ -51,6 +51,11 @@
 - Every new KO decision must transition an act from `KO_REVIEW` to `TO_ANALYSIS` through `apply_ko_decision()`.
 - When an act has multiple defects, KO must provide a separate decision for every defect before the act can transition to TO.
 - Preserve legacy KO decision values and historical events for existing acts; do not rewrite them in a data migration.
+- TO analysis is entered on the act detail work tab; the legacy TO URL redirects there on GET and accepts the structured form on POST.
+- `ActRootAnalysis` stores one or more root causes and `ActCorrectiveAction` stores one or more actions for each root cause.
+- Every root cause and corrective action text is required; each action requires a department, a responsible user from that department, and a due date no earlier than the current date.
+- Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `ACTIONS_ASSIGNED`, and create the existing TO history event.
+- Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback.
 
 ## Patch Rules
 

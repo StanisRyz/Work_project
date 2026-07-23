@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, Q
@@ -10,6 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation
+from accounts.models import Department
 
 from .forms import (
     ActAttachmentForm,
@@ -21,7 +23,7 @@ from .forms import (
     ActDefectKoDecisionFormSet,
     KoDecisionForm,
     ReturnToOtkForm,
-    ToAnalysisForm,
+    ToAnalysisStructureForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
 from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act, is_act_admin
@@ -31,7 +33,7 @@ from .services import (
     add_act_attachment,
     add_act_history_event,
     apply_ko_decision,
-    apply_to_analysis,
+    apply_structured_to_analysis,
     close_act,
     clear_all_acts,
     delete_act_attachment,
@@ -475,37 +477,21 @@ def act_return_to_otk(request, pk):
 @login_required
 def act_to_analysis(request, pk):
     act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
-    if not get_available_act_actions(act, request.user)['to_analysis']:
-        messages.error(request, 'Анализ ТО для этого акта недоступен.')
-        return redirect('acts:detail', pk=act.pk)
+    if request.method != 'POST':
+        return _redirect_to_detail_tab(act, 'work')
 
-    if request.method == 'POST':
-        form = ToAnalysisForm(request.POST, instance=act)
-        if form.is_valid():
-            try:
-                act = apply_to_analysis(
-                    act,
-                    request.user,
-                    form.cleaned_data['to_root_cause'],
-                    form.cleaned_data['to_action_summary'],
-                )
-            except ActWorkflowError as exc:
-                form.add_error(None, str(exc))
-            else:
-                messages.success(request, 'Анализ ТО сохранен.')
-                return _redirect_after_transition(act, request.user)
-    else:
-        form = ToAnalysisForm(instance=act)
+    form = ToAnalysisStructureForm(request.POST)
+    if form.is_valid():
+        try:
+            apply_structured_to_analysis(act, request.user, form.analysis_data)
+        except ActWorkflowError as exc:
+            form.non_field_errors.append(str(exc))
+        else:
+            messages.success(request, 'Анализ ТО сохранен.')
+            return _redirect_after_transition(act, request.user)
 
-    return render(
-        request,
-        'acts/to_analysis.html',
-        {
-            'active_page': 'acts',
-            'act': act,
-            'form': form,
-        },
-    )
+    context = _get_act_detail_context(act, request.user, detail_tab='work', to_analysis_form=form)
+    return render(request, 'acts/detail.html', context)
 
 
 def _redirect_after_transition(act, user):
@@ -548,6 +534,7 @@ def _get_act_detail_context(
     detail_tab='work',
     return_to_otk_form=None,
     return_dialog_open=False,
+    to_analysis_form=None,
 ):
     history_events = act.history_events.select_related('user', 'from_status', 'to_status')
     comments = act.comments.select_related('author')
@@ -598,6 +585,9 @@ def _get_act_detail_context(
         }
         for attachment in act.attachments.select_related('uploaded_by')
     ]
+    root_analyses = list(
+        act.root_analyses.prefetch_related('corrective_actions__department', 'corrective_actions__responsible')
+    )
     return {
         'active_page': 'acts',
         'header_title': act.number,
@@ -613,6 +603,10 @@ def _get_act_detail_context(
         'comment_form': comment_form or ActCommentForm(),
         'return_to_otk_form': return_to_otk_form or ReturnToOtkForm(),
         'return_dialog_open': return_dialog_open,
+        'to_analysis_form': to_analysis_form or ToAnalysisStructureForm(),
+        'root_analyses': root_analyses,
+        'analysis_departments': Department.objects.filter(is_active=True),
+        'analysis_users': User.objects.select_related('userprofile').order_by('username'),
         'ko_decision_form': ko_decision_form,
         'ko_decision_formset': ko_decision_formset,
         'attachments': attachments,

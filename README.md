@@ -8,6 +8,10 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D19 — structured TO analysis is embedded on the act detail page.
+
+D19 replaces the separate TO analysis page with a `Корневая проработка` form on `Проработка`. Each root cause contains one or more corrective actions with department, responsible user, and due date. Successful submission saves all records atomically, preserves concise legacy summaries, and transitions the act to `ACTIONS_ASSIGNED`; submitted analysis is then read-only.
+
 D18 — comments moved to the attachments tab and KO return-to-OTK rationale is required.
 
 D18 renames the detail tab to `Вложения и комментарии`, placing attachments first and normal comments below them. KO users must provide a non-empty return comment in the return dialog; the comment, its history event, and the transition from `KO_REVIEW` to `CREATED_OTK` are saved atomically.
@@ -70,6 +74,15 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+### D19
+
+- Open a `TO_ANALYSIS` act as a TO user and verify the editable `Анализ ТО` form appears directly on `Проработка`.
+- Add and remove root analyses and corrective actions; verify the last root analysis and last action cannot be removed.
+- Verify employee choices are filtered after selecting a department and submit mismatched department/user, blank text, and past-date values to confirm server-side errors and data preservation.
+- Submit valid data with multiple roots/actions; verify the status becomes `ACTIONS_ASSIGNED`, the first root/action populate legacy summaries, and the saved structure is read-only.
+- Open an old act with only legacy TO values and verify its fallback display.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D18
 
@@ -225,4 +238,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D18 manual validation.
+- To be defined after D19 manual validation.

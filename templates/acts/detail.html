@@ -72,12 +72,46 @@
 
     <article class="detail-section">
         <h2>Анализ ТО</h2>
-        {% if act.to_root_cause or act.to_action_summary %}
+        {% if available_actions.to_analysis %}
+            <form id="to-analysis-form" method="post" action="{% url 'acts:to_analysis' act.pk %}" class="to-analysis-form">
+                {% csrf_token %}
+                {% if to_analysis_form.non_field_errors %}<ul class="errorlist">{% for error in to_analysis_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+                <div data-root-analysis-list>
+                    {% for root in to_analysis_form.root_rows %}
+                    <section class="root-analysis-card" data-root-analysis>
+                        <input type="hidden" data-root-total-name value="{{ forloop.counter0 }}">
+                        <label><span>Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="4" required>{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
+                        <div class="corrective-action-list" data-corrective-action-list>
+                            {% for action in root.actions %}
+                            <section class="corrective-action-card" data-corrective-action>
+                                <label><span>Корректирующее мероприятие</span><textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="3" required>{{ action.comment }}</textarea>{% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}</label>
+                                <div class="corrective-action-card__fields">
+                                    <label><span>Выбор отдела</span><select name="root-{{ root.index }}-actions-{{ action.index }}-department" required data-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select>{% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}</label>
+                                    <label><span>Выбор сотрудника</span><select name="root-{{ root.index }}-actions-{{ action.index }}-responsible" required data-responsible-select><option value="">Выберите сотрудника</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department="{{ employee.userprofile.department_id|default:'' }}"{% if action.responsible == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}</option>{% endfor %}</select>{% if action.errors.responsible %}<span class="field-error">{{ action.errors.responsible }}</span>{% endif %}</label>
+                                    <label><span>Выбор срока</span><input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>{% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}</label>
+                                </div>
+                                <button class="link-button link-button--secondary" type="button" data-remove-corrective-action>Удалить мероприятие</button>
+                            </section>
+                            {% endfor %}
+                        </div>
+                        <button class="link-button link-button--secondary" type="button" data-add-corrective-action>Добавить корректирующее мероприятие</button>
+                        <button class="link-button link-button--secondary" type="button" data-remove-root-analysis>Удалить корневую проработку</button>
+                    </section>
+                    {% endfor %}
+                </div>
+                <input type="hidden" name="root-TOTAL_FORMS" value="{{ to_analysis_form.root_rows|length }}" data-root-total>
+                <div class="act-inline-actions"><button class="link-button link-button--secondary" type="button" data-add-root-analysis>Добавить корневую проработку</button><button class="link-button" type="submit">Сохранить анализ ТО</button></div>
+            </form>
+        {% elif root_analyses %}
+            <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
+            {% for root in root_analyses %}
+                <section class="root-analysis-readonly"><h3>Корневая причина</h3><p>{{ root.root_cause|linebreaksbr }}</p>{% for action in root.corrective_actions.all %}<article><h4>Корректирующее мероприятие</h4><p>{{ action.comment|linebreaksbr }}</p><dl><dt>Отдел</dt><dd>{{ action.department }}</dd><dt>Ответственный</dt><dd>{{ action.responsible }}</dd><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y' }}</dd></dl></article>{% endfor %}</section>
+            {% endfor %}
+        {% elif act.to_root_cause or act.to_action_summary %}
             <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
             <h3>Корневая причина</h3><p>{{ act.to_root_cause|default:'Не заполнено.' }}</p>
             <h3>Предлагаемые мероприятия</h3><p>{{ act.to_action_summary|default:'Не заполнено.' }}</p>
         {% else %}<p class="placeholder-text">Анализ ТО ещё не внесён.</p>{% endif %}
-        {% if available_actions.to_analysis %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:to_analysis' act.pk %}">Внести анализ ТО</a></div>{% endif %}
         {% if available_actions.close_act %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a></div>{% endif %}
     </article>
 
@@ -148,6 +182,71 @@
         error.hidden = !empty;
         comment.setCustomValidity(empty ? 'Укажите комментарий к возврату.' : '');
     });
+})();
+</script>
+<script>
+(() => {
+    const form = document.querySelector('[data-root-analysis-list]');
+    if (!form) return;
+    const rootTotal = document.querySelector('[data-root-total]');
+    const renumber = () => {
+        const roots = [...form.querySelectorAll('[data-root-analysis]')];
+        rootTotal.value = roots.length;
+        roots.forEach((root, rootIndex) => {
+            root.querySelectorAll('[name]').forEach((field) => {
+                field.name = field.name.replace(/^root-\d+/, `root-${rootIndex}`);
+                field.name = field.name.replace(/actions-\d+/, (match, offset, value) => match);
+            });
+            const actions = [...root.querySelectorAll('[data-corrective-action]')];
+            actions.forEach((action, actionIndex) => action.querySelectorAll('[name]').forEach((field) => {
+                field.name = field.name.replace(/^root-\d+-actions-\d+/, `root-${rootIndex}-actions-${actionIndex}`);
+            }));
+            root.querySelector('[data-remove-root-analysis]').hidden = roots.length === 1;
+            actions.forEach((action) => action.querySelector('[data-remove-corrective-action]').hidden = actions.length === 1);
+        });
+        form.querySelectorAll('[data-department-select]').forEach(filterUsers);
+    };
+    const filterUsers = (event) => {
+        const department = event.target ? event.target.value : event.value;
+        const card = event.target ? event.target.closest('[data-corrective-action]') : event.closest('[data-corrective-action]');
+        const responsible = card.querySelector('[data-responsible-select]');
+        [...responsible.options].forEach((option) => {
+            if (!option.value) return;
+            option.hidden = Boolean(department) && option.dataset.department !== department;
+        });
+        if (responsible.selectedOptions[0]?.hidden) responsible.value = '';
+    };
+    const clearCard = (card) => {
+        card.querySelectorAll('textarea, input').forEach((field) => { if (field.type !== 'hidden') field.value = ''; });
+        card.querySelectorAll('select').forEach((field) => { field.value = ''; });
+        card.querySelectorAll('.field-error, .errorlist').forEach((element) => element.remove());
+    };
+    form.addEventListener('click', (event) => {
+        const root = event.target.closest('[data-root-analysis]');
+        if (event.target.matches('[data-add-corrective-action]')) {
+            const list = root.querySelector('[data-corrective-action-list]');
+            const action = list.querySelector('[data-corrective-action]').cloneNode(true);
+            clearCard(action); list.append(action); renumber();
+        }
+        if (event.target.matches('[data-remove-corrective-action]')) {
+            const action = event.target.closest('[data-corrective-action]');
+            const list = action.parentElement;
+            if (list.querySelectorAll('[data-corrective-action]').length > 1) action.remove();
+            renumber();
+        }
+        if (event.target.matches('[data-remove-root-analysis]')) {
+            if (form.querySelectorAll('[data-root-analysis]').length > 1) root.remove();
+            renumber();
+        }
+    });
+    document.querySelector('[data-add-root-analysis]').addEventListener('click', () => {
+        const root = form.querySelector('[data-root-analysis]').cloneNode(true);
+        const actions = [...root.querySelectorAll('[data-corrective-action]')];
+        actions.slice(1).forEach((action) => action.remove());
+        clearCard(root); form.append(root); renumber();
+    });
+    form.addEventListener('change', (event) => { if (event.target.matches('[data-department-select]')) filterUsers(event); });
+    renumber();
 })();
 </script>
 {% endblock %}

@@ -7,6 +7,7 @@ from django.db import models
 from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation, Priority
+from accounts.models import Department
 
 
 ACT_STATUS_CODES = {
@@ -210,6 +211,47 @@ class ActDefect(models.Model):
 
     def __str__(self):
         return f'{self.act.number}: {self.defect_type}'
+
+
+class ActRootAnalysis(models.Model):
+    act = models.ForeignKey(
+        Act,
+        on_delete=models.CASCADE,
+        related_name='root_analyses',
+        verbose_name='Акт',
+    )
+    root_cause = models.TextField('Корневая причина')
+    display_order = models.PositiveIntegerField('Порядок отображения', default=0)
+
+    class Meta:
+        ordering = ['display_order', 'pk']
+        verbose_name = 'Корневая проработка акта'
+        verbose_name_plural = 'Корневые проработки актов'
+
+    def __str__(self):
+        return f'{self.act.number}: {self.root_cause[:60]}'
+
+
+class ActCorrectiveAction(models.Model):
+    root_analysis = models.ForeignKey(
+        ActRootAnalysis,
+        on_delete=models.CASCADE,
+        related_name='corrective_actions',
+        verbose_name='Корневая проработка',
+    )
+    comment = models.TextField('Корректирующее мероприятие')
+    department = models.ForeignKey(Department, on_delete=models.PROTECT, verbose_name='Подразделение')
+    responsible = models.ForeignKey(User, on_delete=models.PROTECT, verbose_name='Ответственный')
+    due_date = models.DateField('Срок')
+    display_order = models.PositiveIntegerField('Порядок отображения', default=0)
+
+    class Meta:
+        ordering = ['display_order', 'pk']
+        verbose_name = 'Корректирующее мероприятие'
+        verbose_name_plural = 'Корректирующие мероприятия'
+
+    def __str__(self):
+        return f'{self.root_analysis.act.number}: {self.comment[:60]}'
 
 
 class ActHistoryEvent(models.Model):

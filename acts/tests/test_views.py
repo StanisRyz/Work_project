@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from accounts.models import UserProfile
+from accounts.models import Department, UserProfile
 from acts.models import Act, ActDefect
 from references.models import ActStatus, DefectType, Operation, Priority
 
@@ -20,11 +20,14 @@ class ActViewTests(TestCase):
         cls.operation = Operation.objects.create(code='OPERATIONAL_CONTROL', name='Операционный контроль')
         cls.defect_type = DefectType.objects.create(code='SIZE_NONCONFORMITY', name='Несоответствие размеров')
         cls.priority = Priority.objects.create(code='HIGH', name='Высокий')
+        cls.department = Department.objects.create(code='TO', name='Технологический отдел')
 
         cls.otk_user = cls._create_user('otk', UserProfile.Role.OTK)
         cls.other_otk_user = cls._create_user('other_otk', UserProfile.Role.OTK)
         cls.ko_user = cls._create_user('ko', UserProfile.Role.KO)
         cls.to_user = cls._create_user('to', UserProfile.Role.TO)
+        cls.to_user.userprofile.department = cls.department
+        cls.to_user.userprofile.save()
         cls.manager_user = cls._create_user('manager', UserProfile.Role.MANAGER)
         cls.admin_user = cls._create_user('admin', UserProfile.Role.ADMIN)
         cls.no_profile_user = User.objects.create_user(username='no_profile', password='demo12345')
@@ -205,13 +208,42 @@ class ActViewTests(TestCase):
 
         response = self.client.post(
             reverse('acts:to_analysis', args=[act.pk]),
-            {'to_root_cause': 'Причина', 'to_action_summary': 'Мероприятия'},
+            {
+                'root-TOTAL_FORMS': '1',
+                'root-0-root_cause': 'Причина',
+                'root-0-actions-TOTAL_FORMS': '1',
+                'root-0-actions-0-comment': 'Мероприятия',
+                'root-0-actions-0-department': str(self.department.pk),
+                'root-0-actions-0-responsible': str(self.to_user.pk),
+                'root-0-actions-0-due_date': timezone.localdate().isoformat(),
+            },
         )
 
         self.assertRedirects(response, reverse('acts:detail', args=[act.pk]))
         act.refresh_from_db()
         self.assertEqual(act.status.code, 'ACTIONS_ASSIGNED')
         self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 200)
+
+    def test_to_analysis_form_is_embedded_on_work_tab(self):
+        act = self._create_act(self.status_to)
+        self.client.force_login(self.to_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertContains(response, 'Сохранить анализ ТО')
+        self.assertNotContains(response, 'Внести анализ ТО')
+
+    def test_legacy_to_analysis_values_remain_visible_without_structured_records(self):
+        act = self._create_act(self.status_actions)
+        act.to_root_cause = 'Историческая причина'
+        act.to_action_summary = 'Историческое мероприятие'
+        act.save(update_fields=['to_root_cause', 'to_action_summary', 'updated_at'])
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertContains(response, 'Историческая причина')
+        self.assertContains(response, 'Историческое мероприятие')
 
     def test_wrong_role_direct_urls_do_not_bypass_checks(self):
         ko_act = self._create_act(self.status_ko)

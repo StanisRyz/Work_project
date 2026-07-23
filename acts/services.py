@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Act, ActAttachment, ActComment, ActHistoryEvent, get_act_status
+from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActHistoryEvent, ActRootAnalysis, get_act_status
 from .permissions import (
     can_apply_ko_decision,
     can_apply_to_analysis,
@@ -151,6 +151,60 @@ def apply_to_analysis(act, user, root_cause, action_summary):
         from_status=from_status,
         to_status=to_status,
     )
+    return act
+
+
+def apply_structured_to_analysis(act, user, analysis_data):
+    with transaction.atomic():
+        if not can_apply_to_analysis(act, user):
+            raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
+        _require_status(act, 'TO_ANALYSIS')
+        if not analysis_data or any(not item['actions'] for item in analysis_data):
+            raise ActWorkflowError('Добавьте корневую причину и корректирующее мероприятие.')
+        from_status = act.status
+        to_status = _get_required_status('ACTIONS_ASSIGNED')
+        ActRootAnalysis.objects.filter(act=act).delete()
+        for root_index, root_data in enumerate(analysis_data):
+            root_analysis = ActRootAnalysis.objects.create(
+                act=act,
+                root_cause=root_data['root_cause'],
+                display_order=root_index,
+            )
+            for action_index, action_data in enumerate(root_data['actions']):
+                ActCorrectiveAction.objects.create(
+                    root_analysis=root_analysis,
+                    comment=action_data['comment'],
+                    department=action_data['department'],
+                    responsible=action_data['responsible'],
+                    due_date=action_data['due_date'],
+                    display_order=action_index,
+                )
+
+        first_root = analysis_data[0]
+        first_action = first_root['actions'][0]
+        act.to_root_cause = first_root['root_cause']
+        act.to_action_summary = first_action['comment']
+        act.to_analysis_by = user
+        act.to_analysis_at = timezone.now()
+        act.status = to_status
+        act.save(
+            update_fields=[
+                'to_root_cause',
+                'to_action_summary',
+                'to_analysis_by',
+                'to_analysis_at',
+                'status',
+                'updated_at',
+            ]
+        )
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.TO_ANALYSIS_APPLIED,
+            'Анализ ТО внесён, мероприятия ожидают дальнейшей проработки.',
+            from_status=from_status,
+            to_status=to_status,
+        )
     return act
 
 
