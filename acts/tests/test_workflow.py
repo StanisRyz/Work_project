@@ -7,7 +7,7 @@ from django.utils import timezone
 from accounts.models import Department, UserProfile
 from acts.forms import ToAnalysisStructureForm
 from acts.models import Act, ActComment, ActCorrectiveAction, ActDefect, ActHistoryEvent, ActRootAnalysis
-from acts.services import ActWorkflowError, apply_ko_decision, apply_structured_to_analysis, apply_to_analysis, return_to_ko, return_to_otk, send_to_ko
+from acts.services import ActWorkflowError, apply_ko_decision, apply_structured_to_analysis, apply_to_analysis, approve_act, return_to_ko, return_to_otk, return_to_to, send_to_ko
 from references.models import ActStatus, DefectType, Operation
 
 
@@ -19,6 +19,7 @@ class ActWorkflowTests(TestCase):
         cls.status_to = ActStatus.objects.create(code='TO_ANALYSIS', name='На анализе ТО')
         cls.status_actions = ActStatus.objects.create(code='ACTIONS_ASSIGNED', name='Мероприятия назначены')
         cls.status_otk_review = ActStatus.objects.get(code='OTK_REVIEW')
+        cls.status_archived = ActStatus.objects.get(code='ARCHIVED')
         cls.operation = Operation.objects.create(code='OP', name='Операция')
         cls.defect_type = DefectType.objects.create(code='DEFECT', name='Дефект')
         cls.department = Department.objects.create(code='TO', name='Технологический отдел')
@@ -235,6 +236,43 @@ class ActWorkflowTests(TestCase):
         )
         self.assertEqual(
             ActHistoryEvent.objects.filter(act=act, event_type=ActHistoryEvent.EventType.RETURNED_TO_KO).count(),
+            1,
+        )
+
+    def test_return_to_to_preserves_structured_analysis(self):
+        act = self._create_act(self.status_to)
+        form = ToAnalysisStructureForm(self._structured_analysis_post())
+        self.assertTrue(form.is_valid())
+        apply_structured_to_analysis(act, self.to_user, form.analysis_data)
+        root_analysis_id = ActRootAnalysis.objects.get(act=act).pk
+
+        return_to_to(act, self.otk_user, 'Уточнить срок мероприятия.')
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'TO_ANALYSIS')
+        self.assertTrue(ActRootAnalysis.objects.filter(pk=root_analysis_id).exists())
+        self.assertEqual(ActCorrectiveAction.objects.filter(root_analysis_id=root_analysis_id).count(), 1)
+        prefilled_form = ToAnalysisStructureForm(
+            root_analyses=ActRootAnalysis.objects.filter(act=act).prefetch_related('corrective_actions')
+        )
+        self.assertEqual(prefilled_form.root_rows[0]['root_cause'], 'Корневая причина')
+        self.assertEqual(prefilled_form.root_rows[0]['actions'][0]['comment'], 'Корректирующее мероприятие')
+        self.assertEqual(
+            ActHistoryEvent.objects.filter(act=act, event_type=ActHistoryEvent.EventType.RETURNED_TO_TO).count(),
+            1,
+        )
+
+    def test_approve_archives_act_and_records_approver(self):
+        act = self._create_act(self.status_otk_review)
+
+        approve_act(act, self.otk_user)
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'ARCHIVED')
+        self.assertEqual(act.approved_by, self.otk_user)
+        self.assertIsNotNone(act.approved_at)
+        self.assertEqual(
+            ActHistoryEvent.objects.filter(act=act, event_type=ActHistoryEvent.EventType.APPROVED).count(),
             1,
         )
     def test_wrong_roles_raise_workflow_error(self):

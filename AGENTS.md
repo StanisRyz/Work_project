@@ -54,12 +54,15 @@
 - TO analysis is entered on the act detail work tab; the legacy TO URL redirects there on GET and accepts the structured form on POST.
 - `ActRootAnalysis` stores one or more root causes and `ActCorrectiveAction` stores one or more actions for each root cause.
 - Every root cause and corrective action text is required; each action requires a department, a responsible user from that department, and a due date no earlier than the current date.
-- Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `ACTIONS_ASSIGNED`, and create the existing TO history event.
+- Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `OTK_REVIEW`, and create the existing TO history event.
 - Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback.
 - `TO_ANALYSIS` has two actions: return to `KO_REVIEW` with a mandatory atomic comment, or submit validated structured analysis to `OTK_REVIEW`.
 - `OTK_REVIEW` is an OTK queue stage; approval and return actions from it are intentionally outside the current scope.
 - Do not render delete buttons for the initial single root analysis or its single action. Show them only once the respective collection has more than one item.
 - Use `link-button--success` for add-analysis actions and `link-button--danger` for delete-analysis actions.
+- At `OTK_REVIEW`, the OTK author and managers/administrators may atomically return the act to `TO_ANALYSIS` with a mandatory comment or approve it to `ARCHIVED`.
+- `ARCHIVED` acts are read-only for workflow actions but retain permitted viewing, comments, attachments, history, and printing.
+- The acts registry scopes are `my`, `all`, and `archive`; scope selection must not bypass backend act visibility.
 
 ## Patch Rules
 

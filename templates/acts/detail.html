@@ -113,6 +113,7 @@
             <h3>Корневая причина</h3><p>{{ act.to_root_cause|default:'Не заполнено.' }}</p>
             <h3>Предлагаемые мероприятия</h3><p>{{ act.to_action_summary|default:'Не заполнено.' }}</p>
         {% else %}<p class="placeholder-text">Анализ ТО ещё не внесён.</p>{% endif %}
+        {% if act.status.code == 'ARCHIVED' %}<dl><dt>Утвердил</dt><dd>{{ act.approved_by|default:'-' }}</dd><dt>Дата утверждения</dt><dd>{{ act.approved_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>{% endif %}
         {% if available_actions.close_act %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a></div>{% endif %}
     </article>
 
@@ -126,6 +127,8 @@
             {% if available_actions.return_to_otk %}<button class="link-button link-button--secondary" type="button" data-return-to-otk-open>Вернуть ОТК</button>{% endif %}
             {% if available_actions.return_to_ko %}<button class="link-button link-button--secondary" type="button" data-return-to-ko-open>Вернуть КО</button>{% endif %}
             {% if available_actions.to_analysis %}<button class="link-button" type="submit" form="to-analysis-form" name="action" value="send_to_otk">На проверку ОТК</button>{% endif %}
+            {% if available_actions.return_to_to %}<button class="link-button link-button--secondary" type="button" data-return-to-to-open>Вернуть ТО</button>{% endif %}
+            {% if available_actions.approve_act %}<form method="post" action="{% url 'acts:approve' act.pk %}" onsubmit="return confirm('Утвердить акт и переместить его в архив?');">{% csrf_token %}<button class="link-button" type="submit">Утвердить</button></form>{% endif %}
             {% if available_actions.ko_decision %}<form id="ko-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}" onsubmit="return confirm('Сохранить решения КО и передать акт в ТО?');">{% csrf_token %}{% if ko_decision_formset %}{{ ko_decision_formset.management_form }}{% endif %}<button class="link-button" type="submit">Передать в ТО</button></form>{% endif %}
             {% if available_actions.send_to_ko %}<form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">{% csrf_token %}<button class="link-button" type="submit">Передать в КО</button></form>{% endif %}
         </div>
@@ -171,6 +174,18 @@
     </form>
 </dialog>
 {% endif %}
+{% if available_actions.return_to_to or return_to_to_dialog_open %}
+<dialog class="act-return-dialog" data-return-to-to-dialog{% if return_to_to_dialog_open %} open{% endif %} aria-labelledby="return-to-to-title">
+    <form method="post" action="{% url 'acts:return_to_to' act.pk %}" class="act-return-dialog__form" data-return-to-to-form>
+        {% csrf_token %}
+        <h2 id="return-to-to-title">Вернуть акт в ТО на доработку</h2>
+        {{ return_to_to_form.non_field_errors }}
+        <label><span>{{ return_to_to_form.comment.label }}</span>{{ return_to_to_form.comment }}{{ return_to_to_form.comment.errors }}</label>
+        <p class="client-field-error" data-return-to-to-error hidden>Укажите комментарий к возврату.</p>
+        <div class="act-return-dialog__actions"><button class="link-button link-button--secondary" type="button" data-return-to-to-cancel>Отмена</button><button class="link-button" type="submit">Вернуть на доработку</button></div>
+    </form>
+</dialog>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -196,6 +211,28 @@
     comment.addEventListener('input', () => {
         const empty = !comment.value.trim();
         error.hidden = !empty;
+        comment.setCustomValidity(empty ? 'Укажите комментарий к возврату.' : '');
+    });
+})();
+</script>
+<script>
+(() => {
+    const dialog = document.querySelector('[data-return-to-to-dialog]');
+    if (!dialog) return;
+    const openButton = document.querySelector('[data-return-to-to-open]');
+    const cancelButton = dialog.querySelector('[data-return-to-to-cancel]');
+    const form = dialog.querySelector('[data-return-to-to-form]');
+    const comment = form.querySelector('textarea');
+    const error = dialog.querySelector('[data-return-to-to-error]');
+    openButton?.addEventListener('click', () => dialog.showModal());
+    cancelButton.addEventListener('click', () => dialog.close());
+    form.addEventListener('submit', (event) => {
+        if (comment.value.trim()) return;
+        event.preventDefault(); error.hidden = false;
+        comment.setCustomValidity('Укажите комментарий к возврату.'); comment.reportValidity(); comment.focus();
+    });
+    comment.addEventListener('input', () => {
+        const empty = !comment.value.trim(); error.hidden = !empty;
         comment.setCustomValidity(empty ? 'Укажите комментарий к возврату.' : '');
     });
 })();

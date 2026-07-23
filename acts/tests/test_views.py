@@ -18,6 +18,7 @@ class ActViewTests(TestCase):
         cls.status_to = ActStatus.objects.create(code='TO_ANALYSIS', name='На анализе ТО')
         cls.status_actions = ActStatus.objects.create(code='ACTIONS_ASSIGNED', name='Мероприятия назначены')
         cls.status_otk_review = ActStatus.objects.get(code='OTK_REVIEW')
+        cls.status_archived = ActStatus.objects.get(code='ARCHIVED')
         cls.operation = Operation.objects.create(code='OPERATIONAL_CONTROL', name='Операционный контроль')
         cls.defect_type = DefectType.objects.create(code='SIZE_NONCONFORMITY', name='Несоответствие размеров')
         cls.priority = Priority.objects.create(code='HIGH', name='Высокий')
@@ -248,6 +249,31 @@ class ActViewTests(TestCase):
         response = self.client.get(reverse('acts:list'))
 
         self.assertContains(response, act.number)
+
+    def test_otk_review_shows_otk_actions_only_to_authorized_user(self):
+        act = self._create_act(self.status_otk_review, created_by=self.otk_user)
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]))
+
+        self.assertContains(response, 'Вернуть ТО')
+        self.assertContains(response, 'Утвердить')
+
+    def test_registry_scopes_keep_archived_act_permission_safe(self):
+        active_act = self._create_act(self.status_created, created_by=self.otk_user, party_number='P-ACTIVE')
+        archived_act = self._create_act(self.status_otk_review, created_by=self.otk_user, party_number='P-ARCHIVE')
+        archived_act.status = self.status_archived
+        archived_act.approved_by = self.otk_user
+        archived_act.save(update_fields=['status', 'approved_by', 'updated_at'])
+        self.client.force_login(self.otk_user)
+
+        my_response = self.client.get(reverse('acts:list') + '?scope=my')
+        archive_response = self.client.get(reverse('acts:list') + '?scope=archive')
+
+        self.assertContains(my_response, active_act.number)
+        self.assertNotContains(my_response, archived_act.number)
+        self.assertContains(archive_response, archived_act.number)
+        self.assertNotContains(archive_response, active_act.number)
 
     def test_legacy_to_analysis_values_remain_visible_without_structured_records(self):
         act = self._create_act(self.status_actions)

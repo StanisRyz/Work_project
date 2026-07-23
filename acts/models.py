@@ -15,6 +15,7 @@ ACT_STATUS_CODES = {
     'KO_REVIEW': 'KO_REVIEW',
     'TO_ANALYSIS': 'TO_ANALYSIS',
     'OTK_REVIEW': 'OTK_REVIEW',
+    'ARCHIVED': 'ARCHIVED',
     'ACTIONS_ASSIGNED': 'ACTIONS_ASSIGNED',
     'CLOSED': 'CLOSED',
     'CANCELLED': 'CANCELLED',
@@ -113,6 +114,15 @@ class Act(models.Model):
         verbose_name='Анализ ТО внес',
     )
     to_analysis_at = models.DateTimeField('Дата анализа ТО', blank=True, null=True)
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='approved_acts',
+        blank=True,
+        null=True,
+        verbose_name='Утвердил',
+    )
+    approved_at = models.DateTimeField('Дата утверждения', blank=True, null=True)
     closed_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -262,6 +272,8 @@ class ActHistoryEvent(models.Model):
         KO_DECISION_APPLIED = 'KO_DECISION_APPLIED', 'Решение КО внесено'
         RETURNED_TO_OTK = 'RETURNED_TO_OTK', 'Акт возвращён в ОТК'
         RETURNED_TO_KO = 'RETURNED_TO_KO', 'Акт возвращён в КО'
+        RETURNED_TO_TO = 'RETURNED_TO_TO', 'Акт возвращён в ТО'
+        APPROVED = 'APPROVED', 'Акт утверждён'
         SENT_TO_TO = 'SENT_TO_TO', 'Акт передан в ТО'
         TO_ANALYSIS_APPLIED = 'TO_ANALYSIS_APPLIED', 'Анализ ТО внесён'
         COMMENT_ADDED = 'COMMENT_ADDED', 'Комментарий добавлен'

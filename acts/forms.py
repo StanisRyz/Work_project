@@ -325,7 +325,7 @@ class ToAnalysisStructureForm:
 
     ROOT_PREFIX = 'root'
 
-    def __init__(self, data=None):
+    def __init__(self, data=None, root_analyses=None):
         self.data = data
         self.root_rows = []
         self.analysis_data = []
@@ -333,7 +333,35 @@ class ToAnalysisStructureForm:
         self.is_bound = data is not None
         self._valid = None
         if not self.is_bound:
-            self.root_rows = [self._empty_root(0)]
+            self.root_rows = self._rows_from_analyses(root_analyses) or [self._empty_root(0)]
+
+    @classmethod
+    def _rows_from_analyses(cls, root_analyses):
+        if not root_analyses:
+            return []
+        rows = []
+        for root_index, root_analysis in enumerate(root_analyses):
+            actions = list(root_analysis.corrective_actions.all())
+            rows.append(
+                {
+                    'index': root_index,
+                    'root_cause': root_analysis.root_cause,
+                    'root_cause_errors': [],
+                    'actions': [
+                        {
+                            'index': action_index,
+                            'comment': action.comment,
+                            'department': str(action.department_id),
+                            'responsible': str(action.responsible_id),
+                            'due_date': action.due_date.isoformat(),
+                            'errors': {},
+                        }
+                        for action_index, action in enumerate(actions)
+                    ]
+                    or [cls._empty_root(root_index)['actions'][0]],
+                }
+            )
+        return rows
 
     @staticmethod
     def _empty_root(index):

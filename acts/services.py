@@ -11,6 +11,8 @@ from .permissions import (
     can_edit_act,
     can_return_to_otk,
     can_return_to_ko,
+    can_return_to_to,
+    can_approve_act,
     can_send_to_ko,
     can_view_act,
     is_act_admin,
@@ -233,6 +235,52 @@ def return_to_ko(act, user, return_comment):
     return act
 
 
+def return_to_to(act, user, return_comment):
+    return_comment = (return_comment or '').strip()
+    if not return_comment:
+        raise ActWorkflowError('Укажите комментарий к возврату.')
+    with transaction.atomic():
+        if not can_return_to_to(act, user):
+            raise ActWorkflowError('Возврат акта в ТО недоступен для вашей роли или текущего статуса.')
+        _require_status(act, 'OTK_REVIEW')
+        from_status = act.status
+        to_status = _get_required_status('TO_ANALYSIS')
+        add_act_comment(act, user, return_comment)
+        act.status = to_status
+        act.save(update_fields=['status', 'updated_at'])
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.RETURNED_TO_TO,
+            'Акт возвращён в ТО на доработку.',
+            from_status=from_status,
+            to_status=to_status,
+        )
+    return act
+
+
+def approve_act(act, user):
+    with transaction.atomic():
+        if not can_approve_act(act, user):
+            raise ActWorkflowError('Утверждение акта недоступно для вашей роли или текущего статуса.')
+        _require_status(act, 'OTK_REVIEW')
+        from_status = act.status
+        to_status = _get_required_status('ARCHIVED')
+        act.approved_by = user
+        act.approved_at = timezone.now()
+        act.status = to_status
+        act.save(update_fields=['approved_by', 'approved_at', 'status', 'updated_at'])
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.APPROVED,
+            'Акт утверждён и перемещён в архив.',
+            from_status=from_status,
+            to_status=to_status,
+        )
+    return act
+
+
 def add_act_history_event(act, user, event_type, message, from_status=None, to_status=None):
     return ActHistoryEvent.objects.create(
         act=act,
@@ -375,6 +423,8 @@ def get_available_act_actions(act, user):
         'ko_decision': can_apply_ko_decision(act, user),
         'return_to_otk': can_return_to_otk(act, user),
         'return_to_ko': can_return_to_ko(act, user),
+        'return_to_to': can_return_to_to(act, user),
+        'approve_act': can_approve_act(act, user),
         'to_analysis': can_apply_to_analysis(act, user),
         'close_act': can_close_act(act, user),
         'print_act': can_view_act(act, user),

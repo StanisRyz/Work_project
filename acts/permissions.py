@@ -73,12 +73,14 @@ def can_view_act(act, user):
     if has_full_act_access(user):
         return True
     if is_otk(user):
-        return act.created_by_id == user.id and _status_code(act) in {'CREATED_OTK', 'OTK_REVIEW'}
+        return act.created_by_id == user.id and _status_code(act) in {'CREATED_OTK', 'OTK_REVIEW', 'ARCHIVED'}
     if is_ko(user):
-        return _status_code(act) == 'KO_REVIEW'
+        return _status_code(act) == 'KO_REVIEW' or (
+            _status_code(act) == 'ARCHIVED' and act.ko_decision_by_id == user.id
+        )
     if is_to(user):
         return _status_code(act) == 'TO_ANALYSIS' or (
-            _status_code(act) == 'ACTIONS_ASSIGNED' and act.to_analysis_by_id == user.id
+            _status_code(act) in {'ACTIONS_ASSIGNED', 'ARCHIVED'} and act.to_analysis_by_id == user.id
         )
     return False
 
@@ -113,6 +115,20 @@ def can_apply_to_analysis(act, user):
 
 def can_return_to_ko(act, user):
     return can_apply_to_analysis(act, user)
+
+
+def can_review_otk(act, user):
+    if _status_code(act) != 'OTK_REVIEW':
+        return False
+    return has_full_act_access(user) or (is_otk(user) and act.created_by_id == user.id)
+
+
+def can_return_to_to(act, user):
+    return can_review_otk(act, user)
+
+
+def can_approve_act(act, user):
+    return can_review_otk(act, user)
 
 
 def can_close_act(act, user):
@@ -160,6 +176,19 @@ def get_visible_acts_queryset(user):
             status__code='ACTIONS_ASSIGNED',
             to_analysis_by=user,
         )
+    return queryset.none()
+
+
+def get_archived_acts_queryset(user):
+    queryset = Act.objects.select_related('created_by', 'operation', 'defect_type', 'priority', 'status')
+    if has_full_act_access(user):
+        return queryset.filter(status__code='ARCHIVED')
+    if is_otk(user):
+        return queryset.filter(status__code='ARCHIVED', created_by=user)
+    if is_ko(user):
+        return queryset.filter(status__code='ARCHIVED', ko_decision_by=user)
+    if is_to(user):
+        return queryset.filter(status__code='ARCHIVED', to_analysis_by=user)
     return queryset.none()
 
 

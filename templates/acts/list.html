@@ -22,6 +22,12 @@
     <p class="admin-access-notice">Режим администратора: полный доступ к актам.</p>
 {% endif %}
 
+<nav class="act-registry-tabs" aria-label="Область списка актов">
+    <a class="act-registry-tabs__link{% if scope == 'my' %} act-registry-tabs__link--active{% endif %}" href="?scope=my">Мои акты</a>
+    <a class="act-registry-tabs__link{% if scope == 'all' %} act-registry-tabs__link--active{% endif %}" href="?scope=all">Все акты</a>
+    <a class="act-registry-tabs__link{% if scope == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?scope=archive">Архив</a>
+</nav>
+
 <section class="act-kpi-grid" aria-label="Показатели актов">
     <article class="act-kpi-card">
         <span>Всего на проработке</span>
@@ -46,6 +52,7 @@
 </section>
 
 <form class="filter-form act-filter-panel" method="get">
+    <input type="hidden" name="scope" value="{{ scope }}">
     <label>
         <span>Поиск</span>
         <input type="search" name="search" value="{{ selected.search }}" placeholder="Номер, партия, номенклатура">
@@ -78,7 +85,7 @@
         </select>
     </label>
     <button class="link-button" type="submit">Применить</button>
-    <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">Сбросить</a>
+    <a class="link-button link-button--secondary" href="{% url 'acts:list' %}?scope={{ scope }}">Сбросить</a>
 </form>
 
 {% if not has_visible_acts %}

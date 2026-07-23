@@ -66,6 +66,16 @@
             </table>
         </section>
 
+        {% if act.status.code == 'ARCHIVED' %}
+        <section class="print-section">
+            <h2>Утверждение</h2>
+            <table>
+                <tr><th>Утвердил</th><td>{{ act.approved_by|default:'-' }}</td></tr>
+                <tr><th>Дата утверждения</th><td>{{ act.approved_at|date:'d.m.Y H:i'|default:'-' }}</td></tr>
+            </table>
+        </section>
+        {% endif %}
+
         <section class="print-section">
             <h2>Вложения</h2>
             {% if attachments %}

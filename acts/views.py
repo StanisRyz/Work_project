@@ -26,7 +26,7 @@ from .forms import (
     ToAnalysisStructureForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
-from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act, is_act_admin
+from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act, get_archived_acts_queryset, has_full_act_access, is_act_admin
 from .services import (
     ActWorkflowError,
     add_act_comment,
@@ -43,13 +43,27 @@ from .services import (
     get_visible_acts_for_user,
     return_to_otk,
     return_to_ko,
+    return_to_to,
+    approve_act,
     send_to_ko,
 )
 
 
 @login_required
 def act_list(request):
-    visible_acts = get_visible_acts_for_user(request.user)
+    scope = request.GET.get('scope', 'my')
+    if scope not in {'my', 'all', 'archive'}:
+        scope = 'my'
+    active_acts = get_visible_acts_for_user(request.user)
+    archived_acts = get_archived_acts_queryset(request.user)
+    if scope == 'archive':
+        visible_acts = archived_acts
+    elif scope == 'all' and has_full_act_access(request.user):
+        visible_acts = active_acts.model.objects.select_related(
+            'created_by', 'operation', 'defect_type', 'priority', 'status'
+        ).exclude(status__code='ARCHIVED')
+    else:
+        visible_acts = active_acts
     has_visible_acts = visible_acts.exists()
     today = timezone.localdate()
 
@@ -94,6 +108,7 @@ def act_list(request):
         'operations': Operation.objects.filter(is_active=True),
         'defect_types': DefectType.objects.filter(is_active=True),
         'selected': {
+            'scope': scope,
             'status': status or '',
             'operation': operation or '',
             'defect_type': defect_type or '',
@@ -102,6 +117,7 @@ def act_list(request):
         'can_create': can_create_act(request.user),
         'can_clear_all_acts': can_clear_all_acts(request.user),
         'is_act_admin': is_act_admin(request.user),
+        'scope': scope,
     }
     return render(request, 'acts/list.html', context)
 
@@ -523,6 +539,40 @@ def act_return_to_ko(request, pk):
     return render(request, 'acts/detail.html', context)
 
 
+@login_required
+def act_return_to_to(request, pk):
+    act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
+    if request.method != 'POST':
+        return _redirect_to_detail_tab(act, 'work')
+    form = ReturnToOtkForm(request.POST)
+    if form.is_valid():
+        try:
+            return_to_to(act, request.user, form.cleaned_data['comment'])
+        except ActWorkflowError as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(request, 'Акт возвращён в ТО на доработку.')
+            return _redirect_after_transition(act, request.user)
+    context = _get_act_detail_context(
+        act, request.user, detail_tab='work', return_to_to_form=form, return_to_to_dialog_open=True
+    )
+    return render(request, 'acts/detail.html', context)
+
+
+@login_required
+def act_approve(request, pk):
+    act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
+    if request.method != 'POST':
+        return _redirect_to_detail_tab(act, 'work')
+    try:
+        approve_act(act, request.user)
+    except ActWorkflowError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Акт утверждён и перемещён в архив.')
+    return _redirect_after_transition(act, request.user)
+
+
 def _redirect_after_transition(act, user):
     if can_view_act(act, user):
         return redirect('acts:detail', pk=act.pk)
@@ -566,6 +616,8 @@ def _get_act_detail_context(
     to_analysis_form=None,
     return_to_ko_form=None,
     return_to_ko_dialog_open=False,
+    return_to_to_form=None,
+    return_to_to_dialog_open=False,
 ):
     history_events = act.history_events.select_related('user', 'from_status', 'to_status')
     comments = act.comments.select_related('author')
@@ -636,7 +688,9 @@ def _get_act_detail_context(
         'return_dialog_open': return_dialog_open,
         'return_to_ko_form': return_to_ko_form or ReturnToOtkForm(),
         'return_to_ko_dialog_open': return_to_ko_dialog_open,
-        'to_analysis_form': to_analysis_form or ToAnalysisStructureForm(),
+        'return_to_to_form': return_to_to_form or ReturnToOtkForm(),
+        'return_to_to_dialog_open': return_to_to_dialog_open,
+        'to_analysis_form': to_analysis_form or ToAnalysisStructureForm(root_analyses=root_analyses),
         'root_analyses': root_analyses,
         'analysis_departments': Department.objects.filter(is_active=True),
         'analysis_users': User.objects.select_related('userprofile').order_by('username'),
