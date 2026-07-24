@@ -3,25 +3,40 @@
 {% block title %}Задачи - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-{% include 'includes/page_header.html' with page_title='Задачи' page_description='Задачи по утверждённым корректирующим мероприятиям.' %}
+<nav class="act-registry-tabs" aria-label="Область списка задач">
+    <a class="act-registry-tabs__link{% if tab == 'my' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.my }}">Мои задачи</a>
+    <a class="act-registry-tabs__link{% if tab == 'all' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.all }}">Все задачи</a>
+    <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.archive }}">Архив</a>
+</nav>
+
+<form class="filter-form act-filter-panel task-filter-panel" method="get">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <label><span>№ задачи</span><input type="search" name="number" value="{{ selected.number }}" inputmode="numeric"></label>
+    <label><span>Источник</span><input type="search" name="source" value="{{ selected.source }}" placeholder="Номер акта"></label>
+    <label><span>Статус</span><select name="status"><option value="">Все</option><option value="act"{% if selected.status == 'act' %} selected{% endif %}>По акту</option></select></label>
+    <label><span>Срок</span><select name="due"><option value="">Все</option><option value="overdue"{% if selected.due == 'overdue' %} selected{% endif %}>Просроченные</option><option value="not_overdue"{% if selected.due == 'not_overdue' %} selected{% endif %}>Не просроченные</option></select></label>
+    <input type="hidden" name="sort" value="{{ selected.sort }}">
+    <button class="link-button" type="submit">Применить</button>
+    <a class="link-button link-button--secondary" href="{{ reset_url }}">Сбросить</a>
+</form>
 
 {% if tasks %}
 <section class="table-card act-table-card">
     <table class="data-table">
-        <thead><tr><th>№ задачи</th><th>Статус</th><th>Источник</th><th>Срок</th></tr></thead>
+        <thead><tr><th>№ задачи</th><th>Статус</th><th>Источник</th><th>Срок <a class="task-sort-link{% if selected.sort %} task-sort-link--active{% endif %}" href="{{ sort_url }}" aria-label="Изменить сортировку по сроку" title="{% if selected.sort == 'nearest' %}Дальние сначала{% else %}Ближайшие сначала{% endif %}">⇅</a></th></tr></thead>
         <tbody>
         {% for task in tasks %}
-            <tr{% if task.due_date < today %} class="task-row--overdue"{% endif %}>
+            <tr{% if tab != 'archive' and task.due_date < today %} class="task-row--overdue"{% endif %}>
                 <td><a class="table-link" href="{% url 'tasks:detail' task.pk %}">{{ task.pk }}</a></td>
                 <td>По акту</td>
                 <td><a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a></td>
-                <td><span class="{% if task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></td>
+                <td><span class="{% if tab != 'archive' and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></td>
             </tr>
         {% endfor %}
         </tbody>
     </table>
 </section>
 {% else %}
-    {% include 'acts/includes/empty_state.html' with title='Задач пока нет' message='У вас нет назначенных задач.' %}
+    {% include 'acts/includes/empty_state.html' with title='Задачи не найдены' message='Измените параметры поиска или выберите другую вкладку.' %}
 {% endif %}
 {% endblock %}

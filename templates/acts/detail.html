@@ -327,7 +327,7 @@
             row.dataset.additionalAssignee = '';
             const remove = document.createElement('button');
             remove.type = 'button'; remove.className = 'link-button link-button--danger';
-            remove.dataset.removeAdditionalAssignee = ''; remove.textContent = 'Удалить ответственного';
+            remove.dataset.removeAdditionalAssignee = ''; remove.textContent = 'Удалить исполнителя';
             row.append(remove);
             action.querySelector('[data-additional-assignee-list]').append(row);
         }

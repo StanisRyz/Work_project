@@ -8,6 +8,10 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D25 — working task registry.
+
+D25 adds `Мои задачи`, `Все задачи`, and `Архив` tabs to `/tasks/`. Filters for task number, source act, registry status, and due-date state, plus due-date sorting, are kept in the URL and combine with AND logic. `Сбросить` retains the selected tab. Active tasks keep overdue-first default ordering; explicit sorting overrides it, while completed archive tasks are never marked overdue. Existing task visibility remains authoritative for every tab.
+
 D24 — compact task registry and cross-department assignees.
 
 D24 keeps the corrective action department as the department responsible for the action, while its active assignees may belong to different departments. The TO form selects employees directly and shows each employee's actual department; no temporary per-assignee department data is used, so assignments are preserved when OTK returns an act to TO.
@@ -121,6 +125,14 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Open `/tasks/` and verify exactly `№ задачи`, `Статус`, `Источник`, and `Срок`; task text and assignees must be absent from the table.
 - Verify each task number and source act number are protected links; an unrelated employee must receive 404 at a direct task-detail URL.
 - Verify `По акту`, overdue highlighting, and overdue-first/nearest-due-date ordering. Complete a shared task and confirm its technical status remains visible in details for all assignees.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
+
+### D25
+
+- Open `/tasks/` as an assignee, manager, and administrator. Verify `Мои задачи`, `Все задачи`, and `Архив` preserve backend visibility.
+- Combine task number, source, `По акту`, and due-date filters; verify the URL retains all state and `Сбросить` retains the selected tab.
+- Verify default active-task ordering is overdue first, then nearest date; check both explicit sorting options and no overdue highlight in `Архив`.
+- Verify task numbers and source acts are linked and an unrelated employee cannot open a task by a direct URL.
 - Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D21
@@ -303,4 +315,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- D25 — protocols and follow-up control, to be defined after D24 manual validation.
+- D26 — protocols and follow-up control, to be defined after D25 manual validation.

@@ -149,6 +149,24 @@
     color: var(--color-primary-dark);
 }
 
+.task-filter-panel {
+    grid-template-columns: repeat(4, minmax(130px, 1fr)) auto auto;
+}
+
+.task-sort-link {
+    display: inline-block;
+    margin-left: 4px;
+    color: var(--color-muted);
+    font-size: 18px;
+    line-height: 1;
+    text-decoration: none;
+}
+
+.task-sort-link:hover,
+.task-sort-link--active {
+    color: var(--color-primary);
+}
+
 .task-row--overdue td {
     background: #fef2f2;
 }

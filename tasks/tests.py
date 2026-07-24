@@ -76,7 +76,7 @@ class TaskViewsTests(TestCase):
         self.assertContains(response, reverse('acts:detail', args=[self.act.pk]))
         self.assertNotContains(response, future.task_text)
         self.assertNotContains(response, 'Исполнители</th>')
-        self.assertContains(response, '№ задачи</th><th>Статус</th><th>Источник</th><th>Срок</th>')
+        self.assertContains(response, '№ задачи</th><th>Статус</th><th>Источник</th><th>Срок <a class="task-sort-link"')
 
     def test_manager_can_open_every_task_and_employee_cannot_open_other_task(self):
         own_task = self._task(self.employee, timezone.localdate())
@@ -94,10 +94,10 @@ class TaskViewsTests(TestCase):
         administrator = User.objects.create_superuser(username='admin_user', password='demo12345')
         self.client.force_login(administrator)
 
-        response = self.client.get(reverse('tasks:list'))
+        response = self.client.get(reverse('tasks:list'), {'tab': 'all'})
 
-        self.assertContains(response, str(first_task.pk))
-        self.assertContains(response, str(second_task.pk))
+        self.assertContains(response, reverse('tasks:detail', args=[first_task.pk]))
+        self.assertContains(response, reverse('tasks:detail', args=[second_task.pk]))
 
     def test_each_assignee_can_view_shared_task_and_unrelated_employee_cannot(self):
         task = self._task(self.employee, timezone.localdate(), [self.other_employee])
@@ -116,3 +116,56 @@ class TaskViewsTests(TestCase):
         self.assertIsNotNone(task.completed_at)
         with self.assertRaises(TaskWorkflowError):
             complete_task(task, self.employee)
+
+    def test_tabs_respect_permissions_and_archive(self):
+        own = self._task(self.employee, timezone.localdate())
+        other = self._task(self.other_employee, timezone.localdate())
+        completed = self._task(self.employee, timezone.localdate() - timedelta(days=3))
+        complete_task(completed, self.employee)
+
+        self.client.force_login(self.employee)
+        my_response = self.client.get(reverse('tasks:list'))
+        self.assertContains(my_response, reverse('tasks:detail', args=[own.pk]))
+        self.assertNotContains(my_response, reverse('tasks:detail', args=[other.pk]))
+        self.assertNotContains(my_response, reverse('tasks:detail', args=[completed.pk]))
+        employee_all_response = self.client.get(reverse('tasks:list'), {'tab': 'all'})
+        self.assertContains(employee_all_response, reverse('tasks:detail', args=[own.pk]))
+        self.assertNotContains(employee_all_response, reverse('tasks:detail', args=[other.pk]))
+        archive_response = self.client.get(reverse('tasks:list'), {'tab': 'archive'})
+        self.assertContains(archive_response, reverse('tasks:detail', args=[completed.pk]))
+        self.assertNotContains(archive_response, 'task-row--overdue')
+
+        self.client.force_login(self.manager)
+        all_response = self.client.get(reverse('tasks:list'), {'tab': 'all'})
+        self.assertContains(all_response, reverse('tasks:detail', args=[own.pk]))
+        self.assertContains(all_response, reverse('tasks:detail', args=[other.pk]))
+        self.assertNotContains(all_response, reverse('tasks:detail', args=[completed.pk]))
+
+    def test_registry_filters_combine_and_reset_preserves_tab(self):
+        matching = self._task(self.employee, timezone.localdate() - timedelta(days=1))
+        hidden = self._task(self.employee, timezone.localdate() + timedelta(days=4))
+        self.client.force_login(self.employee)
+        response = self.client.get(reverse('tasks:list'), {
+            'tab': 'my', 'number': matching.pk, 'source': self.act.number,
+            'status': 'act', 'due': 'overdue', 'sort': 'nearest',
+        })
+        self.assertContains(response, reverse('tasks:detail', args=[matching.pk]))
+        self.assertNotContains(response, reverse('tasks:detail', args=[hidden.pk]))
+        self.assertContains(response, '?tab=my')
+        empty = self.client.get(reverse('tasks:list'), {'number': 'not-a-number'})
+        self.assertContains(empty, 'Задачи не найдены')
+
+    def test_due_date_sorting_and_links(self):
+        nearest = self._task(self.employee, timezone.localdate() + timedelta(days=1))
+        farthest = self._task(self.employee, timezone.localdate() + timedelta(days=5))
+        overdue = self._task(self.employee, timezone.localdate() - timedelta(days=1))
+        self.client.force_login(self.employee)
+
+        default_response = self.client.get(reverse('tasks:list'))
+        self.assertEqual(list(default_response.context['tasks'])[0], overdue)
+        nearest_response = self.client.get(reverse('tasks:list'), {'sort': 'nearest'})
+        self.assertEqual(list(nearest_response.context['tasks'])[0], overdue)
+        farthest_response = self.client.get(reverse('tasks:list'), {'sort': 'farthest'})
+        self.assertEqual(list(farthest_response.context['tasks'])[0], farthest)
+        self.assertContains(farthest_response, reverse('tasks:detail', args=[nearest.pk]))
+        self.assertContains(farthest_response, reverse('acts:detail', args=[self.act.pk]))

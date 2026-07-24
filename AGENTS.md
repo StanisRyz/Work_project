@@ -68,6 +68,7 @@
 - Regular users see only tasks where they are a `TaskAssignee`; managers and administrators have full task visibility. Task links on archived acts are read-only.
 - An assigned employee may atomically complete an active shared task once. `completed_by` and `completed_at` are shared by every assignee.
 - The `/tasks/` registry is compact: `№ задачи`, `Статус` (`По акту`), `Источник`, and `Срок`. Task primary keys link to protected details; technical task statuses remain for execution and detail pages.
+- The `/tasks/` registry has `my`, `all`, and `archive` tabs with GET filters and due-date sorting. Tabs never bypass task visibility: `my` and `all` show active tasks, `archive` shows completed tasks, and regular users see only assigned tasks.
 
 ## Patch Rules
 
