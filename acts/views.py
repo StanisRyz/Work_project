@@ -671,9 +671,9 @@ def _get_act_detail_context(
     root_analyses = list(
         act.root_analyses.prefetch_related(
             'corrective_actions__department',
-            'corrective_actions__assignees__user',
+            'corrective_actions__assignees__user__userprofile',
             'corrective_actions__task__status',
-            'corrective_actions__task__assignees__user',
+            'corrective_actions__task__assignees__user__userprofile',
             'corrective_actions__task__completed_by',
         )
     )

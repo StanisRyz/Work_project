@@ -423,7 +423,6 @@ class ToAnalysisStructureForm:
                     'comment': self.data.get(f'{action_prefix}-comment', '').strip(),
                     'department': self.data.get(f'{action_prefix}-department', ''),
                     'assignees': self._getlist(f'{action_prefix}-assignees'),
-                    'assignee_departments': self._getlist(f'{action_prefix}-assignee_departments'),
                     'due_date': self.data.get(f'{action_prefix}-due_date', ''),
                     'errors': {},
                 }
@@ -439,10 +438,7 @@ class ToAnalysisStructureForm:
                 if not action['assignees']:
                     action['errors']['assignees'] = 'Выберите хотя бы одного исполнителя.'
                     valid = False
-                if len(action['assignee_departments']) != max(0, len(action['assignees']) - 1):
-                    action['errors']['assignees'] = 'Укажите отдел для каждого дополнительного исполнителя.'
-                    valid = False
-                for assignee_index, value in enumerate(action['assignees']):
+                for value in action['assignees']:
                     assignee = self._object_from_value(users, value)
                     if assignee is None:
                         action['errors']['assignees'] = 'Выберите активных сотрудников.'
@@ -456,15 +452,6 @@ class ToAnalysisStructureForm:
                     profile = getattr(assignee, 'userprofile', None)
                     if not assignee.is_active or profile is None or not profile.is_active:
                         action['errors']['assignees'] = 'Исполнитель должен быть активен.'
-                        valid = False
-                    elif (
-                        (assignee_index == 0 and department is not None and profile.department_id != department.pk)
-                        or (
-                            assignee_index > 0
-                            and str(profile.department_id) != action['assignee_departments'][assignee_index - 1]
-                        )
-                    ):
-                        action['errors']['assignees'] = 'Исполнитель не относится к выбранному отделу.'
                         valid = False
                     assignees.append(assignee)
                 try:

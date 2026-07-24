@@ -66,11 +66,17 @@ class TaskViewsTests(TestCase):
 
         response = self.client.get(reverse('tasks:list'))
 
-        self.assertContains(response, future.task_text)
-        self.assertContains(response, overdue.task_text)
-        self.assertNotContains(response, hidden.task_text)
+        self.assertContains(response, str(future.pk))
+        self.assertContains(response, str(overdue.pk))
+        self.assertNotContains(response, reverse('tasks:detail', args=[hidden.pk]))
         self.assertEqual(list(response.context['tasks'])[0], overdue)
         self.assertContains(response, 'task-row--overdue')
+        self.assertContains(response, 'По акту')
+        self.assertContains(response, reverse('tasks:detail', args=[overdue.pk]))
+        self.assertContains(response, reverse('acts:detail', args=[self.act.pk]))
+        self.assertNotContains(response, future.task_text)
+        self.assertNotContains(response, 'Исполнители</th>')
+        self.assertContains(response, '№ задачи</th><th>Статус</th><th>Источник</th><th>Срок</th>')
 
     def test_manager_can_open_every_task_and_employee_cannot_open_other_task(self):
         own_task = self._task(self.employee, timezone.localdate())
@@ -90,8 +96,8 @@ class TaskViewsTests(TestCase):
 
         response = self.client.get(reverse('tasks:list'))
 
-        self.assertContains(response, first_task.task_text)
-        self.assertContains(response, second_task.task_text)
+        self.assertContains(response, str(first_task.pk))
+        self.assertContains(response, str(second_task.pk))
 
     def test_each_assignee_can_view_shared_task_and_unrelated_employee_cannot(self):
         task = self._task(self.employee, timezone.localdate(), [self.other_employee])

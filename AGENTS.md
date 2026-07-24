@@ -53,7 +53,7 @@
 - Preserve legacy KO decision values and historical events for existing acts; do not rewrite them in a data migration.
 - TO analysis is entered on the act detail work tab; the legacy TO URL redirects there on GET and accepts the structured form on POST.
 - `ActRootAnalysis` stores one or more root causes and `ActCorrectiveAction` stores one or more actions for each root cause.
-- Every root cause and corrective action text is required; each action has a primary department and one or more active assignees. The primary assignee must belong to the primary department; every additional assignee must belong to the department selected in that assignee's form block.
+- Every root cause and corrective action text is required; each action has a responsible department and one or more active assignees. Assignees may belong to different departments and are selected directly from active users.
 - Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `OTK_REVIEW`, and create the existing TO history event.
 - Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback.
 - `TO_ANALYSIS` has two actions: return to `KO_REVIEW` with a mandatory atomic comment, or submit validated structured analysis to `OTK_REVIEW`.
@@ -67,6 +67,7 @@
 - `ActCorrectiveActionAssignee` and `TaskAssignee` are the multi-assignee relations; each pair is unique and each corrective action requires at least one assignee.
 - Regular users see only tasks where they are a `TaskAssignee`; managers and administrators have full task visibility. Task links on archived acts are read-only.
 - An assigned employee may atomically complete an active shared task once. `completed_by` and `completed_at` are shared by every assignee.
+- The `/tasks/` registry is compact: `№ задачи`, `Статус` (`По акту`), `Источник`, and `Срок`. Task primary keys link to protected details; technical task statuses remain for execution and detail pages.
 
 ## Patch Rules
 
@@ -77,8 +78,8 @@
 - Seed commands must be idempotent and safe to run multiple times.
 - Do not implement a real access-control matrix before the relevant business module patch.
 - Do not add custom CRUD for references until explicitly requested.
-- Do not implement task objects inside acts; tasks belong to a later `tasks` module patch.
-- Keep act workflow simple until tasks/protocols are implemented.
+- Do not implement task objects inside `acts`; shared tasks belong in the `tasks` module.
+- Keep act workflow simple until protocols are implemented.
 - Views must not duplicate act workflow business logic.
 - Act UI must use service-provided available actions.
 - Act templates must not duplicate role/status permission logic.

@@ -8,15 +8,21 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D24 — compact task registry and cross-department assignees.
+
+D24 keeps the corrective action department as the department responsible for the action, while its active assignees may belong to different departments. The TO form selects employees directly and shows each employee's actual department; no temporary per-assignee department data is used, so assignments are preserved when OTK returns an act to TO.
+
+The `/tasks/` registry now has only `№ задачи`, `Статус`, `Источник`, and `Срок`. The task primary key is the clickable number, the registry status is always `По акту`, and the source act is linked. Overdue tasks remain first and visibly marked; technical `NEW` and `COMPLETED` statuses remain in task execution and detail pages.
+
 D23 — shared corrective-action tasks with multiple assignees.
 
-D23 replaces the single responsible employee with `ActCorrectiveActionAssignee` and `TaskAssignee`. Every corrective action has one or more unique active employees: the first uses the action's primary department and each additional employee is selected with their own department. OTK approval creates exactly one shared `Task` per action and creates all its assignee records in the same transaction as approval and archival. Existing single responsible users are copied into the new relations by migrations.
+D23 replaces the single responsible employee with `ActCorrectiveActionAssignee` and `TaskAssignee`. Every corrective action has one or more unique active employees, including employees from other departments. OTK approval creates exactly one shared `Task` per action and creates all its assignee records in the same transaction as approval and archival. Existing single responsible users are copied into the new relations by migrations.
 
 An ordinary employee can view and complete a task only when assigned to it; managers and administrators retain full visibility. Completion changes the single shared task to `COMPLETED` (`Выполнена`) atomically, records who completed it and when, and is immediately visible to every assignee. A completed task cannot be completed again. Archived acts remain read-only and show assignees, linked tasks, and completion metadata.
 
 D22 — tasks from approved corrective actions.
 
-D22 creates one executable task for every corrective action during the atomic OTK approval transaction. Tasks are assigned to the selected responsible employee, start in `NEW` (`Новая`), and are visible in the task list with protected access and links back to the archived source act.
+D22 introduced one executable task for every corrective action during the atomic OTK approval transaction. D23 later made these tasks shared by multiple assignees.
 
 D21 — OTK review, approval, and registry scopes.
 
@@ -28,7 +34,7 @@ D20 adds the `OTK_REVIEW` (`Проверка ОТК`) stage. From `TO_ANALYSIS`,
 
 D19 — structured TO analysis is embedded on the act detail page.
 
-D19 replaces the separate TO analysis page with a `Корневая проработка` form on `Проработка`. Each root cause contains one or more corrective actions with department, responsible user, and due date. The subsequent D20 workflow sends successful analysis to `OTK_REVIEW`; legacy summaries remain compatible and the submitted structure is read-only outside TO correction.
+D19 replaces the separate TO analysis page with a `Корневая проработка` form on `Проработка`. Each root cause contains one or more corrective actions with department, assignees, and due date. The subsequent D20 workflow sends successful analysis to `OTK_REVIEW`; legacy summaries remain compatible and the submitted structure is read-only outside TO correction.
 
 D18 — comments moved to the attachments tab and KO return-to-OTK rationale is required.
 
@@ -96,17 +102,25 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 ### D22
 
 - Approve an `OTK_REVIEW` act with one or more valid corrective actions and verify one `Новая` task per action, then verify the archived-act task links.
-- Try approval with an inactive or wrong-department responsible user, blank action text, or a past due date; verify a clear error, no tasks, and unchanged `OTK_REVIEW` status.
+- Try approval with an inactive assignee, blank action text, or a past due date; verify a clear error, no tasks, and unchanged `OTK_REVIEW` status.
 - Open `/tasks/` as an assigned employee, another employee, manager, and administrator; verify protected visibility, overdue highlighting, sort order, and read-only details.
 - Verify an approved/archived act cannot create duplicate tasks.
 - Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D23
 
-- In TO analysis select a department and two active employees from it; verify both stay selected after returning the act from OTK to TO. Try no employee, a duplicate employee, and an employee from another department; saving must be rejected.
+- In TO analysis select two active employees, including employees from different departments; verify both stay selected after returning the act from OTK to TO. Try no employee or a duplicate employee; saving must be rejected.
 - Approve the act and verify one task—not two—with both employees shown in the task list, detail page, and archived act.
 - Open the shared task as each assigned employee, an unrelated employee, manager, and administrator; only assignees and full-access roles may view it.
 - Complete it as one assignee. Verify `Выполнена`, the completing employee and date for both assignees and in the archived act; verify a second completion is unavailable/rejected.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
+
+### D24
+
+- Add employees from different departments to one corrective action, return the act from OTK to TO, and verify the employees and their displayed departments are preserved.
+- Open `/tasks/` and verify exactly `№ задачи`, `Статус`, `Источник`, and `Срок`; task text and assignees must be absent from the table.
+- Verify each task number and source act number are protected links; an unrelated employee must receive 404 at a direct task-detail URL.
+- Verify `По акту`, overdue highlighting, and overdue-first/nearest-due-date ordering. Complete a shared task and confirm its technical status remains visible in details for all assignees.
 - Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D21
@@ -279,7 +293,6 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Intentionally Not Implemented Yet
 
-- Task objects or corrective action tasks.
 - Protocols.
 - Nonconformities.
 - Reports.
@@ -290,4 +303,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- D24 — protocols and follow-up control, to be defined after D23 manual validation.
+- D25 — protocols and follow-up control, to be defined after D24 manual validation.
