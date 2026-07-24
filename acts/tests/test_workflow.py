@@ -134,7 +134,7 @@ class ActWorkflowTests(TestCase):
             'root-0-actions-TOTAL_FORMS': '1',
             'root-0-actions-0-comment': 'Корректирующее мероприятие',
             'root-0-actions-0-department': str(self.department.pk),
-            'root-0-actions-0-responsible': str(self.to_user.pk),
+            'root-0-actions-0-assignees': [str(self.to_user.pk)],
             'root-0-actions-0-due_date': timezone.localdate().isoformat(),
         }
         data.update(overrides)
@@ -158,8 +158,24 @@ class ActWorkflowTests(TestCase):
 
         self.assertFalse(form.is_valid())
         errors = form.root_rows[0]['actions'][0]['errors']
-        self.assertIn('responsible', errors)
+        self.assertIn('assignees', errors)
         self.assertIn('due_date', errors)
+
+    def test_structured_analysis_requires_unique_active_department_assignees(self):
+        form = ToAnalysisStructureForm(self._structured_analysis_post(
+            **{'root-0-actions-0-assignees': [str(self.to_user.pk), str(self.to_user.pk)]}
+        ))
+        self.assertFalse(form.is_valid())
+        self.assertIn('assignees', form.root_rows[0]['actions'][0]['errors'])
+
+    def test_structured_analysis_allows_additional_assignee_from_own_department(self):
+        form = ToAnalysisStructureForm(self._structured_analysis_post(
+            **{
+                'root-0-actions-0-assignees': [str(self.to_user.pk), str(self.other_user.pk)],
+                'root-0-actions-0-assignee_departments': [str(self.other_department.pk)],
+            }
+        ))
+        self.assertTrue(form.is_valid())
 
     def test_structured_analysis_saves_all_data_and_transitions_atomically(self):
         act = self._create_act(self.status_to)
@@ -282,14 +298,34 @@ class ActWorkflowTests(TestCase):
             1,
         )
 
+    def test_approval_creates_one_shared_task_for_all_action_assignees(self):
+        second_to_user = self._create_user('to_second', UserProfile.Role.TO)
+        second_to_user.userprofile.department = self.department
+        second_to_user.userprofile.save()
+        act = self._create_act(self.status_to)
+        form = ToAnalysisStructureForm(self._structured_analysis_post(
+            **{
+                'root-0-actions-0-assignees': [str(self.to_user.pk), str(second_to_user.pk)],
+                'root-0-actions-0-assignee_departments': [str(self.department.pk)],
+            }
+        ))
+        self.assertTrue(form.is_valid())
+        apply_structured_to_analysis(act, self.to_user, form.analysis_data)
+
+        approve_act(act, self.otk_user)
+
+        task = Task.objects.get(act=act)
+        self.assertEqual(Task.objects.filter(act=act).count(), 1)
+        self.assertSetEqual(set(task.assignees.values_list('user_id', flat=True)), {self.to_user.pk, second_to_user.pk})
+
     def test_approval_rolls_back_when_corrective_action_is_invalid(self):
         act = self._create_act(self.status_to)
         form = ToAnalysisStructureForm(self._structured_analysis_post())
         self.assertTrue(form.is_valid())
         apply_structured_to_analysis(act, self.to_user, form.analysis_data)
         action = ActCorrectiveAction.objects.get(root_analysis__act=act)
-        action.responsible = self.other_user
-        action.save(update_fields=['responsible'])
+        self.to_user.is_active = False
+        self.to_user.save(update_fields=['is_active'])
 
         with self.assertRaises(ActWorkflowError):
             approve_act(act, self.otk_user)

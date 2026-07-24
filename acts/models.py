@@ -252,7 +252,6 @@ class ActCorrectiveAction(models.Model):
     )
     comment = models.TextField('Корректирующее мероприятие')
     department = models.ForeignKey(Department, on_delete=models.PROTECT, verbose_name='Подразделение')
-    responsible = models.ForeignKey(User, on_delete=models.PROTECT, verbose_name='Ответственный')
     due_date = models.DateField('Срок')
     display_order = models.PositiveIntegerField('Порядок отображения', default=0)
 
@@ -263,6 +262,29 @@ class ActCorrectiveAction(models.Model):
 
     def __str__(self):
         return f'{self.root_analysis.act.number}: {self.comment[:60]}'
+
+
+class ActCorrectiveActionAssignee(models.Model):
+    corrective_action = models.ForeignKey(
+        ActCorrectiveAction,
+        on_delete=models.CASCADE,
+        related_name='assignees',
+        verbose_name='Корректирующее мероприятие',
+    )
+    user = models.ForeignKey(User, on_delete=models.PROTECT, verbose_name='Исполнитель')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['corrective_action', 'user'],
+                name='unique_corrective_action_assignee',
+            )
+        ]
+        verbose_name = 'Исполнитель корректирующего мероприятия'
+        verbose_name_plural = 'Исполнители корректирующих мероприятий'
+
+    def __str__(self):
+        return f'{self.corrective_action}: {self.user}'
 
 
 class ActHistoryEvent(models.Model):

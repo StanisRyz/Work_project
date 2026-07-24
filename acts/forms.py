@@ -352,7 +352,7 @@ class ToAnalysisStructureForm:
                             'index': action_index,
                             'comment': action.comment,
                             'department': str(action.department_id),
-                            'responsible': str(action.responsible_id),
+                            'assignees': [str(assignee.user_id) for assignee in action.assignees.all()],
                             'due_date': action.due_date.isoformat(),
                             'errors': {},
                         }
@@ -374,7 +374,7 @@ class ToAnalysisStructureForm:
                     'index': 0,
                     'comment': '',
                     'department': '',
-                    'responsible': '',
+                    'assignees': [],
                     'due_date': '',
                     'errors': {},
                 }
@@ -422,7 +422,8 @@ class ToAnalysisStructureForm:
                     'index': action_index,
                     'comment': self.data.get(f'{action_prefix}-comment', '').strip(),
                     'department': self.data.get(f'{action_prefix}-department', ''),
-                    'responsible': self.data.get(f'{action_prefix}-responsible', ''),
+                    'assignees': self._getlist(f'{action_prefix}-assignees'),
+                    'assignee_departments': self._getlist(f'{action_prefix}-assignee_departments'),
                     'due_date': self.data.get(f'{action_prefix}-due_date', ''),
                     'errors': {},
                 }
@@ -433,15 +434,39 @@ class ToAnalysisStructureForm:
                 if department is None:
                     action['errors']['department'] = 'Выберите отдел.'
                     valid = False
-                responsible = self._object_from_value(users, action['responsible'])
-                if responsible is None:
-                    action['errors']['responsible'] = 'Выберите сотрудника.'
+                assignees = []
+                seen_assignees = set()
+                if not action['assignees']:
+                    action['errors']['assignees'] = 'Выберите хотя бы одного исполнителя.'
                     valid = False
-                elif department is not None:
-                    profile = getattr(responsible, 'userprofile', None)
-                    if profile is None or profile.department_id != department.pk:
-                        action['errors']['responsible'] = 'Сотрудник не относится к выбранному отделу.'
+                if len(action['assignee_departments']) != max(0, len(action['assignees']) - 1):
+                    action['errors']['assignees'] = 'Укажите отдел для каждого дополнительного исполнителя.'
+                    valid = False
+                for assignee_index, value in enumerate(action['assignees']):
+                    assignee = self._object_from_value(users, value)
+                    if assignee is None:
+                        action['errors']['assignees'] = 'Выберите активных сотрудников.'
                         valid = False
+                        continue
+                    if assignee.pk in seen_assignees:
+                        action['errors']['assignees'] = 'Исполнители не должны повторяться.'
+                        valid = False
+                        continue
+                    seen_assignees.add(assignee.pk)
+                    profile = getattr(assignee, 'userprofile', None)
+                    if not assignee.is_active or profile is None or not profile.is_active:
+                        action['errors']['assignees'] = 'Исполнитель должен быть активен.'
+                        valid = False
+                    elif (
+                        (assignee_index == 0 and department is not None and profile.department_id != department.pk)
+                        or (
+                            assignee_index > 0
+                            and str(profile.department_id) != action['assignee_departments'][assignee_index - 1]
+                        )
+                    ):
+                        action['errors']['assignees'] = 'Исполнитель не относится к выбранному отделу.'
+                        valid = False
+                    assignees.append(assignee)
                 try:
                     due_date = date.fromisoformat(action['due_date'])
                 except (TypeError, ValueError):
@@ -458,7 +483,7 @@ class ToAnalysisStructureForm:
                         {
                             'comment': action['comment'],
                             'department': department,
-                            'responsible': responsible,
+                            'assignees': assignees,
                             'due_date': due_date,
                         }
                     )
@@ -486,6 +511,12 @@ class ToAnalysisStructureForm:
             return objects.get(int(value))
         except (TypeError, ValueError):
             return None
+
+    def _getlist(self, key):
+        if hasattr(self.data, 'getlist'):
+            return self.data.getlist(key)
+        value = self.data.get(key, [])
+        return value if isinstance(value, (list, tuple)) else [value] if value else []
 
 
 class ActAttachmentForm(forms.ModelForm):

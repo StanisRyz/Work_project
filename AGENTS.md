@@ -53,7 +53,7 @@
 - Preserve legacy KO decision values and historical events for existing acts; do not rewrite them in a data migration.
 - TO analysis is entered on the act detail work tab; the legacy TO URL redirects there on GET and accepts the structured form on POST.
 - `ActRootAnalysis` stores one or more root causes and `ActCorrectiveAction` stores one or more actions for each root cause.
-- Every root cause and corrective action text is required; each action requires a department, a responsible user from that department, and a due date no earlier than the current date.
+- Every root cause and corrective action text is required; each action has a primary department and one or more active assignees. The primary assignee must belong to the primary department; every additional assignee must belong to the department selected in that assignee's form block.
 - Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `OTK_REVIEW`, and create the existing TO history event.
 - Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback.
 - `TO_ANALYSIS` has two actions: return to `KO_REVIEW` with a mandatory atomic comment, or submit validated structured analysis to `OTK_REVIEW`.
@@ -63,8 +63,10 @@
 - At `OTK_REVIEW`, the OTK author and managers/administrators may atomically return the act to `TO_ANALYSIS` with a mandatory comment or approve it to `ARCHIVED`; approval atomically creates one `tasks.Task` for every corrective action.
 - `ARCHIVED` acts are read-only for workflow actions but retain permitted viewing, comments, attachments, history, and printing.
 - The acts registry scopes are `my`, `all`, and `archive`; scope selection must not bypass backend act visibility.
-- Tasks belong in the `tasks` app. A task is created only during successful OTK approval and is linked one-to-one with its source corrective action.
-- Regular users see only their assigned tasks; managers and administrators have full task visibility. Task links on archived acts are read-only.
+- Tasks belong in the `tasks` app. A single shared task is created only during successful OTK approval and is linked one-to-one with its source corrective action.
+- `ActCorrectiveActionAssignee` and `TaskAssignee` are the multi-assignee relations; each pair is unique and each corrective action requires at least one assignee.
+- Regular users see only tasks where they are a `TaskAssignee`; managers and administrators have full task visibility. Task links on archived acts are read-only.
+- An assigned employee may atomically complete an active shared task once. `completed_by` and `completed_at` are shared by every assignee.
 
 ## Patch Rules
 

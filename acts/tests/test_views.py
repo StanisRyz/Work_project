@@ -217,7 +217,7 @@ class ActViewTests(TestCase):
                 'root-0-actions-TOTAL_FORMS': '1',
                 'root-0-actions-0-comment': 'Мероприятия',
                 'root-0-actions-0-department': str(self.department.pk),
-                'root-0-actions-0-responsible': str(self.to_user.pk),
+                'root-0-actions-0-assignees': [str(self.to_user.pk)],
                 'root-0-actions-0-due_date': timezone.localdate().isoformat(),
             },
         )

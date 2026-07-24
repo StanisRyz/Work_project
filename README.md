@@ -8,6 +8,12 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D23 — shared corrective-action tasks with multiple assignees.
+
+D23 replaces the single responsible employee with `ActCorrectiveActionAssignee` and `TaskAssignee`. Every corrective action has one or more unique active employees: the first uses the action's primary department and each additional employee is selected with their own department. OTK approval creates exactly one shared `Task` per action and creates all its assignee records in the same transaction as approval and archival. Existing single responsible users are copied into the new relations by migrations.
+
+An ordinary employee can view and complete a task only when assigned to it; managers and administrators retain full visibility. Completion changes the single shared task to `COMPLETED` (`Выполнена`) atomically, records who completed it and when, and is immediately visible to every assignee. A completed task cannot be completed again. Archived acts remain read-only and show assignees, linked tasks, and completion metadata.
+
 D22 — tasks from approved corrective actions.
 
 D22 creates one executable task for every corrective action during the atomic OTK approval transaction. Tasks are assigned to the selected responsible employee, start in `NEW` (`Новая`), and are visible in the task list with protected access and links back to the archived source act.
@@ -93,6 +99,14 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Try approval with an inactive or wrong-department responsible user, blank action text, or a past due date; verify a clear error, no tasks, and unchanged `OTK_REVIEW` status.
 - Open `/tasks/` as an assigned employee, another employee, manager, and administrator; verify protected visibility, overdue highlighting, sort order, and read-only details.
 - Verify an approved/archived act cannot create duplicate tasks.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
+
+### D23
+
+- In TO analysis select a department and two active employees from it; verify both stay selected after returning the act from OTK to TO. Try no employee, a duplicate employee, and an employee from another department; saving must be rejected.
+- Approve the act and verify one task—not two—with both employees shown in the task list, detail page, and archived act.
+- Open the shared task as each assigned employee, an unrelated employee, manager, and administrator; only assignees and full-access roles may view it.
+- Complete it as one assignee. Verify `Выполнена`, the completing employee and date for both assignees and in the archived act; verify a second completion is unavailable/rejected.
 - Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D21
@@ -276,4 +290,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- To be defined after D22 manual validation.
+- D24 — protocols and follow-up control, to be defined after D23 manual validation.

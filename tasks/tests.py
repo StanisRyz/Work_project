@@ -6,10 +6,11 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Department, UserProfile
-from acts.models import Act, ActCorrectiveAction, ActRootAnalysis
+from acts.models import Act, ActCorrectiveAction, ActCorrectiveActionAssignee, ActRootAnalysis
 from references.models import ActStatus, DefectType, Operation, TaskStatus
 
-from .models import Task
+from .models import Task, TaskAssignee
+from .services import TaskWorkflowError, complete_task
 
 
 class TaskViewsTests(TestCase):
@@ -38,17 +39,24 @@ class TaskViewsTests(TestCase):
         user.userprofile.save()
         return user
 
-    def _task(self, responsible, due_date):
+    def _task(self, responsible, due_date, extra_assignees=()):
         root = ActRootAnalysis.objects.create(act=self.act, root_cause=f'Причина {ActRootAnalysis.objects.count()}')
         action = ActCorrectiveAction.objects.create(
             root_analysis=root, comment=f'Мероприятие {root.pk}', department=self.department,
-            responsible=responsible, due_date=due_date,
+            due_date=due_date,
         )
-        return Task.objects.create(
+        ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=responsible)
+        for user in extra_assignees:
+            ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=user)
+        task = Task.objects.create(
             source_action=action, act=self.act, root_analysis=root, task_text=action.comment,
-            department=self.department, responsible=responsible, due_date=due_date,
+            department=self.department, due_date=due_date,
             created_by=self.creator, status=self.task_status,
         )
+        TaskAssignee.objects.create(task=task, user=responsible)
+        for user in extra_assignees:
+            TaskAssignee.objects.create(task=task, user=user)
+        return task
 
     def test_employee_sees_only_own_tasks_and_overdue_first(self):
         future = self._task(self.employee, timezone.localdate() + timedelta(days=3))
@@ -84,3 +92,21 @@ class TaskViewsTests(TestCase):
 
         self.assertContains(response, first_task.task_text)
         self.assertContains(response, second_task.task_text)
+
+    def test_each_assignee_can_view_shared_task_and_unrelated_employee_cannot(self):
+        task = self._task(self.employee, timezone.localdate(), [self.other_employee])
+        self.client.force_login(self.other_employee)
+        self.assertEqual(self.client.get(reverse('tasks:detail', args=[task.pk])).status_code, 200)
+        unrelated = self._user('unrelated', UserProfile.Role.TO, self.department)
+        self.client.force_login(unrelated)
+        self.assertEqual(self.client.get(reverse('tasks:detail', args=[task.pk])).status_code, 404)
+
+    def test_assignee_completes_shared_task_once(self):
+        task = self._task(self.employee, timezone.localdate(), [self.other_employee])
+        complete_task(task, self.other_employee)
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'COMPLETED')
+        self.assertEqual(task.completed_by, self.other_employee)
+        self.assertIsNotNone(task.completed_at)
+        with self.assertRaises(TaskWorkflowError):
+            complete_task(task, self.employee)

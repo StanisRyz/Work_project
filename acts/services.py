@@ -3,7 +3,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import UserProfile
-from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActHistoryEvent, ActRootAnalysis, get_act_status
+from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActHistoryEvent, ActRootAnalysis, get_act_status
 from .permissions import (
     can_apply_ko_decision,
     can_apply_to_analysis,
@@ -175,13 +175,18 @@ def apply_structured_to_analysis(act, user, analysis_data):
                 display_order=root_index,
             )
             for action_index, action_data in enumerate(root_data['actions']):
-                ActCorrectiveAction.objects.create(
+                corrective_action = ActCorrectiveAction.objects.create(
                     root_analysis=root_analysis,
                     comment=action_data['comment'],
                     department=action_data['department'],
-                    responsible=action_data['responsible'],
                     due_date=action_data['due_date'],
                     display_order=action_index,
+                )
+                ActCorrectiveActionAssignee.objects.bulk_create(
+                    [
+                        ActCorrectiveActionAssignee(corrective_action=corrective_action, user=assignee)
+                        for assignee in action_data['assignees']
+                    ]
                 )
 
         first_root = analysis_data[0]
@@ -266,12 +271,12 @@ def approve_act(act, user):
             raise ActWorkflowError('Утверждение акта недоступно для вашей роли или текущего статуса.')
         _require_status(act, 'OTK_REVIEW')
         corrective_actions = list(
-            ActCorrectiveAction.objects.select_related('root_analysis', 'department', 'responsible__userprofile').filter(
-                root_analysis__act=act
-            )
+            ActCorrectiveAction.objects.select_related('root_analysis', 'department').prefetch_related(
+                'assignees__user__userprofile'
+            ).filter(root_analysis__act=act)
         )
         _validate_corrective_actions_for_approval(corrective_actions)
-        from tasks.models import Task
+        from tasks.models import Task, TaskAssignee
         from references.models import TaskStatus
 
         if Task.objects.filter(source_action__in=corrective_actions).exists():
@@ -285,16 +290,18 @@ def approve_act(act, user):
             if action.due_date < approval_date:
                 raise ActWorkflowError('Срок корректирующего мероприятия не может быть раньше даты утверждения.')
         for action in corrective_actions:
-            Task.objects.create(
+            task = Task.objects.create(
                 source_action=action,
                 act=act,
                 root_analysis=action.root_analysis,
                 task_text=action.comment,
                 department=action.department,
-                responsible=action.responsible,
                 due_date=action.due_date,
                 created_by=user,
                 status=new_task_status,
+            )
+            TaskAssignee.objects.bulk_create(
+                [TaskAssignee(task=task, user=assignment.user) for assignment in action.assignees.all()]
             )
         from_status = act.status
         to_status = _get_required_status('ARCHIVED')
@@ -321,18 +328,18 @@ def _validate_corrective_actions_for_approval(corrective_actions):
             raise ActWorkflowError('Корректирующее мероприятие не заполнено.')
         if not action.department_id:
             raise ActWorkflowError('Для корректирующего мероприятия не выбран отдел.')
-        if not action.responsible_id:
-            raise ActWorkflowError('Для корректирующего мероприятия не выбран сотрудник.')
+        assignees = list(action.assignees.all())
+        if not assignees:
+            raise ActWorkflowError('Для корректирующего мероприятия не выбран исполнитель.')
         if not action.due_date:
             raise ActWorkflowError('Для корректирующего мероприятия не указан срок.')
-        try:
-            profile = action.responsible.userprofile
-        except UserProfile.DoesNotExist:
-            profile = None
-        if not action.responsible.is_active or profile is None or not profile.is_active:
-            raise ActWorkflowError('Ответственный сотрудник должен быть активен.')
-        if profile.department_id != action.department_id:
-            raise ActWorkflowError('Ответственный сотрудник не относится к выбранному отделу.')
+        for assignment in assignees:
+            try:
+                profile = assignment.user.userprofile
+            except UserProfile.DoesNotExist:
+                profile = None
+            if not assignment.user.is_active or profile is None or not profile.is_active:
+                raise ActWorkflowError('Исполнитель должен быть активен.')
 
 
 def add_act_history_event(act, user, event_type, message, from_status=None, to_status=None):

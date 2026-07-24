@@ -73,7 +73,7 @@
     <article class="detail-section">
         <h2>Анализ ТО</h2>
         {% if available_actions.to_analysis %}
-            <form id="to-analysis-form" method="post" action="{% url 'acts:to_analysis' act.pk %}" class="to-analysis-form">
+            <form id="to-analysis-form" method="post" action="{% url 'acts:to_analysis' act.pk %}" class="to-analysis-form" onsubmit="return confirm('Передать анализ на проверку ОТК?');">
                 {% csrf_token %}
                 {% if to_analysis_form.non_field_errors %}<ul class="errorlist">{% for error in to_analysis_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
                 <div data-root-analysis-list>
@@ -87,9 +87,11 @@
                                 <label><span>Корректирующее мероприятие</span><textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="3" required>{{ action.comment }}</textarea>{% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}</label>
                                 <div class="corrective-action-card__fields">
                                     <label><span>Выбор отдела</span><select name="root-{{ root.index }}-actions-{{ action.index }}-department" required data-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select>{% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}</label>
-                                    <label><span>Выбор сотрудника</span><select name="root-{{ root.index }}-actions-{{ action.index }}-responsible" required data-responsible-select{% if not action.department %} disabled{% endif %}><option value="">Сначала выберите отдел</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department="{{ employee.userprofile.department_id|default:'' }}"{% if action.responsible == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}</option>{% endfor %}</select>{% if action.errors.responsible %}<span class="field-error">{{ action.errors.responsible }}</span>{% endif %}</label>
+                                    <label><span>Выбор участника</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select{% if not action.department %} disabled{% endif %}><option value="">Сначала выберите отдел</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department="{{ employee.userprofile.department_id|default:'' }}"{% if action.assignees.0 == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}</option>{% endfor %}</select>{% if action.errors.assignees %}<span class="field-error">{{ action.errors.assignees }}</span>{% endif %}</label>
                                     <label><span>Выбор срока</span><input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>{% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}</label>
                                 </div>
+                                <div data-additional-assignee-list>{% for assignee in action.assignees|slice:'1:' %}<div class="corrective-action-card__fields" data-additional-assignee><label><span>Выбор отдела</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignee_departments" required data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select></label><label><span>Выбор участника</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select><option value="">Сначала выберите отдел</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department="{{ employee.userprofile.department_id|default:'' }}"{% if assignee == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}</option>{% endfor %}</select></label><button class="link-button link-button--danger" type="button" data-remove-additional-assignee>Удалить ответственного</button></div>{% endfor %}</div>
+                                <button class="link-button link-button--success" type="button" data-add-additional-assignee>Добавить ответственного</button>
                                 {% if root.actions|length > 1 %}<button class="link-button link-button--danger" type="button" data-remove-corrective-action>Удалить мероприятие</button>{% endif %}
                             </section>
                             {% endfor %}
@@ -106,7 +108,7 @@
         {% elif root_analyses %}
             <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
             {% for root in root_analyses %}
-                <section class="root-analysis-readonly"><h3>Корневая причина</h3><p>{{ root.root_cause|linebreaksbr }}</p>{% for action in root.corrective_actions.all %}<article><h4>Корректирующее мероприятие</h4><p>{{ action.comment|linebreaksbr }}</p><dl><dt>Отдел</dt><dd>{{ action.department }}</dd><dt>Ответственный</dt><dd>{{ action.responsible }}</dd><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y' }}</dd>{% if act.status.code == 'ARCHIVED' and action.task %}<dt>Задача</dt><dd><a class="table-link" href="{% url 'tasks:detail' action.task.pk %}">Задача #{{ action.task.pk }}</a> — {{ action.task.status }}</dd>{% endif %}</dl></article>{% endfor %}</section>
+                <section class="root-analysis-readonly"><h3>Корневая причина</h3><p>{{ root.root_cause|linebreaksbr }}</p>{% for action in root.corrective_actions.all %}<article><h4>Корректирующее мероприятие</h4><p>{{ action.comment|linebreaksbr }}</p><dl><dt>Отдел</dt><dd>{{ action.department }}</dd><dt>Исполнители</dt><dd>{% for assignee in action.assignees.all %}{{ assignee.user }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y' }}</dd>{% if act.status.code == 'ARCHIVED' and action.task %}<dt>Задача</dt><dd><a class="table-link" href="{% url 'tasks:detail' action.task.pk %}">Задача #{{ action.task.pk }}</a> — {{ action.task.status }}; исполнители: {% for assignee in action.task.assignees.all %}{{ assignee.user }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if action.task.completed_by %}; завершил {{ action.task.completed_by }} {{ action.task.completed_at|date:'d.m.Y H:i' }}{% endif %}</dd>{% endif %}</dl></article>{% endfor %}</section>
             {% endfor %}
         {% elif act.to_root_cause or act.to_action_summary %}
             <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
@@ -302,19 +304,19 @@
                 if (actionRemove) actionRemove.hidden = actions.length === 1;
             });
         });
-        form.querySelectorAll('[data-department-select]').forEach(filterUsers);
+        form.querySelectorAll('[data-department-select], [data-assignee-department-select]').forEach(filterUsers);
     };
     const filterUsers = (event) => {
         const department = event.target ? event.target.value : event.value;
+        const row = event.target ? event.target.closest('[data-additional-assignee]') : event.closest('[data-additional-assignee]');
         const card = event.target ? event.target.closest('[data-corrective-action]') : event.closest('[data-corrective-action]');
-        const responsible = card.querySelector('[data-responsible-select]');
-        responsible.disabled = !department;
-        responsible.options[0].text = department ? 'Выберите сотрудника' : 'Сначала выберите отдел';
-        [...responsible.options].forEach((option) => {
+        const assignees = (row || card).querySelector('[data-assignees-select]');
+        assignees.disabled = !department;
+        [...assignees.options].forEach((option) => {
             if (!option.value) return;
             option.hidden = Boolean(department) && option.dataset.department !== department;
         });
-        if (responsible.selectedOptions[0]?.hidden) responsible.value = '';
+        [...assignees.selectedOptions].forEach((option) => { if (option.hidden) option.selected = false; });
     };
     const clearCard = (card) => {
         card.querySelectorAll('textarea, input').forEach((field) => { if (field.type !== 'hidden') field.value = ''; });
@@ -327,6 +329,27 @@
             const list = root.querySelector('[data-corrective-action-list]');
             const action = list.querySelector('[data-corrective-action]').cloneNode(true);
             clearCard(action); list.append(action); renumber();
+        }
+        if (event.target.matches('[data-add-additional-assignee]')) {
+            const action = event.target.closest('[data-corrective-action]');
+            const row = action.querySelector('.corrective-action-card__fields').cloneNode(true);
+            const department = row.querySelector('[data-department-select]');
+            department.removeAttribute('data-department-select');
+            department.setAttribute('data-assignee-department-select', '');
+            department.name = department.name.replace(/-department$/, '-assignee_departments');
+            row.querySelector('input[type="date"]').closest('label').remove();
+            row.querySelectorAll('.field-error, .errorlist').forEach((element) => element.remove());
+            row.querySelector('[data-assignees-select]').value = '';
+            row.dataset.additionalAssignee = '';
+            const remove = document.createElement('button');
+            remove.type = 'button'; remove.className = 'link-button link-button--danger';
+            remove.dataset.removeAdditionalAssignee = ''; remove.textContent = 'Удалить ответственного';
+            row.append(remove);
+            action.querySelector('[data-additional-assignee-list]').append(row);
+            filterUsers(department);
+        }
+        if (event.target.matches('[data-remove-additional-assignee]')) {
+            event.target.closest('[data-additional-assignee]').remove();
         }
         if (event.target.matches('[data-remove-corrective-action]')) {
             const action = event.target.closest('[data-corrective-action]');
@@ -345,7 +368,9 @@
         actions.slice(1).forEach((action) => action.remove());
         clearCard(root); form.append(root); renumber();
     });
-    form.addEventListener('change', (event) => { if (event.target.matches('[data-department-select]')) filterUsers(event); });
+    form.addEventListener('change', (event) => {
+        if (event.target.matches('[data-department-select], [data-assignee-department-select]')) filterUsers(event);
+    });
     renumber();
 })();
 </script>

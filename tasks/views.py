@@ -1,9 +1,10 @@
 from django.contrib.auth.decorators import login_required
 from django.db.models import Case, IntegerField, Value, When
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .permissions import get_visible_tasks_queryset
+from .permissions import can_complete_task, get_visible_tasks_queryset
+from .services import TaskWorkflowError, complete_task
 
 
 @login_required
@@ -22,4 +23,19 @@ def task_list(request):
 @login_required
 def task_detail(request, pk):
     task = get_object_or_404(get_visible_tasks_queryset(request.user), pk=pk)
-    return render(request, 'tasks/detail.html', {'active_page': 'tasks', 'task': task, 'today': timezone.localdate()})
+    return render(request, 'tasks/detail.html', {
+        'active_page': 'tasks', 'task': task, 'today': timezone.localdate(),
+        'can_complete': can_complete_task(task, request.user),
+    })
+
+
+@login_required
+def complete_task_view(request, pk):
+    if request.method != 'POST':
+        return redirect('tasks:detail', pk=pk)
+    task = get_object_or_404(get_visible_tasks_queryset(request.user), pk=pk)
+    try:
+        complete_task(task, request.user)
+    except TaskWorkflowError:
+        return redirect('tasks:detail', pk=pk)
+    return redirect('tasks:detail', pk=pk)
