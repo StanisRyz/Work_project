@@ -109,19 +109,20 @@ class TaskViewsTests(TestCase):
 
     def test_assignee_completes_shared_task_once(self):
         task = self._task(self.employee, timezone.localdate(), [self.other_employee])
-        complete_task(task, self.other_employee)
+        complete_task(task, self.other_employee, 'Мероприятие выполнено.')
         task.refresh_from_db()
         self.assertEqual(task.status.code, 'COMPLETED')
         self.assertEqual(task.completed_by, self.other_employee)
         self.assertIsNotNone(task.completed_at)
+        self.assertEqual(task.execution_comment, 'Мероприятие выполнено.')
         with self.assertRaises(TaskWorkflowError):
-            complete_task(task, self.employee)
+            complete_task(task, self.employee, 'Повторное завершение.')
 
     def test_tabs_respect_permissions_and_archive(self):
         own = self._task(self.employee, timezone.localdate())
         other = self._task(self.other_employee, timezone.localdate())
         completed = self._task(self.employee, timezone.localdate() - timedelta(days=3))
-        complete_task(completed, self.employee)
+        complete_task(completed, self.employee, 'Выполнено.')
 
         self.client.force_login(self.employee)
         my_response = self.client.get(reverse('tasks:list'))
@@ -169,3 +170,55 @@ class TaskViewsTests(TestCase):
         self.assertEqual(list(farthest_response.context['tasks'])[0], farthest)
         self.assertContains(farthest_response, reverse('tasks:detail', args=[nearest.pk]))
         self.assertContains(farthest_response, reverse('acts:detail', args=[self.act.pk]))
+
+    def test_detail_shows_task_card_and_preserves_return_query(self):
+        task = self._task(self.employee, timezone.localdate() - timedelta(days=1), [self.other_employee])
+        self.client.force_login(self.employee)
+        response = self.client.get(reverse('tasks:detail', args=[task.pk]), {'tab': 'all', 'source': self.act.number})
+        self.assertEqual(response.context['header_title'], f'Задача {task.pk}')
+        self.assertNotContains(response, '<section class="task-detail-card">\n    <h1>')
+        self.assertContains(response, 'Статус')
+        self.assertContains(response, 'По акту')
+        self.assertContains(response, 'Корневая причина')
+        self.assertContains(response, 'Исполнители')
+        self.assertContains(response, self.other_employee.username)
+        self.assertContains(response, 'tab=all&amp;source=')
+
+    def test_completion_requires_comment_and_redirects_to_filtered_archive(self):
+        task = self._task(self.employee, timezone.localdate(), [self.other_employee])
+        self.client.force_login(self.other_employee)
+        url = reverse('tasks:complete', args=[task.pk])
+        invalid = self.client.post(url, {'execution_comment': '   ', 'list_query': 'tab=all'})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertContains(invalid, 'Укажите результат выполнения задачи.', status_code=400)
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'NEW')
+
+        response = self.client.post(url, {'execution_comment': 'Работа выполнена.', 'list_query': 'tab=all'})
+        self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive&number={task.pk}')
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'COMPLETED')
+        self.assertEqual(task.completed_by, self.other_employee)
+        self.assertEqual(task.execution_comment, 'Работа выполнена.')
+        archive = self.client.get(reverse('tasks:list'), {'tab': 'archive', 'number': task.pk})
+        self.assertContains(archive, reverse('tasks:detail', args=[task.pk]))
+
+    def test_unassigned_manager_cannot_complete_task(self):
+        task = self._task(self.employee, timezone.localdate())
+        self.client.force_login(self.manager)
+        response = self.client.post(reverse('tasks:complete', args=[task.pk]), {'execution_comment': 'Не должно сохраниться.'})
+        self.assertEqual(response.status_code, 400)
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'NEW')
+        self.assertEqual(task.execution_comment, '')
+
+    def test_unassigned_administrator_can_complete_task(self):
+        task = self._task(self.employee, timezone.localdate())
+        administrator = User.objects.create_superuser(username='admin_complete', password='demo12345')
+        self.client.force_login(administrator)
+        response = self.client.post(
+            reverse('tasks:complete', args=[task.pk]), {'execution_comment': 'Завершено администратором.'}
+        )
+        self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive&number={task.pk}')
+        task.refresh_from_db()
+        self.assertEqual(task.completed_by, administrator)

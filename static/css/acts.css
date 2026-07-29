@@ -167,6 +167,39 @@
     color: var(--color-primary);
 }
 
+.task-detail-card {
+    display: grid;
+    gap: 20px;
+}
+
+.task-detail-section {
+    padding: 20px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.task-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin: 0;
+}
+
+.task-detail-meta div { display: grid; gap: 6px; }
+.task-detail-meta dt { color: var(--color-text); font-size: 16px; }
+.task-detail-meta dd { margin: 0; font-size: 16px; font-weight: 700; }
+.task-detail-block { display: grid; gap: 18px; }
+.task-detail-subsection { display: grid; gap: 10px; }
+.task-detail-subsection + .task-detail-subsection { padding-top: 18px; border-top: 1px solid var(--color-border); }
+.task-detail-block h2 { margin: 0; font-size: 16px; line-height: 1.5; }
+.task-assignee-list { display: grid; gap: 8px; margin: 0; padding-left: 20px; font-size: 16px; }
+.task-comment-block { padding: 14px; border-radius: calc(var(--radius) - 2px); background: var(--color-bg); font-size: 16px; line-height: 1.5; }
+.task-execution-field { display: grid; gap: 6px; }
+.task-execution-field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius); font: inherit; }
+.task-detail-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.task-completion-meta { margin: 0; color: var(--color-muted); }
+
 .task-row--overdue td {
     background: #fef2f2;
 }

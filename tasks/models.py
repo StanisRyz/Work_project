@@ -31,6 +31,7 @@ class Task(models.Model):
         related_name='completed_tasks', verbose_name='Завершил',
     )
     completed_at = models.DateTimeField('Завершена', null=True, blank=True)
+    execution_comment = models.TextField('Результат выполнения', blank=True)
 
     class Meta:
         ordering = ['due_date', 'created_at']

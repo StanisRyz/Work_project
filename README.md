@@ -8,6 +8,10 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D26 — task execution card and mandatory result.
+
+D26 turns task details into a compact card with registry-style metadata, vertical assignees, root cause, and task text. An assigned executor or administrator must enter a non-empty execution result to complete a shared task. Completion saves the result, executor, and timestamp atomically; the task becomes visible only in `Архив` and redirects there filtered by its number. Managers remain view-only unless assigned.
+
 D25 — working task registry.
 
 D25 adds `Мои задачи`, `Все задачи`, and `Архив` tabs to `/tasks/`. Filters for task number, source act, registry status, and due-date state, plus due-date sorting, are kept in the URL and combine with AND logic. `Сбросить` retains the selected tab. Active tasks keep overdue-first default ordering; explicit sorting overrides it, while completed archive tasks are never marked overdue. Existing task visibility remains authoritative for every tab.
@@ -133,6 +137,14 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Combine task number, source, `По акту`, and due-date filters; verify the URL retains all state and `Сбросить` retains the selected tab.
 - Verify default active-task ordering is overdue first, then nearest date; check both explicit sorting options and no overdue highlight in `Архив`.
 - Verify task numbers and source acts are linked and an unrelated employee cannot open a task by a direct URL.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
+
+### D26
+
+- Open a task from a filtered registry and verify the return button preserves the selected list URL.
+- Verify status, source act, due date, assignees with departments, root cause, and task text on the card.
+- Submit an empty or whitespace-only execution result and verify it is rejected without completing the task.
+- Complete a shared task as one assignee; verify its result, executor/date, redirect to filtered `Архив`, and absence from active tabs. Verify an unassigned manager cannot complete it.
 - Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D21
@@ -315,4 +327,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- D26 — protocols and follow-up control, to be defined after D25 manual validation.
+- D27 — protocols and follow-up control, to be defined after D26 manual validation.

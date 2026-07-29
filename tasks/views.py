@@ -1,6 +1,7 @@
 from django.contrib.auth.decorators import login_required
 from django.db.models import Case, IntegerField, Value, When
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 from .permissions import can_complete_task, get_visible_tasks_queryset
@@ -80,10 +81,17 @@ def task_list(request):
 @login_required
 def task_detail(request, pk):
     task = get_object_or_404(get_visible_tasks_queryset(request.user), pk=pk)
-    return render(request, 'tasks/detail.html', {
-        'active_page': 'tasks', 'task': task, 'today': timezone.localdate(),
-        'can_complete': can_complete_task(task, request.user),
-    })
+    context = _task_detail_context(task, request.user, request.GET.urlencode())
+    context['header_title'] = f'Задача {task.pk}'
+    return render(request, 'tasks/detail.html', context)
+
+
+def _task_detail_context(task, user, list_query='', execution_comment='', execution_error=''):
+    return {
+        'active_page': 'tasks', 'header_title': f'Задача {task.pk}', 'task': task, 'today': timezone.localdate(),
+        'can_complete': can_complete_task(task, user), 'list_query': list_query,
+        'execution_comment': execution_comment, 'execution_error': execution_error,
+    }
 
 
 @login_required
@@ -91,8 +99,13 @@ def complete_task_view(request, pk):
     if request.method != 'POST':
         return redirect('tasks:detail', pk=pk)
     task = get_object_or_404(get_visible_tasks_queryset(request.user), pk=pk)
+    execution_comment = request.POST.get('execution_comment', '')
+    list_query = request.POST.get('list_query', '')
     try:
-        complete_task(task, request.user)
-    except TaskWorkflowError:
-        return redirect('tasks:detail', pk=pk)
-    return redirect('tasks:detail', pk=pk)
+        complete_task(task, request.user, execution_comment)
+    except TaskWorkflowError as exc:
+        return render(
+            request, 'tasks/detail.html',
+            _task_detail_context(task, request.user, list_query, execution_comment, str(exc)), status=400,
+        )
+    return redirect(f"{reverse('tasks:list')}?tab=archive&number={task.pk}")

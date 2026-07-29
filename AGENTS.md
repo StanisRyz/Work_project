@@ -69,6 +69,7 @@
 - An assigned employee may atomically complete an active shared task once. `completed_by` and `completed_at` are shared by every assignee.
 - The `/tasks/` registry is compact: `№ задачи`, `Статус` (`По акту`), `Источник`, and `Срок`. Task primary keys link to protected details; technical task statuses remain for execution and detail pages.
 - The `/tasks/` registry has `my`, `all`, and `archive` tabs with GET filters and due-date sorting. Tabs never bypass task visibility: `my` and `all` show active tasks, `archive` shows completed tasks, and regular users see only assigned tasks.
+- Task details show compact metadata, assignees with their actual departments, root cause, task text, and execution result. An assigned executor or administrator may atomically complete an active shared task, and a non-whitespace execution comment is required; successful completion sends the task to the archive.
 
 ## Patch Rules
 
