@@ -40,10 +40,24 @@ def act_attachment_upload_to(instance, filename):
 
 
 class Act(models.Model):
+    class Type(models.TextChoices):
+        OPERATIONAL_CONTROL = 'OPERATIONAL_CONTROL', 'Операционный контроль'
+        INCOMING_CONTROL = 'INCOMING_CONTROL', 'Входной контроль'
+
     class KoDecision(models.TextChoices):
-        ALLOW_NO_REWORK = 'ALLOW_NO_REWORK', 'Пропустить без доработок'
-        ALLOW_WITH_REWORK = 'ALLOW_WITH_REWORK', 'Пропустить с доработками'
         PROHIBIT_USE = 'PROHIBIT_USE', 'Запретить использование'
+        ALLOW_NO_REWORK = (
+            'ALLOW_NO_REWORK',
+            'Разрешить использование изделия с отклонением без доработки',
+        )
+        ALLOW_WITH_REWORK = (
+            'ALLOW_WITH_REWORK',
+            'Разрешить использование изделия с отклонением с доработкой',
+        )
+        ALLOW_NO_DEVIATION_REWORK = (
+            'ALLOW_NO_DEVIATION_REWORK',
+            'Разрешить использование изделия без отклонения с доработкой',
+        )
 
         # Legacy values remain in choices so existing acts retain readable labels.
         ALLOW = 'ALLOW', 'Пропустить'
@@ -53,9 +67,10 @@ class Act(models.Model):
         @classmethod
         def new_choices(cls):
             return (
+                (cls.PROHIBIT_USE, cls.PROHIBIT_USE.label),
                 (cls.ALLOW_NO_REWORK, cls.ALLOW_NO_REWORK.label),
                 (cls.ALLOW_WITH_REWORK, cls.ALLOW_WITH_REWORK.label),
-                (cls.PROHIBIT_USE, cls.PROHIBIT_USE.label),
+                (cls.ALLOW_NO_DEVIATION_REWORK, cls.ALLOW_NO_DEVIATION_REWORK.label),
             )
 
         @classmethod
@@ -75,6 +90,12 @@ class Act(models.Model):
     party_number = models.CharField('Номер партии', max_length=120)
     nomenclature = models.CharField('Номенклатура', max_length=240)
     kd_designation = models.CharField('Обозначение по КД', max_length=240, blank=True)
+    act_type = models.CharField(
+        'Тип акта',
+        max_length=32,
+        choices=Type.choices,
+        default=Type.OPERATIONAL_CONTROL,
+    )
     operation = models.ForeignKey(Operation, on_delete=models.PROTECT, verbose_name='Операция')
     defect_type = models.ForeignKey(DefectType, on_delete=models.PROTECT, verbose_name='Вид дефекта')
     priority = models.ForeignKey(
@@ -89,7 +110,7 @@ class Act(models.Model):
     due_date = models.DateField('Срок рассмотрения', blank=True, null=True)
     ko_decision = models.CharField(
         'Решение КО',
-        max_length=20,
+        max_length=32,
         choices=KoDecision.choices,
         blank=True,
     )
@@ -201,7 +222,7 @@ class ActDefect(models.Model):
     checked_quantity = models.PositiveIntegerField('Проверено продукции', blank=True, null=True)
     nonconforming_quantity = models.PositiveIntegerField('Количество несоответствующей продукции', blank=True, null=True)
     detected_at = models.DateField('Дата обнаружения несоответствия')
-    ko_decision = models.CharField('Решение КО', max_length=20, choices=Act.KoDecision.choices, blank=True)
+    ko_decision = models.CharField('Решение КО', max_length=32, choices=Act.KoDecision.choices, blank=True)
     ko_comment = models.TextField('Комментарий КО', blank=True)
     ko_decision_by = models.ForeignKey(
         User,

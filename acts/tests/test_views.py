@@ -49,6 +49,7 @@ class ActViewTests(TestCase):
             created_by=created_by or self.otk_user,
             party_number=kwargs.get('party_number', 'P-001'),
             nomenclature=kwargs.get('nomenclature', 'Катушка'),
+            act_type=kwargs.get('act_type', Act.Type.OPERATIONAL_CONTROL),
             operation=self.operation,
             defect_type=self.defect_type,
             priority=kwargs.get('priority'),
@@ -130,6 +131,112 @@ class ActViewTests(TestCase):
         self.assertNotContains(response, hidden_other.number)
         self.assertNotContains(response, hidden_stage.number)
 
+    def test_registry_filters_by_status_act_type_and_search_without_operation_filter(self):
+        matching = self._create_act(self.status_created, party_number='P-MATCH')
+        incoming = self._create_act(
+            self.status_created,
+            party_number='P-OTHER',
+            act_type=Act.Type.INCOMING_CONTROL,
+        )
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(
+            reverse('acts:list'),
+            {'status': self.status_created.pk, 'act_type': Act.Type.OPERATIONAL_CONTROL, 'search': 'MATCH'},
+        )
+
+        self.assertContains(response, matching.number)
+        self.assertNotContains(response, incoming.number)
+        self.assertNotContains(response, 'name="operation"', html=False)
+        self.assertNotIn('operations', response.context)
+        self.assertNotIn('operation', response.context['selected'])
+        self.assertNotContains(response, 'name="defect_type"', html=False)
+        self.assertNotIn('defect_types', response.context)
+        self.assertNotIn('defect_type', response.context['selected'])
+
+    def test_registry_filter_options_match_current_workflow_and_act_types(self):
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:list'))
+
+        self.assertEqual(
+            set(response.context['statuses'].values_list('code', flat=True)),
+            {'CREATED_OTK', 'KO_REVIEW', 'TO_ANALYSIS', 'OTK_REVIEW', 'ARCHIVED'},
+        )
+        self.assertEqual(
+            response.context['act_types'],
+            Act.Type.choices,
+        )
+
+    def test_registry_table_displays_compact_act_columns(self):
+        self._create_act(self.status_created, party_number='P-COMPACT')
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:list'))
+
+        for header in ('Номер', 'Дата создания', 'Тип', 'Статус', 'Срок'):
+            self.assertContains(response, f'<th>{header}</th>', html=False)
+        for removed_header in ('Партия', 'Номенклатура', 'Операция', 'Вид дефекта', 'Приоритет', 'Создал'):
+            self.assertNotContains(response, f'<th>{removed_header}</th>', html=False)
+
+    def test_registry_ignores_removed_operation_query_parameter(self):
+        visible = self._create_act(self.status_created, party_number='P-VISIBLE')
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:list'), {'operation': self.operation.pk})
+
+        self.assertContains(response, visible.number)
+        self.assertFalse(response.context['has_filters'])
+
+    def test_registry_due_filter_treats_only_dates_before_today_as_overdue(self):
+        today = timezone.localdate()
+        overdue = self._create_act(self.status_created, party_number='P-OVERDUE', due_date=today - timedelta(days=1))
+        due_today = self._create_act(self.status_created, party_number='P-TODAY', due_date=today)
+        future = self._create_act(self.status_created, party_number='P-FUTURE', due_date=today + timedelta(days=1))
+        self.client.force_login(self.otk_user)
+
+        overdue_response = self.client.get(reverse('acts:list'), {'due': 'overdue'})
+        self.assertContains(overdue_response, overdue.number)
+        self.assertNotContains(overdue_response, due_today.number)
+        self.assertNotContains(overdue_response, future.number)
+
+        not_overdue_response = self.client.get(reverse('acts:list'), {'due': 'not_overdue'})
+        self.assertNotContains(not_overdue_response, overdue.number)
+        self.assertContains(not_overdue_response, due_today.number)
+        self.assertContains(not_overdue_response, future.number)
+
+    def test_registry_reset_retains_scope_and_clears_remaining_filters(self):
+        self._create_act(self.status_created, party_number='P-RESET')
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:list'), {'scope': 'all', 'search': 'RESET'})
+
+        self.assertContains(response, '?scope=all')
+        self.assertEqual(response.context['selected']['search'], 'RESET')
+
+        reset_response = self.client.get(reverse('acts:list'), {'scope': 'all'})
+        self.assertEqual(reset_response.context['scope'], 'all')
+        self.assertEqual(reset_response.context['selected']['search'], '')
+        self.assertFalse(reset_response.context['has_filters'])
+
+    def test_registry_create_button_respects_create_permission(self):
+        self.client.force_login(self.otk_user)
+        response = self.client.get(reverse('acts:list'))
+        self.assertEqual(response.context['header_title'], 'Акты')
+        self.assertContains(response, 'Создать АКТ')
+
+        self.client.force_login(self.ko_user)
+        self.assertNotContains(self.client.get(reverse('acts:list')), 'Создать АКТ')
+
+    def test_registry_cleanup_control_is_visible_only_to_dedicated_administrator(self):
+        dedicated_admin = self._create_user('admin_user', UserProfile.Role.ADMIN)
+
+        self.client.force_login(self.admin_user)
+        self.assertNotContains(self.client.get(reverse('acts:list')), 'Очистить акты')
+
+        self.client.force_login(dedicated_admin)
+        self.assertContains(self.client.get(reverse('acts:list')), 'Очистить акты')
+
     def test_only_dedicated_admin_user_can_clear_all_acts(self):
         self._create_act(self.status_created, party_number='P-CLEAR-1')
         self._create_act(self.status_ko, party_number='P-CLEAR-2')
@@ -191,6 +298,31 @@ class ActViewTests(TestCase):
             act.refresh_from_db()
             self.assertEqual(act.status.code, 'TO_ANALYSIS')
             self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 404)
+
+    def test_ko_decision_form_has_required_choices_in_order(self):
+        act = self._create_act(self.status_ko)
+        self.client.force_login(self.ko_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]))
+
+        self.assertEqual(
+            list(response.context['ko_decision_form'].fields['ko_decision'].choices),
+            [
+                (Act.KoDecision.PROHIBIT_USE, 'Запретить использование'),
+                (
+                    Act.KoDecision.ALLOW_NO_REWORK,
+                    'Разрешить использование изделия с отклонением без доработки',
+                ),
+                (
+                    Act.KoDecision.ALLOW_WITH_REWORK,
+                    'Разрешить использование изделия с отклонением с доработкой',
+                ),
+                (
+                    Act.KoDecision.ALLOW_NO_DEVIATION_REWORK,
+                    'Разрешить использование изделия без отклонения с доработкой',
+                ),
+            ],
+        )
 
     def test_to_sees_only_to_analysis_acts(self):
         visible = self._create_act(self.status_to, party_number='P-TO')
@@ -275,6 +407,34 @@ class ActViewTests(TestCase):
         self.assertContains(archive_response, archived_act.number)
         self.assertNotContains(archive_response, active_act.number)
 
+    def test_full_access_user_sees_archived_acts_only_on_archive_tab(self):
+        active_act = self._create_act(self.status_created, party_number='P-ADMIN-ACTIVE')
+        archived_act = self._create_act(self.status_archived, party_number='P-ADMIN-ARCHIVE')
+        self.client.force_login(self.admin_user)
+
+        my_response = self.client.get(reverse('acts:list') + '?scope=my')
+        all_response = self.client.get(reverse('acts:list') + '?scope=all')
+        archive_response = self.client.get(reverse('acts:list') + '?scope=archive')
+
+        for response in (my_response, all_response):
+            self.assertContains(response, active_act.number)
+            self.assertNotContains(response, archived_act.number)
+        self.assertContains(archive_response, archived_act.number)
+        self.assertNotContains(archive_response, active_act.number)
+
+    def test_archive_registry_shows_archiving_date(self):
+        archived_at = timezone.now()
+        archived_act = self._create_act(self.status_archived, party_number='P-ARCHIVE-DATE')
+        archived_act.approved_at = archived_at
+        archived_act.save(update_fields=['approved_at', 'updated_at'])
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse('acts:list') + '?scope=archive')
+
+        self.assertContains(response, '<th>Дата архивации</th>', html=False)
+        self.assertContains(response, timezone.localtime(archived_at).strftime('%d.%m.%Y'))
+        self.assertNotContains(response, '<th>Дата создания</th>', html=False)
+
     def test_legacy_to_analysis_values_remain_visible_without_structured_records(self):
         act = self._create_act(self.status_actions)
         act.to_root_cause = 'Историческая причина'
@@ -333,7 +493,7 @@ class ActViewTests(TestCase):
         self.assertContains(response, first_act.number)
         self.assertContains(response, second_act.number)
         self.assertContains(response, third_act.number)
-        self.assertContains(response, 'Режим администратора: полный доступ к актам.')
+        self.assertNotContains(response, 'Режим администратора: полный доступ к актам.')
 
     def test_user_without_profile_sees_no_acts(self):
         act = self._create_act(self.status_created)

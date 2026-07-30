@@ -80,25 +80,33 @@
                     {% for root in to_analysis_form.root_rows %}
                     <section class="root-analysis-card" data-root-analysis>
                         <input type="hidden" data-root-total-name value="{{ forloop.counter0 }}">
-                        <label><span>Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="4" required>{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
+                        <div class="analysis-card-header" data-root-analysis-header>
+                            <label><span>Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="4" required>{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
+                            {% if to_analysis_form.root_rows|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-root-analysis aria-label="Удалить корневую проработку" title="Удалить корневую проработку">×</button>{% endif %}
+                        </div>
                         <div class="corrective-action-list" data-corrective-action-list>
                             {% for action in root.actions %}
                             <section class="corrective-action-card" data-corrective-action>
-                                <label><span>Корректирующее мероприятие</span><textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="3" required>{{ action.comment }}</textarea>{% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}</label>
+                                <div class="analysis-card-header" data-corrective-action-header>
+                                    <label><span>Корректирующее мероприятие</span><textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="3" required>{{ action.comment }}</textarea>{% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}</label>
+                                    {% if root.actions|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-corrective-action aria-label="Удалить мероприятие" title="Удалить мероприятие">×</button>{% endif %}
+                                </div>
                                 <div class="corrective-action-card__fields">
-                                    <label><span>Выбор отдела</span><select name="root-{{ root.index }}-actions-{{ action.index }}-department" required data-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select>{% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}</label>
-                                    <label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}"{% if action.assignees.0 == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select>{% if action.errors.assignees %}<span class="field-error">{{ action.errors.assignees }}</span>{% endif %}</label>
+                                    <label><span>Выбор отдела</span><select name="root-{{ root.index }}-actions-{{ action.index }}-department" required data-department-select data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select>{% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}</label>
+                                    <label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select disabled><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if action.assignees.0 == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select>{% if action.errors.assignees %}<span class="field-error">{{ action.errors.assignees }}</span>{% endif %}</label>
                                     <label><span>Выбор срока</span><input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>{% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}</label>
                                 </div>
-                                <div data-additional-assignee-list>{% for assignee in action.assignees|slice:'1:' %}<div class="corrective-action-card__fields" data-additional-assignee><label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}"{% if assignee == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select></label><button class="link-button link-button--danger" type="button" data-remove-additional-assignee>Удалить исполнителя</button></div>{% endfor %}</div>
-                                <button class="link-button link-button--success" type="button" data-add-additional-assignee>Добавить исполнителя</button>
-                                {% if root.actions|length > 1 %}<button class="link-button link-button--danger" type="button" data-remove-corrective-action>Удалить мероприятие</button>{% endif %}
+                                <div data-additional-assignee-list>{% for assignee in action.additional_assignees %}<div class="corrective-action-card__fields" data-additional-assignee><label><span>Выбор отдела</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignee_departments" required data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if assignee.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select></label><label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select disabled><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if assignee.user == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select></label><button class="link-button link-button--danger" type="button" data-remove-additional-assignee>Удалить исполнителя</button></div>{% endfor %}</div>
+                                <div class="act-inline-actions" data-corrective-action-actions>
+                                    <button class="link-button link-button--success" type="button" data-add-additional-assignee>Добавить исполнителя</button>
+                                </div>
                             </section>
                             {% endfor %}
                         </div>
                         <input type="hidden" name="root-{{ root.index }}-actions-TOTAL_FORMS" value="{{ root.actions|length }}" data-actions-total>
-                        <button class="link-button link-button--success" type="button" data-add-corrective-action>Добавить корректирующее мероприятие</button>
-                        {% if to_analysis_form.root_rows|length > 1 %}<button class="link-button link-button--danger" type="button" data-remove-root-analysis>Удалить корневую проработку</button>{% endif %}
+                        <div class="act-inline-actions" data-root-analysis-actions>
+                            <button class="link-button link-button--success" type="button" data-add-corrective-action>Добавить корректирующее мероприятие</button>
+                        </div>
                     </section>
                     {% endfor %}
                 </div>
@@ -266,17 +274,43 @@
     const form = document.querySelector('[data-root-analysis-list]');
     if (!form) return;
     const rootTotal = document.querySelector('[data-root-total]');
-    const addRemoveButton = (container, attribute, label) => {
+    const addRemoveButton = (container, controlsSelector, attribute, label) => {
         let button = container.querySelector(`[${attribute}]`);
         if (!button) {
             button = document.createElement('button');
-            button.className = 'link-button link-button--danger';
+            button.className = 'analysis-remove-button';
             button.type = 'button';
             button.dataset[attribute.replace('data-', '').replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = '';
-            button.textContent = label;
-            container.append(button);
+            button.setAttribute('aria-label', label);
+            button.title = label;
+            button.textContent = '×';
+            (container.querySelector(controlsSelector) || container).append(button);
         }
         return button;
+    };
+    const syncActionAssignees = (action) => {
+        const assigneeSelects = [...action.querySelectorAll('[data-assignees-select]')];
+        const selectedAssigneeIds = assigneeSelects.map((select) => select.value).filter(Boolean);
+        assigneeSelects.forEach((assigneeSelect) => {
+            const fields = assigneeSelect.closest('.corrective-action-card__fields');
+            const departmentId = fields.querySelector('[data-assignee-department-select]').value;
+            assigneeSelect.disabled = !departmentId;
+            [...assigneeSelect.options].forEach((option) => {
+                if (!option.value) return;
+                const isSelectedInAnotherRow = option.value !== assigneeSelect.value
+                    && selectedAssigneeIds.includes(option.value);
+                const isAvailable = option.dataset.departmentId === departmentId && !isSelectedInAnotherRow;
+                option.hidden = !isAvailable;
+                option.disabled = !isAvailable;
+                if (!isAvailable && option.selected) assigneeSelect.value = '';
+            });
+        });
+    };
+    const syncAssigneeSelect = (departmentSelect) => {
+        syncActionAssignees(departmentSelect.closest('[data-corrective-action]'));
+    };
+    const syncAssigneeSelects = () => {
+        form.querySelectorAll('[data-corrective-action]').forEach(syncActionAssignees);
     };
     const renumber = () => {
         const roots = [...form.querySelectorAll('[data-root-analysis]')];
@@ -293,17 +327,22 @@
             actions.forEach((action, actionIndex) => action.querySelectorAll('[name]').forEach((field) => {
                 field.name = field.name.replace(/^root-\d+-actions-\d+/, `root-${rootIndex}-actions-${actionIndex}`);
             }));
-            const rootRemove = roots.length > 1
-                ? addRemoveButton(root, 'data-remove-root-analysis', 'Удалить корневую проработку')
-                : root.querySelector('[data-remove-root-analysis]');
-            if (rootRemove) rootRemove.hidden = roots.length === 1;
-            actions.forEach((action) => {
-                const actionRemove = actions.length > 1
-                    ? addRemoveButton(action, 'data-remove-corrective-action', 'Удалить мероприятие')
-                    : action.querySelector('[data-remove-corrective-action]');
-                if (actionRemove) actionRemove.hidden = actions.length === 1;
+            const rootRemove = root.querySelector('[data-remove-root-analysis]');
+            if (roots.length > 1 && rootIndex === roots.length - 1) {
+                addRemoveButton(root, '[data-root-analysis-header]', 'data-remove-root-analysis', 'Удалить корневую проработку');
+            } else if (rootRemove) {
+                rootRemove.remove();
+            }
+            actions.forEach((action, actionIndex) => {
+                const actionRemove = action.querySelector('[data-remove-corrective-action]');
+                if (actions.length > 1 && actionIndex === actions.length - 1) {
+                    addRemoveButton(action, '[data-corrective-action-header]', 'data-remove-corrective-action', 'Удалить мероприятие');
+                } else if (actionRemove) {
+                    actionRemove.remove();
+                }
             });
         });
+        syncAssigneeSelects();
     };
     const clearCard = (card) => {
         card.querySelectorAll('textarea, input').forEach((field) => { if (field.type !== 'hidden') field.value = ''; });
@@ -320,9 +359,12 @@
         if (event.target.matches('[data-add-additional-assignee]')) {
             const action = event.target.closest('[data-corrective-action]');
             const row = action.querySelector('.corrective-action-card__fields').cloneNode(true);
-            row.querySelector('[data-department-select]').closest('label').remove();
             row.querySelector('input[type="date"]').closest('label').remove();
             row.querySelectorAll('.field-error, .errorlist').forEach((element) => element.remove());
+            const departmentSelect = row.querySelector('[data-department-select]');
+            departmentSelect.name = departmentSelect.name.replace(/-department$/, '-assignee_departments');
+            departmentSelect.removeAttribute('data-department-select');
+            departmentSelect.value = '';
             row.querySelector('[data-assignees-select]').value = '';
             row.dataset.additionalAssignee = '';
             const remove = document.createElement('button');
@@ -330,9 +372,18 @@
             remove.dataset.removeAdditionalAssignee = ''; remove.textContent = 'Удалить исполнителя';
             row.append(remove);
             action.querySelector('[data-additional-assignee-list]').append(row);
+            syncAssigneeSelect(departmentSelect);
+        }
+        if (event.target.matches('[data-assignee-department-select]')) {
+            syncAssigneeSelect(event.target);
+        }
+        if (event.target.matches('[data-assignees-select]')) {
+            syncActionAssignees(event.target.closest('[data-corrective-action]'));
         }
         if (event.target.matches('[data-remove-additional-assignee]')) {
+            const action = event.target.closest('[data-corrective-action]');
             event.target.closest('[data-additional-assignee]').remove();
+            syncActionAssignees(action);
         }
         if (event.target.matches('[data-remove-corrective-action]')) {
             const action = event.target.closest('[data-corrective-action]');

@@ -353,6 +353,13 @@ class ToAnalysisStructureForm:
                             'comment': action.comment,
                             'department': str(action.department_id),
                             'assignees': [str(assignee.user_id) for assignee in action.assignees.all()],
+                            'additional_assignees': [
+                                {
+                                    'user': str(assignee.user_id),
+                                    'department': str(assignee.user.userprofile.department_id or ''),
+                                }
+                                for assignee in list(action.assignees.all())[1:]
+                            ],
                             'due_date': action.due_date.isoformat(),
                             'errors': {},
                         }
@@ -375,6 +382,7 @@ class ToAnalysisStructureForm:
                     'comment': '',
                     'department': '',
                     'assignees': [],
+                    'additional_assignees': [],
                     'due_date': '',
                     'errors': {},
                 }
@@ -394,7 +402,7 @@ class ToAnalysisStructureForm:
             self._valid = False
             return False
 
-        departments = {department.pk: department for department in Department.objects.all()}
+        departments = {department.pk: department for department in Department.objects.filter(is_active=True)}
         users = {
             user.pk: user
             for user in User.objects.select_related('userprofile').all()
@@ -423,6 +431,17 @@ class ToAnalysisStructureForm:
                     'comment': self.data.get(f'{action_prefix}-comment', '').strip(),
                     'department': self.data.get(f'{action_prefix}-department', ''),
                     'assignees': self._getlist(f'{action_prefix}-assignees'),
+                    'assignee_departments': [
+                        self.data.get(f'{action_prefix}-department', ''),
+                        *self._getlist(f'{action_prefix}-assignee_departments'),
+                    ],
+                    'additional_assignees': [
+                        {'user': user, 'department': department}
+                        for user, department in zip(
+                            self._getlist(f'{action_prefix}-assignees')[1:],
+                            self._getlist(f'{action_prefix}-assignee_departments'),
+                        )
+                    ],
                     'due_date': self.data.get(f'{action_prefix}-due_date', ''),
                     'errors': {},
                 }
@@ -454,6 +473,20 @@ class ToAnalysisStructureForm:
                         action['errors']['assignees'] = 'Исполнитель должен быть активен.'
                         valid = False
                     assignees.append(assignee)
+                if len(action['assignee_departments']) != len(assignees):
+                    action['errors']['assignees'] = 'Для каждого исполнителя выберите отдел.'
+                    valid = False
+                else:
+                    for assignee, department_value in zip(assignees, action['assignee_departments']):
+                        assignee_department = self._object_from_value(departments, department_value)
+                        profile = getattr(assignee, 'userprofile', None)
+                        if (
+                            assignee_department is None
+                            or profile is None
+                            or profile.department_id != assignee_department.pk
+                        ):
+                            action['errors']['assignees'] = 'Исполнитель должен относиться к выбранному отделу.'
+                            valid = False
                 try:
                     due_date = date.fromisoformat(action['due_date'])
                 except (TypeError, ValueError):

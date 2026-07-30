@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
-from references.models import ActStatus, DefectType, Operation
+from references.models import ActStatus
 from accounts.models import Department
 
 from .forms import (
@@ -26,7 +26,7 @@ from .forms import (
     ToAnalysisStructureForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
-from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act, get_archived_acts_queryset, has_full_act_access, is_act_admin
+from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act, get_archived_acts_queryset, has_full_act_access
 from .services import (
     ActWorkflowError,
     add_act_comment,
@@ -39,7 +39,6 @@ from .services import (
     delete_act_attachment,
     format_file_size,
     get_available_act_actions,
-    get_role_context_text,
     get_visible_acts_for_user,
     return_to_otk,
     return_to_ko,
@@ -63,29 +62,35 @@ def act_list(request):
             'created_by', 'operation', 'defect_type', 'priority', 'status'
         ).exclude(status__code='ARCHIVED')
     else:
-        visible_acts = active_acts
+        visible_acts = active_acts.exclude(status__code='ARCHIVED')
     has_visible_acts = visible_acts.exists()
     today = timezone.localdate()
 
     status = request.GET.get('status')
-    operation = request.GET.get('operation')
-    defect_type = request.GET.get('defect_type')
+    act_type = request.GET.get('act_type', '')
+    due = request.GET.get('due', '')
     search = request.GET.get('search', '').strip()
+    if due not in {'', 'overdue', 'not_overdue'}:
+        due = ''
+    if act_type not in Act.Type.values:
+        act_type = ''
 
     acts = visible_acts
     if status:
         acts = acts.filter(status_id=status)
-    if operation:
-        acts = acts.filter(operation_id=operation)
-    if defect_type:
-        acts = acts.filter(defect_type_id=defect_type)
+    if act_type:
+        acts = acts.filter(act_type=act_type)
+    if due == 'overdue':
+        acts = acts.filter(due_date__lt=today)
+    elif due == 'not_overdue':
+        acts = acts.filter(due_date__gte=today)
     if search:
         acts = acts.filter(
             Q(number__icontains=search)
             | Q(party_number__icontains=search)
             | Q(nomenclature__icontains=search)
         )
-    has_filters = bool(status or operation or defect_type or search)
+    has_filters = bool(status or act_type or due or search)
     kpis = {
         'total': acts.count(),
         'overdue': acts.filter(due_date__lt=today).count(),
@@ -97,26 +102,25 @@ def act_list(request):
 
     context = {
         'active_page': 'acts',
-        'page_title': 'Акты операционного контроля',
-        'page_description': get_role_context_text(request.user),
+        'header_title': 'Акты',
         'acts': acts,
         'kpis': kpis,
         'today': today,
         'has_visible_acts': has_visible_acts,
         'has_filters': has_filters,
-        'statuses': ActStatus.objects.filter(is_active=True),
-        'operations': Operation.objects.filter(is_active=True),
-        'defect_types': DefectType.objects.filter(is_active=True),
+        'statuses': ActStatus.objects.filter(
+            is_active=True,
+        ).exclude(code__in={'ACTIONS_ASSIGNED', 'CLOSED', 'CANCELLED'}),
+        'act_types': Act.Type.choices,
         'selected': {
             'scope': scope,
             'status': status or '',
-            'operation': operation or '',
-            'defect_type': defect_type or '',
+            'act_type': act_type,
+            'due': due,
             'search': search,
         },
         'can_create': can_create_act(request.user),
         'can_clear_all_acts': can_clear_all_acts(request.user),
-        'is_act_admin': is_act_admin(request.user),
         'scope': scope,
     }
     return render(request, 'acts/list.html', context)

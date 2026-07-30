@@ -49,11 +49,12 @@
 - Returning an act from KO to OTK requires a non-whitespace comment and must save that comment and both history events atomically with the transition.
 - Attachments belong only on the detail-page attachments tab; preserve its validation, protected access, and attachment history.
 - Every new KO decision must transition an act from `KO_REVIEW` to `TO_ANALYSIS` through `apply_ko_decision()`.
+- New KO decisions are, in order: prohibit use; allow use with a deviation and no rework; allow use with a deviation and rework; allow use without a deviation and rework. Legacy KO decision values remain readable for historical acts.
 - When an act has multiple defects, KO must provide a separate decision for every defect before the act can transition to TO.
 - Preserve legacy KO decision values and historical events for existing acts; do not rewrite them in a data migration.
 - TO analysis is entered on the act detail work tab; the legacy TO URL redirects there on GET and accepts the structured form on POST.
 - `ActRootAnalysis` stores one or more root causes and `ActCorrectiveAction` stores one or more actions for each root cause.
-- Every root cause and corrective action text is required; each action has a responsible department and one or more active assignees. Assignees may belong to different departments and are selected directly from active users.
+- Every root cause and corrective action text is required; each action has a responsible department and one or more active assignees. Each assignee is selected only after choosing that assignee's department and must belong to it; assignees may belong to different departments.
 - Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `OTK_REVIEW`, and create the existing TO history event.
 - Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback.
 - `TO_ANALYSIS` has two actions: return to `KO_REVIEW` with a mandatory atomic comment, or submit validated structured analysis to `OTK_REVIEW`.
@@ -63,6 +64,7 @@
 - At `OTK_REVIEW`, the OTK author and managers/administrators may atomically return the act to `TO_ANALYSIS` with a mandatory comment or approve it to `ARCHIVED`; approval atomically creates one `tasks.Task` for every corrective action.
 - `ARCHIVED` acts are read-only for workflow actions but retain permitted viewing, comments, attachments, history, and printing.
 - The acts registry scopes are `my`, `all`, and `archive`; scope selection must not bypass backend act visibility.
+- D27 keeps the `/acts/` registry compact: the topbar title is `Акты`; the filter panel contains search, current workflow statuses, type (`Операционный контроль` or the prepared future `Входной контроль`), and a due-date filter (`Все`, `Просроченные`, `Не просроченные`). Existing acts default to operational control; an overdue act has a due date strictly before the current local date. The table has fixed height and internal scrolling and shows number, creation date, type, status, and due date. Archived acts belong only on the `archive` scope, including for full-access users. Permitted creation and the dedicated administrator cleanup action are below the registry. The operation filter is intentionally absent while operation data remains in acts and their details.
 - Tasks belong in the `tasks` app. A single shared task is created only during successful OTK approval and is linked one-to-one with its source corrective action.
 - `ActCorrectiveActionAssignee` and `TaskAssignee` are the multi-assignee relations; each pair is unique and each corrective action requires at least one assignee.
 - Regular users see only tasks where they are a `TaskAssignee`; managers and administrators have full task visibility. Task links on archived acts are read-only.
@@ -94,6 +96,7 @@
 - Print view is HTML/browser-print only until an explicit export request.
 - PDF/Word export must not be added without explicit request.
 - D8, D10, D12, D13, and D14 intentionally use manual validation instead of adding automated tests for their scoped UI changes.
+- D27 is a registry UI-only patch: do not restore the introductory, role-description, or administrator-mode notices, and do not reintroduce operation filtering without an explicit requirement.
 - Templates must not decide act permissions directly.
 - Preserve existing workflow tests when workflow behavior changes; D12, D13, and D14 are manual-validation UI patches and do not add automated tests.
 - Do not add backend complexity before it is needed.

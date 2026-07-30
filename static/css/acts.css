@@ -31,14 +31,41 @@
 
 .act-filter-panel {
     margin: 0;
+    grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(150px, 1fr)) repeat(2, auto);
 }
 
-.act-clear-form .link-button {
-    margin-top: 0;
+.act-clear-form {
+    margin: 0;
 }
 
 .act-table-card {
     width: 100%;
+    height: 480px;
+    padding: 0;
+    overflow: auto;
+}
+
+.act-table-card .data-table {
+    min-width: 680px;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.act-table-card .data-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.act-table-card .data-table th {
+    background: var(--color-surface);
+}
+
+.act-registry-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
 }
 
 .act-badge {
@@ -726,6 +753,44 @@
     gap: 14px;
 }
 
+.analysis-card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.analysis-card-header > label {
+    min-width: 0;
+    flex: 1;
+}
+
+.analysis-remove-button {
+    display: inline-grid;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid #fecaca;
+    border-radius: var(--radius);
+    background: #fef2f2;
+    color: #b91c1c;
+    cursor: pointer;
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.analysis-remove-button:hover {
+    border-color: #fca5a5;
+    background: #fee2e2;
+}
+
+.analysis-remove-button:focus-visible {
+    outline: 3px solid #fca5a5;
+    outline-offset: 2px;
+}
+
 .field-error {
     color: #b91c1c;
     font-size: 13px;
@@ -906,9 +971,4 @@
     .corrective-action-card__fields {
         grid-template-columns: 1fr;
     }
-}
-.admin-access-notice {
-    margin: 0 0 1rem;
-    color: var(--color-text-muted);
-    font-size: 0.875rem;
 }

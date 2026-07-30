@@ -3,25 +3,6 @@
 {% block title %}Акты - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-{% include 'includes/page_header.html' with page_badge='Раздел D7' %}
-
-<section class="action-panel">
-    <p>{{ page_description }}</p>
-    {% if can_create %}
-        <a class="link-button" href="{% url 'acts:create' %}">Создать акт</a>
-    {% endif %}
-    {% if can_clear_all_acts %}
-        <form class="act-clear-form" method="post" action="{% url 'acts:clear_all' %}" onsubmit="return confirm('Удалить все акты, их историю, комментарии и вложения? Это действие нельзя отменить.');">
-            {% csrf_token %}
-            <button class="link-button link-button--danger" type="submit">Очистить акты</button>
-        </form>
-    {% endif %}
-</section>
-
-{% if is_act_admin %}
-    <p class="admin-access-notice">Режим администратора: полный доступ к актам.</p>
-{% endif %}
-
 <nav class="act-registry-tabs" aria-label="Область списка актов">
     <a class="act-registry-tabs__link{% if scope == 'my' %} act-registry-tabs__link--active{% endif %}" href="?scope=my">Мои акты</a>
     <a class="act-registry-tabs__link{% if scope == 'all' %} act-registry-tabs__link--active{% endif %}" href="?scope=all">Все акты</a>
@@ -51,6 +32,12 @@
     </article>
 </section>
 
+{% if can_clear_all_acts %}
+    <form id="act-clear-form" class="act-clear-form" method="post" action="{% url 'acts:clear_all' %}" onsubmit="return confirm('Удалить все акты, их историю, комментарии и вложения? Это действие нельзя отменить.');">
+        {% csrf_token %}
+    </form>
+{% endif %}
+
 <form class="filter-form act-filter-panel" method="get">
     <input type="hidden" name="scope" value="{{ scope }}">
     <label>
@@ -67,21 +54,20 @@
         </select>
     </label>
     <label>
-        <span>Операция</span>
-        <select name="operation">
+        <span>Тип акта</span>
+        <select name="act_type">
             <option value="">Все</option>
-            {% for operation in operations %}
-                <option value="{{ operation.id }}"{% if selected.operation == operation.id|stringformat:'s' %} selected{% endif %}>{{ operation.name }}</option>
+            {% for value, label in act_types %}
+                <option value="{{ value }}"{% if selected.act_type == value %} selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
     </label>
     <label>
-        <span>Вид дефекта</span>
-        <select name="defect_type">
+        <span>Срок</span>
+        <select name="due">
             <option value="">Все</option>
-            {% for defect_type in defect_types %}
-                <option value="{{ defect_type.id }}"{% if selected.defect_type == defect_type.id|stringformat:'s' %} selected{% endif %}>{{ defect_type.name }}</option>
-            {% endfor %}
+            <option value="overdue"{% if selected.due == 'overdue' %} selected{% endif %}>Просроченные</option>
+            <option value="not_overdue"{% if selected.due == 'not_overdue' %} selected{% endif %}>Не просроченные</option>
         </select>
     </label>
     <button class="link-button" type="submit">Применить</button>
@@ -98,32 +84,24 @@
             <thead>
                 <tr>
                     <th>Номер</th>
-                    <th>Дата</th>
-                    <th>Партия</th>
-                    <th>Номенклатура</th>
-                    <th>Операция</th>
-                    <th>Вид дефекта</th>
-                    <th>Приоритет</th>
+                    <th>{% if scope == 'archive' %}Дата архивации{% else %}Дата создания{% endif %}</th>
+                    <th>Тип</th>
                     <th>Статус</th>
                     <th>Срок</th>
-                    <th>Создал</th>
                 </tr>
             </thead>
             <tbody>
                 {% for act in acts %}
                     <tr>
                         <td><a class="table-link" href="{% url 'acts:detail' act.pk %}">{{ act.number }}</a></td>
-                        <td>{{ act.created_at|date:'d.m.Y' }}</td>
-                        <td>{{ act.party_number }}</td>
-                        <td>{{ act.nomenclature }}</td>
-                        <td>{{ act.operation }}</td>
                         <td>
-                            {{ act.defect_type }}
-                            {% if act.defects_total|default:0 > 1 %}
-                                <span class="act-defect-count">+{{ act.defects_total|add:'-1' }} деф.</span>
+                            {% if scope == 'archive' %}
+                                {{ act.approved_at|date:'d.m.Y' }}
+                            {% else %}
+                                {{ act.created_at|date:'d.m.Y' }}
                             {% endif %}
                         </td>
-                        <td>{% include 'acts/includes/priority_badge.html' with priority=act.priority %}</td>
+                        <td>{{ act.get_act_type_display }}</td>
                         <td>{% include 'acts/includes/status_badge.html' with status=act.status %}</td>
                         <td>
                             {% if act.due_date %}
@@ -134,11 +112,21 @@
                                 -
                             {% endif %}
                         </td>
-                        <td>{{ act.created_by.get_full_name|default:act.created_by.username }}</td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
+    </section>
+{% endif %}
+
+{% if can_create or can_clear_all_acts %}
+    <section class="act-registry-actions" aria-label="Действия с актами">
+        {% if can_create %}
+            <a class="link-button" href="{% url 'acts:create' %}">Создать АКТ</a>
+        {% endif %}
+        {% if can_clear_all_acts %}
+            <button class="link-button link-button--danger" type="submit" form="act-clear-form">Очистить акты</button>
+        {% endif %}
     </section>
 {% endif %}
 {% endblock %}

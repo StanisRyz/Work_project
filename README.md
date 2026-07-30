@@ -8,6 +8,14 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D27 — compact acts registry.
+
+D27 simplifies `/acts/` without changing workflow or access rules. The topbar title is `Акты`; the introductory, duplicate role/access, and administrator-mode notices are removed. The compact filter panel keeps search, current workflow statuses, act type, and a due-date filter. Act types are `Операционный контроль` and the prepared future `Входной контроль`; existing acts default to operational control. `Просроченные` means a deadline strictly before the current local date; today and future dates are `Не просроченные`. The fixed-height, scrollable registry table shows only number, creation date, type, status, and due date; on the `Архив` tab the creation-date column is replaced by the archiving date. The number remains a protected detail link. Archived acts appear only on the `Архив` tab, including for full-access users. Permitted `Создать АКТ` plus the dedicated administrator-only cleanup action are below it. The operation filter is removed from the registry only; operation data remains in act creation and details.
+
+At `На рассмотрении КО`, each defect uses the same ordered decision list: prohibit use; allow use with a deviation and no rework; allow use with a deviation and rework; allow use without a deviation and rework. Each valid choice keeps the existing transition to TO analysis.
+
+In TO analysis, an employee selector is disabled until the department selector in the same assignee row is filled. It then offers only active employees from that department. Every additional assignee has an independent department and employee selector; server validation enforces the same department match. A selected employee is unavailable in the other assignee rows of the same corrective action, while remaining available in other actions.
+
 D26 — task execution card and mandatory result.
 
 D26 turns task details into a compact card with registry-style metadata, vertical assignees, root cause, and task text. An assigned executor or administrator must enter a non-empty execution result to complete a shared task. Completion saves the result, executor, and timestamp atomically; the task becomes visible only in `Архив` and redirects there filtered by its number. Managers remain view-only unless assigned.
@@ -145,6 +153,15 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Verify status, source act, due date, assignees with departments, root cause, and task text on the card.
 - Submit an empty or whitespace-only execution result and verify it is rejected without completing the task.
 - Complete a shared task as one assignee; verify its result, executor/date, redirect to filtered `Архив`, and absence from active tabs. Verify an unassigned manager cannot complete it.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
+
+### D27
+
+- Open `/acts/` as OTK, KO, manager, and the dedicated administrator. Verify the topbar title `Акты`, the three registry tabs, KPI cards, and that introductory/role/administrator-mode text is absent.
+- Verify search, status, act-type, and due-date filters combine correctly; `Сбросить` retains the selected tab. Confirm that only dates before today are overdue, while today and future dates are not overdue. Confirm there is no operation filter, while operation remains visible in the registry table and act forms/details.
+- Verify `Создать АКТ` is visible only to roles already allowed to create acts. Verify `Очистить акты` appears only for `admin_user` and still requires confirmation; direct access remains denied for other users.
+- Verify archived acts, direct act links, and OTK/KO/TO visibility remain unchanged.
+- At `На анализе ТО`, the initial root analysis and corrective action never have delete buttons. After adding entries, only the last added root analysis and the last added corrective action have red `×` delete buttons beside their respective cause/action fields; adding another item moves the corresponding delete button to that new last item.
 - Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D21
@@ -327,4 +344,4 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- D27 — protocols and follow-up control, to be defined after D26 manual validation.
+- D28 — protocols and follow-up control, to be defined after D27 manual validation.

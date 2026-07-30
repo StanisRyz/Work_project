@@ -146,7 +146,7 @@ class ActWorkflowTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertTrue(form.non_field_errors)
 
-    def test_structured_analysis_allows_cross_department_assignees_and_validates_due_date(self):
+    def test_structured_analysis_requires_assignee_from_selected_department_and_validates_due_date(self):
         form = ToAnalysisStructureForm(
             self._structured_analysis_post(
                 **{
@@ -159,6 +159,7 @@ class ActWorkflowTests(TestCase):
         self.assertFalse(form.is_valid())
         errors = form.root_rows[0]['actions'][0]['errors']
         self.assertIn('due_date', errors)
+        self.assertIn('assignees', errors)
 
     def test_structured_analysis_requires_unique_active_department_assignees(self):
         form = ToAnalysisStructureForm(self._structured_analysis_post(
@@ -167,10 +168,25 @@ class ActWorkflowTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn('assignees', form.root_rows[0]['actions'][0]['errors'])
 
+    def test_structured_analysis_allows_the_same_assignee_in_different_actions(self):
+        data = self._structured_analysis_post()
+        data.update({
+            'root-0-actions-TOTAL_FORMS': '2',
+            'root-0-actions-1-comment': 'Второе мероприятие',
+            'root-0-actions-1-department': str(self.department.pk),
+            'root-0-actions-1-assignees': [str(self.to_user.pk)],
+            'root-0-actions-1-due_date': timezone.localdate().isoformat(),
+        })
+
+        form = ToAnalysisStructureForm(data)
+
+        self.assertTrue(form.is_valid())
+
     def test_structured_analysis_allows_and_restores_cross_department_assignees(self):
         form = ToAnalysisStructureForm(self._structured_analysis_post(
             **{
                 'root-0-actions-0-assignees': [str(self.to_user.pk), str(self.other_user.pk)],
+                'root-0-actions-0-assignee_departments': [str(self.other_department.pk)],
             }
         ))
         self.assertTrue(form.is_valid())
@@ -314,6 +330,7 @@ class ActWorkflowTests(TestCase):
         form = ToAnalysisStructureForm(self._structured_analysis_post(
             **{
                 'root-0-actions-0-assignees': [str(self.to_user.pk), str(second_to_user.pk)],
+                'root-0-actions-0-assignee_departments': [str(self.department.pk)],
             }
         ))
         self.assertTrue(form.is_valid())
