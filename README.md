@@ -8,6 +8,12 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
+D28 — full-width act detail page.
+
+D28 redesigns `/acts/<id>/` around a compact agreement route and four tabs: `Проработка`, `История акта`, `Вложения и комментарии`, and `Связанные мероприятия`. The work tab now has a responsive four-field party row, a full-width defects/KO-decision table, and full-width TO analysis; KO controls remain editable only at the existing KO stage and are otherwise read-only. Related activities reuse protected tasks linked to the current act, so regular users see only their assigned tasks. Workflow transitions, return comments, archive behavior, attachment/comment access, and task logic are unchanged.
+
+Manual D28 validation: open an act at every workflow stage; check completed/current/future route states and the four tabs; enter KO decisions at KO review and confirm they become read-only after transfer; verify mandatory return comments; approve an OTK-review act and confirm its tasks appear on `Связанные мероприятия` only for permitted users; check desktop and narrow layouts.
+
 D27 — compact acts registry.
 
 D27 simplifies `/acts/` without changing workflow or access rules. The topbar title is `Акты`; the introductory, duplicate role/access, and administrator-mode notices are removed. The compact filter panel keeps search, current workflow statuses, act type, and a due-date filter. Act types are `Операционный контроль` and the prepared future `Входной контроль`; existing acts default to operational control. `Просроченные` means a deadline strictly before the current local date; today and future dates are `Не просроченные`. The fixed-height, scrollable registry table shows only number, creation date, type, status, and due date; on the `Архив` tab the creation-date column is replaced by the archiving date. The number remains a protected detail link. Archived acts appear only on the `Архив` tab, including for full-access users. Permitted `Создать АКТ` plus the dedicated administrator-only cleanup action are below it. The operation filter is removed from the registry only; operation data remains in act creation and details.
@@ -28,13 +34,13 @@ D24 — compact task registry and cross-department assignees.
 
 D24 keeps the corrective action department as the department responsible for the action, while its active assignees may belong to different departments. The TO form selects employees directly and shows each employee's actual department; no temporary per-assignee department data is used, so assignments are preserved when OTK returns an act to TO.
 
-The `/tasks/` registry now has only `№ задачи`, `Статус`, `Источник`, and `Срок`. The task primary key is the clickable number, the registry status is always `По акту`, and the source act is linked. Overdue tasks remain first and visibly marked; technical `NEW` and `COMPLETED` statuses remain in task execution and detail pages.
+The `/tasks/` registry now has only `№ задачи`, `Статус`, `Источник`, and `Срок`. The task primary key is the clickable number, the registry status is always `По акту`, and the source act is linked. Overdue tasks remain first and visibly marked; technical `IN_PROGRESS` and `COMPLETED` statuses remain in task execution and detail pages.
 
 D23 — shared corrective-action tasks with multiple assignees.
 
 D23 replaces the single responsible employee with `ActCorrectiveActionAssignee` and `TaskAssignee`. Every corrective action has one or more unique active employees, including employees from other departments. OTK approval creates exactly one shared `Task` per action and creates all its assignee records in the same transaction as approval and archival. Existing single responsible users are copied into the new relations by migrations.
 
-An ordinary employee can view and complete a task only when assigned to it; managers and administrators retain full visibility. Completion changes the single shared task to `COMPLETED` (`Выполнена`) atomically, records who completed it and when, and is immediately visible to every assignee. A completed task cannot be completed again. Archived acts remain read-only and show assignees, linked tasks, and completion metadata.
+An ordinary employee can view and complete a task only when assigned to it; managers and administrators retain full visibility. Completion changes the single shared task to `COMPLETED` (`Выполнено`) atomically, records who completed it and when, and is immediately visible to every assignee. A completed task cannot be completed again. Archived acts remain read-only and show assignees, linked tasks, and completion metadata.
 
 D22 — tasks from approved corrective actions.
 
@@ -128,7 +134,7 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - In TO analysis select two active employees, including employees from different departments; verify both stay selected after returning the act from OTK to TO. Try no employee or a duplicate employee; saving must be rejected.
 - Approve the act and verify one task—not two—with both employees shown in the task list, detail page, and archived act.
 - Open the shared task as each assigned employee, an unrelated employee, manager, and administrator; only assignees and full-access roles may view it.
-- Complete it as one assignee. Verify `Выполнена`, the completing employee and date for both assignees and in the archived act; verify a second completion is unavailable/rejected.
+- Complete it as one assignee. Verify `Выполнено`, the completing employee and date for both assignees and in the archived act; verify a second completion is unavailable/rejected.
 - Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D24

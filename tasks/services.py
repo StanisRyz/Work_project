@@ -22,7 +22,7 @@ def complete_task(task, user, execution_comment):
         try:
             completed_status = TaskStatus.objects.get(code='COMPLETED', is_active=True)
         except TaskStatus.DoesNotExist as exc:
-            raise TaskWorkflowError('Не найден активный статус задачи «Выполнена».') from exc
+            raise TaskWorkflowError('Не найден активный статус задачи «Выполнено».') from exc
         task.status = completed_status
         task.completed_by = user
         task.completed_at = timezone.now()

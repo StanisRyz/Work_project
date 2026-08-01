@@ -125,7 +125,7 @@ class ActDefectForm(forms.ModelForm):
         widgets = {
             'checked_quantity': forms.NumberInput(attrs={'min': 0, 'step': 1}),
             'nonconforming_quantity': forms.NumberInput(attrs={'min': 0, 'step': 1}),
-            'description': forms.Textarea(attrs={'rows': 4}),
+            'description': forms.Textarea(attrs={'rows': 2}),
             'detected_at': forms.DateInput(
                 attrs={'type': 'date'},
                 format='%Y-%m-%d',
@@ -238,7 +238,7 @@ class KoDecisionForm(forms.ModelForm):
             'ko_comment': 'Комментарий КО',
         }
         widgets = {
-            'ko_comment': forms.Textarea(attrs={'rows': 5}),
+            'ko_comment': forms.Textarea(attrs={'rows': 2}),
         }
 
 
@@ -253,7 +253,7 @@ class ActDefectKoDecisionForm(forms.ModelForm):
             'ko_comment': 'Комментарий КО',
         }
         widgets = {
-            'ko_comment': forms.Textarea(attrs={'rows': 4}),
+            'ko_comment': forms.Textarea(attrs={'rows': 2}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -294,8 +294,9 @@ class ActCommentForm(forms.ModelForm):
         widgets = {
             'text': forms.Textarea(
                 attrs={
-                    'rows': 4,
+                    'rows': 2,
                     'placeholder': 'Введите комментарий по акту...',
+                    'aria-label': 'Комментарий по акту',
                 }
             ),
         }
@@ -554,6 +555,8 @@ class ActAttachmentForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['description'].required = False
+        self.fields['file'].widget.attrs['aria-label'] = 'Выберите файл для загрузки'
+        self.fields['description'].widget.attrs['aria-label'] = 'Описание вложения'
 
     def clean_file(self):
         uploaded_file = self.cleaned_data['file']

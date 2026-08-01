@@ -6,8 +6,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Department, UserProfile
-from acts.models import Act, ActDefect
-from references.models import ActStatus, DefectType, Operation, Priority
+from acts.models import Act, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActDefect, ActHistoryEvent, ActRootAnalysis
+from references.models import ActStatus, DefectType, Operation, Priority, TaskStatus
+from tasks.models import Task, TaskAssignee
 
 
 class ActViewTests(TestCase):
@@ -89,6 +90,48 @@ class ActViewTests(TestCase):
         self.assertEqual(act.created_by, self.otk_user)
         self.assertEqual(act.status.code, 'CREATED_OTK')
         self.assertEqual(ActDefect.objects.filter(act=act).count(), 1)
+
+    def test_act_form_uses_compact_defect_groups(self):
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:create'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Создание акта')
+        self.assertContains(response, 'Операционный контроль')
+        self.assertContains(response, 'class="act-form-section act-defect-section"', html=False)
+        self.assertContains(response, 'class="act-form-page__back"', html=False)
+        self.assertContains(response, 'data-defect-count')
+        for group in ('Партия', 'Контроль', 'Результат контроля'):
+            self.assertContains(response, f'<legend>{group}</legend>', html=False)
+        self.assertContains(response, 'Добавить ещё дефект')
+
+    def test_history_feed_renders_return_and_comment_as_separate_events(self):
+        act = self._create_act(self.status_created)
+        ActHistoryEvent.objects.create(
+            act=act,
+            user=self.ko_user,
+            event_type=ActHistoryEvent.EventType.RETURNED_TO_OTK,
+            message='Акт возвращён в ОТК на доработку.',
+            from_status=self.status_ko,
+            to_status=self.status_created,
+        )
+        ActHistoryEvent.objects.create(
+            act=act,
+            user=self.ko_user,
+            event_type=ActHistoryEvent.EventType.COMMENT_ADDED,
+            message='Уточнить решение КО.',
+        )
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]), {'tab': 'history'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'history-feed__filter')
+        self.assertContains(response, 'history-event--returned_to_otk')
+        self.assertContains(response, 'history-event--comment_added')
+        self.assertContains(response, 'На рассмотрении КО → Создан ОТК')
+        self.assertContains(response, 'Комментарий добавлен')
 
     def test_create_rejects_nonconforming_quantity_above_checked_quantity(self):
         self.client.force_login(self.otk_user)
@@ -251,6 +294,29 @@ class ActViewTests(TestCase):
         self.assertRedirects(response, reverse('acts:list'))
         self.assertEqual(Act.objects.count(), 0)
 
+    def test_cleanup_removes_tasks_that_protect_approved_acts(self):
+        act = self._create_act(self.status_archived, party_number='P-CLEAR-TASK')
+        root = ActRootAnalysis.objects.create(act=act, root_cause='Причина очистки')
+        action = ActCorrectiveAction.objects.create(
+            root_analysis=root, comment='Мероприятие очистки', department=self.department,
+            due_date=timezone.localdate(),
+        )
+        ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=self.to_user)
+        task = Task.objects.create(
+            source_action=action, act=act, root_analysis=root, task_text=action.comment,
+            department=self.department, due_date=timezone.localdate(), created_by=self.otk_user,
+            status=TaskStatus.objects.get(code='IN_PROGRESS'),
+        )
+        TaskAssignee.objects.create(task=task, user=self.to_user)
+        dedicated_admin = self._create_user('admin_user', UserProfile.Role.ADMIN)
+
+        self.client.force_login(dedicated_admin)
+        response = self.client.post(reverse('acts:clear_all'))
+
+        self.assertRedirects(response, reverse('acts:list'))
+        self.assertFalse(Act.objects.exists())
+        self.assertFalse(Task.objects.exists())
+
     def test_direct_send_to_ko_uses_backend_permissions(self):
         act = self._create_act(self.status_created, created_by=self.otk_user)
         self.client.force_login(self.other_otk_user)
@@ -373,6 +439,10 @@ class ActViewTests(TestCase):
         self.assertNotContains(response, '<button class="link-button link-button--danger" type="button" data-remove-corrective-action>')
         self.assertContains(response, 'link-button--success')
         self.assertContains(response, 'name="root-0-actions-TOTAL_FORMS" value="1"')
+        self.assertContains(response, 'data-root-analysis-title')
+        self.assertContains(response, 'Корневая причина 1')
+        self.assertContains(response, 'class="corrective-action-row"')
+        self.assertContains(response, 'rows="2"')
 
     def test_otk_sees_own_act_at_otk_review_stage(self):
         act = self._create_act(self.status_otk_review, created_by=self.otk_user)
@@ -536,3 +606,154 @@ class ActViewTests(TestCase):
         self.assertContains(response, reverse('acts:send_to_ko', args=[act.pk]))
         self.assertNotContains(response, reverse('acts:ko_decision', args=[act.pk]))
         self.assertNotContains(response, reverse('acts:to_analysis', args=[act.pk]))
+
+    def test_detail_has_four_tabs_and_keeps_attachment_tab(self):
+        act = self._create_act(self.status_created)
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]))
+
+        for label in ('Проработка', 'История акта', 'Вложения и комментарии', 'Связанные мероприятия'):
+            self.assertContains(response, label)
+        self.assertContains(self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=attachments'), 'Вложения')
+
+    def test_attachment_tab_uses_compact_collaboration_layout(self):
+        act = self._create_act(self.status_created)
+        ActComment.objects.create(act=act, author=self.otk_user, text='Comment for feed')
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=attachments')
+
+        self.assertContains(response, 'act-collaboration-layout')
+        self.assertContains(response, 'attachment-picker')
+        self.assertContains(response, 'data-attachment-file-trigger')
+        self.assertContains(response, 'comment-card__avatar')
+
+    def test_detail_defects_table_is_compact_and_ko_is_read_only_after_transfer(self):
+        act = self._create_act(self.status_to)
+        defect = ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, operation=self.operation, party_number='P-DETAIL',
+            mp_type='OL', checked_quantity=25, nonconforming_quantity=3, description='Описание',
+            detected_at=timezone.localdate(), ko_decision=Act.KoDecision.PROHIBIT_USE, ko_comment='Комментарий КО',
+        )
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        for header in (
+            '№', 'Номер<br>партии', 'Вид дефекта', 'Тип МП', 'Дата<br>обнаружения',
+            'Всего<br>проверено', 'С<br>отклонением', 'Описание', 'Решение КО', 'Комментарий КО',
+        ):
+            self.assertContains(response, f'<th>{header}</th>', html=False)
+        self.assertContains(response, '<colgroup>', html=False)
+        for column_class in (
+            'act-defects-table__description',
+            'act-defects-table__decision',
+            'act-defects-table__comment',
+        ):
+            self.assertContains(response, column_class, html=False)
+        self.assertContains(response, defect.get_ko_decision_display())
+        self.assertContains(response, 'Комментарий КО')
+        self.assertNotContains(response, 'процент')
+        self.assertNotContains(response, 'form="ko-decision-form"', html=False)
+
+    def test_ko_decision_controls_remain_editable_during_ko_review(self):
+        act = self._create_act(self.status_ko)
+        ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, operation=self.operation, party_number='P-KO-DETAIL',
+            mp_type='OL', description='Описание', detected_at=timezone.localdate(),
+        )
+        self.client.force_login(self.ko_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertContains(response, 'form="ko-decision-form"', html=False)
+
+    def test_related_activities_only_include_tasks_visible_to_user(self):
+        act = self._create_act(self.status_archived)
+        root = ActRootAnalysis.objects.create(act=act, root_cause='Причина')
+        action = ActCorrectiveAction.objects.create(
+            root_analysis=root, comment='Видимое мероприятие', department=self.department,
+            due_date=timezone.localdate(),
+        )
+        ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=self.to_user)
+        task = Task.objects.create(
+            source_action=action, act=act, root_analysis=root, task_text=action.comment,
+            department=self.department, due_date=timezone.localdate(), created_by=self.otk_user,
+            status=TaskStatus.objects.get(code='IN_PROGRESS'),
+        )
+        TaskAssignee.objects.create(task=task, user=self.to_user)
+
+        self.client.force_login(self.manager_user)
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=activities')
+        self.assertContains(response, 'Видимое мероприятие')
+        self.assertContains(response, '<th>№ задачи</th>', html=False)
+        self.assertContains(response, '<th>Причина</th>', html=False)
+        self.assertNotContains(response, '<th>Тип</th>', html=False)
+        self.assertNotContains(response, '<th>Отдел</th>', html=False)
+        self.assertContains(response, 'related-activities__table')
+        self.assertContains(response, reverse('tasks:detail', args=[task.pk]))
+
+        self.client.force_login(self.otk_user)
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=activities')
+        self.assertNotContains(response, 'Видимое мероприятие')
+
+    def test_detail_uses_corporate_header_and_compact_route(self):
+        act = self._create_act(self.status_created)
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]))
+
+        self.assertContains(response, 'Экосистема качества')
+        self.assertContains(response, 'Пользователи и роли')
+        self.assertContains(response, f'Акт {act.number}')
+        self.assertContains(response, 'Текущий этап')
+        self.assertContains(response, 'Ожидает')
+
+    def test_readonly_to_analysis_compacts_columns_and_expands_multiple_assignees(self):
+        act = self._create_act(self.status_otk_review)
+        root = ActRootAnalysis.objects.create(act=act, root_cause='Плохое оснащение участка')
+        single_action = ActCorrectiveAction.objects.create(
+            root_analysis=root, comment='Проверить оснастку', department=self.department,
+            due_date=timezone.localdate(),
+        )
+        multiple_action = ActCorrectiveAction.objects.create(
+            root_analysis=root, comment='Доработать приспособление', department=self.department,
+            due_date=timezone.localdate(),
+        )
+        ActCorrectiveActionAssignee.objects.create(corrective_action=single_action, user=self.to_user)
+        ActCorrectiveActionAssignee.objects.create(corrective_action=multiple_action, user=self.to_user)
+        ActCorrectiveActionAssignee.objects.create(corrective_action=multiple_action, user=self.other_otk_user)
+        task = Task.objects.create(
+            source_action=multiple_action, act=act, root_analysis=root, task_text=multiple_action.comment,
+            department=self.department, due_date=timezone.localdate(), created_by=self.otk_user,
+            status=TaskStatus.objects.get(code='IN_PROGRESS'),
+        )
+        TaskAssignee.objects.create(task=task, user=self.to_user)
+        TaskAssignee.objects.create(task=task, user=self.other_otk_user)
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        for header in ('№', 'Мероприятие', 'Исполнитель(и)', 'Срок', 'Статус'):
+            self.assertContains(response, f'<th>{header}</th>', html=False)
+        self.assertNotContains(response, '<th>Тип</th>', html=False)
+        self.assertNotContains(response, '<th>Отдел</th>', html=False)
+        self.assertContains(response, 'to-analysis-section')
+        self.assertContains(response, 'to-analysis-readonly__cause')
+        self.assertContains(response, 'Плохое оснащение участка')
+        self.assertContains(response, 'to-analysis-assignees')
+        self.assertContains(response, self.to_user.username)
+        self.assertContains(response, self.other_otk_user.username)
+        self.assertNotContains(response, 'Будет создана после утверждения')
+        self.assertContains(response, str(task.status))
+
+    def test_archived_analysis_does_not_repeat_approval_metadata(self):
+        act = self._create_act(self.status_archived)
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertNotContains(response, '<dt>Утвердил</dt>', html=False)
+        self.assertNotContains(response, '<dt>Дата утверждения</dt>', html=False)
+        self.assertEqual(response.context['route_steps'][-1]['state'], 'completed')

@@ -3,6 +3,15 @@
 {% block title %}Акты - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
+<header class="act-registry-heading">
+    <div>
+        <h1>Акты</h1>
+        <p>Операционный контроль</p>
+    </div>
+    {% if can_create %}
+        <a class="link-button" href="{% url 'acts:create' %}">Создать АКТ</a>
+    {% endif %}
+</header>
 <nav class="act-registry-tabs" aria-label="Область списка актов">
     <a class="act-registry-tabs__link{% if scope == 'my' %} act-registry-tabs__link--active{% endif %}" href="?scope=my">Мои акты</a>
     <a class="act-registry-tabs__link{% if scope == 'all' %} act-registry-tabs__link--active{% endif %}" href="?scope=all">Все акты</a>
@@ -119,7 +128,7 @@
     </section>
 {% endif %}
 
-{% if can_create or can_clear_all_acts %}
+{% if can_clear_all_acts %}
     <section class="act-registry-actions" aria-label="Действия с актами">
         {% if can_create %}
             <a class="link-button" href="{% url 'acts:create' %}">Создать АКТ</a>

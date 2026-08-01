@@ -1,12 +1,25 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}{{ act.number }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
+<section class="act-detail-heading">
+    <a class="act-back-link" href="{% url 'acts:list' %}" aria-label="К списку актов">←</a>
+    <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge">{{ act.status }}</span></div>
+</section>
+
+<ol class="act-route" aria-label="Маршрут согласования">
+    {% for step in route_steps %}
+        <li class="act-route__step act-route__step--{{ step.state }}"><span class="act-route__marker">{% if step.state == 'completed' %}✓{% else %}{{ forloop.counter }}{% endif %}</span><span class="act-route__copy"><strong>{{ step.name }}</strong>{% if step.state == 'current' %}<small>Текущий этап</small>{% elif step.state == 'future' %}<small>Ожидает</small>{% elif step.date %}<small>{{ step.date|date:'d.m.Y H:i' }}</small>{% endif %}</span></li>
+    {% endfor %}
+</ol>
+
 <nav class="act-detail-tabs" aria-label="Разделы акта">
-    <a class="act-detail-tabs__link{% if detail_tab == 'work' %} act-detail-tabs__link--active{% endif %}" href="?tab=work">Проработка</a>
-    <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history">История акта</a>
-    <a class="act-detail-tabs__link{% if detail_tab == 'attachments' %} act-detail-tabs__link--active{% endif %}" href="?tab=attachments">Вложения и комментарии</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'work' %} act-detail-tabs__link--active{% endif %}" href="?tab=work"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Проработка</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.7M4 5v4h4"/></svg>История акта</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'attachments' %} act-detail-tabs__link--active{% endif %}" href="?tab=attachments"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>Вложения и комментарии</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'activities' %} act-detail-tabs__link--active{% endif %}" href="?tab=activities"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 13 4-4M7 17l-1 1a3 3 0 1 1-4-4l4-4a3 3 0 0 1 4 0M17 7l1-1a3 3 0 1 1 4 4l-4 4a3 3 0 0 1-4 0"/></svg>Связанные мероприятия</a>
 </nav>
 
 {% if detail_tab == 'work' %}
@@ -23,54 +36,15 @@
 
     <article class="detail-section">
         <h2>Дефекты и решение КО</h2>
-        <div class="act-defect-decision-list">
-        {% for row in defect_decision_rows %}
-            <div class="act-defect-decision-pair">
-                <section class="act-defect-card">
-                    {% if defect_decision_rows|length > 1 %}<h3>Дефект {{ forloop.counter }}</h3>{% endif %}
-                    <div class="act-defect-card__grid">
-                        <div class="act-defect-card__third"><span>Номер ЗНП</span><span class="act-defect-card__value">{{ row.defect.znp_number|default:'Не указан' }}</span></div>
-                        <div class="act-defect-card__third"><span>Номер партии</span><span class="act-defect-card__value">{{ row.defect.party_number|default:'Не указан' }}</span></div>
-                        <div class="act-defect-card__third"><span>Тип МП</span><span class="act-defect-card__value">{{ row.defect.get_mp_type_display|default:'Не указан' }}</span></div>
-                        <div class="act-defect-card__full"><span>Вид дефекта</span><span class="act-defect-card__value">{{ row.defect.defect_type|default:'Не указан' }}</span></div>
-                        <div class="act-defect-card__half"><span>Операция</span><span class="act-defect-card__value">{{ row.defect.operation|default:'Не указана' }}</span></div>
-                        <div class="act-defect-card__half"><span>Дата обнаружения</span><span class="act-defect-card__value">{{ row.defect.detected_at|date:'d.m.Y'|default:'Не указана' }}</span></div>
-                        <div class="act-defect-card__half"><span>Проверено продукции</span><span class="act-defect-card__value">{{ row.defect.checked_quantity|default_if_none:'Не указано' }}</span></div>
-                        <div class="act-defect-card__half"><span>Несоответствующей продукции</span><span class="act-defect-card__value">{{ row.defect.nonconforming_quantity|default_if_none:'Не указано' }}</span></div>
-                        <div class="act-defect-card__full"><span>Описание</span><p>{{ row.defect.description|default:'Описание дефекта не указано.' }}</p></div>
-                    </div>
-                </section>
-                <section class="act-defect-card act-defect-decision-card">
-                    <h3>Решение КО{% if defect_decision_rows|length > 1 %} по дефекту {{ forloop.counter }}{% endif %}</h3>
-                    {% if available_actions.ko_decision %}
-                        {% if row.ko_form %}
-                            {{ row.ko_form.id }}
-                            <div class="act-ko-decision-fields">
-                                <label><span>Решение</span>{{ row.ko_form.ko_decision }}{{ row.ko_form.ko_decision.errors }}</label>
-                                <label><span>{{ row.ko_form.ko_comment.label }}</span>{{ row.ko_form.ko_comment }}{{ row.ko_form.ko_comment.errors }}</label>
-                            </div>
-                        {% else %}
-                            <div class="act-ko-decision-fields">
-                                <label><span>Решение</span>{{ ko_decision_form.ko_decision }}{{ ko_decision_form.ko_decision.errors }}</label>
-                                <label><span>{{ ko_decision_form.ko_comment.label }}</span>{{ ko_decision_form.ko_comment }}{{ ko_decision_form.ko_comment.errors }}</label>
-                            </div>
-                        {% endif %}
-                    {% elif row.defect.ko_decision %}
-                        <dl><dt>Решение</dt><dd>{{ row.defect.get_ko_decision_display }}</dd><dt>Автор</dt><dd>{{ row.defect.ko_decision_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ row.defect.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
-                        <p>{{ row.defect.ko_comment|default:'Комментарий КО не заполнен.' }}</p>
-                    {% elif act.ko_decision and not has_defect_records %}
-                        <dl><dt>Решение</dt><dd>{{ act.get_ko_decision_display }}</dd><dt>Автор</dt><dd>{{ act.ko_decision_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
-                        <p>{{ act.ko_comment|default:'Комментарий КО не заполнен.' }}</p>
-                    {% else %}
-                        <p class="placeholder-text">Решение КО ещё не внесено.</p>
-                    {% endif %}
-                </section>
-            </div>
-        {% endfor %}
-        </div>
+        <div class="act-defects-table-wrap"><table class="data-table act-defects-table"><colgroup><col class="act-defects-table__number"><col class="act-defects-table__party"><col class="act-defects-table__type"><col class="act-defects-table__mp"><col class="act-defects-table__date"><col class="act-defects-table__checked"><col class="act-defects-table__nonconforming"><col class="act-defects-table__description"><col class="act-defects-table__decision"><col class="act-defects-table__comment"></colgroup><thead><tr><th>№</th><th>Номер<br>партии</th><th>Вид дефекта</th><th>Тип МП</th><th>Дата<br>обнаружения</th><th>Всего<br>проверено</th><th>С<br>отклонением</th><th>Описание</th><th>Решение КО</th><th>Комментарий КО</th></tr></thead><tbody>
+        {% for row in defect_decision_rows %}<tr>
+            <td>{{ forloop.counter }}</td><td>{{ row.defect.party_number|default:'—' }}</td><td>{{ row.defect.defect_type|default:'Не указан' }}</td><td>{{ row.defect.get_mp_type_display|default:'—' }}</td><td>{{ row.defect.detected_at|date:'d.m.Y'|default:'—' }}</td><td>{{ row.defect.checked_quantity|default_if_none:'—' }}</td><td>{{ row.defect.nonconforming_quantity|default_if_none:'—' }}</td><td>{{ row.defect.description|default:'—' }}</td>
+            <td>{% if available_actions.ko_decision %}{% if row.ko_form %}{{ row.ko_form.id }}{{ row.ko_form.ko_decision }}{{ row.ko_form.ko_decision.errors }}{% else %}{{ ko_decision_form.ko_decision }}{{ ko_decision_form.ko_decision.errors }}{% endif %}{% elif row.defect.ko_decision %}<span class="act-badge act-badge--status">{{ row.defect.get_ko_decision_display }}</span>{% elif act.ko_decision and not has_defect_records %}<span class="act-badge act-badge--status">{{ act.get_ko_decision_display }}</span>{% else %}—{% endif %}</td>
+            <td>{% if available_actions.ko_decision %}{% if row.ko_form %}{{ row.ko_form.ko_comment }}{{ row.ko_form.ko_comment.errors }}{% else %}{{ ko_decision_form.ko_comment }}{{ ko_decision_form.ko_comment.errors }}{% endif %}{% elif row.defect.ko_decision %}{{ row.defect.ko_comment|default:'—' }}{% elif act.ko_decision and not has_defect_records %}{{ act.ko_comment|default:'—' }}{% else %}—{% endif %}</td>
+        </tr>{% endfor %}</tbody></table></div>
     </article>
 
-    <article class="detail-section">
+    <article class="detail-section to-analysis-section">
         <h2>Анализ ТО</h2>
         {% if available_actions.to_analysis %}
             <form id="to-analysis-form" method="post" action="{% url 'acts:to_analysis' act.pk %}" class="to-analysis-form" onsubmit="return confirm('Передать анализ на проверку ОТК?');">
@@ -81,22 +55,25 @@
                     <section class="root-analysis-card" data-root-analysis>
                         <input type="hidden" data-root-total-name value="{{ forloop.counter0 }}">
                         <div class="analysis-card-header" data-root-analysis-header>
-                            <label><span>Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="4" required>{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
+                            <span class="root-analysis-card__title" data-root-analysis-title><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>Корневая причина {{ forloop.counter }}</span>
                             {% if to_analysis_form.root_rows|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-root-analysis aria-label="Удалить корневую проработку" title="Удалить корневую проработку">×</button>{% endif %}
                         </div>
+                        <label class="root-analysis-card__cause"><span>Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="2" required>{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
                         <div class="corrective-action-list" data-corrective-action-list>
                             {% for action in root.actions %}
                             <section class="corrective-action-card" data-corrective-action>
+                                <div class="corrective-action-row">
                                 <div class="analysis-card-header" data-corrective-action-header>
-                                    <label><span>Корректирующее мероприятие</span><textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="3" required>{{ action.comment }}</textarea>{% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}</label>
+                                    <label><span>Корректирующее мероприятие</span><textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="2" required>{{ action.comment }}</textarea>{% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}</label>
                                     {% if root.actions|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-corrective-action aria-label="Удалить мероприятие" title="Удалить мероприятие">×</button>{% endif %}
                                 </div>
                                 <div class="corrective-action-card__fields">
-                                    <label><span>Выбор отдела</span><select name="root-{{ root.index }}-actions-{{ action.index }}-department" required data-department-select data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select>{% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}</label>
+                                    <label><span>Отдел</span><select name="root-{{ root.index }}-actions-{{ action.index }}-department" required data-department-select data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select>{% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}</label>
                                     <label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select disabled><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if action.assignees.0 == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select>{% if action.errors.assignees %}<span class="field-error">{{ action.errors.assignees }}</span>{% endif %}</label>
-                                    <label><span>Выбор срока</span><input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>{% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}</label>
+                                    <label><span>Срок</span><input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>{% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}</label>
                                 </div>
-                                <div data-additional-assignee-list>{% for assignee in action.additional_assignees %}<div class="corrective-action-card__fields" data-additional-assignee><label><span>Выбор отдела</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignee_departments" required data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if assignee.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select></label><label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select disabled><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if assignee.user == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select></label><button class="link-button link-button--danger" type="button" data-remove-additional-assignee>Удалить исполнителя</button></div>{% endfor %}</div>
+                                </div>
+                                <div class="corrective-action-additional-list" data-additional-assignee-list>{% for assignee in action.additional_assignees %}<div class="corrective-action-card__fields corrective-action-card__fields--additional" data-additional-assignee><label><span>Отдел</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignee_departments" required data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if assignee.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select></label><label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select disabled><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if assignee.user == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select></label><button class="link-button link-button--danger" type="button" data-remove-additional-assignee>Удалить исполнителя</button></div>{% endfor %}</div>
                                 <div class="act-inline-actions" data-corrective-action-actions>
                                     <button class="link-button link-button--success" type="button" data-add-additional-assignee>Добавить исполнителя</button>
                                 </div>
@@ -114,16 +91,25 @@
                 <div class="act-inline-actions"><button class="link-button link-button--success" type="button" data-add-root-analysis>Добавить корневую проработку</button></div>
             </form>
         {% elif root_analyses %}
-            <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
-            {% for root in root_analyses %}
-                <section class="root-analysis-readonly"><h3>Корневая причина</h3><p>{{ root.root_cause|linebreaksbr }}</p>{% for action in root.corrective_actions.all %}<article><h4>Корректирующее мероприятие</h4><p>{{ action.comment|linebreaksbr }}</p><dl><dt>Отдел</dt><dd>{{ action.department }}</dd><dt>Исполнители</dt><dd>{% for assignee in action.assignees.all %}{{ assignee.user }}{% if assignee.user.userprofile.department %} — {{ assignee.user.userprofile.department }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</dd><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y' }}</dd>{% if act.status.code == 'ARCHIVED' and action.task %}<dt>Задача</dt><dd><a class="table-link" href="{% url 'tasks:detail' action.task.pk %}">Задача #{{ action.task.pk }}</a> — {{ action.task.status }}; исполнители: {% for assignee in action.task.assignees.all %}{{ assignee.user }}{% if assignee.user.userprofile.department %} — {{ assignee.user.userprofile.department }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}{% if action.task.completed_by %}; завершил {{ action.task.completed_by }} {{ action.task.completed_at|date:'d.m.Y H:i' }}{% endif %}</dd>{% endif %}</dl></article>{% endfor %}</section>
-            {% endfor %}
+            <section class="to-analysis-readonly-list" aria-label="Анализ ТО: причины и корректирующие действия">
+                {% for root in root_analyses %}
+                    <section class="to-analysis-readonly">
+                        <div class="to-analysis-readonly__rail" aria-label="Корневая причина {{ forloop.counter }}">{{ forloop.counter }}</div>
+                        <div class="to-analysis-readonly__cause"><span>Корневая причина</span><p>{{ root.root_cause|linebreaksbr }}</p></div>
+                        <div class="to-analysis-readonly__actions">
+                            <div class="act-defects-table-wrap"><table class="data-table to-analysis-table"><colgroup><col class="to-analysis-table__number"><col class="to-analysis-table__action"><col class="to-analysis-table__assignee"><col class="to-analysis-table__due"><col class="to-analysis-table__status"></colgroup><thead><tr><th>№</th><th>Мероприятие</th><th>Исполнитель(и)</th><th>Срок</th><th>Статус</th></tr></thead><tbody>{% for action in root.corrective_actions.all %}<tr><td>{{ forloop.counter }}</td><td>{{ action.comment }}</td><td>{% with assignees=action.assignees.all %}{% if assignees|length > 1 %}<details class="to-analysis-assignees"><summary><span>{{ assignees.0.user }}</span><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><ul>{% for assignee in assignees %}<li>{{ assignee.user }}{% if assignee.user.userprofile.department %} — {{ assignee.user.userprofile.department }}{% endif %}</li>{% endfor %}</ul></details>{% elif assignees %}{{ assignees.0.user }}{% if assignees.0.user.userprofile.department %} — {{ assignees.0.user.userprofile.department }}{% endif %}{% else %}—{% endif %}{% endwith %}</td><td>{{ action.due_date|date:'d.m.Y' }}</td><td>{% if action.task %}{{ action.task.status }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+                        </div>
+                    </section>
+                {% endfor %}
+            </section>
+            {% comment %}
+            {% for root in root_analyses %}<details class="to-analysis-readonly" open><summary><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><span>Корневая причина {{ forloop.counter }}</span></summary><div class="to-analysis-root-cause"><span>Причина</span><p>{{ root.root_cause|linebreaksbr }}</p></div><div class="act-defects-table-wrap"><table class="data-table to-analysis-table"><colgroup><col class="to-analysis-table__action"><col class="to-analysis-table__assignee"><col class="to-analysis-table__due"><col class="to-analysis-table__status"></colgroup><thead><tr><th>Мероприятие</th><th>Исполнитель</th><th>Срок</th><th>Статус</th></tr></thead><tbody>{% for action in root.corrective_actions.all %}<tr><td>{{ action.comment }}</td><td>{% with assignees=action.assignees.all %}{% if assignees|length > 1 %}<details class="to-analysis-assignees"><summary><span>{{ assignees.0.user }}</span><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><ul>{% for assignee in assignees %}<li>{{ assignee.user }}{% if assignee.user.userprofile.department %} — {{ assignee.user.userprofile.department }}{% endif %}</li>{% endfor %}</ul></details>{% elif assignees %}{{ assignees.0.user }}{% if assignees.0.user.userprofile.department %} — {{ assignees.0.user.userprofile.department }}{% endif %}{% else %}—{% endif %}{% endwith %}</td><td>{{ action.due_date|date:'d.m.Y' }}</td><td>{% if action.task %}<span class="act-badge act-badge--status">{{ action.task.status }}</span>{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div></details>{% endfor %}
+            {% endcomment %}
         {% elif act.to_root_cause or act.to_action_summary %}
             <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
             <h3>Корневая причина</h3><p>{{ act.to_root_cause|default:'Не заполнено.' }}</p>
             <h3>Предлагаемые мероприятия</h3><p>{{ act.to_action_summary|default:'Не заполнено.' }}</p>
         {% else %}<p class="placeholder-text">Анализ ТО ещё не внесён.</p>{% endif %}
-        {% if act.status.code == 'ARCHIVED' %}<dl><dt>Утвердил</dt><dd>{{ act.approved_by|default:'-' }}</dd><dt>Дата утверждения</dt><dd>{{ act.approved_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>{% endif %}
         {% if available_actions.close_act %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a></div>{% endif %}
     </article>
 
@@ -146,9 +132,34 @@
 </section>
 {% elif detail_tab == 'history' %}
     {% include 'acts/includes/history_timeline.html' %}
+{% elif detail_tab == 'attachments' %}
+    <div class="act-collaboration-layout">
+        {% include 'acts/includes/attachments.html' %}
+        {% include 'acts/includes/comments.html' %}
+    </div>
 {% else %}
-    {% include 'acts/includes/attachments.html' %}
-    {% include 'acts/includes/comments.html' %}
+    <section class="detail-section related-activities">
+        <header class="related-activities__header">
+            <div><h2>Связанные мероприятия</h2><p>Задачи, созданные по анализу ТО</p></div>
+            <span class="related-activities__count">Задач: {{ related_tasks|length }}</span>
+        </header>
+        {% if related_tasks %}
+            <div class="related-activities__table-wrap">
+                <table class="related-activities__table">
+                    <colgroup><col class="related-activities__number"><col class="related-activities__action"><col class="related-activities__cause"><col class="related-activities__assignees"><col class="related-activities__due"><col class="related-activities__status"></colgroup>
+                    <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Причина</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
+                    <tbody>{% for task in related_tasks %}<tr>
+                        <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
+                        <td><strong>{{ task.task_text }}</strong></td>
+                        <td>{{ task.root_analysis.root_cause|default:'—' }}</td>
+                        <td>{% for assignee in task.assignees.all %}{{ assignee.user }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+                        <td>{{ task.due_date|date:'d.m.Y' }}</td>
+                        <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>
+                    </tr>{% endfor %}</tbody>
+                </table>
+            </div>
+        {% else %}<p class="related-activities__empty">Связанные мероприятия пока не созданы или недоступны.</p>{% endif %}
+    </section>
 {% endif %}
 
 {% if available_actions.return_to_otk or return_dialog_open %}
@@ -316,6 +327,8 @@
         const roots = [...form.querySelectorAll('[data-root-analysis]')];
         rootTotal.value = roots.length;
         roots.forEach((root, rootIndex) => {
+            const rootTitle = root.querySelector('[data-root-analysis-title]');
+            if (rootTitle) rootTitle.lastChild.textContent = `Корневая причина ${rootIndex + 1}`;
             root.querySelectorAll('[name]').forEach((field) => {
                 field.name = field.name.replace(/^root-\d+/, `root-${rootIndex}`);
                 field.name = field.name.replace(/actions-\d+/, (match, offset, value) => match);
@@ -367,6 +380,7 @@
             departmentSelect.value = '';
             row.querySelector('[data-assignees-select]').value = '';
             row.dataset.additionalAssignee = '';
+            row.classList.add('corrective-action-card__fields--additional');
             const remove = document.createElement('button');
             remove.type = 'button'; remove.className = 'link-button link-button--danger';
             remove.dataset.removeAdditionalAssignee = ''; remove.textContent = 'Удалить исполнителя';
@@ -405,4 +419,5 @@
     renumber();
 })();
 </script>
+<script src="{% static 'js/act_attachments.js' %}?v=20260730-1"></script>
 {% endblock %}

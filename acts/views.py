@@ -584,7 +584,7 @@ def _redirect_after_transition(act, user):
 
 
 def _get_detail_tab(tab):
-    return tab if tab in {'work', 'history', 'attachments'} else 'work'
+    return tab if tab in {'work', 'history', 'attachments', 'activities'} else 'work'
 
 
 def _redirect_to_detail_tab(act, tab):
@@ -623,7 +623,13 @@ def _get_act_detail_context(
     return_to_to_form=None,
     return_to_to_dialog_open=False,
 ):
-    history_events = act.history_events.select_related('user', 'from_status', 'to_status')
+    history_events = list(act.history_events.select_related('user', 'from_status', 'to_status'))
+    history_groups = []
+    for event in history_events:
+        event_date = timezone.localtime(event.created_at).date()
+        if not history_groups or history_groups[-1]['date'] != event_date:
+            history_groups.append({'date': event_date, 'events': []})
+        history_groups[-1]['events'].append(event)
     comments = act.comments.select_related('author')
     defect_rows = list(act.defects.select_related('defect_type', 'operation'))
     has_defect_records = bool(defect_rows)
@@ -681,9 +687,25 @@ def _get_act_detail_context(
             'corrective_actions__task__completed_by',
         )
     )
+    from tasks.permissions import get_visible_tasks_queryset
+
+    related_tasks = get_visible_tasks_queryset(user).filter(act=act).select_related(
+        'department', 'status', 'root_analysis', 'completed_by'
+    ).prefetch_related('assignees__user__userprofile')
+    route_steps = (
+        ('Создан ОТК', 'CREATED_OTK', act.created_at),
+        ('Рассмотрение КО', 'KO_REVIEW', act.ko_decision_at),
+        ('Анализ ТО', 'TO_ANALYSIS', act.to_analysis_at),
+        ('Проверка ОТК', 'OTK_REVIEW', act.approved_at),
+        ('Архивирован', 'ARCHIVED', act.approved_at),
+    )
+    route_index = {
+        'CREATED_OTK': 0, 'KO_REVIEW': 1, 'TO_ANALYSIS': 2,
+        'OTK_REVIEW': 3, 'ACTIONS_ASSIGNED': 3, 'ARCHIVED': 4,
+    }.get(act.status.code, 0)
     return {
         'active_page': 'acts',
-        'header_title': act.number,
+        'header_title': '',
         'act': act,
         'today': timezone.localdate(),
         'detail_tab': _get_detail_tab(detail_tab),
@@ -692,6 +714,7 @@ def _get_act_detail_context(
         'defect_decision_rows': defect_decision_rows,
         'has_defect_records': has_defect_records,
         'history_events': history_events,
+        'history_groups': history_groups,
         'comments': comments,
         'comment_form': comment_form or ActCommentForm(),
         'return_to_otk_form': return_to_otk_form or ReturnToOtkForm(),
@@ -710,4 +733,17 @@ def _get_act_detail_context(
         'ko_decision_formset': ko_decision_formset,
         'attachments': attachments,
         'attachment_form': attachment_form or ActAttachmentForm(),
+        'related_tasks': related_tasks,
+        'route_steps': [
+            {
+                'name': name,
+                'date': date,
+                'state': (
+                    'completed'
+                    if index < route_index or (act.status.code == 'ARCHIVED' and index == route_index)
+                    else 'current' if index == route_index else 'future'
+                ),
+            }
+            for index, (name, _, date) in enumerate(route_steps)
+        ],
     }

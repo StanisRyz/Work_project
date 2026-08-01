@@ -19,7 +19,7 @@ class TaskViewsTests(TestCase):
         cls.department = Department.objects.create(code='TO', name='ТО')
         cls.other_department = Department.objects.create(code='KO', name='КО')
         cls.status_archived = ActStatus.objects.get(code='ARCHIVED')
-        cls.task_status = TaskStatus.objects.get(code='NEW')
+        cls.task_status = TaskStatus.objects.get(code='IN_PROGRESS')
         cls.operation = Operation.objects.create(code='OP', name='Операция')
         cls.defect_type = DefectType.objects.create(code='DEF', name='Дефект')
         cls.employee = cls._user('employee', UserProfile.Role.TO, cls.department)
@@ -192,7 +192,7 @@ class TaskViewsTests(TestCase):
         self.assertEqual(invalid.status_code, 400)
         self.assertContains(invalid, 'Укажите результат выполнения задачи.', status_code=400)
         task.refresh_from_db()
-        self.assertEqual(task.status.code, 'NEW')
+        self.assertEqual(task.status.code, 'IN_PROGRESS')
 
         response = self.client.post(url, {'execution_comment': 'Работа выполнена.', 'list_query': 'tab=all'})
         self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive&number={task.pk}')
@@ -209,7 +209,7 @@ class TaskViewsTests(TestCase):
         response = self.client.post(reverse('tasks:complete', args=[task.pk]), {'execution_comment': 'Не должно сохраниться.'})
         self.assertEqual(response.status_code, 400)
         task.refresh_from_db()
-        self.assertEqual(task.status.code, 'NEW')
+        self.assertEqual(task.status.code, 'IN_PROGRESS')
         self.assertEqual(task.execution_comment, '')
 
     def test_unassigned_administrator_can_complete_task(self):

@@ -82,11 +82,28 @@ document.addEventListener('DOMContentLoaded', () => {
         totalForms.value = blocks.length;
     };
 
+    const syncDefectUi = () => {
+        const visibleBlocks = [...list.querySelectorAll('.defect-form-block')]
+            .filter((block) => !block.hidden);
+        const suffix = visibleBlocks.length === 1 ? 'дефект' : visibleBlocks.length < 5 ? 'дефекта' : 'дефектов';
+        const count = formset.querySelector('[data-defect-count]');
+        if (count) {
+            count.textContent = `${visibleBlocks.length} ${suffix}`;
+        }
+        visibleBlocks.forEach((block, index) => {
+            const title = block.querySelector('[data-defect-title]');
+            if (title) {
+                title.textContent = `Дефект ${index + 1}`;
+            }
+        });
+    };
+
     addButton.addEventListener('click', () => {
         const index = Number.parseInt(totalForms.value, 10);
         const html = template.innerHTML.replace(/__prefix__/g, index);
         list.insertAdjacentHTML('beforeend', html);
         totalForms.value = index + 1;
+        syncDefectUi();
     });
 
     actForm.addEventListener('input', (event) => {
@@ -136,10 +153,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (deleteField) {
             deleteField.checked = true;
             block.hidden = true;
+            syncDefectUi();
             return;
         }
 
         block.remove();
         reindexForms();
+        syncDefectUi();
     });
+
+    syncDefectUi();
 });

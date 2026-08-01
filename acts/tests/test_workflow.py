@@ -316,7 +316,7 @@ class ActWorkflowTests(TestCase):
         self.assertEqual(act.approved_by, self.otk_user)
         self.assertIsNotNone(act.approved_at)
         self.assertEqual(Task.objects.filter(act=act).count(), 1)
-        self.assertEqual(Task.objects.get(act=act).status.code, 'NEW')
+        self.assertEqual(Task.objects.get(act=act).status.code, 'IN_PROGRESS')
         self.assertEqual(
             ActHistoryEvent.objects.filter(act=act, event_type=ActHistoryEvent.EventType.APPROVED).count(),
             1,

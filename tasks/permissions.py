@@ -13,6 +13,6 @@ def get_visible_tasks_queryset(user):
 
 
 def can_complete_task(task, user):
-    return task.status.code == 'NEW' and (
+    return task.status.code == 'IN_PROGRESS' and (
         is_act_admin(user) or task.assignees.filter(user=user).exists()
     )

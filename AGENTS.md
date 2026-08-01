@@ -72,6 +72,7 @@
 - The `/tasks/` registry is compact: `№ задачи`, `Статус` (`По акту`), `Источник`, and `Срок`. Task primary keys link to protected details; technical task statuses remain for execution and detail pages.
 - The `/tasks/` registry has `my`, `all`, and `archive` tabs with GET filters and due-date sorting. Tabs never bypass task visibility: `my` and `all` show active tasks, `archive` shows completed tasks, and regular users see only assigned tasks.
 - Task details show compact metadata, assignees with their actual departments, root cause, task text, and execution result. An assigned executor or administrator may atomically complete an active shared task, and a non-whitespace execution comment is required; successful completion sends the task to the archive.
+- D28 redesigns `/acts/<id>/` as a full-width detail page: a compact agreement route, four presentation-only tabs, a responsive party-data row, full-width defects table, and a task-visibility-safe linked-activities tab. Keep workflow, permissions, return comments, archive behavior, and task services unchanged.
 
 ## Patch Rules
 

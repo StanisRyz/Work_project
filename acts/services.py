@@ -282,9 +282,9 @@ def approve_act(act, user):
         if Task.objects.filter(source_action__in=corrective_actions).exists():
             raise ActWorkflowError('Для корректирующих мероприятий этого акта уже созданы задачи.')
         try:
-            new_task_status = TaskStatus.objects.get(code='NEW', is_active=True)
+            new_task_status = TaskStatus.objects.get(code='IN_PROGRESS', is_active=True)
         except TaskStatus.DoesNotExist as exc:
-            raise ActWorkflowError('Не найден активный статус задачи «Новая».') from exc
+            raise ActWorkflowError('Не найден активный статус задачи «В работе».') from exc
         approval_date = timezone.localdate()
         for action in corrective_actions:
             if action.due_date < approval_date:
@@ -413,6 +413,12 @@ def clear_all_acts():
     attachments = list(ActAttachment.objects.exclude(file='').only('file'))
     with transaction.atomic():
         deleted_count = Act.objects.count()
+        # Approved acts have shared tasks whose foreign keys intentionally protect
+        # their source act. The administrator cleanup is an explicit full reset,
+        # so remove those dependent tasks before the acts themselves.
+        from tasks.models import Task
+
+        Task.objects.filter(act__isnull=False).delete()
         Act.objects.all().delete()
     for attachment in attachments:
         try:
