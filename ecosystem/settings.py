@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -36,6 +37,7 @@ INSTALLED_APPS = [
     'references',
     'acts',
     'tasks',
+    'notifications',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -66,6 +68,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'notifications.context_processors.notification_summary',
             ],
         },
     },
@@ -130,3 +133,37 @@ MEDIA_ROOT = BASE_DIR / 'media'
 LOGIN_URL = 'accounts:login'
 LOGIN_REDIRECT_URL = 'dashboard:home'
 LOGOUT_REDIRECT_URL = 'accounts:login'
+
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def env_int(name, default):
+    value = os.getenv(name)
+    return int(value) if value else default
+
+
+# Email notifications are deliberately disabled by default. SMTP credentials are
+# read only from the deployment environment and must never be committed.
+EMAIL_NOTIFICATIONS_ENABLED = env_bool('EMAIL_NOTIFICATIONS_ENABLED', False)
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+APP_BASE_URL = os.getenv('APP_BASE_URL', 'http://127.0.0.1:8000')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'quality-ecosystem@localhost')
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
+EMAIL_PORT = env_int('EMAIL_PORT', 25)
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', False)
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_TIMEOUT = env_int('EMAIL_TIMEOUT', 10)
+EMAIL_NOTIFICATION_MAX_ATTEMPTS = env_int('EMAIL_NOTIFICATION_MAX_ATTEMPTS', 3)
+EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS = env_int('EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS', 300)
+EMAIL_NOTIFICATION_BATCH_SIZE = env_int('EMAIL_NOTIFICATION_BATCH_SIZE', 100)
+EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS = env_int(
+    'EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS',
+    900,
+)

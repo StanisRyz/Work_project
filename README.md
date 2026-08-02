@@ -8,11 +8,48 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-D28 — full-width act detail page.
+Internal notifications and a prepared email-delivery channel are complete. The full-width act-card redesign is deferred; the current act page and its permission model remain unchanged by this stage.
 
-D28 redesigns `/acts/<id>/` around a compact agreement route and four tabs: `Проработка`, `История акта`, `Вложения и комментарии`, and `Связанные мероприятия`. The work tab now has a responsive four-field party row, a full-width defects/KO-decision table, and full-width TO analysis; KO controls remain editable only at the existing KO stage and are otherwise read-only. Related activities reuse protected tasks linked to the current act, so regular users see only their assigned tasks. Workflow transitions, return comments, archive behavior, attachment/comment access, and task logic are unchanged.
+The `notifications` app stores durable in-app notifications separately from delivery attempts. The top bar shows an unread counter and five recent events; `/notifications/` provides paginated `Все` and `Непрочитанные` views plus protected POST actions for marking one or all items read. Every query and update is scoped to the authenticated recipient. Related-act links still pass through the normal act visibility checks.
 
-Manual D28 validation: open an act at every workflow stage; check completed/current/future route states and the four tabs; enter KO decisions at KO review and confirm they become read-only after transfer; verify mandatory return comments; approve an OTK-review act and confirm its tasks appear on `Связанные мероприятия` only for permitted users; check desktop and narrow layouts.
+`Notification` stores recipient, actor, event type, safe event text, related act, deduplication key, creation time, and independent read state. `NotificationDelivery` stores the email channel state (`pending`, `processing`, `sent`, `failed`, or `skipped`), attempts, timestamps, retry availability, and a sanitized error. Event and recipient uniqueness prevents duplicate notification fan-out.
+
+### Notification routing
+
+| Event | Recipients | Email eligible |
+| --- | --- | --- |
+| OTK sends to KO | All active users with the KO role | Yes |
+| KO sends to TO | All active users with the TO role | Yes |
+| TO sends to OTK verification | The act author | Yes |
+| Return to OTK / KO / TO | Act author / all active KO users / all active TO users | Yes |
+| Corrective action assignment | Only its active assignees; duplicates are removed | Yes |
+| Act approval | Active act participants except the actor | No, in-app only |
+| Normal comment | Relevant participants who can currently view the act, except the author | No, in-app only |
+
+Return comments do not create a second comment notification: the recipient receives the more specific return event. A queue actor is excluded from their own event where applicable; a self-assigned employee still receives the individual assignment notification. Notification creation and workflow data share one database transaction. Email is processed later, so SMTP downtime cannot roll back an act transition, comment, or assignment.
+
+### Email delivery configuration
+
+Email is disabled by default. Eligible notifications created while it is disabled receive a `skipped` delivery and are never released as an old backlog after SMTP is enabled. With email enabled, recipients without an address are also recorded as `skipped`. Messages contain only the event, act number, required action, actor, date, and protected act URL—never defect data, attachments, or comment text.
+
+Environment variables:
+
+- `EMAIL_NOTIFICATIONS_ENABLED` — `false` by default.
+- `EMAIL_BACKEND` — defaults to `django.core.mail.backends.console.EmailBackend`; use the locmem backend in tests.
+- `APP_BASE_URL`, `DEFAULT_FROM_EMAIL` — public application root and approved sender.
+- `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS`, `EMAIL_USE_SSL` — SMTP endpoint and transport security.
+- `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` — credentials supplied only through the deployment environment.
+- `EMAIL_TIMEOUT` — SMTP timeout in seconds.
+- `EMAIL_NOTIFICATION_MAX_ATTEMPTS`, `EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS` — retry policy.
+- `EMAIL_NOTIFICATION_BATCH_SIZE`, `EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS` — worker batch and interrupted-processing recovery limits.
+
+Process the queue from a scheduler after deployment:
+
+```powershell
+python manage.py process_notification_deliveries --batch-size 100
+```
+
+Before enabling corporate delivery, IT must provide the SMTP/Exchange host, port, TLS or SSL mode, supported authentication method, service username/password if SMTP AUTH is allowed, approved `DEFAULT_FROM_EMAIL`, relay/IP allow-list requirements, CA certificate requirements, and outbound firewall permission. Set `APP_BASE_URL` to the external HTTPS origin, apply migrations, test with one mailbox, schedule the command, and only then set `EMAIL_NOTIFICATIONS_ENABLED=true`. Exchange OAuth-only delivery would require a compatible custom email backend and remains a deployment integration step.
 
 D27 — compact acts registry.
 
@@ -328,6 +365,8 @@ These demo passwords must not be used for production or shared environments.
 
 ```powershell
 python manage.py check
+python manage.py test notifications
+python manage.py test
 ```
 
 ## Start the Local Server
@@ -340,6 +379,7 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Intentionally Not Implemented Yet
 
+- Further full-width act-card redesign and acceptance work (deferred).
 - Protocols.
 - Nonconformities.
 - Reports.
@@ -350,4 +390,5 @@ Open http://127.0.0.1:8000/ in a browser.
 
 ## Next Planned Stage
 
-- D28 — protocols and follow-up control, to be defined after D27 manual validation.
+- Connect and validate the prepared email channel against the corporate SMTP/Exchange service.
+- Resume the deferred full-width act-card redesign only after a separate approved specification.

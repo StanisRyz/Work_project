@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block title %}Уведомления — Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block content %}
+<section class="notification-page" aria-labelledby="notifications-title">
+    <div class="notification-page__heading">
+        <div>
+            <p class="section-label">Рабочая лента</p>
+            <h1 id="notifications-title">Уведомления</h1>
+        </div>
+        {% if notification_unread_count %}
+        <form method="post" action="{% url 'notifications:mark_all_read' %}">
+            {% csrf_token %}
+            <button class="link-button" type="submit">Прочитать все</button>
+        </form>
+        {% endif %}
+    </div>
+
+    <nav class="notification-filters" aria-label="Фильтр уведомлений">
+        <a class="notification-filter{% if selected_filter == 'all' %} notification-filter--active{% endif %}" href="{% url 'notifications:list' %}">Все</a>
+        <a class="notification-filter{% if selected_filter == 'unread' %} notification-filter--active{% endif %}" href="{% url 'notifications:list' %}?filter=unread">Непрочитанные{% if notification_unread_count %} ({{ notification_unread_count }}){% endif %}</a>
+    </nav>
+
+    <div class="notification-list">
+        {% for notification in page_obj %}
+        <article class="notification-card{% if not notification.is_read %} notification-card--unread{% endif %}">
+            <div class="notification-card__content">
+                <div class="notification-card__meta">
+                    <span>{{ notification.get_event_type_display }}</span>
+                    <time datetime="{{ notification.created_at|date:'c' }}">{{ notification.created_at|date:"d.m.Y H:i" }}</time>
+                </div>
+                <h2><a href="{{ notification.related_url }}">{{ notification.title }}</a></h2>
+                <p>{{ notification.message }}</p>
+                {% if notification.actor %}<small>Инициатор: {{ notification.actor.get_full_name|default:notification.actor.username }}</small>{% endif %}
+            </div>
+            <div class="notification-card__actions">
+                <a class="link-button" href="{{ notification.related_url }}">Открыть акт</a>
+                {% if not notification.is_read %}
+                <form method="post" action="{% url 'notifications:mark_read' notification.pk %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="filter" value="{{ selected_filter }}">
+                    <button class="link-button link-button--muted" type="submit">Прочитано</button>
+                </form>
+                {% endif %}
+            </div>
+        </article>
+        {% empty %}
+        <div class="notification-empty">{% if selected_filter == 'unread' %}Непрочитанных уведомлений нет.{% else %}Уведомлений пока нет.{% endif %}</div>
+        {% endfor %}
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav class="notification-pagination" aria-label="Страницы уведомлений">
+        {% if page_obj.has_previous %}<a href="?filter={{ selected_filter }}&amp;page={{ page_obj.previous_page_number }}">Назад</a>{% endif %}
+        <span>Страница {{ page_obj.number }} из {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}<a href="?filter={{ selected_filter }}&amp;page={{ page_obj.next_page_number }}">Далее</a>{% endif %}
+    </nav>
+    {% endif %}
+</section>
+{% endblock %}

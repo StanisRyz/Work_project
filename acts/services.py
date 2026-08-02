@@ -27,78 +27,80 @@ class ActWorkflowError(Exception):
 
 
 def send_to_ko(act, user):
-    if not can_send_to_ko(act, user):
-        raise ActWorkflowError('Передача акта в КО недоступна для вашей роли или текущего статуса.')
-    _require_status(act, 'CREATED_OTK')
-    from_status = act.status
-    to_status = _get_required_status('KO_REVIEW')
-    act.status = to_status
-    act.save(update_fields=['status', 'updated_at'])
-    add_act_history_event(
-        act,
-        user,
-        ActHistoryEvent.EventType.SENT_TO_KO,
-        'Акт передан в КО для рассмотрения.',
-        from_status=from_status,
-        to_status=to_status,
-    )
+    with transaction.atomic():
+        if not can_send_to_ko(act, user):
+            raise ActWorkflowError('Передача акта в КО недоступна для вашей роли или текущего статуса.')
+        _require_status(act, 'CREATED_OTK')
+        from_status = act.status
+        to_status = _get_required_status('KO_REVIEW')
+        act.status = to_status
+        act.save(update_fields=['status', 'updated_at'])
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.SENT_TO_KO,
+            'Акт передан в КО для рассмотрения.',
+            from_status=from_status,
+            to_status=to_status,
+        )
     return act
 
 
 def apply_ko_decision(act, user, defect_decisions):
-    if not can_apply_ko_decision(act, user):
-        raise ActWorkflowError('Решение КО недоступно для вашей роли или текущего статуса.')
-    _require_status(act, 'KO_REVIEW')
-    defect_decisions = list(defect_decisions)
-    defects = list(act.defects.select_related('defect_type'))
-    if defects:
-        expected_ids = {defect.pk for defect in defects}
-        received_ids = {defect.pk for defect, _decision, _comment in defect_decisions}
-        if expected_ids != received_ids:
+    with transaction.atomic():
+        if not can_apply_ko_decision(act, user):
+            raise ActWorkflowError('Решение КО недоступно для вашей роли или текущего статуса.')
+        _require_status(act, 'KO_REVIEW')
+        defect_decisions = list(defect_decisions)
+        defects = list(act.defects.select_related('defect_type'))
+        if defects:
+            expected_ids = {defect.pk for defect in defects}
+            received_ids = {defect.pk for defect, _decision, _comment in defect_decisions}
+            if expected_ids != received_ids:
+                raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
+        elif len(defect_decisions) != 1 or defect_decisions[0][0] is not None:
             raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
-    elif len(defect_decisions) != 1 or defect_decisions[0][0] is not None:
-        raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
-    for _defect, decision, _comment in defect_decisions:
-        if decision not in Act.KoDecision.new_values():
-            raise ActWorkflowError('Недопустимое решение КО.')
+        for _defect, decision, _comment in defect_decisions:
+            if decision not in Act.KoDecision.new_values():
+                raise ActWorkflowError('Недопустимое решение КО.')
 
-    from_status = act.status
-    to_status = _get_required_status('TO_ANALYSIS')
-    first_defect, first_decision, first_comment = defect_decisions[0]
-    act.ko_decision = first_decision
-    act.ko_comment = first_comment
-    act.ko_decision_by = user
-    act.ko_decision_at = timezone.now()
-    act.status = to_status
-    act.save(
-        update_fields=[
-            'ko_decision',
-            'ko_comment',
-            'ko_decision_by',
-            'ko_decision_at',
-            'status',
-            'updated_at',
-        ]
-    )
-    for defect, decision, comment in defect_decisions:
-        if defect is not None:
-            defect.ko_decision = decision
-            defect.ko_comment = comment
-            defect.ko_decision_by = user
-            defect.ko_decision_at = act.ko_decision_at
-            defect.save(update_fields=['ko_decision', 'ko_comment', 'ko_decision_by', 'ko_decision_at', 'updated_at'])
-            message = f'Решение КО по дефекту «{defect.defect_type}»: {defect.get_ko_decision_display()}.'
-        else:
-            message = f'Решение КО внесено: {act.get_ko_decision_display()}.'
-        add_act_history_event(act, user, ActHistoryEvent.EventType.KO_DECISION_APPLIED, message)
-    add_act_history_event(
-        act,
-        user,
-        ActHistoryEvent.EventType.SENT_TO_TO,
-        'Акт передан в ТО для анализа.',
-        from_status=from_status,
-        to_status=to_status,
-    )
+        from_status = act.status
+        to_status = _get_required_status('TO_ANALYSIS')
+        first_defect, first_decision, first_comment = defect_decisions[0]
+        act.ko_decision = first_decision
+        act.ko_comment = first_comment
+        act.ko_decision_by = user
+        act.ko_decision_at = timezone.now()
+        act.status = to_status
+        act.save(
+            update_fields=[
+                'ko_decision',
+                'ko_comment',
+                'ko_decision_by',
+                'ko_decision_at',
+                'status',
+                'updated_at',
+            ]
+        )
+        for defect, decision, comment in defect_decisions:
+            if defect is not None:
+                defect.ko_decision = decision
+                defect.ko_comment = comment
+                defect.ko_decision_by = user
+                defect.ko_decision_at = act.ko_decision_at
+                defect.save(update_fields=['ko_decision', 'ko_comment', 'ko_decision_by', 'ko_decision_at', 'updated_at'])
+                message = f'Решение КО по дефекту «{defect.defect_type}»: {defect.get_ko_decision_display()}.'
+            else:
+                message = f'Решение КО внесено: {act.get_ko_decision_display()}.'
+            add_act_history_event(act, user, ActHistoryEvent.EventType.KO_DECISION_APPLIED, message)
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.SENT_TO_TO,
+            'Акт передан в ТО для анализа.',
+            from_status=from_status,
+            to_status=to_status,
+        )
     return act
 
 
@@ -110,7 +112,7 @@ def return_to_otk(act, user, return_comment):
         raise ActWorkflowError('Возврат акта в ОТК недоступен для вашей роли или текущего статуса.')
     _require_status(act, 'KO_REVIEW')
     with transaction.atomic():
-        add_act_comment(act, user, return_comment)
+        add_act_comment(act, user, return_comment, notify=False)
         from_status = act.status
         to_status = _get_required_status('CREATED_OTK')
         act.status = to_status
@@ -127,34 +129,35 @@ def return_to_otk(act, user, return_comment):
 
 
 def apply_to_analysis(act, user, root_cause, action_summary):
-    if not can_apply_to_analysis(act, user):
-        raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
-    _require_status(act, 'TO_ANALYSIS')
-    from_status = act.status
-    to_status = _get_required_status('OTK_REVIEW')
-    act.to_root_cause = root_cause
-    act.to_action_summary = action_summary
-    act.to_analysis_by = user
-    act.to_analysis_at = timezone.now()
-    act.status = to_status
-    act.save(
-        update_fields=[
-            'to_root_cause',
-            'to_action_summary',
-            'to_analysis_by',
-            'to_analysis_at',
-            'status',
-            'updated_at',
-        ]
-    )
-    add_act_history_event(
-        act,
-        user,
-        ActHistoryEvent.EventType.TO_ANALYSIS_APPLIED,
-        'Анализ ТО внесён, мероприятия ожидают дальнейшей проработки.',
-        from_status=from_status,
-        to_status=to_status,
-    )
+    with transaction.atomic():
+        if not can_apply_to_analysis(act, user):
+            raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
+        _require_status(act, 'TO_ANALYSIS')
+        from_status = act.status
+        to_status = _get_required_status('OTK_REVIEW')
+        act.to_root_cause = root_cause
+        act.to_action_summary = action_summary
+        act.to_analysis_by = user
+        act.to_analysis_at = timezone.now()
+        act.status = to_status
+        act.save(
+            update_fields=[
+                'to_root_cause',
+                'to_action_summary',
+                'to_analysis_by',
+                'to_analysis_at',
+                'status',
+                'updated_at',
+            ]
+        )
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.TO_ANALYSIS_APPLIED,
+            'Анализ ТО внесён, мероприятия ожидают дальнейшей проработки.',
+            from_status=from_status,
+            to_status=to_status,
+        )
     return act
 
 
@@ -188,6 +191,9 @@ def apply_structured_to_analysis(act, user, analysis_data):
                         for assignee in action_data['assignees']
                     ]
                 )
+                from notifications.services import notify_action_assigned
+
+                notify_action_assigned(corrective_action, user, action_data['assignees'])
 
         first_root = analysis_data[0]
         first_action = first_root['actions'][0]
@@ -227,7 +233,7 @@ def return_to_ko(act, user, return_comment):
         _require_status(act, 'TO_ANALYSIS')
         from_status = act.status
         to_status = _get_required_status('KO_REVIEW')
-        add_act_comment(act, user, return_comment)
+        add_act_comment(act, user, return_comment, notify=False)
         act.status = to_status
         act.save(update_fields=['status', 'updated_at'])
         add_act_history_event(
@@ -251,7 +257,7 @@ def return_to_to(act, user, return_comment):
         _require_status(act, 'OTK_REVIEW')
         from_status = act.status
         to_status = _get_required_status('TO_ANALYSIS')
-        add_act_comment(act, user, return_comment)
+        add_act_comment(act, user, return_comment, notify=False)
         act.status = to_status
         act.save(update_fields=['status', 'updated_at'])
         add_act_history_event(
@@ -342,8 +348,16 @@ def _validate_corrective_actions_for_approval(corrective_actions):
                 raise ActWorkflowError('Исполнитель должен быть активен.')
 
 
-def add_act_history_event(act, user, event_type, message, from_status=None, to_status=None):
-    return ActHistoryEvent.objects.create(
+def add_act_history_event(
+    act,
+    user,
+    event_type,
+    message,
+    from_status=None,
+    to_status=None,
+    emit_notification=True,
+):
+    history_event = ActHistoryEvent.objects.create(
         act=act,
         user=user if getattr(user, 'is_authenticated', False) else None,
         event_type=event_type,
@@ -351,20 +365,31 @@ def add_act_history_event(act, user, event_type, message, from_status=None, to_s
         from_status=from_status,
         to_status=to_status,
     )
+    if emit_notification:
+        from notifications.services import notify_history_event
+
+        notify_history_event(history_event)
+    return history_event
 
 
-def add_act_comment(act, user, text):
-    comment = ActComment.objects.create(
-        act=act,
-        author=user if getattr(user, 'is_authenticated', False) else None,
-        text=text,
-    )
-    add_act_history_event(
-        act,
-        user,
-        ActHistoryEvent.EventType.COMMENT_ADDED,
-        'Комментарий добавлен пользователем.',
-    )
+def add_act_comment(act, user, text, notify=True):
+    with transaction.atomic():
+        comment = ActComment.objects.create(
+            act=act,
+            author=user if getattr(user, 'is_authenticated', False) else None,
+            text=text,
+        )
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.COMMENT_ADDED,
+            'Комментарий добавлен пользователем.',
+            emit_notification=False,
+        )
+        if notify:
+            from notifications.services import notify_comment_added
+
+            notify_comment_added(comment, user)
     return comment
 
 

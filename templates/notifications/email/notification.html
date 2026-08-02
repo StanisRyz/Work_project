@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>{{ notification_title }}</title></head>
+<body style="margin:0;padding:24px;background:#f4f7fc;color:#1f2937;font-family:Arial,sans-serif">
+    <table role="presentation" style="width:100%;max-width:640px;margin:0 auto;border-collapse:collapse;background:#fff;border:1px solid #dce3ef">
+        <tr><td style="padding:24px">
+            <h1 style="margin:0 0 20px;font-size:22px;color:#183b73">{{ notification_title }}</h1>
+            <p><strong>Событие:</strong> {{ event_name }}</p>
+            <p><strong>Акт:</strong> {{ act_number }}</p>
+            <p><strong>Требуемое действие:</strong> {{ required_action }}</p>
+            <p><strong>Инициатор:</strong> {{ actor_name }}</p>
+            <p><strong>Дата:</strong> {{ event_date|date:"d.m.Y H:i" }}</p>
+            <p style="margin:24px 0"><a href="{{ act_url }}" style="padding:10px 16px;border-radius:6px;background:#2459a9;color:#fff;text-decoration:none">Открыть акт</a></p>
+            <p style="margin:20px 0 0;color:#64748b;font-size:13px">Для просмотра требуется вход в систему. Письмо не содержит производственных подробностей, комментариев или вложений.</p>
+        </td></tr>
+    </table>
+</body>
+</html>

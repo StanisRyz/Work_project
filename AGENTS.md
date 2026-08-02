@@ -58,7 +58,7 @@
 - Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `OTK_REVIEW`, and create the existing TO history event.
 - Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback.
 - `TO_ANALYSIS` has two actions: return to `KO_REVIEW` with a mandatory atomic comment, or submit validated structured analysis to `OTK_REVIEW`.
-- `OTK_REVIEW` is an OTK queue stage; approval and return actions from it are intentionally outside the current scope.
+- `OTK_REVIEW` is an OTK queue stage; its existing approval and return actions remain supported.
 - Do not render delete buttons for the initial single root analysis or its single action. Show them only once the respective collection has more than one item.
 - Use `link-button--success` for add-analysis actions and `link-button--danger` for delete-analysis actions.
 - At `OTK_REVIEW`, the OTK author and managers/administrators may atomically return the act to `TO_ANALYSIS` with a mandatory comment or approve it to `ARCHIVED`; approval atomically creates one `tasks.Task` for every corrective action.
@@ -72,7 +72,16 @@
 - The `/tasks/` registry is compact: `№ задачи`, `Статус` (`По акту`), `Источник`, and `Срок`. Task primary keys link to protected details; technical task statuses remain for execution and detail pages.
 - The `/tasks/` registry has `my`, `all`, and `archive` tabs with GET filters and due-date sorting. Tabs never bypass task visibility: `my` and `all` show active tasks, `archive` shows completed tasks, and regular users see only assigned tasks.
 - Task details show compact metadata, assignees with their actual departments, root cause, task text, and execution result. An assigned executor or administrator may atomically complete an active shared task, and a non-whitespace execution comment is required; successful completion sends the task to the archive.
-- D28 redesigns `/acts/<id>/` as a full-width detail page: a compact agreement route, four presentation-only tabs, a responsive party-data row, full-width defects table, and a task-visibility-safe linked-activities tab. Keep workflow, permissions, return comments, archive behavior, and task services unchanged.
+- Internal notifications belong in the `notifications` app. `Notification` read state is independent from `NotificationDelivery` channel state, and normal UI flow never deletes read notifications.
+- Notification event text, recipients, related-act links, deduplication, and email eligibility belong in `notifications/services.py`; views and templates must not reproduce routing rules.
+- Queue transitions notify every active user/profile of the target KO or TO role. Transfer to OTK verification and return to OTK notify the act author because regular OTK visibility is author-scoped.
+- Corrective-action assignment notifies only the active individual assignees, including a self-assignee; act approval and normal comments are in-app only. Approval recipients are active act participants except the actor. Comment recipients are relevant participants who can currently view the act, except its author.
+- Mandatory return comments are part of the return transaction but must not emit a duplicate normal-comment notification.
+- Supported event notifications must be created in the same database transaction as their workflow event or assignment. A stable event/source key must deduplicate each recipient.
+- Email delivery is deferred to `NotificationDelivery` processing. Disabled email and missing recipient addresses are recorded as `skipped`; skipped old events must not become a backlog when email is later enabled.
+- Email messages must not contain defect details, attachments, return comments, or other sensitive production data. SMTP secrets belong only in environment variables.
+- Email processing uses `process_notification_deliveries`; retries and failures must be recorded and must never roll back act transitions, comments, or assignments.
+- The full-width act-card redesign is deferred. Preserve the current detail-page implementation and access behavior until a separate approved UI stage resumes it.
 
 ## Patch Rules
 
@@ -106,3 +115,5 @@
 - Do not add realtime or WebSocket features yet.
 - Do not add PostgreSQL configuration until the database stage is requested.
 - Keep local development beginner-friendly.
+- Notification pages and POST actions must always scope objects to `request.user`; notification links never bypass act backend permissions.
+- Do not send email synchronously from act workflow services. Any future dispatch trigger must be registered only after database commit.
