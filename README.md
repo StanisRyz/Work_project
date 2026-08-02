@@ -8,7 +8,7 @@ are planned as future stages, not part of the current implementation.
 
 ## Current Stage
 
-Internal notifications and a prepared email-delivery channel are complete. The full-width act-card redesign is deferred; the current act page and its permission model remain unchanged by this stage.
+Internal notifications and a prepared asynchronous email-delivery channel are complete. Repository configuration is available for minute-by-minute processing through Linux systemd or Windows Task Scheduler; it must still be installed and activated on the deployment server. Celery and Redis are not used. The full-width act-card redesign is deferred; the current act page and its permission model remain unchanged by this stage.
 
 The `notifications` app stores durable in-app notifications separately from delivery attempts. The top bar shows an unread counter and five recent events; `/notifications/` provides paginated `Все` and `Непрочитанные` views plus protected POST actions for marking one or all items read. Every query and update is scoped to the authenticated recipient. Related-act links still pass through the normal act visibility checks.
 
@@ -26,7 +26,7 @@ The `notifications` app stores durable in-app notifications separately from deli
 | Act approval | Active act participants except the actor | No, in-app only |
 | Normal comment | Relevant participants who can currently view the act, except the author | No, in-app only |
 
-Return comments do not create a second comment notification: the recipient receives the more specific return event. A queue actor is excluded from their own event where applicable; a self-assigned employee still receives the individual assignment notification. Notification creation and workflow data share one database transaction. Email is processed later, so SMTP downtime cannot roll back an act transition, comment, or assignment.
+Return comments do not create a second comment notification: the recipient receives the more specific return event. A queue actor is excluded from their own event where applicable; a self-assigned employee still receives the individual assignment notification. Notification creation and workflow data share one database transaction. Email is processed later by a separate server task, so SMTP downtime cannot roll back an act transition, comment, assignment, or its internal notification. SMTP is never called from the user HTTP request.
 
 ### Email delivery configuration
 
@@ -43,13 +43,17 @@ Environment variables:
 - `EMAIL_NOTIFICATION_MAX_ATTEMPTS`, `EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS` — retry policy.
 - `EMAIL_NOTIFICATION_BATCH_SIZE`, `EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS` — worker batch and interrupted-processing recovery limits.
 
-Process the queue from a scheduler after deployment:
+One invocation processes one batch and exits normally. The default batch size is 100:
 
 ```powershell
 python manage.py process_notification_deliveries --batch-size 100
 ```
 
-Before enabling corporate delivery, IT must provide the SMTP/Exchange host, port, TLS or SSL mode, supported authentication method, service username/password if SMTP AUTH is allowed, approved `DEFAULT_FROM_EMAIL`, relay/IP allow-list requirements, CA certificate requirements, and outbound firewall permission. Set `APP_BASE_URL` to the external HTTPS origin, apply migrations, test with one mailbox, schedule the command, and only then set `EMAIL_NOTIFICATIONS_ENABLED=true`. Exchange OAuth-only delivery would require a compatible custom email backend and remains a deployment integration step.
+Overlapping workers use an atomic `pending -> processing` claim, so only one may send a given delivery. Successfully sent and skipped deliveries are not selected again; interrupted `processing` deliveries and retryable failures retain the existing recovery policy. The provided systemd timer and Windows scheduled task run every minute and also suppress a second active instance.
+
+Installation, activation, status checks, logs, manual testing, SMTP-change procedure, and safe removal are documented in [Automatic email queue processing](docs/email_queue_automation.md). The repository only provides configuration and instructions: email processing is not active on a production server until an administrator installs the appropriate scheduler configuration, supplies an external environment, and enables it.
+
+Before enabling corporate delivery, IT must provide the SMTP/Exchange host, port, TLS or SSL mode, supported authentication method, service username/password if SMTP AUTH is allowed, approved `DEFAULT_FROM_EMAIL`, relay/IP allow-list requirements, CA certificate requirements, and outbound firewall permission. Set `APP_BASE_URL` to the external HTTPS origin, apply migrations, test with one newly created delivery and one mailbox, install the scheduler, and only then set `EMAIL_NOTIFICATIONS_ENABLED=true`. Deliveries created while disabled remain `skipped` and are deliberately not sent later. Exchange OAuth-only delivery would require a compatible custom email backend and remains a deployment integration step.
 
 D27 — compact acts registry.
 
@@ -387,8 +391,9 @@ Open http://127.0.0.1:8000/ in a browser.
 - PostgreSQL configuration.
 - REST API or realtime features.
 - Frontend frameworks.
+- Celery, Redis, APScheduler, or an in-process WSGI/ASGI scheduler.
 
 ## Next Planned Stage
 
-- Connect and validate the prepared email channel against the corporate SMTP/Exchange service.
+- Obtain SMTP parameters, select Linux or Windows Server, install the prepared scheduler configuration, and validate the email channel against the corporate SMTP/Exchange service.
 - Resume the deferred full-width act-card redesign only after a separate approved specification.

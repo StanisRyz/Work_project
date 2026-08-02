@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.mail import BadHeaderError, EmailMultiAlternatives
-from django.db import transaction
+from django.db.models import F
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -34,73 +34,112 @@ def process_pending_deliveries(batch_size=None):
         .order_by('available_at', 'pk')
         .values_list('pk', flat=True)[:batch_size]
     )
-    summary = {status: 0 for status in ('sent', 'pending', 'failed', 'skipped')}
+    summary = {'processed': 0, **{status: 0 for status in ('sent', 'pending', 'failed', 'skipped')}}
     for delivery_id in delivery_ids:
-        status = process_delivery(delivery_id)
-        if status in summary:
+        status, processed = _process_delivery(delivery_id)
+        if processed:
+            summary['processed'] += 1
             summary[status] += 1
     return summary
 
 
 def process_delivery(delivery_id):
-    with transaction.atomic():
-        delivery = (
-            NotificationDelivery.objects.select_for_update()
-            .select_related('notification__recipient', 'notification__actor', 'notification__related_act')
-            .get(pk=delivery_id)
-        )
-        if delivery.status != NotificationDelivery.Status.PENDING:
-            return delivery.status
-        if not settings.EMAIL_NOTIFICATIONS_ENABLED:
-            delivery.status = NotificationDelivery.Status.SKIPPED
-            delivery.last_error = 'Email-уведомления отключены настройкой EMAIL_NOTIFICATIONS_ENABLED.'
-            delivery.save(update_fields=['status', 'last_error', 'updated_at'])
-            return delivery.status
-        if not delivery.notification.recipient.email.strip():
-            delivery.status = NotificationDelivery.Status.SKIPPED
-            delivery.last_error = 'У получателя не указан email-адрес.'
-            delivery.save(update_fields=['status', 'last_error', 'updated_at'])
-            return delivery.status
-        if delivery.attempts >= settings.EMAIL_NOTIFICATION_MAX_ATTEMPTS:
-            delivery.status = NotificationDelivery.Status.FAILED
-            delivery.last_error = 'Достигнут предел попыток отправки.'
-            delivery.save(update_fields=['status', 'last_error', 'updated_at'])
-            return delivery.status
+    status, _processed = _process_delivery(delivery_id)
+    return status
 
+
+def _process_delivery(delivery_id):
+    delivery = (
+        NotificationDelivery.objects
+        .select_related('notification__recipient', 'notification__actor', 'notification__related_act')
+        .get(pk=delivery_id)
+    )
+    if delivery.status != NotificationDelivery.Status.PENDING:
+        return delivery.status, False
+    if not settings.EMAIL_NOTIFICATIONS_ENABLED:
         now = timezone.now()
-        delivery.status = NotificationDelivery.Status.PROCESSING
-        delivery.attempts += 1
-        delivery.started_at = now
-        delivery.last_attempt_at = now
-        delivery.last_error = ''
-        delivery.save(
-            update_fields=[
-                'status',
-                'attempts',
-                'started_at',
-                'last_attempt_at',
-                'last_error',
-                'updated_at',
-            ]
+        processed = NotificationDelivery.objects.filter(
+            pk=delivery_id,
+            status=NotificationDelivery.Status.PENDING,
+        ).update(
+            status=NotificationDelivery.Status.SKIPPED,
+            last_error='Email-уведомления отключены настройкой EMAIL_NOTIFICATIONS_ENABLED.',
+            updated_at=now,
         )
-        notification = delivery.notification
+        if processed:
+            return NotificationDelivery.Status.SKIPPED, True
+        return NotificationDelivery.objects.values_list('status', flat=True).get(pk=delivery_id), False
+    if not delivery.notification.recipient.email.strip():
+        now = timezone.now()
+        processed = NotificationDelivery.objects.filter(
+            pk=delivery_id,
+            status=NotificationDelivery.Status.PENDING,
+        ).update(
+            status=NotificationDelivery.Status.SKIPPED,
+            last_error='У получателя не указан email-адрес.',
+            updated_at=now,
+        )
+        if processed:
+            return NotificationDelivery.Status.SKIPPED, True
+        return NotificationDelivery.objects.values_list('status', flat=True).get(pk=delivery_id), False
+    if delivery.attempts >= settings.EMAIL_NOTIFICATION_MAX_ATTEMPTS:
+        now = timezone.now()
+        processed = NotificationDelivery.objects.filter(
+            pk=delivery_id,
+            status=NotificationDelivery.Status.PENDING,
+        ).update(
+            status=NotificationDelivery.Status.FAILED,
+            last_error='Достигнут предел попыток отправки.',
+            updated_at=now,
+        )
+        if processed:
+            return NotificationDelivery.Status.FAILED, True
+        return NotificationDelivery.objects.values_list('status', flat=True).get(pk=delivery_id), False
+
+    # A conditional UPDATE is the queue claim. Unlike select_for_update(), it is
+    # effective on SQLite too: only one overlapping worker can change PENDING.
+    now = timezone.now()
+    claimed = NotificationDelivery.objects.filter(
+        pk=delivery_id,
+        status=NotificationDelivery.Status.PENDING,
+        attempts__lt=settings.EMAIL_NOTIFICATION_MAX_ATTEMPTS,
+    ).update(
+        status=NotificationDelivery.Status.PROCESSING,
+        attempts=F('attempts') + 1,
+        started_at=now,
+        last_attempt_at=now,
+        last_error='',
+        updated_at=now,
+    )
+    if not claimed:
+        return NotificationDelivery.objects.values_list('status', flat=True).get(pk=delivery_id), False
+
+    delivery.refresh_from_db(fields=['attempts'])
+    attempt_number = delivery.attempts
+    notification = delivery.notification
 
     try:
         sent_count = _send_email(notification)
         if sent_count != 1:
             raise RuntimeError('Почтовый backend не подтвердил отправку сообщения.')
     except Exception as exc:  # The delivery boundary must never affect a business transaction.
-        return _record_failure(delivery_id, exc)
+        return _record_failure(delivery_id, attempt_number, exc)
 
     now = timezone.now()
-    NotificationDelivery.objects.filter(pk=delivery_id).update(
+    updated = NotificationDelivery.objects.filter(
+        pk=delivery_id,
+        status=NotificationDelivery.Status.PROCESSING,
+        attempts=attempt_number,
+    ).update(
         status=NotificationDelivery.Status.SENT,
         sent_at=now,
         started_at=None,
         last_error='',
         updated_at=now,
     )
-    return NotificationDelivery.Status.SENT
+    if updated:
+        return NotificationDelivery.Status.SENT, True
+    return NotificationDelivery.objects.values_list('status', flat=True).get(pk=delivery_id), False
 
 
 def _send_email(notification):
@@ -130,20 +169,30 @@ def _send_email(notification):
     return message.send(fail_silently=False)
 
 
-def _record_failure(delivery_id, exc):
+def _record_failure(delivery_id, attempt_number, exc):
     now = timezone.now()
-    delivery = NotificationDelivery.objects.get(pk=delivery_id)
     retryable = _is_retryable(exc)
-    can_retry = retryable and delivery.attempts < settings.EMAIL_NOTIFICATION_MAX_ATTEMPTS
-    delivery.status = (
+    can_retry = retryable and attempt_number < settings.EMAIL_NOTIFICATION_MAX_ATTEMPTS
+    status = (
         NotificationDelivery.Status.PENDING if can_retry else NotificationDelivery.Status.FAILED
     )
+    updates = {
+        'status': status,
+        'started_at': None,
+        'last_error': _sanitize_error(exc),
+        'updated_at': now,
+    }
     if can_retry:
-        delivery.available_at = now + timedelta(seconds=settings.EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS)
-    delivery.started_at = None
-    delivery.last_error = _sanitize_error(exc)
-    delivery.save(update_fields=['status', 'available_at', 'started_at', 'last_error', 'updated_at'])
-    return delivery.status
+        updates['available_at'] = now + timedelta(seconds=settings.EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS)
+    updated = NotificationDelivery.objects.filter(
+        pk=delivery_id,
+        status=NotificationDelivery.Status.PROCESSING,
+        attempts=attempt_number,
+    ).update(**updates)
+    if updated:
+        return status, True
+    current_status = NotificationDelivery.objects.values_list('status', flat=True).get(pk=delivery_id)
+    return current_status, False
 
 
 def _is_retryable(exc):

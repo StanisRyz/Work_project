@@ -7,7 +7,12 @@ class Command(BaseCommand):
     help = 'Обрабатывает очередь email-доставок уведомлений.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--batch-size', type=int, default=None, help='Максимум доставок за один запуск.')
+        parser.add_argument(
+            '--batch-size',
+            type=int,
+            default=None,
+            help='Максимум доставок за один запуск (по умолчанию EMAIL_NOTIFICATION_BATCH_SIZE, обычно 100).',
+        )
 
     def handle(self, *args, **options):
         batch_size = options['batch_size']
@@ -17,6 +22,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 'Обработка завершена: '
+                f"обработано — {summary['processed']}, "
                 f"отправлено — {summary['sent']}, "
                 f"ожидает повтора — {summary['pending']}, "
                 f"ошибок — {summary['failed']}, "

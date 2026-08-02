@@ -81,6 +81,10 @@
 - Email delivery is deferred to `NotificationDelivery` processing. Disabled email and missing recipient addresses are recorded as `skipped`; skipped old events must not become a backlog when email is later enabled.
 - Email messages must not contain defect details, attachments, return comments, or other sensitive production data. SMTP secrets belong only in environment variables.
 - Email processing uses `process_notification_deliveries`; retries and failures must be recorded and must never roll back act transitions, comments, or assignments.
+- Email queue automation is deployed as a separate once-per-minute server task. The repository provides Linux systemd and Windows Task Scheduler configurations; they are not production-active until installed and enabled on the selected server.
+- Each queue invocation processes one batch of 100 by default and exits. Overlapping runs must atomically claim deliveries and scheduler configuration must suppress a second active instance.
+- SMTP and the selected server scheduler must be configured and activated during deployment. User actions and internal notifications must remain independent of SMTP availability.
+- Celery, Redis, APScheduler, and schedulers embedded in WSGI/ASGI processes are not used for notification delivery.
 - The full-width act-card redesign is deferred. Preserve the current detail-page implementation and access behavior until a separate approved UI stage resumes it.
 
 ## Patch Rules

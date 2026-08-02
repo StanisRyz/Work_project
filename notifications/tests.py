@@ -429,4 +429,94 @@ class NotificationEmailTests(NotificationTestMixin, TestCase):
 
         delivery.refresh_from_db()
         self.assertEqual(delivery.status, NotificationDelivery.Status.SENT)
+        self.assertIn('обработано — 1', output.getvalue())
         self.assertIn('отправлено — 1', output.getvalue())
+
+    def test_management_command_empty_queue_exits_successfully(self):
+        output = StringIO()
+
+        call_command('process_notification_deliveries', stdout=output)
+
+        self.assertIn('обработано — 0', output.getvalue())
+        self.assertIn('ошибок — 0', output.getvalue())
+
+    @override_settings(EMAIL_NOTIFICATIONS_ENABLED=False)
+    def test_management_command_skips_existing_pending_delivery_when_email_is_disabled(self):
+        delivery, _act = self.queue_delivery()
+        delivery.status = NotificationDelivery.Status.PENDING
+        delivery.last_error = ''
+        delivery.save(update_fields=['status', 'last_error'])
+
+        call_command('process_notification_deliveries', stdout=StringIO())
+
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, NotificationDelivery.Status.SKIPPED)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_second_run_does_not_resend_successful_delivery(self):
+        delivery, _act = self.queue_delivery()
+
+        call_command('process_notification_deliveries', stdout=StringIO())
+        call_command('process_notification_deliveries', stdout=StringIO())
+
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, NotificationDelivery.Status.SENT)
+        self.assertEqual(delivery.attempts, 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_overlapping_processing_cannot_claim_the_same_delivery_twice(self):
+        delivery, _act = self.queue_delivery()
+        real_send = mail.get_connection().send_messages
+        nested_results = []
+
+        def overlapping_send(notification):
+            nested_results.append(process_delivery(delivery.pk))
+            message = mail.EmailMessage(to=[notification.recipient.email])
+            return real_send([message])
+
+        with mock.patch('notifications.email_delivery._send_email', side_effect=overlapping_send) as send:
+            result = process_delivery(delivery.pk)
+
+        delivery.refresh_from_db()
+        self.assertEqual(result, NotificationDelivery.Status.SENT)
+        self.assertEqual(nested_results, [NotificationDelivery.Status.PROCESSING])
+        self.assertEqual(send.call_count, 1)
+        self.assertEqual(delivery.attempts, 1)
+
+    def test_smtp_error_does_not_damage_notification_or_related_act(self):
+        delivery, act = self.queue_delivery()
+        notification_id = delivery.notification_id
+
+        with mock.patch('notifications.email_delivery._send_email', side_effect=OSError('offline')):
+            process_delivery(delivery.pk)
+
+        self.assertTrue(Notification.objects.filter(pk=notification_id, related_act=act).exists())
+        self.assertTrue(Act.objects.filter(pk=act.pk).exists())
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, NotificationDelivery.Status.PENDING)
+
+    def test_management_command_stops_after_one_batch(self):
+        first, _act = self.queue_delivery()
+        second, _act = self.queue_delivery(self.ko_second)
+
+        call_command('process_notification_deliveries', batch_size=1, stdout=StringIO())
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        statuses = [first.status, second.status]
+        self.assertEqual(statuses.count(NotificationDelivery.Status.SENT), 1)
+        self.assertEqual(statuses.count(NotificationDelivery.Status.PENDING), 1)
+
+    @override_settings(EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS=60)
+    def test_management_command_recovers_stale_delivery_and_preserves_attempt_count(self):
+        delivery, _act = self.queue_delivery()
+        delivery.status = NotificationDelivery.Status.PROCESSING
+        delivery.attempts = 1
+        delivery.started_at = timezone.now() - timedelta(minutes=2)
+        delivery.save(update_fields=['status', 'attempts', 'started_at'])
+
+        call_command('process_notification_deliveries', stdout=StringIO())
+
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, NotificationDelivery.Status.SENT)
+        self.assertEqual(delivery.attempts, 2)

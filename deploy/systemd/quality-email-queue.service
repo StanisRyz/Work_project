@@ -1,0 +1,16 @@
+[Unit]
+Description=Quality ecosystem email notification queue (one batch)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Change these two values to the dedicated unprivileged deployment account.
+User=quality-ecosystem
+Group=quality-ecosystem
+EnvironmentFile=/etc/quality-ecosystem/email-queue.env
+ExecStart=/bin/sh -c 'cd "$PROJECT_DIR" && exec "$PYTHON_BIN" manage.py process_notification_deliveries --batch-size "${EMAIL_NOTIFICATION_BATCH_SIZE:-100}"'
+StandardOutput=journal
+StandardError=journal
+PrivateTmp=true
+NoNewPrivileges=true
