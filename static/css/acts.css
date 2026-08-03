@@ -424,6 +424,10 @@
     margin-bottom: 10px;
 }
 
+.task-detail-columns {
+    align-items: stretch;
+}
+
 .task-detail-info-card,
 .task-detail-assignee-card,
 .task-detail-analysis-card,
@@ -436,6 +440,7 @@
 
 .task-detail-info-card {
     display: grid;
+    align-content: center;
     gap: 14px;
 }
 
@@ -493,29 +498,56 @@
     font-size: 15px;
 }
 
-.task-detail-assignee-toggle {
-    position: relative;
-    margin: 4px 0 0 6px;
+.task-detail-assignee-toggle-row {
+    display: flex;
+    align-items: center;
+    margin-left: 6px;
 }
 
-.task-detail-assignee-toggle > summary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 22px;
-    border-radius: 6px;
+.task-detail-assignee-toggle {
+    position: relative;
+}
+
+.task-detail-assignee-toggle-button,
+.task-detail-assignee-toggle-spacer {
+    width: 28px;
+    height: 28px;
+}
+
+.task-detail-assignee-toggle-button {
+    display: inline-grid;
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: 50%;
+    background: var(--color-surface);
     color: #3c5488;
     list-style: none;
     cursor: pointer;
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
 
-.task-detail-assignee-toggle > summary::-webkit-details-marker { display: none; }
-.task-detail-assignee-toggle > summary:hover { background: #f4f7fc; }
+.task-detail-assignee-toggle-button::-webkit-details-marker { display: none; }
+
+.task-detail-assignee-toggle-button:hover {
+    border-color: #9db8ed;
+    background: #f4f7fc;
+    color: var(--color-primary);
+}
+
+.task-detail-assignee-toggle-button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+.task-detail-assignee-toggle[open] .task-detail-assignee-toggle-button {
+    border-color: var(--color-primary);
+    background: #eef4ff;
+    color: var(--color-primary);
+}
 
 .task-detail-assignee-chevron {
-    font-size: 17px;
-    line-height: 1;
+    width: 14px;
+    height: 14px;
     transition: transform .15s ease;
 }
 

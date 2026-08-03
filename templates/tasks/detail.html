@@ -27,20 +27,26 @@
                     <span>{{ assignees.0.user }}</span>
                     {% if assignees.0.user.userprofile.department %}<span class="task-detail-assignee-role">{{ assignees.0.user.userprofile.department }}</span>{% endif %}
                 </div>
-                {% if assignees|length > 1 %}
-                    <details class="task-detail-assignee-toggle">
-                        <summary aria-label="Показать всех исполнителей"><span class="task-detail-assignee-chevron" aria-hidden="true">⌄</span></summary>
-                        <ul class="task-detail-assignee-popup">
-                            {% for assignee in assignees|slice:"1:" %}
-                            <li>
-                                <span class="task-detail-assignee-avatar">{{ assignee.user.username|slice:":2"|upper }}</span>
-                                <span>{{ assignee.user }}</span>
-                                {% if assignee.user.userprofile.department %}<span class="task-detail-assignee-role">{{ assignee.user.userprofile.department }}</span>{% endif %}
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    </details>
-                {% endif %}
+                <div class="task-detail-assignee-toggle-row">
+                    {% if assignees|length > 1 %}
+                        <details class="task-detail-assignee-toggle">
+                            <summary class="task-detail-assignee-toggle-button" aria-label="Показать всех исполнителей">
+                                <svg class="ui-icon task-detail-assignee-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+                            </summary>
+                            <ul class="task-detail-assignee-popup">
+                                {% for assignee in assignees|slice:"1:" %}
+                                <li>
+                                    <span class="task-detail-assignee-avatar">{{ assignee.user.username|slice:":2"|upper }}</span>
+                                    <span>{{ assignee.user }}</span>
+                                    {% if assignee.user.userprofile.department %}<span class="task-detail-assignee-role">{{ assignee.user.userprofile.department }}</span>{% endif %}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </details>
+                    {% else %}
+                        <span class="task-detail-assignee-toggle-spacer" aria-hidden="true"></span>
+                    {% endif %}
+                </div>
             {% else %}
                 <p class="task-detail-assignee-empty">—</p>
             {% endif %}

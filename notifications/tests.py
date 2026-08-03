@@ -279,6 +279,16 @@ class NotificationViewTests(NotificationTestMixin, TestCase):
         self.assertContains(response, '1 непрочитанных')
         self.assertContains(response, own.related_url)
 
+    def test_bell_menu_excludes_already_read_notifications_and_shows_empty_placeholder(self):
+        read = self.create_notification(self.otk, 'bell-already-read', is_read=True)
+        self.client.force_login(self.otk)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertNotIn(read, response.context['recent_notifications'])
+        self.assertContains(response, 'Новых уведомлений нет.')
+        self.assertContains(response, 'data-notification-empty')
+
     def test_unread_filter_mark_one_and_mark_all_are_owner_only_posts(self):
         unread = self.create_notification(self.otk, 'unread')
         read = self.create_notification(self.otk, 'read', is_read=True)
@@ -314,6 +324,111 @@ class NotificationViewTests(NotificationTestMixin, TestCase):
 
         self.assertEqual(len(response.context['page_obj']), 20)
         self.assertEqual(response.context['page_obj'].paginator.num_pages, 2)
+
+    def test_bulk_mark_read_marks_only_shown_notifications_and_returns_unread_count(self):
+        shown = self.create_notification(self.otk, 'bell-shown')
+        not_shown = self.create_notification(self.otk, 'bell-not-shown')
+        self.client.force_login(self.otk)
+
+        response = self.client.post(reverse('notifications:mark_read_bulk'), {'ids': [shown.pk]})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'unread_count': 1})
+        shown.refresh_from_db()
+        not_shown.refresh_from_db()
+        self.assertTrue(shown.is_read)
+        self.assertIsNotNone(shown.read_at)
+        self.assertFalse(not_shown.is_read)
+
+    def test_bulk_mark_read_ignores_another_users_notifications(self):
+        own = self.create_notification(self.otk, 'bell-own')
+        other = self.create_notification(self.ko, 'bell-other')
+        self.client.force_login(self.otk)
+
+        response = self.client.post(
+            reverse('notifications:mark_read_bulk'), {'ids': [own.pk, other.pk]}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'unread_count': 0})
+        other.refresh_from_db()
+        self.assertFalse(other.is_read)
+
+    def test_bulk_mark_read_ignores_invalid_ids_without_error(self):
+        self.client.force_login(self.otk)
+
+        response = self.client.post(
+            reverse('notifications:mark_read_bulk'), {'ids': ['not-an-id', '', '9999999']}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'unread_count': 0})
+
+    def test_bulk_mark_read_get_request_does_not_modify_state(self):
+        notification = self.create_notification(self.otk, 'bell-get')
+        self.client.force_login(self.otk)
+
+        response = self.client.get(reverse('notifications:mark_read_bulk'), {'ids': [notification.pk]})
+
+        self.assertEqual(response.status_code, 405)
+        notification.refresh_from_db()
+        self.assertFalse(notification.is_read)
+
+    def test_bulk_mark_read_requires_login(self):
+        notification = self.create_notification(self.otk, 'bell-anon')
+
+        response = self.client.post(reverse('notifications:mark_read_bulk'), {'ids': [notification.pk]})
+
+        self.assertEqual(response.status_code, 302)
+        notification.refresh_from_db()
+        self.assertFalse(notification.is_read)
+
+    def test_bulk_mark_read_repeat_call_is_idempotent(self):
+        notification = self.create_notification(self.otk, 'bell-repeat')
+        self.client.force_login(self.otk)
+        url = reverse('notifications:mark_read_bulk')
+
+        first = self.client.post(url, {'ids': [notification.pk]})
+        second = self.client.post(url, {'ids': [notification.pk]})
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json(), {'unread_count': 0})
+        self.assertEqual(second.json(), {'unread_count': 0})
+        notification.refresh_from_db()
+        self.assertTrue(notification.is_read)
+
+    def test_bulk_mark_read_with_no_unread_notifications_is_handled_cleanly(self):
+        self.client.force_login(self.otk)
+
+        response = self.client.post(reverse('notifications:mark_read_bulk'), {'ids': []})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'unread_count': 0})
+
+    def test_bell_menu_marks_only_recent_unread_notifications_when_opened(self):
+        self.client.force_login(self.otk)
+        older_unread = self.create_notification(self.otk, 'bell-older')
+        recent = [self.create_notification(self.otk, f'bell-recent-{i}') for i in range(5)]
+
+        response = self.client.get(reverse('dashboard:home'))
+        self.assertContains(response, 'data-notification-menu')
+        self.assertContains(response, 'data-notification-unread="true"')
+        shown_ids = [
+            notification.pk
+            for notification in response.context['recent_notifications']
+        ]
+        self.assertNotIn(older_unread.pk, shown_ids)
+
+        bulk_response = self.client.post(reverse('notifications:mark_read_bulk'), {'ids': shown_ids})
+
+        self.assertEqual(bulk_response.status_code, 200)
+        self.assertEqual(bulk_response.json(), {'unread_count': 1})
+        older_unread.refresh_from_db()
+        self.assertFalse(older_unread.is_read)
+        for notification in recent:
+            notification.refresh_from_db()
+            self.assertTrue(notification.is_read)
 
 
 @override_settings(

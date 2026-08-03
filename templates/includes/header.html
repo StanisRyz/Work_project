@@ -11,22 +11,22 @@
     {% if header_title %}<span class="topbar__page-title">{{ header_title }}</span>{% endif %}
     <div class="topbar__actions">
         {% if user.is_authenticated %}
-        <details class="notification-menu">
-            <summary class="topbar__icon-button topbar__icon-button--notification" aria-label="Уведомления{% if notification_unread_count %}: {{ notification_unread_count }} непрочитанных{% endif %}" title="Уведомления">
+        <details class="notification-menu" data-notification-menu data-mark-read-url="{% url 'notifications:mark_read_bulk' %}">
+            <summary class="topbar__icon-button topbar__icon-button--notification" aria-label="Уведомления{% if notification_unread_count %}: {{ notification_unread_count }} непрочитанных{% endif %}" title="Уведомления" data-notification-summary>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
-                {% if notification_unread_count %}<span class="notification-menu__counter">{{ notification_unread_count }}</span>{% endif %}
+                <span class="notification-menu__counter" data-notification-counter{% if not notification_unread_count %} hidden{% endif %}>{{ notification_unread_count }}</span>
             </summary>
             <div class="notification-menu__popup">
                 <div class="notification-menu__heading"><strong>Уведомления</strong><a href="{% url 'notifications:list' %}">Все</a></div>
-                <div class="notification-menu__items">
+                <div class="notification-menu__items" data-notification-items>
                     {% for notification in recent_notifications %}
-                    <a class="notification-menu__item{% if not notification.is_read %} notification-menu__item--unread{% endif %}" href="{{ notification.related_url }}">
+                    <a class="notification-menu__item notification-menu__item--unread" href="{{ notification.related_url }}" data-notification-id="{{ notification.pk }}" data-notification-unread="true">
                         <strong>{{ notification.title }}</strong>
                         <span>{{ notification.message }}</span>
                         <time datetime="{{ notification.created_at|date:'c' }}">{{ notification.created_at|date:"d.m.Y H:i" }}</time>
                     </a>
                     {% empty %}
-                    <p class="notification-menu__empty">Уведомлений пока нет.</p>
+                    <p class="notification-menu__empty" data-notification-empty>Новых уведомлений нет.</p>
                     {% endfor %}
                 </div>
                 <a class="notification-menu__all" href="{% url 'notifications:list' %}">Открыть все уведомления</a>
