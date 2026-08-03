@@ -101,6 +101,7 @@ class ActDefectForm(forms.ModelForm):
     class Meta:
         model = ActDefect
         fields = (
+            'workshop',
             'znp_number',
             'party_number',
             'checked_quantity',
@@ -112,6 +113,7 @@ class ActDefectForm(forms.ModelForm):
             'description',
         )
         labels = {
+            'workshop': 'Цех/поставщик',
             'znp_number': 'Номер ЗНП',
             'party_number': 'Номер партии',
             'defect_type': 'Вид дефекта',
@@ -147,6 +149,7 @@ class ActDefectForm(forms.ModelForm):
         ).order_by('sort_order', 'name')
         self.fields['operation'].required = True
         self.fields['mp_type'].required = True
+        self.fields['workshop'].required = True
         for field_name in ('znp_number', 'party_number'):
             self.fields[field_name].required = True
             self.fields[field_name].widget.attrs['pattern'] = r'[0-9/-]+'

@@ -30,6 +30,7 @@
                 <tr><th>Номенклатура</th><td>{{ act.nomenclature }}</td></tr>
                 <tr><th>Операция</th><td>{{ act.operation }}</td></tr>
                 <tr><th>Вид дефекта</th><td>{{ act.defect_type }}</td></tr>
+                <tr><th>Цех/поставщик</th><td>{{ first_defect_workshop_display|default:'-' }}</td></tr>
                 <tr><th>Приоритет</th><td>{{ act.priority|default:'-' }}</td></tr>
                 <tr><th>Описание</th><td>{{ act.description }}</td></tr>
                 <tr><th>Статус</th><td>{{ act.status }}</td></tr>

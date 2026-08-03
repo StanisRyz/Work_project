@@ -185,6 +185,10 @@ class Act(models.Model):
 
 
 class ActDefect(models.Model):
+    class Workshop(models.TextChoices):
+        MP_SHOP = 'MP_SHOP', 'Цех МП'
+        TRANSFORMERS_SHOP = 'TRANSFORMERS_SHOP', 'Цех трансформаторов'
+
     class MpType(models.TextChoices):
         OL = 'OL', 'ОЛ'
         OLS = 'OLS', 'ОЛС'
@@ -216,6 +220,7 @@ class ActDefect(models.Model):
     )
     operation = models.ForeignKey(Operation, on_delete=models.PROTECT, blank=True, null=True, verbose_name='Операция')
     mp_type = models.CharField('Тип МП', max_length=4, choices=MpType.choices, blank=True)
+    workshop = models.CharField('Цех/поставщик', max_length=32, choices=Workshop.choices, blank=True)
     znp_number = models.CharField('Номер ЗНП', max_length=80, blank=True)
     party_number = models.CharField('Номер партии', max_length=120, blank=True)
     description = models.TextField('Описание дефекта')

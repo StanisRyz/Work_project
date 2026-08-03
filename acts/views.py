@@ -399,11 +399,14 @@ def act_print(request, pk):
     if not can_view_act(act, request.user):
         raise Http404('No Act matches the given query.')
 
+    first_defect = act.defects.order_by('created_at', 'pk').first()
+
     return render(
         request,
         'acts/print.html',
         {
             'act': act,
+            'first_defect_workshop_display': first_defect.get_workshop_display() if first_defect and first_defect.workshop else '',
             'attachments': act.attachments.select_related('uploaded_by'),
             'history_events': act.history_events.select_related('user', 'from_status', 'to_status')[:20],
         },

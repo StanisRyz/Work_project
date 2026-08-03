@@ -55,6 +55,10 @@ Installation, activation, status checks, logs, manual testing, SMTP-change proce
 
 Before enabling corporate delivery, IT must provide the SMTP/Exchange host, port, TLS or SSL mode, supported authentication method, service username/password if SMTP AUTH is allowed, approved `DEFAULT_FROM_EMAIL`, relay/IP allow-list requirements, CA certificate requirements, and outbound firewall permission. Set `APP_BASE_URL` to the external HTTPS origin, apply migrations, test with one newly created delivery and one mailbox, install the scheduler, and only then set `EMAIL_NOTIFICATIONS_ENABLED=true`. Deliveries created while disabled remain `skipped` and are deliberately not sent later. Exchange OAuth-only delivery would require a compatible custom email backend and remains a deployment integration step.
 
+D28 — mandatory defect workshop/supplier selection.
+
+D28 adds a required `Цех/поставщик` choice to every act defect: `Цех МП` or `Цех трансформаторов`. `ActDefect.workshop` remains optional at the database level so existing defects are never assigned an invented value; `ActDefectForm` requires a real selection for every new or edited defect. In the create and edit act forms, each defect row shows only its `Цех/поставщик` dropdown, positioned above `Номер ЗНП`; the remaining defect fields (`Номер ЗНП`, `Номер партии`, `Вид дефекта`, `Операция`, `Тип МП`, `Дата обнаружения`, `Проверено`, `С отклонением`, `Описание дефекта`) stay hidden until a value is chosen, then appear immediately without a page reload and without losing already-entered data. This applies independently to the first defect row, rows added with `Добавить ещё дефект`, existing rows when editing, and rows redisplayed after a validation error. Hidden fields use the HTML `hidden` attribute so the browser never blocks submission on a field the user cannot see; server-side validation remains the authoritative check. Both workshop choices currently share identical fields, validation, and workflow; no workshop-specific business logic exists yet. The saved value is shown on the act detail defects table and the print view; legacy defects saved before this field existed display a placeholder instead of an invented value.
+
 D27 — compact acts registry.
 
 D27 simplifies `/acts/` without changing workflow or access rules. The topbar title is `Акты`; the introductory, duplicate role/access, and administrator-mode notices are removed. The compact filter panel keeps search, current workflow statuses, act type, and a due-date filter. Act types are `Операционный контроль` and the prepared future `Входной контроль`; existing acts default to operational control. `Просроченные` means a deadline strictly before the current local date; today and future dates are `Не просроченные`. The fixed-height, scrollable registry table shows only number, creation date, type, status, and due date; on the `Архив` tab the creation-date column is replaced by the archiving date. The number remains a protected detail link. Archived acts appear only on the `Архив` tab, including for full-access users. Permitted `Создать АКТ` plus the dedicated administrator-only cleanup action are below it. The operation filter is removed from the registry only; operation data remains in act creation and details.
@@ -161,6 +165,16 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Workflow logic uses `ActStatus.code`, not Russian status names.
 
 ## Manual Validation Checklist
+
+### D28
+
+- Open `/acts/create/` and verify each defect row shows only the `Цех/поставщик` dropdown, positioned above `Номер ЗНП`, with the remaining defect fields hidden.
+- Select `Цех МП` and verify the rest of the fields appear immediately without a page reload; switch to `Цех трансформаторов` and verify already-entered values are preserved. Verify the same behavior for a row added with `Добавить ещё дефект`.
+- Submit the form with no `Цех/поставщик` selected and verify a server-side validation error; verify the browser does not block submission due to a hidden required field.
+- Create an act with two defects using different workshop values and verify both are saved independently.
+- Edit an existing `CREATED_OTK` act and verify its saved `Цех/поставщик` value is preselected, the other fields are visible, and changing the value saves correctly; verify existing quantity validation still rejects an invalid edit.
+- Open an act with a legacy defect saved before this field existed and verify it displays a placeholder instead of an error or an invented value, on both the detail page and the print view.
+- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
 
 ### D22
 

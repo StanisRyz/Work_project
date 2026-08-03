@@ -66,6 +66,23 @@ document.addEventListener('DOMContentLoaded', () => {
             .forEach(validateField);
     };
 
+    const getWorkshopSelect = (block) => block?.querySelector('select[name$="-workshop"]') || null;
+
+    const syncWorkshopVisibility = (block) => {
+        const select = getWorkshopSelect(block);
+        if (!block || !select) {
+            return;
+        }
+        const isChosen = Boolean(select.value);
+        block.querySelectorAll('[data-defect-collapsible]').forEach((element) => {
+            element.hidden = !isChosen;
+        });
+    };
+
+    const syncAllWorkshopVisibility = () => {
+        list.querySelectorAll('.defect-form-block').forEach(syncWorkshopVisibility);
+    };
+
     const reindexForms = () => {
         const blocks = list.querySelectorAll('.defect-form-block');
         blocks.forEach((block, index) => {
@@ -104,6 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
         list.insertAdjacentHTML('beforeend', html);
         totalForms.value = index + 1;
         syncDefectUi();
+        syncWorkshopVisibility(list.querySelector('.defect-form-block:last-child'));
     });
 
     actForm.addEventListener('input', (event) => {
@@ -116,6 +134,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     actForm.addEventListener('change', (event) => {
         const field = event.target;
+        if (field.matches('select[name$="-workshop"]')) {
+            syncWorkshopVisibility(field.closest('.defect-form-block'));
+        }
         if (field.matches('select, input[type="date"]')) {
             validateField(field, false);
         }
@@ -128,8 +149,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }, true);
 
     actForm.addEventListener('submit', (event) => {
-        const fields = actForm.querySelectorAll('input:not([type="hidden"]), select, textarea');
-        const isValid = [...fields].every((field) => validateField(field, true));
+        const fields = [...actForm.querySelectorAll('input:not([type="hidden"]), select, textarea')]
+            .filter((field) => !field.closest('[hidden]'));
+        const isValid = fields.every((field) => validateField(field, true));
         if (!isValid) {
             event.preventDefault();
             actForm.querySelector('.field--invalid input, .field--invalid select, .field--invalid textarea')?.focus();
@@ -163,4 +185,5 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     syncDefectUi();
+    syncAllWorkshopVisibility();
 });

@@ -56,23 +56,24 @@
                         <div class="defect-form-block__groups">
                             <fieldset class="defect-field-group">
                                 <legend>Партия</legend>
-                                <label><span>{{ defect_form.znp_number.label }}</span>{{ defect_form.znp_number }}{{ defect_form.znp_number.errors }}</label>
-                                <label><span>{{ defect_form.party_number.label }}</span>{{ defect_form.party_number }}{{ defect_form.party_number.errors }}</label>
+                                <label><span>{{ defect_form.workshop.label }}</span>{{ defect_form.workshop }}{{ defect_form.workshop.errors }}</label>
+                                <label data-defect-collapsible><span>{{ defect_form.znp_number.label }}</span>{{ defect_form.znp_number }}{{ defect_form.znp_number.errors }}</label>
+                                <label data-defect-collapsible><span>{{ defect_form.party_number.label }}</span>{{ defect_form.party_number }}{{ defect_form.party_number.errors }}</label>
                             </fieldset>
-                            <fieldset class="defect-field-group">
+                            <fieldset class="defect-field-group" data-defect-collapsible>
                                 <legend>Контроль</legend>
                                 <label><span>{{ defect_form.defect_type.label }}</span>{{ defect_form.defect_type }}{{ defect_form.defect_type.errors }}</label>
                                 <label><span>{{ defect_form.operation.label }}</span>{{ defect_form.operation }}{{ defect_form.operation.errors }}</label>
                                 <label><span>{{ defect_form.mp_type.label }}</span>{{ defect_form.mp_type }}{{ defect_form.mp_type.errors }}</label>
                             </fieldset>
-                            <fieldset class="defect-field-group">
+                            <fieldset class="defect-field-group" data-defect-collapsible>
                                 <legend>Результат контроля</legend>
                                 <label><span>Дата обнаружения</span>{{ defect_form.detected_at }}{{ defect_form.detected_at.errors }}</label>
                                 <label><span>{{ defect_form.checked_quantity.label }}</span>{{ defect_form.checked_quantity }}{{ defect_form.checked_quantity.errors }}</label>
                                 <label><span>{{ defect_form.nonconforming_quantity.label }}</span>{{ defect_form.nonconforming_quantity }}{{ defect_form.nonconforming_quantity.errors }}</label>
                             </fieldset>
                         </div>
-                        <label class="defect-form-block__description"><span>{{ defect_form.description.label }}</span>{{ defect_form.description }}{{ defect_form.description.errors }}</label>
+                        <label class="defect-form-block__description" data-defect-collapsible><span>{{ defect_form.description.label }}</span>{{ defect_form.description }}{{ defect_form.description.errors }}</label>
                     </section>
                 {% endfor %}
             </div>
@@ -88,23 +89,24 @@
                     <div class="defect-form-block__groups">
                         <fieldset class="defect-field-group">
                             <legend>Партия</legend>
-                            <label><span>{{ defect_formset.empty_form.znp_number.label }}</span>{{ defect_formset.empty_form.znp_number }}{{ defect_formset.empty_form.znp_number.errors }}</label>
-                            <label><span>{{ defect_formset.empty_form.party_number.label }}</span>{{ defect_formset.empty_form.party_number }}{{ defect_formset.empty_form.party_number.errors }}</label>
+                            <label><span>{{ defect_formset.empty_form.workshop.label }}</span>{{ defect_formset.empty_form.workshop }}{{ defect_formset.empty_form.workshop.errors }}</label>
+                            <label data-defect-collapsible><span>{{ defect_formset.empty_form.znp_number.label }}</span>{{ defect_formset.empty_form.znp_number }}{{ defect_formset.empty_form.znp_number.errors }}</label>
+                            <label data-defect-collapsible><span>{{ defect_formset.empty_form.party_number.label }}</span>{{ defect_formset.empty_form.party_number }}{{ defect_formset.empty_form.party_number.errors }}</label>
                         </fieldset>
-                        <fieldset class="defect-field-group">
+                        <fieldset class="defect-field-group" data-defect-collapsible>
                             <legend>Контроль</legend>
                             <label><span>{{ defect_formset.empty_form.defect_type.label }}</span>{{ defect_formset.empty_form.defect_type }}{{ defect_formset.empty_form.defect_type.errors }}</label>
                             <label><span>{{ defect_formset.empty_form.operation.label }}</span>{{ defect_formset.empty_form.operation }}{{ defect_formset.empty_form.operation.errors }}</label>
                             <label><span>{{ defect_formset.empty_form.mp_type.label }}</span>{{ defect_formset.empty_form.mp_type }}{{ defect_formset.empty_form.mp_type.errors }}</label>
                         </fieldset>
-                        <fieldset class="defect-field-group">
+                        <fieldset class="defect-field-group" data-defect-collapsible>
                             <legend>Результат контроля</legend>
                             <label><span>Дата обнаружения</span>{{ defect_formset.empty_form.detected_at }}{{ defect_formset.empty_form.detected_at.errors }}</label>
                             <label><span>{{ defect_formset.empty_form.checked_quantity.label }}</span>{{ defect_formset.empty_form.checked_quantity }}{{ defect_formset.empty_form.checked_quantity.errors }}</label>
                             <label><span>{{ defect_formset.empty_form.nonconforming_quantity.label }}</span>{{ defect_formset.empty_form.nonconforming_quantity }}{{ defect_formset.empty_form.nonconforming_quantity.errors }}</label>
                         </fieldset>
                     </div>
-                    <label class="defect-form-block__description"><span>{{ defect_formset.empty_form.description.label }}</span>{{ defect_formset.empty_form.description }}{{ defect_formset.empty_form.description.errors }}</label>
+                    <label class="defect-form-block__description" data-defect-collapsible><span>{{ defect_formset.empty_form.description.label }}</span>{{ defect_formset.empty_form.description }}{{ defect_formset.empty_form.description.errors }}</label>
                 </section>
             </template>
             <button class="link-button link-button--secondary add-defect-button" type="button" data-add-defect>
@@ -122,5 +124,5 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="{% static 'js/act_create.js' %}?v=20260730-1"></script>
+    <script src="{% static 'js/act_create.js' %}?v=20260803-1"></script>
 {% endblock %}

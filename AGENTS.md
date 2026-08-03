@@ -86,6 +86,10 @@
 - SMTP and the selected server scheduler must be configured and activated during deployment. User actions and internal notifications must remain independent of SMTP availability.
 - Celery, Redis, APScheduler, and schedulers embedded in WSGI/ASGI processes are not used for notification delivery.
 - The full-width act-card redesign is deferred. Preserve the current detail-page implementation and access behavior until a separate approved UI stage resumes it.
+- Every `ActDefect` has a `workshop` field (`MP_SHOP` — «Цех МП», `TRANSFORMERS_SHOP` — «Цех трансформаторов»); the model field stays `blank=True` so existing rows are never backfilled with an invented value, but `ActDefectForm` requires a real choice for every new or edited defect.
+- In the create/edit act form, each defect row shows only its «Цех/поставщик» selector until a value is chosen; the other defect fields (ЗНП, партия, вид дефекта, операция, тип МП, дата обнаружения, проверено, с отклонением, описание) stay hidden via the `hidden` attribute so the browser does not block submission on a field the user cannot see. Selecting either option reveals the rest of that row without a page reload and without clearing already-entered values; this applies independently to the first row, rows added by «Добавить ещё дефект», existing rows on edit, and rows redisplayed after a validation error. Both workshop choices currently share the same fields, validation, and business process — do not implement per-workshop differences without an explicit request.
+- The workshop show/hide behavior lives in `static/js/act_create.js` alongside the existing defect formset logic; do not introduce a separate script or a frontend framework for it.
+- The saved workshop value is shown read-only wherever defect data is already displayed (act detail defects table, print view); legacy defects saved before this field existed show a placeholder instead of an invented value.
 
 ## Patch Rules
 

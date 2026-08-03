@@ -73,6 +73,7 @@ class ActViewTests(TestCase):
                 'defects-INITIAL_FORMS': '0',
                 'defects-MIN_NUM_FORMS': '1',
                 'defects-MAX_NUM_FORMS': '1000',
+                'defects-0-workshop': ActDefect.Workshop.MP_SHOP,
                 'defects-0-defect_type': self.defect_type.id,
                 'defects-0-operation': self.operation.id,
                 'defects-0-mp_type': 'OL',
@@ -90,6 +91,7 @@ class ActViewTests(TestCase):
         self.assertEqual(act.created_by, self.otk_user)
         self.assertEqual(act.status.code, 'CREATED_OTK')
         self.assertEqual(ActDefect.objects.filter(act=act).count(), 1)
+        self.assertEqual(act.defects.get().workshop, ActDefect.Workshop.MP_SHOP)
 
     def test_act_form_uses_compact_defect_groups(self):
         self.client.force_login(self.otk_user)
@@ -105,6 +107,31 @@ class ActViewTests(TestCase):
         for group in ('Партия', 'Контроль', 'Результат контроля'):
             self.assertContains(response, f'<legend>{group}</legend>', html=False)
         self.assertContains(response, 'Добавить ещё дефект')
+
+    def test_create_form_hides_defect_fields_until_workshop_chosen(self):
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:create'))
+        content = response.content.decode()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Цех/поставщик')
+        self.assertContains(response, 'Цех МП')
+        self.assertContains(response, 'Цех трансформаторов')
+        self.assertContains(response, 'data-defect-collapsible', html=False)
+
+        workshop_select_index = content.index('name="defects-0-workshop"')
+        empty_option_index = content.index('<option value="" selected>', workshop_select_index)
+        mp_option_index = content.index('value="MP_SHOP"', workshop_select_index)
+        self.assertLess(empty_option_index, mp_option_index)
+
+        # The workshop select itself must not be marked collapsible.
+        workshop_field_index = content.index('name="defects-0-workshop"')
+        collapsible_before_workshop = content.rfind('data-defect-collapsible', 0, workshop_field_index)
+        znp_field_index = content.index('name="defects-0-znp_number"')
+        collapsible_before_znp = content.rfind('data-defect-collapsible', 0, znp_field_index)
+        self.assertGreater(collapsible_before_znp, workshop_field_index)
+        self.assertEqual(collapsible_before_workshop, -1)
 
     def test_history_feed_renders_return_and_comment_as_separate_events(self):
         act = self._create_act(self.status_created)
@@ -147,6 +174,7 @@ class ActViewTests(TestCase):
                 'defects-INITIAL_FORMS': '0',
                 'defects-MIN_NUM_FORMS': '1',
                 'defects-MAX_NUM_FORMS': '1000',
+                'defects-0-workshop': ActDefect.Workshop.MP_SHOP,
                 'defects-0-defect_type': self.defect_type.id,
                 'defects-0-operation': self.operation.id,
                 'defects-0-mp_type': 'OL',
@@ -161,6 +189,176 @@ class ActViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'не может превышать')
+
+    def _defect_post_fields(self, index, workshop, **overrides):
+        fields = {
+            f'defects-{index}-workshop': workshop,
+            f'defects-{index}-defect_type': self.defect_type.id,
+            f'defects-{index}-operation': self.operation.id,
+            f'defects-{index}-mp_type': 'OL',
+            f'defects-{index}-znp_number': f'20{index}-1',
+            f'defects-{index}-party_number': f'10{index}-100',
+            f'defects-{index}-checked_quantity': '10',
+            f'defects-{index}-nonconforming_quantity': '1',
+            f'defects-{index}-description': 'Описание дефекта',
+            f'defects-{index}-detected_at': timezone.localdate().isoformat(),
+        }
+        for key, value in overrides.items():
+            fields[f'defects-{index}-{key}'] = value
+        return fields
+
+    def test_create_act_succeeds_for_each_workshop_choice(self):
+        self.client.force_login(self.otk_user)
+
+        for choice_index, workshop in enumerate(ActDefect.Workshop.values):
+            order_number = f'300-{choice_index}'
+            response = self.client.post(
+                reverse('acts:create'),
+                {
+                    'customer': 'Заказчик',
+                    'order_number': order_number,
+                    'nomenclature': 'Катушка-А',
+                    'kd_designation': 'КД-200',
+                    'defects-TOTAL_FORMS': '1',
+                    'defects-INITIAL_FORMS': '0',
+                    'defects-MIN_NUM_FORMS': '1',
+                    'defects-MAX_NUM_FORMS': '1000',
+                    **self._defect_post_fields(0, workshop),
+                },
+            )
+
+            self.assertEqual(response.status_code, 302, workshop)
+            act = Act.objects.get(order_number=order_number)
+            self.assertEqual(act.defects.get().workshop, workshop)
+
+    def test_create_rejects_act_without_workshop_selection(self):
+        self.client.force_login(self.otk_user)
+
+        response = self.client.post(
+            reverse('acts:create'),
+            {
+                'customer': 'Заказчик',
+                'order_number': '300-9',
+                'nomenclature': 'Катушка-А',
+                'kd_designation': 'КД-201',
+                'defects-TOTAL_FORMS': '1',
+                'defects-INITIAL_FORMS': '0',
+                'defects-MIN_NUM_FORMS': '1',
+                'defects-MAX_NUM_FORMS': '1000',
+                **self._defect_post_fields(0, ''),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Act.objects.filter(order_number='300-9').exists())
+        self.assertContains(response, 'Обязательное поле.')
+
+    def test_create_saves_multiple_defects_with_independent_workshop_values(self):
+        self.client.force_login(self.otk_user)
+
+        response = self.client.post(
+            reverse('acts:create'),
+            {
+                'customer': 'Заказчик',
+                'order_number': '300-10',
+                'nomenclature': 'Катушка-А',
+                'kd_designation': 'КД-202',
+                'defects-TOTAL_FORMS': '2',
+                'defects-INITIAL_FORMS': '0',
+                'defects-MIN_NUM_FORMS': '1',
+                'defects-MAX_NUM_FORMS': '1000',
+                **self._defect_post_fields(0, ActDefect.Workshop.MP_SHOP),
+                **self._defect_post_fields(1, ActDefect.Workshop.TRANSFORMERS_SHOP),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        act = Act.objects.get(order_number='300-10')
+        workshops = set(act.defects.values_list('workshop', flat=True))
+        self.assertEqual(workshops, {ActDefect.Workshop.MP_SHOP, ActDefect.Workshop.TRANSFORMERS_SHOP})
+
+    def test_edit_updates_defect_workshop_and_preserves_other_validation(self):
+        act = self._create_act(self.status_created, created_by=self.otk_user)
+        defect = ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, operation=self.operation,
+            znp_number='1-1', party_number='2-2', mp_type='OL',
+            checked_quantity=10, nonconforming_quantity=1,
+            description='Исходное описание', detected_at=timezone.localdate(),
+        )
+        self.client.force_login(self.otk_user)
+
+        response = self.client.post(
+            reverse('acts:edit', args=[act.pk]),
+            {
+                'customer': 'Заказчик',
+                'order_number': '100-3',
+                'nomenclature': 'Катушка-А',
+                'kd_designation': 'КД-103',
+                'defects-TOTAL_FORMS': '1',
+                'defects-INITIAL_FORMS': '1',
+                'defects-MIN_NUM_FORMS': '1',
+                'defects-MAX_NUM_FORMS': '1000',
+                'defects-0-id': defect.id,
+                'defects-0-workshop': ActDefect.Workshop.TRANSFORMERS_SHOP,
+                'defects-0-defect_type': self.defect_type.id,
+                'defects-0-operation': self.operation.id,
+                'defects-0-mp_type': 'OL',
+                'defects-0-znp_number': '1-1',
+                'defects-0-party_number': '2-2',
+                'defects-0-checked_quantity': '10',
+                'defects-0-nonconforming_quantity': '1',
+                'defects-0-description': 'Обновлённое описание',
+                'defects-0-detected_at': timezone.localdate().isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        defect.refresh_from_db()
+        self.assertEqual(defect.workshop, ActDefect.Workshop.TRANSFORMERS_SHOP)
+        self.assertEqual(defect.description, 'Обновлённое описание')
+
+        # Existing quantity validation must still reject an invalid edit.
+        response = self.client.post(
+            reverse('acts:edit', args=[act.pk]),
+            {
+                'customer': 'Заказчик',
+                'order_number': '100-3',
+                'nomenclature': 'Катушка-А',
+                'kd_designation': 'КД-103',
+                'defects-TOTAL_FORMS': '1',
+                'defects-INITIAL_FORMS': '1',
+                'defects-MIN_NUM_FORMS': '1',
+                'defects-MAX_NUM_FORMS': '1000',
+                'defects-0-id': defect.id,
+                'defects-0-workshop': ActDefect.Workshop.TRANSFORMERS_SHOP,
+                'defects-0-defect_type': self.defect_type.id,
+                'defects-0-operation': self.operation.id,
+                'defects-0-mp_type': 'OL',
+                'defects-0-znp_number': '1-1',
+                'defects-0-party_number': '2-2',
+                'defects-0-checked_quantity': '2',
+                'defects-0-nonconforming_quantity': '5',
+                'defects-0-description': 'Обновлённое описание',
+                'defects-0-detected_at': timezone.localdate().isoformat(),
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'не может превышать')
+
+    def test_legacy_defect_without_workshop_displays_placeholder(self):
+        act = self._create_act(self.status_to)
+        ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, operation=self.operation,
+            party_number='P-LEGACY', mp_type='OL', description='Легаси дефект',
+            detected_at=timezone.localdate(),
+        )
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Цех/')
+        self.assertContains(response, '—')
 
     def test_otk_list_shows_only_own_created_otk_acts(self):
         visible = self._create_act(self.status_created, party_number='P-OTK')

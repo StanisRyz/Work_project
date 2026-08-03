@@ -275,7 +275,7 @@
 
 .act-defects-table {
     width: 100%;
-    min-width: 1250px;
+    min-width: 1350px;
     border-collapse: collapse;
     table-layout: fixed;
 }
@@ -290,16 +290,17 @@
 
 .act-defects-table th { background: #fbfcff; color: #1d2d5e; text-align: center; white-space: normal; }
 .act-defects-table td { color: #223764; text-align: center; }
-.act-defects-table__number { width: 2.5%; }
-.act-defects-table__party { width: 6.5%; }
-.act-defects-table__type { width: 11.5%; }
-.act-defects-table__mp { width: 6.5%; }
-.act-defects-table__date { width: 8%; }
-.act-defects-table__checked { width: 7%; }
-.act-defects-table__nonconforming { width: 8%; }
-.act-defects-table__description { width: 18%; }
-.act-defects-table__decision { width: 16%; }
-.act-defects-table__comment { width: 16%; }
+.act-defects-table__number { width: 2.3%; }
+.act-defects-table__workshop { width: 9%; }
+.act-defects-table__party { width: 5.9%; }
+.act-defects-table__type { width: 10.5%; }
+.act-defects-table__mp { width: 5.9%; }
+.act-defects-table__date { width: 7.3%; }
+.act-defects-table__checked { width: 6.4%; }
+.act-defects-table__nonconforming { width: 7.3%; }
+.act-defects-table__description { width: 16.4%; }
+.act-defects-table__decision { width: 14.6%; }
+.act-defects-table__comment { width: 14.6%; }
 .act-defects-table select, .act-defects-table textarea {
     width: 100%;
     min-width: 0;
@@ -826,6 +827,10 @@
 
 .defect-form-block__description {
     gap: 7px !important;
+}
+
+.defect-form-block [data-defect-collapsible][hidden] {
+    display: none !important;
 }
 
 .add-defect-button .ui-icon {
