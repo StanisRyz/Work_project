@@ -122,7 +122,7 @@
 - Do not add frontend frameworks.
 - Keep navigation server-rendered unless a later patch asks for frontend behavior.
 - Do not add realtime or WebSocket features yet.
-- Do not add PostgreSQL configuration until the database stage is requested.
 - Keep local development beginner-friendly.
 - Notification pages and POST actions must always scope objects to `request.user`; notification links never bypass act backend permissions.
 - Do not send email synchronously from act workflow services. Any future dispatch trigger must be registered only after database commit.
+- The project supports both SQLite and PostgreSQL via `DATABASE_ENGINE` in `ecosystem/settings.py`; SQLite stays the default local backend, and PostgreSQL is selected only through the environment (`DATABASE_ENGINE=postgresql` plus `DB_NAME`/`DB_USER`/`DB_PASSWORD`, never hardcoded). Database secrets must never be committed to Git. A missing required PostgreSQL variable or an unsupported `DATABASE_ENGINE` value must raise `ImproperlyConfigured` with no hidden fallback to SQLite. Migrations must stay compatible with both backends. Actual PostgreSQL deployment and migrating existing SQLite data to it are not implemented yet — see `docs/postgresql_preparation.md`.

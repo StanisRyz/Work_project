@@ -360,6 +360,23 @@ If script execution is restricted in PowerShell, use:
 python -m pip install -r requirements.txt
 ```
 
+## Database Configuration
+
+SQLite remains the default backend and needs no environment variables; local
+setup and testing are unchanged. `DATABASE_ENGINE` switches to PostgreSQL
+(`ENGINE = django.db.backends.postgresql`, driver: `psycopg[binary]`) when
+set to `postgresql`. Required in that mode: `DB_NAME`, `DB_USER`,
+`DB_PASSWORD`. Optional, with defaults: `DB_HOST` (`127.0.0.1`), `DB_PORT`
+(`5432`), `DB_CONN_MAX_AGE` (`0`), `DB_CONN_HEALTH_CHECKS` (`false`). A
+missing required variable or an unsupported `DATABASE_ENGINE` value fails
+`manage.py check`/startup with a clear `ImproperlyConfigured` error and never
+falls back to SQLite silently. The PostgreSQL server, database, and role are
+installed and created separately; this project does not provision them, and
+existing SQLite data is not migrated by this configuration. See
+[Preparing for PostgreSQL](docs/postgresql_preparation.md) for variables,
+error behavior, and a PowerShell example. A template without real secrets is
+in `.env.example`.
+
 ## Setup Local Data
 
 ```powershell
@@ -402,7 +419,7 @@ Open http://127.0.0.1:8000/ in a browser.
 - Nonconformities.
 - Reports.
 - Word/PDF export.
-- PostgreSQL configuration.
+- PostgreSQL production deployment and migrating existing SQLite data to it (switchable configuration is prepared; see [Preparing for PostgreSQL](docs/postgresql_preparation.md)).
 - REST API or realtime features.
 - Frontend frameworks.
 - Celery, Redis, APScheduler, or an in-process WSGI/ASGI scheduler.

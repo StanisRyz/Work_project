@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -77,15 +79,72 @@ TEMPLATES = [
 WSGI_APPLICATION = 'ecosystem.wsgi.application'
 
 
+# Environment variable helpers
+#
+# Compact readers shared by every environment-driven setting below (database,
+# email). Errors are raised as ImproperlyConfigured so misconfiguration fails
+# loudly at startup instead of silently falling back to a default.
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def env_int(name, default):
+    value = os.getenv(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            f'Environment variable "{name}" must be an integer; got "{value}".'
+        ) from exc
+
+
+def env_str_required(name):
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        raise ImproperlyConfigured(f'Environment variable "{name}" is required but not set.')
+    return value
+
+
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+#
+# DATABASE_ENGINE selects the backend: "sqlite" (default, no extra
+# configuration required) or "postgresql" (requires DB_NAME, DB_USER, and
+# DB_PASSWORD; see docs/postgresql_preparation.md). There is no hidden
+# fallback to SQLite if PostgreSQL is selected but misconfigured.
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+DATABASE_ENGINE = os.getenv('DATABASE_ENGINE', 'sqlite').strip().lower()
+
+if DATABASE_ENGINE == 'sqlite':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+elif DATABASE_ENGINE == 'postgresql':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': env_str_required('DB_NAME'),
+            'USER': env_str_required('DB_USER'),
+            'PASSWORD': env_str_required('DB_PASSWORD'),
+            'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+            'PORT': env_int('DB_PORT', 5432),
+            'CONN_MAX_AGE': env_int('DB_CONN_MAX_AGE', 0),
+            'CONN_HEALTH_CHECKS': env_bool('DB_CONN_HEALTH_CHECKS', False),
+        }
+    }
+else:
+    raise ImproperlyConfigured(
+        f'Unsupported DATABASE_ENGINE "{DATABASE_ENGINE}". Supported values: sqlite, postgresql.'
+    )
 
 
 # Password validation
@@ -133,18 +192,6 @@ MEDIA_ROOT = BASE_DIR / 'media'
 LOGIN_URL = 'accounts:login'
 LOGIN_REDIRECT_URL = 'dashboard:home'
 LOGOUT_REDIRECT_URL = 'accounts:login'
-
-
-def env_bool(name, default=False):
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
-
-
-def env_int(name, default):
-    value = os.getenv(name)
-    return int(value) if value else default
 
 
 # Email notifications are deliberately disabled by default. SMTP credentials are
