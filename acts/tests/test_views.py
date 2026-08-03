@@ -1,7 +1,9 @@
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -908,7 +910,7 @@ class ActViewTests(TestCase):
         self.assertContains(response, 'Текущий этап')
         self.assertContains(response, 'Ожидает')
 
-    def test_readonly_to_analysis_compacts_columns_and_expands_multiple_assignees(self):
+    def test_readonly_to_analysis_compacts_columns_and_lists_multiple_assignees(self):
         act = self._create_act(self.status_otk_review)
         root = ActRootAnalysis.objects.create(act=act, root_cause='Плохое оснащение участка')
         single_action = ActCorrectiveAction.objects.create(
@@ -940,11 +942,111 @@ class ActViewTests(TestCase):
         self.assertContains(response, 'to-analysis-section')
         self.assertContains(response, 'to-analysis-readonly__cause')
         self.assertContains(response, 'Плохое оснащение участка')
-        self.assertContains(response, 'to-analysis-assignees')
+        self.assertContains(response, 'to-analysis-assignee-list')
+        self.assertNotContains(response, 'to-analysis-assignees"')
         self.assertContains(response, self.to_user.username)
         self.assertContains(response, self.other_otk_user.username)
+        self.assertNotContains(response, '<select', html=False)
         self.assertNotContains(response, 'Будет создана после утверждения')
         self.assertContains(response, str(task.status))
+
+    def test_readonly_to_analysis_shows_single_assignee_without_expand_control(self):
+        act = self._create_act(self.status_otk_review)
+        root = ActRootAnalysis.objects.create(act=act, root_cause='Причина')
+        action = ActCorrectiveAction.objects.create(
+            root_analysis=root, comment='Мероприятие', department=self.department,
+            due_date=timezone.localdate(),
+        )
+        ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=self.to_user)
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'to-analysis-assignee-list')
+        self.assertContains(response, self.to_user.username)
+        self.assertNotContains(response, 'to-analysis-assignees"')
+
+    def test_readonly_to_analysis_shows_dash_when_action_has_no_assignees(self):
+        act = self._create_act(self.status_archived)
+        root = ActRootAnalysis.objects.create(act=act, root_cause='Причина')
+        ActCorrectiveAction.objects.create(
+            root_analysis=root, comment='Мероприятие без исполнителей', department=self.department,
+            due_date=timezone.localdate(),
+        )
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Мероприятие без исполнителей')
+        self.assertNotContains(response, 'to-analysis-assignee-list')
+        self.assertContains(response, '—')
+
+    def test_readonly_to_analysis_on_archived_act_lists_assignees_without_select(self):
+        act = self._create_act(self.status_archived)
+        root = ActRootAnalysis.objects.create(act=act, root_cause='Причина архива')
+        action = ActCorrectiveAction.objects.create(
+            root_analysis=root, comment='Архивное мероприятие', department=self.department,
+            due_date=timezone.localdate(),
+        )
+        ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=self.to_user)
+        ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=self.other_otk_user)
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Архивное мероприятие')
+        self.assertContains(response, 'to-analysis-assignee-list')
+        self.assertContains(response, self.to_user.username)
+        self.assertContains(response, self.other_otk_user.username)
+        self.assertNotContains(response, '<select', html=False)
+
+    def test_to_analysis_edit_form_keeps_assignee_select_for_editable_status(self):
+        act = self._create_act(self.status_to)
+        root = ActRootAnalysis.objects.create(act=act, root_cause='Причина')
+        action = ActCorrectiveAction.objects.create(
+            root_analysis=root, comment='Мероприятие', department=self.department,
+            due_date=timezone.localdate() + timedelta(days=3),
+        )
+        ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=self.to_user)
+        self.client.force_login(self.to_user)
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-assignees-select')
+        self.assertContains(response, f'value="{self.to_user.pk}" data-department-id')
+        self.assertNotContains(response, 'to-analysis-assignee-list')
+
+    def test_readonly_to_analysis_assignee_display_does_not_scale_queries_per_assignee(self):
+        act = self._create_act(self.status_otk_review)
+        root = ActRootAnalysis.objects.create(act=act, root_cause='Причина')
+        action = ActCorrectiveAction.objects.create(
+            root_analysis=root, comment='Мероприятие', department=self.department,
+            due_date=timezone.localdate(),
+        )
+        ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=self.to_user)
+        self.client.force_login(self.manager_user)
+        url = reverse('acts:detail', args=[act.pk]) + '?tab=work'
+
+        with CaptureQueriesContext(connection) as single_assignee_queries:
+            self.client.get(url)
+
+        extra_assignees = [
+            self._create_user(f'to_extra_{i}', UserProfile.Role.TO) for i in range(4)
+        ]
+        for extra_user in extra_assignees:
+            ActCorrectiveActionAssignee.objects.create(corrective_action=action, user=extra_user)
+
+        with CaptureQueriesContext(connection) as many_assignees_queries:
+            response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        for extra_user in extra_assignees:
+            self.assertContains(response, extra_user.username)
+        self.assertEqual(len(single_assignee_queries), len(many_assignees_queries))
 
     def test_archived_analysis_does_not_repeat_approval_metadata(self):
         act = self._create_act(self.status_archived)

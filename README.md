@@ -101,7 +101,7 @@ D20 adds the `OTK_REVIEW` (`Проверка ОТК`) stage. From `TO_ANALYSIS`,
 
 D19 — structured TO analysis is embedded on the act detail page.
 
-D19 replaces the separate TO analysis page with a `Корневая проработка` form on `Проработка`. Each root cause contains one or more corrective actions with department, assignees, and due date. The subsequent D20 workflow sends successful analysis to `OTK_REVIEW`; legacy summaries remain compatible and the submitted structure is read-only outside TO correction.
+D19 replaces the separate TO analysis page with a `Корневая проработка` form on `Проработка`. Each root cause contains one or more corrective actions with department, assignees, and due date. The subsequent D20 workflow sends successful analysis to `OTK_REVIEW`; legacy summaries remain compatible and the submitted structure is read-only outside TO correction. Outside `TO_ANALYSIS` (OTK review, archived acts, and any other read-only view of the same table), every assignee is listed as plain text — never the editable department/assignee selects — with a `—` placeholder when an action has none.
 
 D18 — comments moved to the attachments tab and KO return-to-OTK rationale is required.
 

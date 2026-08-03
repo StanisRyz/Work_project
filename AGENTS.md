@@ -56,7 +56,7 @@
 - `ActRootAnalysis` stores one or more root causes and `ActCorrectiveAction` stores one or more actions for each root cause.
 - Every root cause and corrective action text is required; each action has a responsible department and one or more active assignees. Each assignee is selected only after choosing that assignee's department and must belong to it; assignees may belong to different departments.
 - Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `OTK_REVIEW`, and create the existing TO history event.
-- Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback.
+- Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback. Read-only assignee display (OTK review, archived acts, and any other non-editable view of the same table) must never render the editable department/assignee `<select>` controls; use `acts/includes/to_analysis_assignees_readonly.html` to list every assignee, falling back to `—` when an action has none.
 - `TO_ANALYSIS` has two actions: return to `KO_REVIEW` with a mandatory atomic comment, or submit validated structured analysis to `OTK_REVIEW`.
 - `OTK_REVIEW` is an OTK queue stage; its existing approval and return actions remain supported.
 - Do not render delete buttons for the initial single root analysis or its single action. Show them only once the respective collection has more than one item.

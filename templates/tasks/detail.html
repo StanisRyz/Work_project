@@ -1,32 +1,88 @@
 {% extends 'base.html' %}
 
-{% block title %}Задача{% endblock %}
+{% block title %}Задача {{ task.pk }}{% endblock %}
 
 {% block content %}
-<section class="task-detail-card">
-    <section class="task-detail-section task-detail-block">
-        <dl class="task-detail-meta">
-            <div><dt>Статус</dt><dd>По акту</dd></div>
-            <div><dt>Исходный акт</dt><dd><a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a></dd></div>
-            <div><dt>Срок</dt><dd><span class="{% if task.status.code != 'COMPLETED' and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></dd></div>
-        </dl>
-        <div class="task-detail-subsection"><h2>Исполнители</h2><ul class="task-assignee-list">{% for assignee in task.assignees.all %}<li>{{ assignee.user }}{% if assignee.user.userprofile.department %} — {{ assignee.user.userprofile.department }}{% endif %}</li>{% endfor %}</ul></div>
-    </section>
-    <section class="task-detail-section task-detail-block"><div class="task-detail-subsection"><h2>Корневая причина</h2><div class="task-comment-block">{{ task.root_analysis.root_cause|linebreaksbr }}</div></div><div class="task-detail-subsection"><h2>Задача</h2><div class="task-comment-block">{{ task.task_text|linebreaksbr }}</div></div></section>
-
-    {% if can_complete %}
-        <form method="post" action="{% url 'tasks:complete' task.pk %}" class="task-detail-section task-detail-block">
-            {% csrf_token %}
-            <input type="hidden" name="list_query" value="{{ list_query }}">
-            <label class="task-execution-field"><span>Выполнение</span><textarea name="execution_comment" rows="5" required>{{ execution_comment }}</textarea></label>
-            {% if execution_error %}<p class="field-error">{{ execution_error }}</p>{% endif %}
-            <div class="task-detail-actions"><a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a><button class="link-button" type="submit">Завершить задачу</button></div>
-        </form>
-    {% else %}
-        {% if task.completed_by %}
-            <section class="task-detail-section task-detail-block"><h2>Выполнение</h2><div class="task-comment-block">{{ task.execution_comment|linebreaksbr }}</div><p class="task-completion-meta">Завершил {{ task.completed_by }}, {{ task.completed_at|date:'d.m.Y H:i' }}</p></section>
-        {% endif %}
-        <div class="task-detail-actions"><a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a></div>
-    {% endif %}
+<section class="task-detail-heading">
+    <a class="act-back-link" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}" aria-label="К списку задач">←</a>
+    <div class="task-detail-heading__title">
+        <h1>Задача {{ task.pk }}</h1>
+        <span class="act-badge act-badge--status">{{ task.status }}</span>
+    </div>
 </section>
+
+<div class="task-detail-columns">
+    <section class="task-detail-info-card">
+        <div class="task-detail-info-row"><dt>Статус</dt><dd>{{ task.status }}</dd></div>
+        <div class="task-detail-info-row"><dt>Исходный акт</dt><dd><a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a></dd></div>
+        <div class="task-detail-info-row"><dt>Срок</dt><dd><span class="{% if task.status.code != 'COMPLETED' and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></dd></div>
+    </section>
+
+    <section class="task-detail-assignee-card">
+        <h2>Исполнители</h2>
+        {% with assignees=task.assignees.all %}
+            {% if assignees %}
+                <div class="task-detail-assignee-primary">
+                    <span class="task-detail-assignee-avatar">{{ assignees.0.user.username|slice:":2"|upper }}</span>
+                    <span>{{ assignees.0.user }}</span>
+                    {% if assignees.0.user.userprofile.department %}<span class="task-detail-assignee-role">{{ assignees.0.user.userprofile.department }}</span>{% endif %}
+                </div>
+                {% if assignees|length > 1 %}
+                    <details class="task-detail-assignee-toggle">
+                        <summary aria-label="Показать всех исполнителей"><span class="task-detail-assignee-chevron" aria-hidden="true">⌄</span></summary>
+                        <ul class="task-detail-assignee-popup">
+                            {% for assignee in assignees|slice:"1:" %}
+                            <li>
+                                <span class="task-detail-assignee-avatar">{{ assignee.user.username|slice:":2"|upper }}</span>
+                                <span>{{ assignee.user }}</span>
+                                {% if assignee.user.userprofile.department %}<span class="task-detail-assignee-role">{{ assignee.user.userprofile.department }}</span>{% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                {% endif %}
+            {% else %}
+                <p class="task-detail-assignee-empty">—</p>
+            {% endif %}
+        {% endwith %}
+    </section>
+</div>
+
+<div class="task-detail-analysis-columns">
+    <section class="task-detail-analysis-card">
+        <span class="task-detail-eyebrow">Анализ ТО</span>
+        <h2>Корневая причина</h2>
+        <div class="task-comment-block">{{ task.root_analysis.root_cause|linebreaksbr }}</div>
+    </section>
+    <section class="task-detail-analysis-card">
+        <span class="task-detail-eyebrow">Корректирующее мероприятие</span>
+        <h2>Задача</h2>
+        <div class="task-comment-block">{{ task.task_text|linebreaksbr }}</div>
+    </section>
+</div>
+
+{% if can_complete %}
+    <form method="post" action="{% url 'tasks:complete' task.pk %}" class="task-detail-execution-card">
+        {% csrf_token %}
+        <input type="hidden" name="list_query" value="{{ list_query }}">
+        <h2>Выполнение</h2>
+        <textarea name="execution_comment" rows="4" required placeholder="Опишите результат выполнения задачи">{{ execution_comment }}</textarea>
+        {% if execution_error %}<p class="field-error">{{ execution_error }}</p>{% endif %}
+        <div class="task-detail-actions">
+            <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a>
+            <button class="link-button" type="submit">Завершить задачу</button>
+        </div>
+    </form>
+{% else %}
+    {% if task.completed_by %}
+        <section class="task-detail-execution-card">
+            <h2>Выполнение</h2>
+            <div class="task-comment-block">{{ task.execution_comment|linebreaksbr }}</div>
+            <p class="task-completion-meta">Завершил {{ task.completed_by }}, {{ task.completed_at|date:'d.m.Y H:i' }}</p>
+        </section>
+    {% endif %}
+    <div class="task-detail-actions">
+        <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a>
+    </div>
+{% endif %}
 {% endblock %}
