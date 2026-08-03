@@ -67,10 +67,56 @@ python manage.py check
 сервер. Реальное подключение (`migrate` и далее) требует уже поднятого и
 доступного сервера PostgreSQL с созданной базой и пользователем.
 
+## Автоматическая проверка в CI
+
+`.github/workflows/database-compatibility.yml` запускается на каждый push в
+`main` и на каждый pull request и независимо проверяет проект на обеих СУБД:
+
+- **SQLite job** — `ubuntu-latest`, Python 3.13, без каких-либо PostgreSQL-переменных.
+- **PostgreSQL job** — `ubuntu-latest`, Python 3.13, временный service-контейнер
+  `postgres:17` (база `quality_ecosystem_ci`, пользователь `quality_ci`,
+  демонстрационный CI-пароль, health check через `pg_isready`). Job явно
+  подключается к базе и проверяет `connection.vendor == "postgresql"` перед
+  тем, как продолжить — если фактический backend другой, job завершается
+  ошибкой.
+
+Оба job выполняют одну и ту же последовательность: `manage.py check`,
+`manage.py makemigrations --check --dry-run`, `manage.py migrate --noinput`,
+затем полный `manage.py test --verbosity 2` (PostgreSQL job дополнительно
+выводит `manage.py showmigrations` после миграции). Ни один шаг не использует
+`continue-on-error`; любая ошибка миграции или теста останавливает job.
+
+Контейнер PostgreSQL в CI — одноразовый: он создаётся заново для каждого
+запуска workflow, не сохраняет данные между запусками и не является
+production-развёртыванием. Успешное прохождение обоих job подтверждает
+только совместимость кода и миграций с PostgreSQL — оно не означает, что
+перенос реальных данных или production-развёртывание уже выполнены.
+
+Чтобы повторить PostgreSQL-проверку локально, поднимите временный контейнер
+с той же конфигурацией и укажите те же переменные:
+
+```powershell
+docker run --rm -e POSTGRES_DB=quality_ecosystem_ci -e POSTGRES_USER=quality_ci `
+  -e POSTGRES_PASSWORD=ci_only_demo_password -p 5432:5432 postgres:17
+
+$env:DATABASE_ENGINE = "postgresql"
+$env:DB_NAME = "quality_ecosystem_ci"
+$env:DB_USER = "quality_ci"
+$env:DB_PASSWORD = "ci_only_demo_password"
+$env:DB_HOST = "127.0.0.1"
+$env:DB_PORT = "5432"
+
+python manage.py check
+python manage.py migrate --noinput
+python manage.py test --verbosity 2
+```
+
 ## Чего этот патч не делает
 
 - Не переносит существующие данные из `db.sqlite3` в PostgreSQL.
-- Не устанавливает и не настраивает сам сервер PostgreSQL.
+- Не устанавливает и не настраивает сам сервер PostgreSQL (кроме одноразового
+  CI-контейнера, который существует только на время запуска workflow).
 - Не меняет модели и не добавляет миграции — текущие миграции остаются
   совместимыми с обеими СУБД без изменений.
 - Не включает PostgreSQL по умолчанию и не разворачивает production-окружение.
+- Не настраивает Docker Compose приложения, Nginx, IIS или production WSGI.

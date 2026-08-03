@@ -404,6 +404,26 @@ python manage.py test notifications
 python manage.py test
 ```
 
+## Continuous Integration
+
+`.github/workflows/database-compatibility.yml` runs on every push to `main`
+and every pull request, with two independent jobs on `ubuntu-latest` /
+Python 3.13:
+
+- **SQLite** — no PostgreSQL variables; `check`, `makemigrations --check
+  --dry-run`, `migrate --noinput`, then the full test suite.
+- **PostgreSQL** — a disposable PostgreSQL 17 service container
+  (`quality_ecosystem_ci` / `quality_ci`, CI-only demo password), gated on a
+  `pg_isready` health check; the job first confirms Django actually connected
+  with the `postgresql` backend, then runs the same `check` /
+  `makemigrations --check` / `migrate` / test sequence, plus
+  `showmigrations`.
+
+This CI PostgreSQL container is not a production deployment and does not
+migrate or persist any real data — it exists only for the duration of the
+workflow run. See [Preparing for PostgreSQL](docs/postgresql_preparation.md)
+for details and how to reproduce the PostgreSQL check locally.
+
 ## Start the Local Server
 
 ```powershell
