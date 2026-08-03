@@ -12,6 +12,18 @@ ENV/
 !.env.example
 
 db.sqlite3
+db.sqlite3.bak
+*.sqlite3.bak
+db.sqlite3.backup*
+sqlite-backups/
+
+# Migration bundles and transfer reports contain real working data
+# (users, acts, attachments) and must never be committed.
+migration-bundle/
+migration-bundles/
+*-migration-bundle/
+verification-report.json
+migration-report*.json
 
 .idea/
 .vscode/

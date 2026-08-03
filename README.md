@@ -377,6 +377,36 @@ existing SQLite data is not migrated by this configuration. See
 error behavior, and a PowerShell example. A template without real secrets is
 in `.env.example`.
 
+## Data Transfer Tooling
+
+The `maintenance` app provides three management commands that *prepare* a
+SQLite → PostgreSQL transfer. They never move the live working database on
+their own.
+
+- `export_migration_bundle --output <dir>` — builds a migration bundle
+  (`manifest.json`, `data.json`, `media/`) with SHA-256 checksums and per-model
+  counts, max PKs and deterministic hashes. Run it against a **stopped copy**
+  of `db.sqlite3`, not the live file: point `SQLITE_DB_PATH` at the copy so the
+  working database is never swapped. It refuses a non-empty output directory,
+  a missing attachment file (unless `--allow-missing-media`) and any path
+  escaping `MEDIA_ROOT`, and publishes the directory only after full success.
+- `import_migration_bundle --input <dir> [--dry-run]` — loads a bundle into an
+  **empty** PostgreSQL database. `--dry-run` changes neither the database nor
+  the filesystem: it validates the manifest, every checksum, the migration
+  state, that the transferable tables are empty and that `MEDIA_ROOT` is
+  available, then prints the planned actions. A real import refuses to run on a
+  non-PostgreSQL backend, with `EMAIL_NOTIFICATIONS_ENABLED=true`, with pending
+  migrations, into non-empty tables, or over a non-empty `MEDIA_ROOT`. It never
+  flushes and never deletes existing rows.
+- `verify_migration_bundle --input <dir> [--report <path>]` — compares row
+  counts, max PKs and data hashes per model, checks every media file by path,
+  size and SHA-256, validates `ActNumberSequence` and the key relational
+  invariants, and exits non-zero on any difference.
+
+Full step-by-step procedure, including how to prepare the target database and
+what to do on failure: [Перенос данных из SQLite в PostgreSQL](docs/postgresql_migration.md).
+A migration bundle contains real production data and is excluded from Git.
+
 ## Concurrent Work and Act Numbering
 
 Act numbers are issued from `ActNumberSequence`, a technical table holding one

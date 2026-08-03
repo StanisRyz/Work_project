@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'acts',
     'tasks',
     'notifications',
+    'maintenance',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -121,11 +122,27 @@ def env_str_required(name):
 
 DATABASE_ENGINE = os.getenv('DATABASE_ENGINE', 'sqlite').strip().lower()
 
+
+def _resolve_sqlite_path():
+    """Return the SQLite file to use, honouring the optional SQLITE_DB_PATH.
+
+    Defaults to the existing `BASE_DIR / "db.sqlite3"`. A relative override is
+    resolved against BASE_DIR. This exists so a *copy* of the database can be
+    exported by the maintenance commands without swapping the working file.
+    """
+    raw = os.getenv('SQLITE_DB_PATH', '').strip()
+    if not raw:
+        return BASE_DIR / 'db.sqlite3'
+    candidate = Path(raw).expanduser()
+    return candidate if candidate.is_absolute() else (BASE_DIR / candidate).resolve()
+
+
 if DATABASE_ENGINE == 'sqlite':
+    SQLITE_DB_PATH = _resolve_sqlite_path()
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'NAME': SQLITE_DB_PATH,
         }
     }
 elif DATABASE_ENGINE == 'postgresql':
