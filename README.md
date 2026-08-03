@@ -377,6 +377,31 @@ existing SQLite data is not migrated by this configuration. See
 error behavior, and a PowerShell example. A template without real secrets is
 in `.env.example`.
 
+## Concurrent Work and Act Numbering
+
+Act numbers are issued from `ActNumberSequence`, a technical table holding one
+counter row per year. `Act.save()` opens a transaction, locks that row with
+`select_for_update()`, increments it, and inserts the act — so two simultaneous
+creations cannot receive the same `АОК-YYYY-NNN` value. An explicitly supplied
+number is always kept as-is, the public number format is unchanged, and the
+unique constraint on `Act.number` remains the final safety net. Only the
+administrator full cleanup resets the counters; deleting one act never rewinds
+them.
+
+Every critical workflow transition — transfer to KO, KO decision, all three
+returns, TO analysis, approval, and closing — plus the POST branch of act
+editing re-loads and row-locks the act inside one transaction and re-checks the
+user's permission and the act's current status before writing. A second,
+parallel or outdated request is refused with a controlled error instead of
+duplicating history events, return comments, tasks, assignees, or
+notifications.
+
+SQLite remains the default backend for local development, but it does **not**
+implement `select_for_update()`, so genuine row-level locking is provided only
+by PostgreSQL. The dedicated concurrency tests are therefore skipped on SQLite
+and run for real in the PostgreSQL CI job. Migrating existing working data to
+PostgreSQL and production deployment are still not done.
+
 ## Setup Local Data
 
 ```powershell

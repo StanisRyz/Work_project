@@ -1,9 +1,10 @@
+import re
 from pathlib import Path
 from uuid import uuid4
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation, Priority
@@ -37,6 +38,49 @@ def act_attachment_upload_to(instance, filename):
     extension = Path(filename).suffix.lower()
     act_id = instance.act_id or 'unassigned'
     return f'acts/attachments/{act_id}/{uuid4().hex}{extension}'
+
+
+ACT_NUMBER_PREFIX = 'АОК'
+# Matches only the canonical АОК-YYYY-NNN form. Historical or manually entered
+# numbers in any other shape are intentionally ignored by the sequence.
+ACT_NUMBER_PATTERN = re.compile(rf'^{ACT_NUMBER_PREFIX}-(\d{{4}})-(\d+)$')
+
+
+class ActNumberSequence(models.Model):
+    """Per-year counter backing automatic `АОК-YYYY-NNN` act numbers.
+
+    This is a technical table only: it never changes the public number format
+    and holds no business data. One row per year, locked with
+    `select_for_update()` while a number is issued, so concurrent act creation
+    on PostgreSQL cannot hand out the same suffix twice.
+    """
+
+    year = models.PositiveIntegerField('Год', unique=True)
+    last_value = models.PositiveIntegerField('Последний выданный номер', default=0)
+
+    class Meta:
+        ordering = ['year']
+        verbose_name = 'Последовательность номеров актов'
+        verbose_name_plural = 'Последовательности номеров актов'
+
+    def __str__(self):
+        return f'{self.year}: {self.last_value}'
+
+    @classmethod
+    def allocate(cls, year):
+        """Reserve and return the next numeric suffix for `year`.
+
+        Must be called inside a transaction. The row lock is held until that
+        transaction ends, so the caller's act INSERT is serialised with it.
+        """
+        # get_or_create wraps its INSERT in a savepoint, so a race to create the
+        # first row of a new year surfaces as IntegrityError, is rolled back to
+        # that savepoint, and resolves to the committed row instead.
+        cls.objects.get_or_create(year=year)
+        sequence = cls.objects.select_for_update().get(year=year)
+        sequence.last_value += 1
+        sequence.save(update_fields=['last_value'])
+        return sequence.last_value
 
 
 class Act(models.Model):
@@ -166,22 +210,21 @@ class Act(models.Model):
         return self.number
 
     def save(self, *args, **kwargs):
-        if not self.number:
-            self.number = self._generate_number()
-        super().save(*args, **kwargs)
+        # An explicitly supplied number is always preserved as-is.
+        if self.number:
+            return super().save(*args, **kwargs)
+        # Allocate the number and insert the act in one transaction, so a
+        # rolled-back save never consumes a number and a committed act always
+        # owns the value it was issued. `Act.number` stays unique in the
+        # database as the final safety net.
+        with transaction.atomic():
+            year = timezone.localdate().year
+            self.number = self._format_number(year, ActNumberSequence.allocate(year))
+            return super().save(*args, **kwargs)
 
-    @classmethod
-    def _generate_number(cls):
-        year = timezone.localdate().year
-        prefix = f'АОК-{year}-'
-        last_act = cls.objects.filter(number__startswith=prefix).order_by('-number').first()
-        next_number = 1
-        if last_act:
-            try:
-                next_number = int(last_act.number.rsplit('-', 1)[1]) + 1
-            except (IndexError, ValueError):
-                next_number = cls.objects.filter(number__startswith=prefix).count() + 1
-        return f'{prefix}{next_number:03d}'
+    @staticmethod
+    def _format_number(year, value):
+        return f'{ACT_NUMBER_PREFIX}-{year}-{value:03d}'
 
 
 class ActDefect(models.Model):

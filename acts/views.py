@@ -40,6 +40,7 @@ from .services import (
     format_file_size,
     get_available_act_actions,
     get_visible_acts_for_user,
+    lock_act_for_update,
     return_to_otk,
     return_to_ko,
     return_to_to,
@@ -218,25 +219,40 @@ def act_edit(request, pk):
         form = ActCreateForm(request.POST, instance=act)
         defect_formset = ActDefectEditFormSet(request.POST, instance=act)
         if form.is_valid() and defect_formset.is_valid():
-            with transaction.atomic():
-                act = form.save(commit=False)
-                defect_formset.save()
-                first_defect = act.defects.select_related(
-                    'defect_type', 'operation'
-                ).order_by('created_at', 'pk').first()
-                act.operation = first_defect.operation
-                act.znp_number = first_defect.znp_number
-                act.party_number = first_defect.party_number
-                act.defect_type = first_defect.defect_type
-                act.description = first_defect.description
-                act.due_date = first_defect.detected_at
-                act.save()
-                add_act_history_event(
-                    act,
-                    request.user,
-                    ActHistoryEvent.EventType.ACT_EDITED,
-                    'Акт отредактирован до передачи в КО.',
-                )
+            try:
+                with transaction.atomic():
+                    # Re-read and lock the act before writing: it may have been
+                    # transferred out of CREATED_OTK since this form was opened,
+                    # and a full save would otherwise revert that transition.
+                    locked_act = lock_act_for_update(act)
+                    if not can_view_act(locked_act, request.user) or not can_edit_act(
+                        locked_act, request.user
+                    ):
+                        raise ActWorkflowError(
+                            'Акт уже передан дальше по маршруту, редактирование недоступно.'
+                        )
+                    act = form.save(commit=False)
+                    act.status = locked_act.status
+                    defect_formset.save()
+                    first_defect = act.defects.select_related(
+                        'defect_type', 'operation'
+                    ).order_by('created_at', 'pk').first()
+                    act.operation = first_defect.operation
+                    act.znp_number = first_defect.znp_number
+                    act.party_number = first_defect.party_number
+                    act.defect_type = first_defect.defect_type
+                    act.description = first_defect.description
+                    act.due_date = first_defect.detected_at
+                    act.save()
+                    add_act_history_event(
+                        act,
+                        request.user,
+                        ActHistoryEvent.EventType.ACT_EDITED,
+                        'Акт отредактирован до передачи в КО.',
+                    )
+            except ActWorkflowError as exc:
+                messages.error(request, str(exc))
+                return _redirect_to_detail_tab(act, 'work')
             messages.success(request, 'Акт сохранён.')
             return _redirect_to_detail_tab(act, 'work')
         messages.error(request, 'Проверьте данные формы редактирования акта.')
@@ -373,7 +389,7 @@ def act_close(request, pk):
         form = ActCloseForm(request.POST, instance=act)
         if form.is_valid():
             try:
-                close_act(act, request.user, form.cleaned_data.get('closing_comment', ''))
+                act = close_act(act, request.user, form.cleaned_data.get('closing_comment', ''))
             except ActWorkflowError as exc:
                 form.add_error(None, str(exc))
             else:
@@ -420,7 +436,7 @@ def act_send_to_ko(request, pk):
         return redirect('acts:detail', pk=act.pk)
 
     try:
-        send_to_ko(act, request.user)
+        act = send_to_ko(act, request.user)
     except ActWorkflowError as exc:
         messages.error(request, str(exc))
     else:
@@ -481,7 +497,7 @@ def act_return_to_otk(request, pk):
     form = ReturnToOtkForm(request.POST)
     if form.is_valid():
         try:
-            return_to_otk(act, request.user, form.cleaned_data['comment'])
+            act = return_to_otk(act, request.user, form.cleaned_data['comment'])
         except ActWorkflowError as exc:
             form.add_error(None, str(exc))
         else:
@@ -509,7 +525,7 @@ def act_to_analysis(request, pk):
         form.non_field_errors.append('Выберите действие для анализа ТО.')
     elif form.is_valid():
         try:
-            apply_structured_to_analysis(act, request.user, form.analysis_data)
+            act = apply_structured_to_analysis(act, request.user, form.analysis_data)
         except ActWorkflowError as exc:
             form.non_field_errors.append(str(exc))
         else:
@@ -529,7 +545,7 @@ def act_return_to_ko(request, pk):
     form = ReturnToOtkForm(request.POST)
     if form.is_valid():
         try:
-            return_to_ko(act, request.user, form.cleaned_data['comment'])
+            act = return_to_ko(act, request.user, form.cleaned_data['comment'])
         except ActWorkflowError as exc:
             form.add_error(None, str(exc))
         else:
@@ -554,7 +570,7 @@ def act_return_to_to(request, pk):
     form = ReturnToOtkForm(request.POST)
     if form.is_valid():
         try:
-            return_to_to(act, request.user, form.cleaned_data['comment'])
+            act = return_to_to(act, request.user, form.cleaned_data['comment'])
         except ActWorkflowError as exc:
             form.add_error(None, str(exc))
         else:
@@ -572,7 +588,7 @@ def act_approve(request, pk):
     if request.method != 'POST':
         return _redirect_to_detail_tab(act, 'work')
     try:
-        approve_act(act, request.user)
+        act = approve_act(act, request.user)
     except ActWorkflowError as exc:
         messages.error(request, str(exc))
     else:

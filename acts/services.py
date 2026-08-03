@@ -3,7 +3,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import UserProfile
-from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActHistoryEvent, ActRootAnalysis, get_act_status
+from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActHistoryEvent, ActNumberSequence, ActRootAnalysis, get_act_status
 from .permissions import (
     can_apply_ko_decision,
     can_apply_to_analysis,
@@ -26,8 +26,54 @@ class ActWorkflowError(Exception):
     pass
 
 
+def lock_act_for_update(act_or_pk):
+    """Load and row-lock the current act, returning a fresh instance.
+
+    Must be called inside `transaction.atomic()`. The caller's argument may be
+    a stale in-memory act: the returned instance is always re-read from the
+    database, so permission and status re-checks run against current state, not
+    against whatever the request happened to load earlier.
+
+    Lock order across the module is fixed: Act first, then its dependent
+    defects / analyses / corrective actions, then tasks, then history and
+    notification records.
+    """
+    pk = getattr(act_or_pk, 'pk', act_or_pk)
+    # Deliberately no select_related(): on PostgreSQL a joined SELECT ... FOR
+    # UPDATE would also lock the shared ActStatus reference rows and serialise
+    # unrelated acts that happen to share a status. `status` is loaded lazily.
+    return Act.objects.select_for_update().get(pk=pk)
+
+
+def _lock_act_defects(act):
+    """Row-lock this act's defects, after the act itself is already locked."""
+    # Locked without select_related so no joined reference table is locked too.
+    locked_ids = list(act.defects.select_for_update().order_by('pk').values_list('pk', flat=True))
+    return list(
+        act.defects.filter(pk__in=locked_ids).select_related('defect_type').order_by('pk')
+    )
+
+
+def _lock_act_root_analyses(act):
+    """Row-lock this act's root analyses and corrective actions, in that order."""
+    root_ids = list(
+        ActRootAnalysis.objects.select_for_update()
+        .filter(act=act)
+        .order_by('pk')
+        .values_list('pk', flat=True)
+    )
+    action_ids = list(
+        ActCorrectiveAction.objects.select_for_update()
+        .filter(root_analysis_id__in=root_ids)
+        .order_by('pk')
+        .values_list('pk', flat=True)
+    )
+    return root_ids, action_ids
+
+
 def send_to_ko(act, user):
     with transaction.atomic():
+        act = lock_act_for_update(act)
         if not can_send_to_ko(act, user):
             raise ActWorkflowError('Передача акта в КО недоступна для вашей роли или текущего статуса.')
         _require_status(act, 'CREATED_OTK')
@@ -48,16 +94,28 @@ def send_to_ko(act, user):
 
 def apply_ko_decision(act, user, defect_decisions):
     with transaction.atomic():
+        act = lock_act_for_update(act)
         if not can_apply_ko_decision(act, user):
             raise ActWorkflowError('Решение КО недоступно для вашей роли или текущего статуса.')
         _require_status(act, 'KO_REVIEW')
         defect_decisions = list(defect_decisions)
-        defects = list(act.defects.select_related('defect_type'))
-        if defects:
-            expected_ids = {defect.pk for defect in defects}
-            received_ids = {defect.pk for defect, _decision, _comment in defect_decisions}
-            if expected_ids != received_ids:
+        # Re-read the act's defects under lock and match submitted decisions by
+        # primary key, so a decision aimed at another act's defect — or at a
+        # defect deleted meanwhile — is rejected instead of silently applied.
+        current_defects = {defect.pk: defect for defect in _lock_act_defects(act)}
+        if current_defects:
+            received_ids = [defect.pk if defect is not None else None for defect, _d, _c in defect_decisions]
+            if None in received_ids:
                 raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
+            if len(received_ids) != len(set(received_ids)):
+                raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
+            if set(received_ids) != set(current_defects):
+                raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
+            # Replace any stale instance the caller passed with the locked one.
+            defect_decisions = [
+                (current_defects[defect.pk], decision, comment)
+                for defect, decision, comment in defect_decisions
+            ]
         elif len(defect_decisions) != 1 or defect_decisions[0][0] is not None:
             raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
         for _defect, decision, _comment in defect_decisions:
@@ -108,10 +166,11 @@ def return_to_otk(act, user, return_comment):
     return_comment = (return_comment or '').strip()
     if not return_comment:
         raise ActWorkflowError('Укажите комментарий к возврату.')
-    if not can_return_to_otk(act, user):
-        raise ActWorkflowError('Возврат акта в ОТК недоступен для вашей роли или текущего статуса.')
-    _require_status(act, 'KO_REVIEW')
     with transaction.atomic():
+        act = lock_act_for_update(act)
+        if not can_return_to_otk(act, user):
+            raise ActWorkflowError('Возврат акта в ОТК недоступен для вашей роли или текущего статуса.')
+        _require_status(act, 'KO_REVIEW')
         add_act_comment(act, user, return_comment, notify=False)
         from_status = act.status
         to_status = _get_required_status('CREATED_OTK')
@@ -130,6 +189,7 @@ def return_to_otk(act, user, return_comment):
 
 def apply_to_analysis(act, user, root_cause, action_summary):
     with transaction.atomic():
+        act = lock_act_for_update(act)
         if not can_apply_to_analysis(act, user):
             raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
         _require_status(act, 'TO_ANALYSIS')
@@ -163,6 +223,7 @@ def apply_to_analysis(act, user, root_cause, action_summary):
 
 def apply_structured_to_analysis(act, user, analysis_data):
     with transaction.atomic():
+        act = lock_act_for_update(act)
         if not can_apply_to_analysis(act, user):
             raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
         _require_status(act, 'TO_ANALYSIS')
@@ -170,6 +231,8 @@ def apply_structured_to_analysis(act, user, analysis_data):
             raise ActWorkflowError('Добавьте корневую причину и корректирующее мероприятие.')
         from_status = act.status
         to_status = _get_required_status('OTK_REVIEW')
+        # Lock any previously submitted structure before replacing it.
+        _lock_act_root_analyses(act)
         ActRootAnalysis.objects.filter(act=act).delete()
         for root_index, root_data in enumerate(analysis_data):
             root_analysis = ActRootAnalysis.objects.create(
@@ -228,6 +291,7 @@ def return_to_ko(act, user, return_comment):
     if not return_comment:
         raise ActWorkflowError('Укажите комментарий к возврату.')
     with transaction.atomic():
+        act = lock_act_for_update(act)
         if not can_return_to_ko(act, user):
             raise ActWorkflowError('Возврат акта в КО недоступен для вашей роли или текущего статуса.')
         _require_status(act, 'TO_ANALYSIS')
@@ -252,6 +316,7 @@ def return_to_to(act, user, return_comment):
     if not return_comment:
         raise ActWorkflowError('Укажите комментарий к возврату.')
     with transaction.atomic():
+        act = lock_act_for_update(act)
         if not can_return_to_to(act, user):
             raise ActWorkflowError('Возврат акта в ТО недоступен для вашей роли или текущего статуса.')
         _require_status(act, 'OTK_REVIEW')
@@ -273,13 +338,17 @@ def return_to_to(act, user, return_comment):
 
 def approve_act(act, user):
     with transaction.atomic():
+        act = lock_act_for_update(act)
         if not can_approve_act(act, user):
             raise ActWorkflowError('Утверждение акта недоступно для вашей роли или текущего статуса.')
         _require_status(act, 'OTK_REVIEW')
+        # Re-read the structure under lock: departments, assignees and due dates
+        # are validated against current data, not against a stale request copy.
+        _root_ids, action_ids = _lock_act_root_analyses(act)
         corrective_actions = list(
             ActCorrectiveAction.objects.select_related('root_analysis', 'department').prefetch_related(
                 'assignees__user__userprofile'
-            ).filter(root_analysis__act=act)
+            ).filter(pk__in=action_ids).order_by('pk')
         )
         _validate_corrective_actions_for_approval(corrective_actions)
         from tasks.models import Task, TaskAssignee
@@ -445,6 +514,9 @@ def clear_all_acts():
 
         Task.objects.filter(act__isnull=False).delete()
         Act.objects.all().delete()
+        # The administrator cleanup is an explicit full reset, so numbering
+        # restarts too. Deleting a single act never touches the sequence.
+        ActNumberSequence.objects.all().delete()
     for attachment in attachments:
         try:
             attachment.file.delete(save=False)
@@ -479,32 +551,34 @@ def validate_act_can_be_closed(act):
 
 
 def close_act(act, user, closing_comment=''):
-    if not can_close_act(act, user):
-        raise ActWorkflowError('Закрытие акта недоступно для вашей роли или текущего статуса.')
-    validate_act_can_be_closed(act)
-    from_status = act.status
-    to_status = _get_required_status('CLOSED')
-    act.status = to_status
-    act.closed_by = user
-    act.closed_at = timezone.now()
-    act.closing_comment = closing_comment
-    act.save(
-        update_fields=[
-            'status',
-            'closed_by',
-            'closed_at',
-            'closing_comment',
-            'updated_at',
-        ]
-    )
-    add_act_history_event(
-        act,
-        user,
-        ActHistoryEvent.EventType.ACT_CLOSED,
-        'Акт закрыт.',
-        from_status=from_status,
-        to_status=to_status,
-    )
+    with transaction.atomic():
+        act = lock_act_for_update(act)
+        if not can_close_act(act, user):
+            raise ActWorkflowError('Закрытие акта недоступно для вашей роли или текущего статуса.')
+        validate_act_can_be_closed(act)
+        from_status = act.status
+        to_status = _get_required_status('CLOSED')
+        act.status = to_status
+        act.closed_by = user
+        act.closed_at = timezone.now()
+        act.closing_comment = closing_comment
+        act.save(
+            update_fields=[
+                'status',
+                'closed_by',
+                'closed_at',
+                'closing_comment',
+                'updated_at',
+            ]
+        )
+        add_act_history_event(
+            act,
+            user,
+            ActHistoryEvent.EventType.ACT_CLOSED,
+            'Акт закрыт.',
+            from_status=from_status,
+            to_status=to_status,
+        )
     return act
 
 
