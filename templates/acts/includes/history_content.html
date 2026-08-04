@@ -1,0 +1,48 @@
+{% comment %}Read-only history feed. Safe to replace live: no forms, no user input.{% endcomment %}
+    {% if history_groups %}
+        <div class="history-feed">
+            {% for group in history_groups %}
+                <section class="history-day">
+                    <h3><time datetime="{{ group.date|date:'Y-m-d' }}">{{ group.date|date:'j E Y' }}</time></h3>
+                    <div class="history-day__events">
+                        {% for event in group.events %}
+                            <article class="history-event history-event--{{ event.event_type|lower }}">
+                                <span class="history-event__icon" aria-hidden="true">
+                                    {% if event.event_type == 'APPROVED' %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+                                    {% elif event.event_type == 'RETURNED_TO_OTK' or event.event_type == 'RETURNED_TO_KO' or event.event_type == 'RETURNED_TO_TO' %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="M19 12H6m5-5-5 5 5 5M19 5v4a3 3 0 0 1-3 3H6"/></svg>
+                                    {% elif event.event_type == 'KO_DECISION_APPLIED' %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="m12 4 6 6-3 3-6-6 3-3ZM5 14l5 5m-6-1 2-2"/></svg>
+                                    {% elif event.event_type == 'TO_ANALYSIS_APPLIED' %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6zM9 12h6m-6 4h6M15 3v4h4"/></svg>
+                                    {% elif event.event_type == 'SENT_TO_KO' or event.event_type == 'SENT_TO_TO' %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="M5 12h13m-5-5 5 5-5 5"/></svg>
+                                    {% elif event.event_type == 'COMMENT_ADDED' %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="M5 5h14v10H9l-4 4z"/></svg>
+                                    {% elif event.event_type == 'ATTACHMENT_ADDED' or event.event_type == 'ATTACHMENT_DELETED' %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>
+                                    {% else %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14"/></svg>
+                                    {% endif %}
+                                </span>
+                                <div class="history-event__content">
+                                    <strong>{{ event.get_event_type_display }}</strong>
+                                    {% if event.from_status or event.to_status %}
+                                        <span class="history-event__transition">{{ event.from_status|default:'—' }} → {{ event.to_status|default:'—' }}</span>
+                                    {% endif %}
+                                    <p>{{ event.message }}</p>
+                                </div>
+                                <div class="history-event__meta">
+                                    <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:'d.m.Y H:i' }}</time>
+                                    <span>{{ event.user.get_full_name|default:event.user.username|default:'Система' }}</span>
+                                </div>
+                            </article>
+                        {% endfor %}
+                    </div>
+                </section>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="placeholder-text">История акта пока пуста.</p>
+    {% endif %}

@@ -589,17 +589,8 @@ DOM колокольчика живут в `app.js` и публикуются к
 
 ## 32. Границы RT-3
 
-Не входит в этот этап:
-
-- обновление списка задач, актов, истории и комментариев;
-- подписки на act targets;
-- `/realtime/sync/`;
-- fallback polling;
-- `BroadcastChannel` и выбор вкладки-лидера;
-- WebSocket и Django Channels;
-- React и любой frontend-toolchain (npm, Jest);
-- replay и хранение событий;
-- production reverse proxy и HTTPS.
+RT-3 охватывал только уведомления. Задачи, реестр актов и открытый акт
+добавлены в RT-4 ниже.
 
 ## 33. Проверка клиента
 
@@ -610,14 +601,200 @@ JavaScript проверяется без npm и Jest: `realtime/tests/js/dom_har
 `manage.py test` через `realtime/tests/test_js_client.py`; при отсутствии Node
 тест пропускается.
 
-## 34. План RT-4
+---
 
-1. Точечно обновлять реестры задач и актов теми же fragment-запросами.
-2. Добавить авторизуемые подписки на `act:<id>` через `can_view_act`.
-3. Развернуть production ASGI за reverse proxy с HTTPS и длительными
-   соединениями, отключив буферизацию.
-4. При необходимости гарантированной доставки — рассмотреть transactional
-   outbox; сейчас потеря события намеренно допустима.
+# RT-4: задачи, реестр актов и открытый акт
+
+## 34. Общий browser event bus
+
+```
+                    ┌──────────────────────────────┐
+   один EventSource │  ядро realtime.js            │
+   /realtime/events/│  • lifecycle и reconnect     │
+        ────────────▶  • дедупликация event_id     │
+                    │  • bus: subscribe / onOpen   │
+                    └───────┬──────────────────────┘
+                            │  (модули не создают EventSource)
+        ┌───────────────┬───┴────────────┬──────────────────┐
+        ▼               ▼                ▼                  ▼
+  notifications     task list       act registry       act detail
+  колокольчик+toast   таблица       KPI + таблица   summary/history/
+                                                    comments/activities
+```
+
+Ядро владеет единственным `EventSource`, ограниченной дедупликацией
+`event_id` (100 значений) и переподключением. Функциональные модули
+подписываются через `subscribe(eventType, handler)` и `onOpen(handler)` и
+никогда не обращаются к транспорту. Повторное подключение скрипта не создаёт
+второй поток (флаг на `window`).
+
+**Гонки инициализации нет:** клиент стартует по `DOMContentLoaded` (скрипт
+подключён с `defer`, поэтому на момент выполнения `readyState` ещё
+`interactive`), а все модули регистрируются до открытия потока. Событие,
+пришедшее сразу после connect, всегда находит обработчик.
+
+## 35. Координатор обновлений
+
+`createRefreshCoordinator({url, apply, onDenied, onError})` — по одному на
+каждый live-блок:
+
+- debounce 150 мс — серия событий схлопывается в один запрос;
+- одновременно активен максимум один запрос, предыдущий отменяется через
+  `AbortController`;
+- generation counter: ответ с устаревшим номером отбрасывается и не
+  перезаписывает более свежее состояние;
+- ошибка запроса не очищает разметку и не сбрасывает счётчики;
+- `401/403/404` останавливает координатор.
+
+## 36. Список задач
+
+`tasks.selectors.build_task_list_state(user, query_params)` — единственный
+источник вкладки (`my`/`all`/`archive`), валидации фильтров, номера, источника,
+срока, сортировки, `tab_urls`, `reset_url`, `sort_url`, `today` и итогового
+queryset. Его используют и обычный `task_list`, и fragment endpoint.
+
+`templates/tasks/includes/list_results.html` — только таблица, строки, overdue
+и пустое состояние. Вкладки и форма фильтров живут снаружи и при live refresh
+не заменяются.
+
+```
+GET /tasks/list-fragment/?<те же параметры, что у списка>
+→ {results_html, tab, task_ids, generated_at}
+```
+
+Контейнер `data-live-task-list` хранит `data-fragment-url`, а клиент
+дописывает текущий query string страницы, поэтому вкладка, фильтры и сортировка
+сохраняются. События `task.created`, `task.updated`, `task.completed` вызывают
+refresh; подходит ли задача пользователю и фильтру, решает Django queryset.
+
+## 37. Реестр актов
+
+`acts.selectors.build_act_list_state(user, query_params)` — scope, права,
+фильтры по статусу/типу/сроку, поиск, KPI, queryset, `has_visible_acts`,
+`has_filters` и выбранные значения.
+
+Partials: `acts/includes/registry_kpis.html` и
+`acts/includes/registry_results.html`. Вкладки и фильтры не заменяются.
+
+```
+GET /acts/list-fragment/?<те же параметры, что у реестра>
+→ {kpis_html, results_html, act_ids, generated_at}
+```
+
+События `act.updated` и `act.status_changed` обновляют KPI и результаты;
+scope, фильтры, поиск, фокус и позиция прокрутки сохраняются.
+
+## 38. Открытый акт
+
+Общие серверные helpers (`acts/selectors.py`): `build_route_steps`,
+`get_history_events` + `group_history_events`, `get_act_comments`,
+`get_related_tasks`. Полная страница и fragments используют их одинаково.
+
+Безопасные partials — только read-only, без форм:
+
+| Partial | Содержимое |
+| --- | --- |
+| `live_summary.html` | номер, status badge, маршрут |
+| `history_content.html` | только история |
+| `comments_list.html` | только список комментариев, без формы |
+| `activities_content.html` | связанные мероприятия и задачи |
+
+Endpoints (каждый заново загружает акт, проверяет `can_view_act`, не принимает
+user_id, ничего не изменяет и запрещает кэширование):
+
+```
+GET /acts/<pk>/live-summary-fragment/
+GET /acts/<pk>/history-fragment/
+GET /acts/<pk>/comments-fragment/
+GET /acts/<pk>/activities-fragment/
+→ {html, generated_at}   (+ status_code у summary)
+```
+
+URL формируются на сервере в `[data-live-act-config]` — клиент не собирает их
+по ID. Контейнеры: `data-live-act-summary`, `data-live-act-history`,
+`data-live-act-comments`, `data-live-act-activities`.
+
+Маршрутизация событий:
+
+| Событие | Обновляется |
+| --- | --- |
+| `act.updated` | summary |
+| `act.status_changed` | summary + history |
+| `comment.created` | список комментариев |
+| `task.created` / `task.updated` / `task.completed` | связанные мероприятия |
+
+Обновляются только блоки, присутствующие на текущей вкладке. Открытие другой
+вкладки — обычная серверная загрузка, то есть данные и так актуальны.
+
+## 39. Что не заменяется
+
+Форма решения КО, форма анализа ТО и её динамические строки, textarea нового
+комментария, формы возврата, форма вложений и любые выбранные исполнители
+находятся **вне** заменяемых partials и не трогаются никогда.
+
+## 40. Dirty-state, conflict banner и устаревшие действия
+
+Форма считается изменённой только после реального пользовательского жеста:
+`input`/`change` на `input`/`textarea`/`select` либо добавление/удаление
+динамической строки. Программная замена fragment не диспатчит событий и не
+может дать ложное срабатывание.
+
+При `act.updated` или `act.status_changed` с dirty-формой:
+
+- рабочий редактируемый блок не заменяется;
+- безопасные read-only fragments обновляются;
+- показывается постоянный баннер «Акт изменён другим пользователем. Перед
+  сохранением загрузите актуальную версию» с кнопкой обновления страницы;
+- введённый текст не удаляется и не блокируется — его можно скопировать.
+
+Дополнительно при `act.status_changed` отключаются кнопки
+`[data-workflow-submit]`, которые работали бы с устаревшим статусом. Обычные
+поля и textarea остаются доступными. Серверная блокировка строки и повторная
+проверка статуса (PG-3) остаются окончательной защитой от устаревшего POST.
+
+## 41. Потеря доступа
+
+Если fragment вернул `403/404`, клиент останавливает обновление этого акта,
+отключает workflow-кнопки и показывает баннер «Акт изменён или больше
+недоступен» со ссылкой на реестр. Технический текст ошибки пользователю не
+показывается, а сервер не отдаёт никаких данных объекта.
+
+## 42. Reconnect и правила toast
+
+Каждый `open`/reconnect обновляет колокольчик RT-3 **и** все присутствующие
+task/act блоки. Toast при этом не показывается, dirty-формы не заменяются.
+
+Toast создаёт **только** `notification.created`. `task.*`, `act.*` и
+`comment.created` обновляют блоки молча: пользователь уже получает toast через
+соответствующее внутреннее уведомление, если оно предусмотрено бизнес-логикой.
+
+## 43. Границы RT-4
+
+Не входит в этот этап:
+
+- дополнительные SSE-соединения;
+- подписка браузера на `act:<id>`;
+- `/realtime/sync/`;
+- fallback polling;
+- `BroadcastChannel` и leader-tab;
+- WebSocket и Django Channels;
+- React и любой frontend-toolchain (npm, Jest);
+- replay и хранение событий;
+- production reverse proxy и HTTPS;
+- нагрузочное тестирование и Redis monitoring.
+
+## 44. План RT-5
+
+1. Точечное обновление строк вместо замены всей таблицы, если объём данных
+   этого потребует.
+2. Авторизуемые подписки на `act:<id>` через `can_view_act` — тогда события
+   акта можно будет доставлять по комнате, а не только персонально.
+3. Обновление детальных страниц задачи и вложений.
+4. Production ASGI за reverse proxy с HTTPS и длительными соединениями,
+   отключённой буферизацией и мониторингом Redis.
+5. При необходимости гарантированной доставки — transactional outbox; сейчас
+   потеря события намеренно допустима, потому что каждый reconnect выполняет
+   полную сверку.
 
 Новые типы событий по-прежнему добавляются только в централизованный enum и
 обязательно покрываются тестами контракта, targets и интеграции.

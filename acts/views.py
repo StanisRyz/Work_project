@@ -3,14 +3,14 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Count, Q
 from django.forms.utils import ErrorList
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_GET
 
-from references.models import ActStatus
 from accounts.models import Department
 
 from .forms import (
@@ -26,7 +26,15 @@ from .forms import (
     ToAnalysisStructureForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
-from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act, get_archived_acts_queryset, has_full_act_access
+from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act
+from .selectors import (
+    build_act_list_state,
+    build_route_steps,
+    get_act_comments,
+    get_history_events,
+    get_related_tasks,
+    group_history_events,
+)
 from .services import (
     ActWorkflowError,
     add_act_comment,
@@ -51,80 +59,117 @@ from .services import (
 
 @login_required
 def act_list(request):
-    scope = request.GET.get('scope', 'my')
-    if scope not in {'my', 'all', 'archive'}:
-        scope = 'my'
-    active_acts = get_visible_acts_for_user(request.user)
-    archived_acts = get_archived_acts_queryset(request.user)
-    if scope == 'archive':
-        visible_acts = archived_acts
-    elif scope == 'all' and has_full_act_access(request.user):
-        visible_acts = active_acts.model.objects.select_related(
-            'created_by', 'operation', 'defect_type', 'priority', 'status'
-        ).exclude(status__code='ARCHIVED')
-    else:
-        visible_acts = active_acts.exclude(status__code='ARCHIVED')
-    has_visible_acts = visible_acts.exists()
-    today = timezone.localdate()
+    state = build_act_list_state(request.user, request.GET)
+    return render(request, 'acts/list.html', {
+        'active_page': 'acts', 'header_title': 'Акты', **state,
+    })
 
-    status = request.GET.get('status')
-    act_type = request.GET.get('act_type', '')
-    due = request.GET.get('due', '')
-    search = request.GET.get('search', '').strip()
-    if due not in {'', 'overdue', 'not_overdue'}:
-        due = ''
-    if act_type not in Act.Type.values:
-        act_type = ''
 
-    acts = visible_acts
-    if status:
-        acts = acts.filter(status_id=status)
-    if act_type:
-        acts = acts.filter(act_type=act_type)
-    if due == 'overdue':
-        acts = acts.filter(due_date__lt=today)
-    elif due == 'not_overdue':
-        acts = acts.filter(due_date__gte=today)
-    if search:
-        acts = acts.filter(
-            Q(number__icontains=search)
-            | Q(party_number__icontains=search)
-            | Q(nomenclature__icontains=search)
-        )
-    has_filters = bool(status or act_type or due or search)
-    kpis = {
-        'total': acts.count(),
-        'overdue': acts.filter(due_date__lt=today).count(),
-        'created_otk': acts.filter(status__code='CREATED_OTK').count(),
-        'ko_review': acts.filter(status__code='KO_REVIEW').count(),
-        'to_analysis': acts.filter(status__code='TO_ANALYSIS').count(),
-    }
-    acts = acts.annotate(defects_total=Count('defects'))
+@login_required
+@require_GET
+def act_list_fragment(request):
+    """Current registry KPIs and results for the live client.
 
-    context = {
-        'active_page': 'acts',
-        'header_title': 'Акты',
-        'acts': acts,
-        'kpis': kpis,
-        'today': today,
-        'has_visible_acts': has_visible_acts,
-        'has_filters': has_filters,
-        'statuses': ActStatus.objects.filter(
-            is_active=True,
-        ).exclude(code__in={'ACTIONS_ASSIGNED', 'CLOSED', 'CANCELLED'}),
-        'act_types': Act.Type.choices,
-        'selected': {
-            'scope': scope,
-            'status': status or '',
-            'act_type': act_type,
-            'due': due,
-            'search': search,
-        },
-        'can_create': can_create_act(request.user),
-        'can_clear_all_acts': can_clear_all_acts(request.user),
-        'scope': scope,
-    }
-    return render(request, 'acts/list.html', context)
+    Same builder, same partials and the same query parameters as the full page.
+    The scope and every filter are re-evaluated server-side for `request.user`;
+    no user parameter is accepted and a GET never changes anything.
+    """
+    state = build_act_list_state(request.user, request.GET)
+    return _fragment_response(
+        {
+            'kpis_html': render_to_string(
+                'acts/includes/registry_kpis.html', state, request=request
+            ),
+            'results_html': render_to_string(
+                'acts/includes/registry_results.html', state, request=request
+            ),
+            'act_ids': list(state['acts'].values_list('pk', flat=True)),
+        }
+    )
+
+
+def _fragment_response(payload):
+    """JSON fragment response: never cached, always scoped to the session."""
+    response = JsonResponse({**payload, 'generated_at': timezone.now().isoformat()})
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+    response['Vary'] = 'Cookie'
+    return response
+
+
+def _get_live_act(request, pk):
+    """Re-load the act and re-check visibility for every live fragment.
+
+    A user who has lost access gets a plain 404 with no object data at all —
+    not a hint that the act exists.
+    """
+    act = _get_act_for_detail(pk)
+    if not can_view_act(act, request.user):
+        raise Http404('No Act matches the given query.')
+    return act
+
+
+@login_required
+@require_GET
+def act_live_summary_fragment(request, pk):
+    act = _get_live_act(request, pk)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'acts/includes/live_summary.html',
+                {'act': act, 'route_steps': build_route_steps(act)},
+                request=request,
+            ),
+            'status_code': act.status.code,
+        }
+    )
+
+
+@login_required
+@require_GET
+def act_history_fragment(request, pk):
+    act = _get_live_act(request, pk)
+    history_events = get_history_events(act)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'acts/includes/history_content.html',
+                {'act': act, 'history_groups': group_history_events(history_events)},
+                request=request,
+            )
+        }
+    )
+
+
+@login_required
+@require_GET
+def act_comments_fragment(request, pk):
+    act = _get_live_act(request, pk)
+    return _fragment_response(
+        {
+            # The list only: the new-comment textarea is never part of this
+            # partial, so a refresh cannot discard what the user is typing.
+            'html': render_to_string(
+                'acts/includes/comments_list.html',
+                {'act': act, 'comments': get_act_comments(act)},
+                request=request,
+            )
+        }
+    )
+
+
+@login_required
+@require_GET
+def act_activities_fragment(request, pk):
+    act = _get_live_act(request, pk)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'acts/includes/activities_content.html',
+                {'act': act, 'related_tasks': get_related_tasks(act, request.user)},
+                request=request,
+            )
+        }
+    )
 
 
 @login_required
@@ -642,14 +687,11 @@ def _get_act_detail_context(
     return_to_to_form=None,
     return_to_to_dialog_open=False,
 ):
-    history_events = list(act.history_events.select_related('user', 'from_status', 'to_status'))
-    history_groups = []
-    for event in history_events:
-        event_date = timezone.localtime(event.created_at).date()
-        if not history_groups or history_groups[-1]['date'] != event_date:
-            history_groups.append({'date': event_date, 'events': []})
-        history_groups[-1]['events'].append(event)
-    comments = act.comments.select_related('author')
+    # Shared with the live fragments, so a refreshed block and a reload can
+    # never disagree.
+    history_events = get_history_events(act)
+    history_groups = group_history_events(history_events)
+    comments = get_act_comments(act)
     defect_rows = list(act.defects.select_related('defect_type', 'operation'))
     has_defect_records = bool(defect_rows)
     if not defect_rows:
@@ -706,22 +748,7 @@ def _get_act_detail_context(
             'corrective_actions__task__completed_by',
         )
     )
-    from tasks.permissions import get_visible_tasks_queryset
-
-    related_tasks = get_visible_tasks_queryset(user).filter(act=act).select_related(
-        'department', 'status', 'root_analysis', 'completed_by'
-    ).prefetch_related('assignees__user__userprofile')
-    route_steps = (
-        ('Создан ОТК', 'CREATED_OTK', act.created_at),
-        ('Рассмотрение КО', 'KO_REVIEW', act.ko_decision_at),
-        ('Анализ ТО', 'TO_ANALYSIS', act.to_analysis_at),
-        ('Проверка ОТК', 'OTK_REVIEW', act.approved_at),
-        ('Архивирован', 'ARCHIVED', act.approved_at),
-    )
-    route_index = {
-        'CREATED_OTK': 0, 'KO_REVIEW': 1, 'TO_ANALYSIS': 2,
-        'OTK_REVIEW': 3, 'ACTIONS_ASSIGNED': 3, 'ARCHIVED': 4,
-    }.get(act.status.code, 0)
+    related_tasks = get_related_tasks(act, user)
     return {
         'active_page': 'acts',
         'header_title': '',
@@ -753,16 +780,5 @@ def _get_act_detail_context(
         'attachments': attachments,
         'attachment_form': attachment_form or ActAttachmentForm(),
         'related_tasks': related_tasks,
-        'route_steps': [
-            {
-                'name': name,
-                'date': date,
-                'state': (
-                    'completed'
-                    if index < route_index or (act.status.code == 'ARCHIVED' and index == route_index)
-                    else 'current' if index == route_index else 'future'
-                ),
-            }
-            for index, (name, _, date) in enumerate(route_steps)
-        ],
+        'route_steps': build_route_steps(act),
     }

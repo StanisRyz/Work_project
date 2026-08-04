@@ -38,6 +38,8 @@ function dashed(name) {
     return name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
+const VOID_TAGS = new Set(['br', 'hr', 'img', 'input', 'col', 'meta', 'link']);
+
 class ClassList {
     constructor(element) {
         this.element = element;
@@ -141,6 +143,52 @@ class Element {
     set textContent(value) {
         this.children = [];
         this._text = String(value);
+    }
+
+    get innerHTML() {
+        return this._html || '';
+    }
+
+    /**
+     * Parse the server HTML a live refresh swaps in.
+     *
+     * Only what the fixtures actually contain — nested tags with plain
+     * attributes and text — which is all the client needs to look up elements
+     * by `data-*` selector.
+     */
+    set innerHTML(value) {
+        this._html = String(value);
+        this.children = [];
+        this._text = '';
+        const stack = [this];
+        const token = /<\/?([a-zA-Z][\w-]*)((?:\s+[\w:-]+(?:="[^"]*")?)*)\s*(\/?)>|([^<]+)/g;
+        let match = token.exec(this._html);
+        while (match) {
+            const [raw, tagName, rawAttributes, selfClosing, text] = match;
+            const parent = stack[stack.length - 1];
+            if (text !== undefined) {
+                if (text.trim()) {
+                    parent._text += text;
+                }
+            } else if (raw.startsWith('</')) {
+                if (stack.length > 1) {
+                    stack.pop();
+                }
+            } else {
+                const element = new Element(tagName);
+                const attribute = /([\w:-]+)(?:="([^"]*)")?/g;
+                let found = attribute.exec(rawAttributes || '');
+                while (found) {
+                    element.setAttribute(found[1], found[2] === undefined ? '' : found[2]);
+                    found = attribute.exec(rawAttributes || '');
+                }
+                parent.append(element);
+                if (!selfClosing && !VOID_TAGS.has(tagName.toLowerCase())) {
+                    stack.push(element);
+                }
+            }
+            match = token.exec(this._html);
+        }
     }
 
     append(...nodes) {
@@ -270,7 +318,12 @@ FakeEventSource.instances = [];
 // Environment assembly
 // --------------------------------------------------------------------------
 
-function createEnvironment({ realtimeEnabled = true, withEventSource = true } = {}) {
+function createEnvironment({
+    realtimeEnabled = true,
+    withEventSource = true,
+    page = 'plain',
+    actId = 3,
+} = {}) {
     const clock = new Clock();
     FakeEventSource.instances = [];
 
@@ -288,11 +341,100 @@ function createEnvironment({ realtimeEnabled = true, withEventSource = true } = 
     region.setAttribute('data-toast-region', '');
     root.append(region);
 
+    // Page-specific live containers, mirroring what the Django templates render.
+    const live = {};
+    if (page === 'tasks') {
+        const list = new Element('div');
+        list.setAttribute('data-live-task-list', '');
+        list.setAttribute('data-fragment-url', '/tasks/list-fragment/');
+        list.textContent = 'исходный список задач';
+        root.append(list);
+        live.taskList = list;
+    }
+    if (page === 'acts') {
+        const registry = new Element('div');
+        registry.setAttribute('data-live-act-registry', '');
+        registry.setAttribute('data-fragment-url', '/acts/list-fragment/');
+        const kpis = new Element('section');
+        kpis.setAttribute('data-live-act-registry-kpis', '');
+        kpis.textContent = 'исходные KPI';
+        const results = new Element('div');
+        results.setAttribute('data-live-act-registry-results', '');
+        results.textContent = 'исходные акты';
+        registry.append(kpis, results);
+        root.append(registry);
+        live.actRegistry = registry;
+        live.actKpis = kpis;
+        live.actResults = results;
+    }
+    if (page === 'act-detail') {
+        const actConfig = new Element('div');
+        actConfig.setAttribute('data-live-act-config', '');
+        actConfig.setAttribute('data-live-act-id', String(actId));
+        actConfig.setAttribute('data-summary-url', `/acts/${actId}/live-summary-fragment/`);
+        actConfig.setAttribute('data-history-url', `/acts/${actId}/history-fragment/`);
+        actConfig.setAttribute('data-comments-url', `/acts/${actId}/comments-fragment/`);
+        actConfig.setAttribute('data-activities-url', `/acts/${actId}/activities-fragment/`);
+        root.append(actConfig);
+
+        const summary = new Element('div');
+        summary.setAttribute('data-live-act-summary', '');
+        summary.textContent = 'исходная сводка';
+        const comments = new Element('div');
+        comments.setAttribute('data-live-act-comments', '');
+        comments.textContent = 'исходные комментарии';
+        const activities = new Element('section');
+        activities.setAttribute('data-live-act-activities', '');
+        activities.textContent = 'исходные мероприятия';
+        const history = new Element('div');
+        history.setAttribute('data-live-act-history', '');
+        history.textContent = 'исходная история';
+
+        const conflict = new Element('div');
+        conflict.setAttribute('data-act-conflict-banner', '');
+        conflict.hidden = true;
+        const access = new Element('div');
+        access.setAttribute('data-act-access-banner', '');
+        access.hidden = true;
+
+        // A working form the live refresh must never touch.
+        const textarea = new Element('textarea');
+        textarea.setAttribute('name', 'text');
+        textarea.value = '';
+        const workflowButton = new Element('button');
+        workflowButton.setAttribute('data-workflow-submit', '');
+        workflowButton.disabled = false;
+
+        root.append(summary, history, comments, activities, conflict, access, textarea, workflowButton);
+        Object.assign(live, {
+            actConfig,
+            summary,
+            history,
+            comments,
+            activities,
+            conflictBanner: conflict,
+            accessBanner: access,
+            textarea,
+            workflowButton,
+        });
+    }
+
+    const documentListeners = new Map();
     const document = {
         body: root,
+        readyState: 'complete',
         createElement: (tag) => new Element(tag),
         querySelector: (selector) => (matches(root, selector) ? root : root.querySelector(selector)),
         querySelectorAll: (selector) => root.querySelectorAll(selector),
+        addEventListener(type, handler) {
+            if (!documentListeners.has(type)) {
+                documentListeners.set(type, []);
+            }
+            documentListeners.get(type).push(handler);
+        },
+        dispatch(type, event = {}) {
+            (documentListeners.get(type) || []).forEach((handler) => handler({ type, ...event }));
+        },
     };
 
     // The bell double: `replaceItems` stores server HTML as elements the client
@@ -362,6 +504,7 @@ function createEnvironment({ realtimeEnabled = true, withEventSource = true } = 
         addEventListener: () => {},
         qualityNotificationMenu: menu,
         fetch: fetchStub,
+        location: { search: '', reload: () => {} },
     };
 
     return {
@@ -371,10 +514,14 @@ function createEnvironment({ realtimeEnabled = true, withEventSource = true } = 
         region,
         menu,
         config,
+        live,
         fetchCalls,
         FakeEventSource,
         setFetchHandler(handler) {
             fetchHandler = handler;
+        },
+        callsTo(url) {
+            return fetchCalls.filter((call) => call.url.split('?')[0] === url);
         },
         get source() {
             return FakeEventSource.instances[FakeEventSource.instances.length - 1] || null;

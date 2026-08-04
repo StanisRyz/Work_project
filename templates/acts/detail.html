@@ -4,16 +4,35 @@
 {% block title %}{{ act.number }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-<section class="act-detail-heading">
-    <a class="act-back-link" href="{% url 'acts:list' %}" aria-label="К списку актов">←</a>
-    <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge">{{ act.status }}</span></div>
-</section>
+{# Server-built fragment URLs: the client never assembles a URL from an id. #}
+<div hidden data-live-act-config
+     data-live-act-id="{{ act.pk }}"
+     data-summary-url="{% url 'acts:live_summary_fragment' act.pk %}"
+     data-history-url="{% url 'acts:history_fragment' act.pk %}"
+     data-comments-url="{% url 'acts:comments_fragment' act.pk %}"
+     data-activities-url="{% url 'acts:activities_fragment' act.pk %}"></div>
 
-<ol class="act-route" aria-label="Маршрут согласования">
-    {% for step in route_steps %}
-        <li class="act-route__step act-route__step--{{ step.state }}"><span class="act-route__marker">{% if step.state == 'completed' %}✓{% else %}{{ forloop.counter }}{% endif %}</span><span class="act-route__copy"><strong>{{ step.name }}</strong>{% if step.state == 'current' %}<small>Текущий этап</small>{% elif step.state == 'future' %}<small>Ожидает</small>{% elif step.date %}<small>{{ step.date|date:'d.m.Y H:i' }}</small>{% endif %}</span></li>
-    {% endfor %}
-</ol>
+{# Read-only: number, status badge and route. Replaced live on act.updated
+   and act.status_changed. #}
+<div data-live-act-summary>
+    {% include 'acts/includes/live_summary.html' %}
+</div>
+
+<div class="act-conflict-banner" data-act-conflict-banner hidden role="alert">
+    <div>
+        <strong>Акт изменён другим пользователем.</strong>
+        <p>Перед сохранением загрузите актуальную версию — введённые данные сохранены и их можно скопировать.</p>
+    </div>
+    <button class="link-button" type="button" data-act-conflict-reload>Обновить страницу</button>
+</div>
+
+<div class="act-access-banner" data-act-access-banner hidden role="alert">
+    <div>
+        <strong>Акт изменён или больше недоступен.</strong>
+        <p>Обновление этой страницы остановлено.</p>
+    </div>
+    <a class="link-button" href="{% url 'acts:list' %}">К списку актов</a>
+</div>
 
 <nav class="act-detail-tabs" aria-label="Разделы акта">
     <a class="act-detail-tabs__link{% if detail_tab == 'work' %} act-detail-tabs__link--active{% endif %}" href="?tab=work"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Проработка</a>
@@ -119,43 +138,26 @@
             {% if available_actions.edit_act %}<a class="link-button link-button--secondary" href="{% url 'acts:edit' act.pk %}">Редактировать</a>{% endif %}
             {% if available_actions.return_to_otk %}<button class="link-button link-button--secondary" type="button" data-return-to-otk-open>Вернуть ОТК</button>{% endif %}
             {% if available_actions.return_to_ko %}<button class="link-button link-button--secondary" type="button" data-return-to-ko-open>Вернуть КО</button>{% endif %}
-            {% if available_actions.to_analysis %}<button class="link-button" type="submit" form="to-analysis-form" name="action" value="send_to_otk">На проверку ОТК</button>{% endif %}
+            {% if available_actions.to_analysis %}<button class="link-button" type="submit" form="to-analysis-form" name="action" value="send_to_otk" data-workflow-submit>На проверку ОТК</button>{% endif %}
             {% if available_actions.return_to_to %}<button class="link-button link-button--secondary" type="button" data-return-to-to-open>Вернуть ТО</button>{% endif %}
-            {% if available_actions.approve_act %}<form method="post" action="{% url 'acts:approve' act.pk %}" onsubmit="return confirm('Утвердить акт и переместить его в архив?');">{% csrf_token %}<button class="link-button" type="submit">Утвердить</button></form>{% endif %}
-            {% if available_actions.ko_decision %}<form id="ko-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}" onsubmit="return confirm('Сохранить решения КО и передать акт в ТО?');">{% csrf_token %}{% if ko_decision_formset %}{{ ko_decision_formset.management_form }}{% endif %}<button class="link-button" type="submit">Передать в ТО</button></form>{% endif %}
-            {% if available_actions.send_to_ko %}<form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">{% csrf_token %}<button class="link-button" type="submit">Передать в КО</button></form>{% endif %}
+            {% if available_actions.approve_act %}<form method="post" action="{% url 'acts:approve' act.pk %}" onsubmit="return confirm('Утвердить акт и переместить его в архив?');">{% csrf_token %}<button class="link-button" type="submit" data-workflow-submit>Утвердить</button></form>{% endif %}
+            {% if available_actions.ko_decision %}<form id="ko-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}" onsubmit="return confirm('Сохранить решения КО и передать акт в ТО?');">{% csrf_token %}{% if ko_decision_formset %}{{ ko_decision_formset.management_form }}{% endif %}<button class="link-button" type="submit" data-workflow-submit>Передать в ТО</button></form>{% endif %}
+            {% if available_actions.send_to_ko %}<form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">{% csrf_token %}<button class="link-button" type="submit" data-workflow-submit>Передать в КО</button></form>{% endif %}
         </div>
     </div>
 </section>
 {% elif detail_tab == 'history' %}
-    {% include 'acts/includes/history_timeline.html' %}
+    <div data-live-act-history>
+        {% include 'acts/includes/history_timeline.html' %}
+    </div>
 {% elif detail_tab == 'attachments' %}
     <div class="act-collaboration-layout">
         {% include 'acts/includes/attachments.html' %}
         {% include 'acts/includes/comments.html' %}
     </div>
 {% else %}
-    <section class="detail-section related-activities">
-        <header class="related-activities__header">
-            <div><h2>Связанные мероприятия</h2><p>Задачи, созданные по анализу ТО</p></div>
-            <span class="related-activities__count">Задач: {{ related_tasks|length }}</span>
-        </header>
-        {% if related_tasks %}
-            <div class="related-activities__table-wrap">
-                <table class="related-activities__table">
-                    <colgroup><col class="related-activities__number"><col class="related-activities__action"><col class="related-activities__cause"><col class="related-activities__assignees"><col class="related-activities__due"><col class="related-activities__status"></colgroup>
-                    <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Причина</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
-                    <tbody>{% for task in related_tasks %}<tr>
-                        <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
-                        <td><strong>{{ task.task_text }}</strong></td>
-                        <td>{{ task.root_analysis.root_cause|default:'—' }}</td>
-                        <td>{% for assignee in task.assignees.all %}{{ assignee.user }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
-                        <td>{{ task.due_date|date:'d.m.Y' }}</td>
-                        <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>
-                    </tr>{% endfor %}</tbody>
-                </table>
-            </div>
-        {% else %}<p class="related-activities__empty">Связанные мероприятия пока не созданы или недоступны.</p>{% endif %}
+    <section class="detail-section related-activities" data-live-act-activities>
+        {% include 'acts/includes/activities_content.html' %}
     </section>
 {% endif %}
 
@@ -174,7 +176,7 @@
         <p class="client-field-error" data-return-to-otk-error hidden>Укажите комментарий к возврату.</p>
         <div class="act-return-dialog__actions">
             <button class="link-button link-button--secondary" type="button" data-return-to-otk-cancel>Отмена</button>
-            <button class="link-button" type="submit">Вернуть на доработку</button>
+            <button class="link-button" type="submit" data-workflow-submit>Вернуть на доработку</button>
         </div>
     </form>
 </dialog>
@@ -188,7 +190,7 @@
         {{ return_to_ko_form.non_field_errors }}
         <label><span>{{ return_to_ko_form.comment.label }}</span>{{ return_to_ko_form.comment }}{{ return_to_ko_form.comment.errors }}</label>
         <p class="client-field-error" data-return-to-ko-error hidden>Укажите комментарий к возврату.</p>
-        <div class="act-return-dialog__actions"><button class="link-button link-button--secondary" type="button" data-return-to-ko-cancel>Отмена</button><button class="link-button" type="submit">Вернуть на доработку</button></div>
+        <div class="act-return-dialog__actions"><button class="link-button link-button--secondary" type="button" data-return-to-ko-cancel>Отмена</button><button class="link-button" type="submit" data-workflow-submit>Вернуть на доработку</button></div>
     </form>
 </dialog>
 {% endif %}
@@ -200,7 +202,7 @@
         {{ return_to_to_form.non_field_errors }}
         <label><span>{{ return_to_to_form.comment.label }}</span>{{ return_to_to_form.comment }}{{ return_to_to_form.comment.errors }}</label>
         <p class="client-field-error" data-return-to-to-error hidden>Укажите комментарий к возврату.</p>
-        <div class="act-return-dialog__actions"><button class="link-button link-button--secondary" type="button" data-return-to-to-cancel>Отмена</button><button class="link-button" type="submit">Вернуть на доработку</button></div>
+        <div class="act-return-dialog__actions"><button class="link-button link-button--secondary" type="button" data-return-to-to-cancel>Отмена</button><button class="link-button" type="submit" data-workflow-submit>Вернуть на доработку</button></div>
     </form>
 </dialog>
 {% endif %}

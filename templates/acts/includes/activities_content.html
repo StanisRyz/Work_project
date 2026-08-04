@@ -1,0 +1,24 @@
+{% comment %}
+Related corrective actions and their tasks. Read-only and permission-filtered
+by `get_related_tasks`, so it is safe to replace live.
+{% endcomment %}
+<header class="related-activities__header">
+    <div><h2>Связанные мероприятия</h2><p>Задачи, созданные по анализу ТО</p></div>
+    <span class="related-activities__count">Задач: {{ related_tasks|length }}</span>
+</header>
+{% if related_tasks %}
+    <div class="related-activities__table-wrap">
+        <table class="related-activities__table">
+            <colgroup><col class="related-activities__number"><col class="related-activities__action"><col class="related-activities__cause"><col class="related-activities__assignees"><col class="related-activities__due"><col class="related-activities__status"></colgroup>
+            <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Причина</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
+            <tbody>{% for task in related_tasks %}<tr data-related-task="{{ task.pk }}">
+                <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
+                <td><strong>{{ task.task_text }}</strong></td>
+                <td>{{ task.root_analysis.root_cause|default:'—' }}</td>
+                <td>{% for assignee in task.assignees.all %}{{ assignee.user }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+                <td>{{ task.due_date|date:'d.m.Y' }}</td>
+                <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>
+            </tr>{% endfor %}</tbody>
+        </table>
+    </div>
+{% else %}<p class="related-activities__empty">Связанные мероприятия пока не созданы или недоступны.</p>{% endif %}

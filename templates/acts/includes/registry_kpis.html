@@ -1,0 +1,21 @@
+{% comment %}Registry KPI cards. Replaced wholesale by a live refresh.{% endcomment %}
+<article class="act-kpi-card">
+    <span>Всего на проработке</span>
+    <strong>{{ kpis.total }}</strong>
+</article>
+<article class="act-kpi-card act-kpi-card--warning">
+    <span>Просрочено</span>
+    <strong>{{ kpis.overdue }}</strong>
+</article>
+<article class="act-kpi-card">
+    <span>На этапе ОТК</span>
+    <strong>{{ kpis.created_otk }}</strong>
+</article>
+<article class="act-kpi-card">
+    <span>На этапе КО</span>
+    <strong>{{ kpis.ko_review }}</strong>
+</article>
+<article class="act-kpi-card">
+    <span>На этапе ТО</span>
+    <strong>{{ kpis.to_analysis }}</strong>
+</article>

@@ -1,0 +1,14 @@
+{% comment %}
+Read-only act summary: number, status badge and the approval route. Safe to
+replace live — it contains no form and no user input.
+{% endcomment %}
+<section class="act-detail-heading">
+    <a class="act-back-link" href="{% url 'acts:list' %}" aria-label="К списку актов">←</a>
+    <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge" data-act-status-badge>{{ act.status }}</span></div>
+</section>
+
+<ol class="act-route" aria-label="Маршрут согласования">
+    {% for step in route_steps %}
+        <li class="act-route__step act-route__step--{{ step.state }}"><span class="act-route__marker">{% if step.state == 'completed' %}✓{% else %}{{ forloop.counter }}{% endif %}</span><span class="act-route__copy"><strong>{{ step.name }}</strong>{% if step.state == 'current' %}<small>Текущий этап</small>{% elif step.state == 'future' %}<small>Ожидает</small>{% elif step.date %}<small>{{ step.date|date:'d.m.Y H:i' }}</small>{% endif %}</span></li>
+    {% endfor %}
+</ol>

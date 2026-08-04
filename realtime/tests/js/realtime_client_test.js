@@ -30,6 +30,8 @@ function load(options) {
         JSON,
         Promise,
         Set,
+        Map,
+        Object,
         Array,
         Math,
         console,
@@ -407,6 +409,331 @@ test('an error event alone does not close the stream or clear the UI', async () 
 
     assert.equal(env.source.closed, false, 'the browser reconnects on its own');
     assert.equal(env.menu.unreadCount, 1);
+});
+
+// -------------------------------- RT-4 -----------------------------------
+
+function taskEvent(type, resourceId, actId, eventId) {
+    return {
+        schema_version: 1,
+        event_id: eventId || `${type}-${resourceId}`,
+        event_type: type,
+        occurred_at: '2026-08-04T10:00:00+00:00',
+        resource_type: 'task',
+        resource_id: resourceId,
+        data: { act_id: actId, status_code: 'IN_PROGRESS' },
+    };
+}
+
+function actEvent(type, resourceId, eventId) {
+    return {
+        schema_version: 1,
+        event_id: eventId || `${type}-${resourceId}`,
+        event_type: type,
+        occurred_at: '2026-08-04T10:00:00+00:00',
+        resource_type: 'act',
+        resource_id: resourceId,
+        data: { from_status_code: 'CREATED_OTK', to_status_code: 'KO_REVIEW' },
+    };
+}
+
+function commentEvent(resourceId, actId, eventId) {
+    return {
+        schema_version: 1,
+        event_id: eventId || `comment-${resourceId}`,
+        event_type: 'comment.created',
+        occurred_at: '2026-08-04T10:00:00+00:00',
+        resource_type: 'comment',
+        resource_id: resourceId,
+        data: { act_id: actId, author_id: 5 },
+    };
+}
+
+test('exactly one EventSource is created regardless of the page', async () => {
+    for (const page of ['plain', 'tasks', 'acts', 'act-detail']) {
+        const env = load({ page });
+        assert.equal(env.sources.length, 1, `page ${page} must open one stream`);
+    }
+});
+
+test('every module shares the one bus and refreshes on open', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler(() => ({ html: '<p>обновлено</p>' }));
+
+    env.source.emit('open');
+    env.clock.advance(200);
+    await flush();
+
+    // The bell plus all four act blocks, on a single stream.
+    assert.equal(env.sources.length, 1);
+    assert.equal(env.callsTo('/notifications/header-fragment/').length, 1);
+    assert.equal(env.callsTo('/acts/3/live-summary-fragment/').length, 1);
+    assert.equal(env.callsTo('/acts/3/history-fragment/').length, 1);
+    assert.equal(env.callsTo('/acts/3/comments-fragment/').length, 1);
+    assert.equal(env.callsTo('/acts/3/activities-fragment/').length, 1);
+});
+
+test('task.created refreshes the task list fragment', async () => {
+    const env = load({ page: 'tasks' });
+    env.setFetchHandler(() => ({ results_html: '<table data-task-row="9"></table>', tab: 'my', task_ids: [9] }));
+
+    env.source.emitEvent('task.created', taskEvent('task.created', 9, 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.callsTo('/tasks/list-fragment/').length, 1);
+    assert.ok(env.live.taskList.querySelector('[data-task-row="9"]'));
+    assert.equal(env.toasts.length, 0, 'task events must never toast');
+});
+
+test('task.completed refreshes the active list too', async () => {
+    const env = load({ page: 'tasks' });
+    env.setFetchHandler(() => ({ results_html: '<p data-empty>Задачи не найдены</p>', tab: 'my', task_ids: [] }));
+
+    env.source.emitEvent('task.completed', taskEvent('task.completed', 9, 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.callsTo('/tasks/list-fragment/').length, 1);
+    assert.ok(env.live.taskList.querySelector('[data-empty]'));
+    assert.equal(env.toasts.length, 0);
+});
+
+test('the task fragment request keeps the current query string', async () => {
+    const env = load({ page: 'tasks' });
+    env.window.location.search = '?tab=archive&sort=nearest';
+    env.setFetchHandler(() => ({ results_html: '<p></p>', tab: 'archive', task_ids: [] }));
+
+    env.source.emitEvent('task.updated', taskEvent('task.updated', 9, 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.fetchCalls[0].url, '/tasks/list-fragment/?tab=archive&sort=nearest');
+});
+
+test('act.status_changed refreshes the registry KPIs and results', async () => {
+    const env = load({ page: 'acts' });
+    env.setFetchHandler(() => ({
+        kpis_html: '<article data-kpi>7</article>',
+        results_html: '<tr data-act-row="3"></tr>',
+        act_ids: [3],
+    }));
+
+    env.source.emitEvent('act.status_changed', actEvent('act.status_changed', 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.callsTo('/acts/list-fragment/').length, 1);
+    assert.ok(env.live.actKpis.querySelector('[data-kpi]'));
+    assert.ok(env.live.actResults.querySelector('[data-act-row="3"]'));
+    assert.equal(env.toasts.length, 0, 'act events must never toast');
+});
+
+test('act.status_changed refreshes the open act summary and history', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler((call) => ({
+        html: call.url.includes('history') ? '<p data-history>новое событие</p>' : '<span data-badge>КО</span>',
+        status_code: 'KO_REVIEW',
+    }));
+
+    env.source.emitEvent('act.status_changed', actEvent('act.status_changed', 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.ok(env.live.summary.querySelector('[data-badge]'));
+    assert.ok(env.live.history.querySelector('[data-history]'));
+    assert.equal(env.callsTo('/acts/3/comments-fragment/').length, 0, 'unrelated blocks stay untouched');
+});
+
+test('an event for another act is ignored', async () => {
+    const env = load({ page: 'act-detail', actId: 3 });
+    env.setFetchHandler(() => ({ html: '<p>x</p>' }));
+
+    env.source.emitEvent('act.status_changed', actEvent('act.status_changed', 99));
+    env.source.emitEvent('comment.created', commentEvent(5, 99));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.fetchCalls.length, 0);
+});
+
+test('comment.created refreshes only the comments list', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler(() => ({ html: '<article data-comment>Новый комментарий</article>' }));
+
+    env.source.emitEvent('comment.created', commentEvent(5, 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.callsTo('/acts/3/comments-fragment/').length, 1);
+    assert.equal(env.callsTo('/acts/3/live-summary-fragment/').length, 0);
+    assert.ok(env.live.comments.querySelector('[data-comment]'));
+    assert.equal(env.toasts.length, 0);
+});
+
+test('task events refresh the related activities of the open act', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler(() => ({ html: '<tr data-related-task="9"></tr>' }));
+
+    env.source.emitEvent('task.completed', taskEvent('task.completed', 9, 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.callsTo('/acts/3/activities-fragment/').length, 1);
+    assert.ok(env.live.activities.querySelector('[data-related-task="9"]'));
+});
+
+test('a burst of task events collapses into one fragment request', async () => {
+    const env = load({ page: 'tasks' });
+    env.setFetchHandler(() => ({ results_html: '<p></p>', tab: 'my', task_ids: [] }));
+
+    env.source.emitEvent('task.created', taskEvent('task.created', 1, 3, 't1'));
+    env.source.emitEvent('task.updated', taskEvent('task.updated', 2, 3, 't2'));
+    env.source.emitEvent('task.completed', taskEvent('task.completed', 3, 3, 't3'));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.callsTo('/tasks/list-fragment/').length, 1);
+});
+
+test('a stale task-list response never overwrites newer markup', async () => {
+    const env = load({ page: 'tasks' });
+    env.setFetchHandler(() => 'manual');
+
+    env.source.emitEvent('task.created', taskEvent('task.created', 1, 3, 'first'));
+    env.clock.advance(200);
+    await flush();
+    env.source.emitEvent('task.created', taskEvent('task.created', 2, 3, 'second'));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.fetchCalls.length, 2);
+    env.fetchCalls[1].resolve({ ok: true, status: 200, json: async () => ({ results_html: '<p data-new>новое</p>' }) });
+    await flush();
+    env.fetchCalls[0].resolve({ ok: true, status: 200, json: async () => ({ results_html: '<p data-old>старое</p>' }) });
+    await flush();
+
+    assert.ok(env.live.taskList.querySelector('[data-new]'));
+    assert.equal(env.live.taskList.querySelector('[data-old]'), null);
+});
+
+test('a failed fragment request leaves the current markup intact', async () => {
+    const env = load({ page: 'acts' });
+    env.setFetchHandler((call) => {
+        call.reject(new Error('network down'));
+        return 'manual';
+    });
+
+    env.source.emitEvent('act.updated', actEvent('act.updated', 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.live.actKpis.textContent, 'исходные KPI');
+    assert.equal(env.live.actResults.textContent, 'исходные акты');
+});
+
+test('a dirty form is never replaced and raises a conflict banner', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler(() => ({ html: '<span data-badge>КО</span>' }));
+
+    // The user types a comment, then somebody else changes the act.
+    env.live.textarea.value = 'мой незаконченный комментарий';
+    env.document.dispatch('input', { target: env.live.textarea });
+    env.source.emitEvent('act.status_changed', actEvent('act.status_changed', 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.live.conflictBanner.hidden, false, 'the conflict banner must appear');
+    assert.equal(
+        env.live.textarea.value,
+        'мой незаконченный комментарий',
+        'typed text must survive untouched',
+    );
+    assert.equal(env.live.workflowButton.disabled, true, 'stale workflow submits are disabled');
+    // Read-only blocks are still refreshed.
+    assert.ok(env.live.summary.querySelector('[data-badge]'));
+});
+
+test('act.updated on a dirty form warns without disabling workflow buttons', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler(() => ({ html: '<span data-badge>ОТК</span>' }));
+
+    env.document.dispatch('change', { target: env.live.textarea });
+    env.source.emitEvent('act.updated', actEvent('act.updated', 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.live.conflictBanner.hidden, false);
+    assert.equal(env.live.workflowButton.disabled, false, 'only a status change invalidates actions');
+});
+
+test('a programmatic refresh never marks the form dirty', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler(() => ({ html: '<span data-badge>ОТК</span>' }));
+
+    env.source.emit('open');
+    env.clock.advance(200);
+    await flush();
+    env.source.emitEvent('act.status_changed', actEvent('act.status_changed', 3, 'later'));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.live.conflictBanner.hidden, true, 'no user edit means no conflict banner');
+    assert.equal(env.live.workflowButton.disabled, false);
+});
+
+test('losing access stops updates, disables actions and shows the access banner', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler(() => ({ status: 404 }));
+
+    env.source.emitEvent('act.status_changed', actEvent('act.status_changed', 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.live.accessBanner.hidden, false);
+    assert.equal(env.live.workflowButton.disabled, true);
+    const callsBefore = env.fetchCalls.length;
+
+    env.source.emitEvent('comment.created', commentEvent(5, 3));
+    env.clock.advance(500);
+    await flush();
+
+    assert.equal(env.fetchCalls.length, callsBefore, 'no further requests after access loss');
+});
+
+test('RT-3 notifications keep working alongside the new modules', async () => {
+    const env = load({ page: 'tasks' });
+    env.setFetchHandler((call) =>
+        call.url.startsWith('/tasks/')
+            ? { results_html: '<p></p>', tab: 'my', task_ids: [] }
+            : fragment([{ id: 11, title: 'Уведомление', message: 'Текст', url: '/acts/3/' }]),
+    );
+
+    env.source.emitEvent('notification.created', createdEvent(11, 'rt3-alive'));
+    env.source.emitEvent('task.created', taskEvent('task.created', 9, 3));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.toasts.length, 1, 'notification.created still toasts');
+    assert.equal(env.menu.unreadCount, 1);
+    assert.equal(env.callsTo('/tasks/list-fragment/').length, 1);
+    assert.equal(env.callsTo('/notifications/header-fragment/').length, 1);
+});
+
+test('notification.read still synchronises without a toast', async () => {
+    const env = load({ page: 'acts' });
+    env.setFetchHandler((call) =>
+        call.url.startsWith('/acts/')
+            ? { kpis_html: '<p></p>', results_html: '<p></p>', act_ids: [] }
+            : fragment([], 0),
+    );
+
+    env.source.emitEvent('notification.read', readEvent('rt3-read'));
+    env.clock.advance(200);
+    await flush();
+
+    assert.equal(env.menu.unreadCount, 0);
+    assert.equal(env.toasts.length, 0);
 });
 
 // --------------------------------------------------------------------------

@@ -604,9 +604,46 @@ the button or `Escape`, cap at three visible at once, and respect
 `REALTIME_ENABLED=true`; with real-time off no configuration and no client
 script are rendered, and no `EventSource` is created.
 
-**Live updating covers notifications only.** Tasks, acts, history and comments
-still require a page reload, and there is no fallback polling, no WebSocket and
-no act-channel subscription.
+### Live tasks, registry and open act
+
+The same single stream also keeps the working pages current, without a reload:
+
+| Page | Updated live |
+| --- | --- |
+| `/tasks/` | the results table — a new task appears, a completed one leaves the active tabs and shows up in `Архив` |
+| `/acts/` | the KPI cards and the results table — a status change moves an act between scopes |
+| `/acts/<id>/` | the number, status badge and route; the history feed; the comment list; the related activities table |
+
+Every update is a refetch of a server-rendered fragment through an ordinary
+authenticated endpoint, so tab, filters, search, sorting and permissions are
+re-evaluated by Django — the browser decides nothing. Scroll position and focus
+in the filter form are preserved, because the tabs and the filter panel are
+never replaced.
+
+**Unsaved input is never touched.** The KO decision form, the TO analysis form
+with its dynamic rows, the new-comment textarea, the return dialogs and the
+attachment form all sit outside the replaceable blocks. If somebody else
+changes the act while your form has unsaved edits, a banner appears —
+*«Акт изменён другим пользователем»* — with a reload button; your text stays
+exactly where it is so you can copy it. On a status change the workflow submit
+buttons are disabled as well, since they would act on a status that no longer
+exists; ordinary fields stay editable. If the act becomes invisible to you, the
+page stops updating and offers a link back to the registry.
+
+Only new notifications produce a toast. Task and act updates are silent — you
+already get a toast through the matching notification when the workflow defines
+one.
+
+Local check with two users: run Redis and uvicorn as above, open `/tasks/` as a
+TO user in one browser, and from another account approve an act with corrective
+actions. The task appears without F5; completing it moves it to `Архив`. Then
+open an act in one browser, change its status from the other, and watch the
+badge and route update while any text you have typed survives.
+
+**Still not implemented:** fallback polling, `BroadcastChannel`, WebSocket, act
+channel subscriptions and a `/realtime/sync/` endpoint. History, comments and
+activities refresh only while their tab is open — switching tabs is an ordinary
+server render and therefore already current.
 
 See [Real-time события](docs/realtime.md) for the contract, targets, channel
 namespace, SSE frame format, heartbeat, cleanup rules, size limits and the RT-3

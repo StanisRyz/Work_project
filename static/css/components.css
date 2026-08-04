@@ -679,3 +679,58 @@
         animation: none;
     }
 }
+
+/* Live-update banners on the open act page (RT-4). Never hide or disable the
+   text a user has typed — the banner only warns and offers a reload. */
+
+.act-conflict-banner,
+.act-access-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin: 0 0 14px;
+    padding: 12px 15px;
+    border: 1px solid #f0c36d;
+    border-left: 3px solid #d97706;
+    border-radius: var(--radius);
+    background: #fffaf0;
+}
+
+.act-access-banner {
+    border-color: #f3b0b0;
+    border-left-color: #dc2626;
+    background: #fdf3f3;
+}
+
+.act-conflict-banner[hidden],
+.act-access-banner[hidden] {
+    display: none;
+}
+
+.act-conflict-banner strong,
+.act-access-banner strong {
+    display: block;
+    font-size: 13px;
+}
+
+.act-conflict-banner p,
+.act-access-banner p {
+    margin: 2px 0 0;
+    color: var(--color-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.act-conflict-banner .link-button,
+.act-access-banner .link-button {
+    flex: none;
+}
+
+@media (max-width: 760px) {
+    .act-conflict-banner,
+    .act-access-banner {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

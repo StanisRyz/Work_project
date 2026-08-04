@@ -1,0 +1,49 @@
+{% comment %}
+Registry results only: the table with its rows, or the matching empty state.
+The scope tabs and the filter form stay outside, so a live refresh never
+replaces a control the user may be typing into.
+{% endcomment %}
+{% if not has_visible_acts %}
+    {% include 'acts/includes/empty_state.html' with title='Акты недоступны' message='Для текущей роли нет актов на проработке.' %}
+{% elif has_filters and not acts %}
+    {% include 'acts/includes/empty_state.html' with title='По фильтрам ничего не найдено' message='Измените параметры поиска или сбросьте фильтры.' %}
+{% else %}
+    <section class="table-card act-table-card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Номер</th>
+                    <th>{% if scope == 'archive' %}Дата архивации{% else %}Дата создания{% endif %}</th>
+                    <th>Тип</th>
+                    <th>Статус</th>
+                    <th>Срок</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for act in acts %}
+                    <tr data-act-row="{{ act.pk }}">
+                        <td><a class="table-link" href="{% url 'acts:detail' act.pk %}">{{ act.number }}</a></td>
+                        <td>
+                            {% if scope == 'archive' %}
+                                {{ act.approved_at|date:'d.m.Y' }}
+                            {% else %}
+                                {{ act.created_at|date:'d.m.Y' }}
+                            {% endif %}
+                        </td>
+                        <td>{{ act.get_act_type_display }}</td>
+                        <td>{% include 'acts/includes/status_badge.html' with status=act.status %}</td>
+                        <td>
+                            {% if act.due_date %}
+                                <span class="{% if act.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">
+                                    {{ act.due_date|date:'d.m.Y' }}
+                                </span>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+{% endif %}

@@ -10,16 +10,7 @@
         <button class="link-button" type="submit"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14-7-4 14-3-6-7-1Z"/></svg>Добавить комментарий</button>
     </form>
 
-    {% if comments %}
-        <div class="comment-list">
-            {% for comment in comments %}
-                <article class="comment-card">
-                    <span class="comment-card__avatar" aria-hidden="true">{{ comment.author.first_name|first|default:comment.author.username|first|upper }}{{ comment.author.last_name|first|upper }}</span>
-                    <div><div class="comment-card__meta"><strong>{{ comment.author.get_full_name|default:comment.author.username|default:'Без автора' }}</strong><time datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:'d.m.Y H:i' }}</time></div><p>{{ comment.text|linebreaksbr }}</p></div>
-                </article>
-            {% endfor %}
-        </div>
-    {% else %}
-        <p class="act-collaboration-empty">Комментариев пока нет.</p>
-    {% endif %}
+    <div data-live-act-comments>
+        {% include 'acts/includes/comments_list.html' %}
+    </div>
 </section>
