@@ -30,6 +30,9 @@ HISTORY_EVENT_TYPES = {
     'APPROVED': Notification.EventType.ACT_APPROVED,
 }
 
+# How many unread notifications the bell menu ever shows.
+HEADER_NOTIFICATION_LIMIT = 5
+
 EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.ACT_SENT_TO_KO,
     Notification.EventType.ACT_SENT_TO_TO,
@@ -134,6 +137,29 @@ def create_notifications(*, event_type, act, actor, recipients, source_key, excl
             # callers must never emit it again for the same row.
             emit_notification_created(notification)
     return created_notifications
+
+
+def get_notification_header_state(user):
+    """Everything the bell needs, resolved once.
+
+    The single source for both the context processor (full page load) and the
+    header fragment endpoint (real-time refresh), so the two can never drift
+    apart and the ORM query is not repeated in several places. An anonymous
+    user costs no query at all.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return {'unread_count': 0, 'items': (), 'latest_notification_id': None}
+
+    unread = Notification.objects.filter(recipient=user, is_read=False)
+    items = list(
+        unread.select_related('actor', 'related_act')
+        .order_by('-created_at', '-pk')[:HEADER_NOTIFICATION_LIMIT]
+    )
+    return {
+        'unread_count': unread.count(),
+        'items': items,
+        'latest_notification_id': items[0].pk if items else None,
+    }
 
 
 def mark_notifications_read(user, *, scope, notification_ids=None):

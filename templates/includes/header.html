@@ -18,17 +18,9 @@
             </summary>
             <div class="notification-menu__popup">
                 <div class="notification-menu__heading"><strong>Уведомления</strong><a href="{% url 'notifications:list' %}">Все</a></div>
-                <div class="notification-menu__items" data-notification-items>
-                    {% for notification in recent_notifications %}
-                    <a class="notification-menu__item notification-menu__item--unread" href="{{ notification.related_url }}" data-notification-id="{{ notification.pk }}" data-notification-unread="true">
-                        <strong>{{ notification.title }}</strong>
-                        <span>{{ notification.message }}</span>
-                        <time datetime="{{ notification.created_at|date:'c' }}">{{ notification.created_at|date:"d.m.Y H:i" }}</time>
-                    </a>
-                    {% empty %}
-                    <p class="notification-menu__empty" data-notification-empty>Новых уведомлений нет.</p>
-                    {% endfor %}
-                </div>
+                {# Only the *contents* of this container are ever replaced, so the
+                   menu toggle handler registered on the <details> stays valid. #}
+                <div class="notification-menu__items" data-notification-items>{% include 'notifications/includes/header_items.html' %}</div>
                 <a class="notification-menu__all" href="{% url 'notifications:list' %}">Открыть все уведомления</a>
             </div>
         </details>

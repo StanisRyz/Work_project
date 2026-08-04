@@ -1,0 +1,16 @@
+{% comment %}
+Bell menu items. Rendered by Django both on a full page load and by the
+header fragment endpoint, so the real-time client never builds notification
+markup itself: it only swaps in what the server produced.
+
+`recent_notifications` comes from `get_notification_header_state()`.
+{% endcomment %}
+{% for notification in recent_notifications %}
+<a class="notification-menu__item notification-menu__item--unread" href="{{ notification.related_url }}" data-notification-id="{{ notification.pk }}" data-notification-unread="true">
+    <strong data-notification-title>{{ notification.title }}</strong>
+    <span data-notification-message>{{ notification.message }}</span>
+    <time datetime="{{ notification.created_at|date:'c' }}">{{ notification.created_at|date:"d.m.Y H:i" }}</time>
+</a>
+{% empty %}
+<p class="notification-menu__empty" data-notification-empty>Новых уведомлений нет.</p>
+{% endfor %}

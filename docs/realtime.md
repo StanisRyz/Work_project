@@ -431,29 +431,192 @@ python -m uvicorn ecosystem.asgi:application --host 127.0.0.1 --port 8000
 
 ## 20. Границы RT-2
 
+Транспорт RT-2 не включает браузерную часть — она добавлена в RT-3 ниже и
+охватывает только уведомления.
+
+---
+
+# RT-3: браузер, колокольчик и toast
+
+## 21. Архитектура RT-3
+
+```
+Redis Pub/Sub
+     │  event: notification.created / notification.read
+     ▼
+GET /realtime/events/  (SSE, персональный канал user:<id>)
+     │
+     ▼  «что-то изменилось» — только сигнал, без данных
+static/js/realtime.js
+     │  debounce 150 мс, один активный запрос
+     ▼
+GET /notifications/header-fragment/   (обычный авторизованный Django endpoint)
+     │  unread_count + items_html, отрисованный Django
+     ▼
+[data-notification-items] ← innerHTML     toast region ← toast из этой же разметки
+```
+
+Главный принцип: **SSE — сигнал, а не источник данных.** Событие сообщает
+только факт изменения. Весь видимый текст и все ссылки приходят из обычного
+Django-endpoint с полной проверкой прав. Payload события никогда не попадает в
+DOM.
+
+## 22. Общий сервис состояния колокольчика
+
+`notifications.services.get_notification_header_state(user)` возвращает
+`unread_count`, до пяти последних непрочитанных (`HEADER_NOTIFICATION_LIMIT`) с
+нужными `select_related` и `latest_notification_id`. Его используют и context
+processor (полная загрузка страницы), и fragment endpoint, поэтому ORM-запрос
+не дублируется, а два пути не могут разойтись. Анонимный пользователь не
+выполняет ни одного запроса.
+
+Разметка элементов вынесена в
+`templates/notifications/includes/header_items.html` и подключается и в
+`header.html`, и в endpoint через `render_to_string`.
+
+## 23. Fragment endpoint
+
+```
+GET /notifications/header-fragment/
+```
+
+| Свойство | Значение |
+| --- | --- |
+| получатель | всегда `request.user`; параметр пользователя не принимается |
+| метод | только GET, состояние не изменяется |
+| ответ | `unread_count`, `items_html`, `generated_at`, `latest_notification_id` |
+| кэширование | `Cache-Control: no-cache, no-store, must-revalidate, private`, `Vary: Cookie` |
+
+`items_html` формирует Django из общего partial. JavaScript не собирает
+разметку уведомлений.
+
+## 24. Конфигурация клиента
+
+`realtime.context_processors.realtime_client_config` отдаёт в шаблон только:
+флаг `enabled`, URL SSE-endpoint, URL fragment-endpoint и URL страницы всех
+уведомлений — все три через `reverse()`. Ни Redis URL, ни имени канала, ни
+credentials, ни user id.
+
+`base.html` выводит скрытый элемент `[data-realtime-config]` и подключает
+`static/js/realtime.js` **только** авторизованному пользователю и **только**
+при `REALTIME_ENABLED=true`. При выключенном real-time ни конфигурации, ни
+скрипта на странице нет, и `EventSource` не создаётся.
+
+## 25. Жизненный цикл EventSource
+
+1. Клиент находит серверную конфигурацию; при её отсутствии, при
+   `data-realtime-enabled != "true"` или при отсутствии `window.EventSource`
+   ничего не делает.
+2. Повторная инициализация исключена флагом на `window`.
+3. Открывается **один** `EventSource` на `/realtime/events/` без каких-либо
+   параметров: ни user id, ни target, ни channel.
+4. Слушаются только `notification.created` и `notification.read`; остальные
+   типы игнорируются молча.
+5. Собственного reconnect-цикла нет — переподключением занимается сам
+   `EventSource`.
+6. На `pagehide` клиент закрывает поток.
+
+### Refresh после каждого open
+
+Любой `open` — первый и каждый последующий после переподключения — ставит в
+очередь обновление fragment. Это и есть сверка состояния после пропущенных
+событий, офлайна или перезапуска Redis. Toast при этом не показывается:
+очередь toast'ов на open пуста, поэтому уже существующие уведомления не
+всплывают.
+
+## 26. Обработка событий
+
+**`notification.created`** — валидируется минимальная структура
+(`event_type`, `resource_type == "notification"`, положительный целый
+`resource_id`), берётся `event.lastEventId` или `event_id` из payload,
+ставится в очередь обновление fragment с пометкой «показать toast для этого
+`resource_id`». После получения fragment обновляются счётчик и разметка, затем
+показывается toast.
+
+**`notification.read`** — toast не показывается; обновляются только fragment и
+счётчик, чем и синхронизируются остальные вкладки. `notification_ids`
+намеренно не используются: при `scope=all` их в payload нет, и единственным
+источником истины остаётся fragment.
+
+## 27. Debounce, отмена и защита от устаревших ответов
+
+- debounce 150 мс: серия событий схлопывается в один запрос fragment;
+- одновременно активен максимум один запрос — предыдущий отменяется через
+  `AbortController`;
+- каждый запрос получает номер поколения; ответ с устаревшим номером
+  отбрасывается и не перезаписывает более свежее состояние;
+- ошибка запроса не удаляет текущую разметку и не сбрасывает счётчик.
+
+## 28. Дедупликация
+
+`event_id` хранятся в ограниченном FIFO на 100 значений в памяти вкладки.
+Повторное событие не показывает второй toast, но может инициировать безопасную
+сверку состояния. Коллекция не растёт бесконечно.
+
+## 29. Toast
+
+Заголовок, сообщение и ссылка берутся **из обновлённой серверной разметки** по
+`data-notification-id`, а не из события. Если уведомление не попало в последние
+пять, показывается универсальный toast со ссылкой на страницу уведомлений.
+Весь текст вставляется через `textContent`.
+
+Доступность: регион `aria-live="polite"`, `aria-relevant="additions"`, каждый
+toast — `role="status"`; закрытие кнопкой с `aria-label` и клавишей `Escape`;
+автозакрытие через 8 с с паузой при hover и focus; максимум три видимых toast;
+видимый focus-outline; поддержка `prefers-reduced-motion`. Регион расположен
+справа снизу и не перекрывает колокольчик, профиль и основные кнопки.
+
+## 30. Совместимость с отметкой прочитанным
+
+Логика открытия колокольчика не изменилась: показанные непрочитанные
+уведомления отмечаются существующим POST с CSRF и `credentials`, текущая
+вкладка обновляется сразу, остальные — по событию `notification.read`.
+
+Заменяется только **содержимое** контейнера `[data-notification-items]`, а не
+сам контейнер и не `<details>`, поэтому единственный обработчик `toggle`
+продолжает находить новые элементы и не регистрируется повторно. Общие правила
+DOM колокольчика живут в `app.js` и публикуются как
+`window.qualityNotificationMenu`, чтобы `realtime.js` не дублировал их.
+
+## 31. Ошибки
+
+- ошибка SSE не показывается пользователю и не удаляет текущий UI;
+- переподключение выполняет сам браузер, поверх него ничего не строится;
+- при следующем `open` выполняется сверка;
+- при 401/403 клиент останавливается: без повторной авторизации и без
+  бесконечного цикла, обычный logout работает как раньше;
+- fallback polling в RT-3 не добавляется.
+
+## 32. Границы RT-3
+
 Не входит в этот этап:
 
-- `EventSource` и любой frontend JavaScript;
-- toast-уведомления и обновление колокольчика;
-- partial endpoints;
-- автоматическое обновление задач и актов;
+- обновление списка задач, актов, истории и комментариев;
 - подписки на act targets;
-- sync endpoint и fallback polling;
-- `BroadcastChannel`;
+- `/realtime/sync/`;
+- fallback polling;
+- `BroadcastChannel` и выбор вкладки-лидера;
 - WebSocket и Django Channels;
-- production reverse proxy и HTTPS;
-- хранение real-time событий в PostgreSQL;
-- transactional outbox.
+- React и любой frontend-toolchain (npm, Jest);
+- replay и хранение событий;
+- production reverse proxy и HTTPS.
 
-## 21. План RT-3
+## 33. Проверка клиента
 
-1. Подключить `EventSource` на фронтенде: по событию перезапрашивать
-   соответствующий partial обычным HTTP-запросом, а не доверять payload.
-2. Обновлять счётчик колокольчика и реестры точечно, без полной перезагрузки.
-3. Добавить авторизуемые подписки на `act:<id>` через `can_view_act`.
-4. Развернуть production ASGI за reverse proxy с HTTPS и длительными
+JavaScript проверяется без npm и Jest: `realtime/tests/js/dom_harness.js` —
+самописный минимальный DOM, таймеры, `EventSource` и `fetch`, а
+`realtime/tests/js/realtime_client_test.js` прогоняет через них реальный
+`static/js/realtime.js`. Запускается на обычном Node и участвует в
+`manage.py test` через `realtime/tests/test_js_client.py`; при отсутствии Node
+тест пропускается.
+
+## 34. План RT-4
+
+1. Точечно обновлять реестры задач и актов теми же fragment-запросами.
+2. Добавить авторизуемые подписки на `act:<id>` через `can_view_act`.
+3. Развернуть production ASGI за reverse proxy с HTTPS и длительными
    соединениями, отключив буферизацию.
-5. При необходимости гарантированной доставки — рассмотреть transactional
+4. При необходимости гарантированной доставки — рассмотреть transactional
    outbox; сейчас потеря события намеренно допустима.
 
 Новые типы событий по-прежнему добавляются только в централизованный enum и

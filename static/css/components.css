@@ -565,3 +565,117 @@
         text-align: left;
     }
 }
+
+/* Real-time toasts (RT-3). Bottom-right, so the topbar bell, profile menu and
+   the primary page actions are never covered. No external library. */
+
+.toast-region {
+    position: fixed;
+    z-index: 60;
+    right: 16px;
+    bottom: 16px;
+    display: grid;
+    gap: 10px;
+    width: min(360px, calc(100vw - 32px));
+    pointer-events: none;
+}
+
+.toast-region:empty {
+    display: none;
+}
+
+.toast {
+    display: grid;
+    gap: 6px;
+    padding: 13px 15px;
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-primary);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    box-shadow: 0 12px 28px rgb(15 23 42 / 18%);
+    pointer-events: auto;
+    animation: toast-in 160ms ease-out;
+}
+
+.toast--no-motion,
+.toast:focus-visible {
+    animation: none;
+}
+
+.toast__title {
+    color: var(--color-text);
+    font-size: 13px;
+}
+
+.toast__message {
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: var(--color-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.toast__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 2px;
+}
+
+.toast__link {
+    color: var(--color-primary);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.toast__link:hover {
+    color: var(--color-primary-dark);
+    text-decoration: underline;
+}
+
+.toast__close {
+    display: inline-grid;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    place-items: center;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.toast__close:hover {
+    background: #f1f4fa;
+    color: var(--color-text);
+}
+
+.toast a:focus-visible,
+.toast button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 760px) {
+    .toast-region {
+        right: 12px;
+        left: 12px;
+        bottom: 12px;
+        width: auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast {
+        animation: none;
+    }
+}

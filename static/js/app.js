@@ -50,11 +50,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const updateCounter = (unreadCount) => {
-        counter.textContent = String(unreadCount);
-        counter.hidden = unreadCount <= 0;
+        const value = Number.isFinite(unreadCount) ? Math.max(0, unreadCount) : 0;
+        counter.textContent = String(value);
+        counter.hidden = value <= 0;
         summary.setAttribute(
             'aria-label',
-            unreadCount > 0 ? `Уведомления: ${unreadCount} непрочитанных` : 'Уведомления',
+            value > 0 ? `Уведомления: ${value} непрочитанных` : 'Уведомления',
         );
     };
 
@@ -70,6 +71,14 @@ document.addEventListener('DOMContentLoaded', () => {
         empty.dataset.notificationEmpty = '';
         empty.textContent = 'Новых уведомлений нет.';
         itemsContainer.append(empty);
+    };
+
+    // Only the container's contents are ever swapped, never the container or the
+    // <details> itself, so this single toggle handler keeps finding freshly
+    // rendered items and is never re-registered after a fragment refresh.
+    const replaceItems = (html) => {
+        itemsContainer.innerHTML = html;
+        showEmptyStateIfNeeded();
     };
 
     menu.addEventListener('toggle', () => {
@@ -106,4 +115,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Leave the menu and counter untouched on failure; server state is unchanged.
             });
     });
+
+    // The narrow contract the real-time client uses, so the bell's DOM rules
+    // live in exactly one place. Absent on pages without a bell.
+    window.qualityNotificationMenu = {
+        element: menu,
+        itemsContainer,
+        updateCounter,
+        replaceItems,
+    };
 });

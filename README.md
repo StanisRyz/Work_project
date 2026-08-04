@@ -562,19 +562,51 @@ $env:REALTIME_REDIS_URL = "redis://127.0.0.1:6379/0"
 # 3. Verify the transport before anything else
 python manage.py check_realtime_transport
 
-# 4. Serve the async endpoint under ASGI
+# 4. Serve the async endpoint under ASGI (runserver is WSGI and cannot stream)
 python -m uvicorn ecosystem.asgi:application --host 127.0.0.1 --port 8000
 ```
+
+All three are required together: without a running Redis, `REALTIME_ENABLED=true`
+*and* `REALTIME_PUBLISHER_BACKEND` pointing at `RedisRealtimePublisher`, the
+bell simply keeps its previous behaviour and the page works exactly as before.
+
+To check the live scenario locally: open the site in two browsers as two
+different users, have the first user perform an action that notifies the second
+(for example transfer an act to KO), and watch the second user's bell counter,
+menu and toast update without a reload. Opening the bell marks the shown items
+read, and a second tab of the same user updates on its own.
 
 `check_realtime_transport` validates the settings, runs a Redis `PING`,
 publishes a random token into a unique throwaway diagnostic channel, reads it
 back, reports the round-trip time and releases every resource. It creates no
 business objects, never touches a user channel and never prints credentials.
 
-**The browser side is not implemented yet.** There is no `EventSource`, no
-frontend JavaScript, no toasts, no bell refresh and no automatic act or task
-updating: this stage delivers only the Publisher → Redis → SSE chain. The HTTP
-interface is otherwise unchanged.
+### Live bell and toasts
+
+With real-time enabled, a new internal notification reaches the recipient
+without a page reload: the bell counter updates, the notification appears in
+the bell menu, and a single toast is shown in the bottom-right corner with the
+notification's title, message and an `Открыть` link. Reading notifications
+synchronises the counter and the menu across all of that user's open tabs.
+
+The SSE event is only a *signal*. Every visible string and link is fetched
+afterwards from `GET /notifications/header-fragment/`, an authenticated Django
+endpoint that renders the same partial the full page uses — so permissions are
+re-checked server-side and no event payload is ever inserted into the page. The
+client refreshes on every connect and reconnect, so a dropped connection or a
+Redis restart cannot leave a stale counter behind.
+
+Toasts auto-dismiss after 8 seconds, pause while hovered or focused, close with
+the button or `Escape`, cap at three visible at once, and respect
+`prefers-reduced-motion`. The region is `aria-live="polite"`.
+
+`static/js/realtime.js` is loaded only for an authenticated user and only while
+`REALTIME_ENABLED=true`; with real-time off no configuration and no client
+script are rendered, and no `EventSource` is created.
+
+**Live updating covers notifications only.** Tasks, acts, history and comments
+still require a page reload, and there is no fallback polling, no WebSocket and
+no act-channel subscription.
 
 See [Real-time события](docs/realtime.md) for the contract, targets, channel
 namespace, SSE frame format, heartbeat, cleanup rules, size limits and the RT-3
@@ -671,7 +703,7 @@ Open http://127.0.0.1:8000/ in a browser.
 - Reverse migration PostgreSQL → SQLite, delta synchronisation, and any transfer that does not stop writes.
 - Changing the working application address, reverse proxy, HTTPS, production WSGI/ASGI, and permanent backups.
 - REST API.
-- Live UI updates: `EventSource` and any frontend JavaScript, toasts, bell refresh, partial endpoints, automatic act/task updating, act-channel subscriptions, fallback polling, `BroadcastChannel`, WebSocket/Django Channels, a production ASGI deployment with reverse proxy and HTTPS, event storage in PostgreSQL and a transactional outbox. The event contract and the Redis/SSE transport exist (see [Real-time события](docs/realtime.md)).
+- Live updating of tasks, acts, history and comments; act-channel subscriptions; fallback polling; `BroadcastChannel` and leader-tab election; WebSocket/Django Channels; React; event replay or storage; a production ASGI deployment with reverse proxy and HTTPS. Live notifications (bell and toasts) are implemented — see [Real-time события](docs/realtime.md).
 - Frontend frameworks.
 - Celery, Redis, APScheduler, or an in-process WSGI/ASGI scheduler.
 

@@ -29,7 +29,21 @@
             </main>
         </div>
     </div>
-    <script src="{% static 'js/app.js' %}?v=20260803-2"></script>
+    {# Toast notifications. Bottom-right so it never covers the topbar bell,
+       profile menu or the primary page actions. #}
+    <div class="toast-region" data-toast-region role="region" aria-label="Уведомления в реальном времени" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>
+    <script src="{% static 'js/app.js' %}?v=20260804-1"></script>
+    {% if realtime_client.enabled %}
+    {# Server-side configuration only: no user id, no channel name, no Redis URL.
+       Rendered for authenticated users and only while real-time is enabled, so a
+       disabled deployment never loads the client or opens an EventSource. #}
+    <div hidden data-realtime-config
+         data-realtime-enabled="true"
+         data-events-url="{{ realtime_client.events_url }}"
+         data-notification-fragment-url="{{ realtime_client.notification_fragment_url }}"
+         data-notifications-url="{{ realtime_client.notifications_url }}"></div>
+    <script src="{% static 'js/realtime.js' %}?v=20260804-1" defer></script>
+    {% endif %}
     {% block scripts %}{% endblock %}
 </body>
 </html>

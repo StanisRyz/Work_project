@@ -1,11 +1,14 @@
-from .models import Notification
+from .services import get_notification_header_state
 
 
 def notification_summary(request):
-    if not request.user.is_authenticated:
-        return {'notification_unread_count': 0, 'recent_notifications': ()}
-    unread_notifications = Notification.objects.filter(recipient=request.user, is_read=False)
+    """Bell state for every rendered page.
+
+    Delegates to the shared service so a full page load and a real-time
+    fragment refresh always describe the same thing.
+    """
+    state = get_notification_header_state(request.user)
     return {
-        'notification_unread_count': unread_notifications.count(),
-        'recent_notifications': unread_notifications.select_related('actor', 'related_act')[:5],
+        'notification_unread_count': state['unread_count'],
+        'recent_notifications': state['items'],
     }
