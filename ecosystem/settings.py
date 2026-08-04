@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'tasks',
     'notifications',
     'maintenance',
+    'realtime',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -247,3 +248,45 @@ EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS = env_int(
     'EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS',
     900,
 )
+
+
+# Real-time events (RT-1: contract only, no transport)
+#
+# Disabled by default: with REALTIME_ENABLED=false the emitters return before
+# resolving any recipient, so no extra query runs and the project behaves
+# exactly as it did before the `realtime` app existed. The default backend
+# sends nothing; a Redis/SSE backend is an RT-2 concern and is configured by
+# pointing REALTIME_PUBLISHER_BACKEND at it — business code never changes.
+REALTIME_ENABLED = env_bool('REALTIME_ENABLED', False)
+REALTIME_PUBLISHER_BACKEND = os.getenv(
+    'REALTIME_PUBLISHER_BACKEND',
+    'realtime.backends.NoopRealtimePublisher',
+)
+# A publisher failure happens after the business transaction is committed, so
+# by default it is logged and swallowed. Set to false in a test or diagnostic
+# environment to let the exception surface.
+REALTIME_FAIL_SILENTLY = env_bool('REALTIME_FAIL_SILENTLY', True)
+
+
+# Only the `realtime` logger is configured here; Django's own defaults are
+# preserved because `disable_existing_loggers` stays false.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'realtime': {'format': '[%(asctime)s] %(levelname)s %(name)s: %(message)s'},
+    },
+    'handlers': {
+        'realtime_console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'realtime',
+        },
+    },
+    'loggers': {
+        'realtime': {
+            'handlers': ['realtime_console'],
+            'level': os.getenv('REALTIME_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+    },
+}

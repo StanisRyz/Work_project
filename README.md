@@ -492,6 +492,40 @@ rollback plan and the production-readiness criteria.
 **The working system has not been switched to PostgreSQL.** It still runs on
 SQLite; the production move is a separate, not-yet-performed stage.
 
+## Real-time Event Foundation
+
+The `realtime` app is the transport-independent foundation for future live UI
+updates. It holds only the event contract, targets, the publisher abstraction
+and its backends — no models, no migrations, no URLs, views or templates.
+
+Business services in `acts`, `tasks` and `notifications` publish uniform events
+explicitly, after their transaction commits, without knowing anything about
+Redis, SSE or WebSocket. The initial event types are:
+
+- `notification.created`, `notification.read`;
+- `task.created`, `task.updated`, `task.completed`;
+- `act.updated`, `act.status_changed`;
+- `comment.created`.
+
+An event carries only identifiers and safe technical metadata — never comment
+text, defect descriptions, email addresses, file names or whole models.
+PostgreSQL and the ordinary endpoints remain the source of truth; a client that
+receives an event refetches through the normal, permission-checked views.
+
+**Real-time is disabled by default.** `REALTIME_ENABLED` is `false` and
+`REALTIME_PUBLISHER_BACKEND` points at `NoopRealtimePublisher`, which accepts
+everything and sends nothing, so the project behaves exactly as it did before.
+With real-time disabled the emitters return before resolving any recipient, so
+no extra query runs and no commit callback is registered. Publication is always
+registered through `transaction.on_commit()`, so a rolled-back transaction
+never produces an event; a backend failure is logged to the `realtime` logger
+and never breaks the already saved operation (`REALTIME_FAIL_SILENTLY`).
+
+**Redis, the SSE endpoint and any visible browser updating are not implemented
+yet.** No new service is required to run the project, and the HTTP interface is
+unchanged. See [Real-time события](docs/realtime.md) for the contract, targets,
+settings, after-commit rules and the RT-2 plan for connecting Redis and SSE.
+
 ## Concurrent Work and Act Numbering
 
 Act numbers are issued from `ActNumberSequence`, a technical table holding one
@@ -582,7 +616,8 @@ Open http://127.0.0.1:8000/ in a browser.
 - PostgreSQL production deployment and migrating existing SQLite data to it (switchable configuration, transfer tooling and a full local rehearsal are prepared; see [Preparing for PostgreSQL](docs/postgresql_preparation.md) and [Репетиция переноса](docs/postgresql_rehearsal.md)).
 - Reverse migration PostgreSQL → SQLite, delta synchronisation, and any transfer that does not stop writes.
 - Changing the working application address, reverse proxy, HTTPS, production WSGI/ASGI, and permanent backups.
-- REST API or realtime features.
+- REST API.
+- Real-time transport and live UI updates: Redis, the SSE endpoint, `EventSource`, partial endpoints, toasts, WebSocket/Django Channels, polling, and an ASGI production server. Only the transport-independent event foundation exists (see [Real-time события](docs/realtime.md)).
 - Frontend frameworks.
 - Celery, Redis, APScheduler, or an in-process WSGI/ASGI scheduler.
 

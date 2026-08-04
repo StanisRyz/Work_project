@@ -5,8 +5,10 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import UserProfile
+from realtime.emitters import emit_notification_created, emit_notification_read
 
 from .models import Notification, NotificationDelivery
 
@@ -37,6 +39,19 @@ EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.ACT_RETURNED_TO_TO,
     Notification.EventType.ACTION_ASSIGNED,
 }
+
+
+def get_recipients_for_history_event(history_event):
+    """Return the users this history event notifies, using the routing table.
+
+    Public so other modules (currently `realtime`) can address exactly the same
+    audience instead of inventing a second routing rule. Returns an empty list
+    for history events that are not notification-eligible.
+    """
+    event_type = HISTORY_EVENT_TYPES.get(history_event.event_type)
+    if not event_type:
+        return []
+    return list(_recipients_for_event(event_type, history_event.act))
 
 
 def notify_history_event(history_event):
@@ -70,7 +85,7 @@ def notify_comment_added(comment, actor):
         event_type=Notification.EventType.COMMENT_ADDED,
         act=comment.act,
         actor=actor,
-        recipients=_comment_participants(comment.act),
+        recipients=get_comment_participants(comment.act),
         source_key=f'comment:{comment.pk}',
     )
 
@@ -109,11 +124,42 @@ def create_notifications(*, event_type, act, actor, recipients, source_key, excl
                 },
             )
             if not created:
+                # A deduplicated hit is not a new fact: no event for it.
                 continue
             created_notifications.append(notification)
             if event_type in EMAIL_ELIGIBLE_EVENTS:
                 _create_email_delivery(notification)
+            # This is the single place an in-app notification comes into
+            # existence, so it is the single place the event is emitted —
+            # callers must never emit it again for the same row.
+            emit_notification_created(notification)
     return created_notifications
+
+
+def mark_notifications_read(user, *, scope, notification_ids=None):
+    """Mark this user's unread notifications read and report what changed.
+
+    The single entry point for every read action — one notification, the bell
+    menu's shown items, or «отметить все». `notification_ids=None` means «all
+    unread». Everything is scoped to `user`, so a foreign id can never be
+    marked, and one operation emits at most one aggregated event.
+    """
+    unread = Notification.objects.filter(recipient=user, is_read=False)
+    if notification_ids is not None:
+        unread = unread.filter(pk__in=notification_ids)
+
+    with transaction.atomic():
+        changed_ids = list(unread.order_by('pk').values_list('pk', flat=True))
+        if changed_ids:
+            Notification.objects.filter(pk__in=changed_ids).update(
+                is_read=True,
+                read_at=timezone.now(),
+            )
+        unread_count = Notification.objects.filter(recipient=user, is_read=False).count()
+        if changed_ids:
+            # Nothing changed → no event, so a repeated click stays silent.
+            emit_notification_read(user, changed_ids, unread_count, scope)
+    return changed_ids, unread_count
 
 
 def get_required_action(notification):
@@ -155,7 +201,7 @@ def _recipients_for_event(event_type, act):
     if event_type == Notification.EventType.ACT_RETURNED_TO_KO:
         return _active_users_for_role(UserProfile.Role.KO)
     if event_type == Notification.EventType.ACT_APPROVED:
-        return _act_participants(act)
+        return get_act_participants(act)
     return []
 
 
@@ -167,7 +213,7 @@ def _active_users_for_role(role):
     )
 
 
-def _act_participants(act):
+def get_act_participants(act):
     user_ids = {
         user_id
         for user_id in (
@@ -185,10 +231,10 @@ def _act_participants(act):
     return get_user_model().objects.select_related('userprofile').filter(pk__in=user_ids)
 
 
-def _comment_participants(act):
+def get_comment_participants(act):
     from acts.permissions import can_view_act
 
-    candidates = list(_act_participants(act))
+    candidates = list(get_act_participants(act))
     status_code = getattr(act.status, 'code', '')
     if status_code == 'KO_REVIEW':
         candidates.extend(_active_users_for_role(UserProfile.Role.KO))

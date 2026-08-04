@@ -3,6 +3,13 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import UserProfile
+from realtime.emitters import (
+    emit_act_status_changed,
+    emit_act_updated,
+    emit_comment_created,
+    emit_task_created,
+)
+
 from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActHistoryEvent, ActNumberSequence, ActRootAnalysis, get_act_status
 from .permissions import (
     can_apply_ko_decision,
@@ -375,9 +382,13 @@ def approve_act(act, user):
                 created_by=user,
                 status=new_task_status,
             )
+            assignee_ids = [assignment.user_id for assignment in action.assignees.all()]
             TaskAssignee.objects.bulk_create(
-                [TaskAssignee(task=task, user=assignment.user) for assignment in action.assignees.all()]
+                [TaskAssignee(task=task, user_id=user_id) for user_id in assignee_ids]
             )
+            # Emitted only once the task and all its assignees exist, so the
+            # event can never describe a half-built task.
+            emit_task_created(task, assignee_ids)
         from_status = act.status
         to_status = _get_required_status('ARCHIVED')
         act.approved_by = user
@@ -434,6 +445,16 @@ def add_act_history_event(
         from_status=from_status,
         to_status=to_status,
     )
+    # Every workflow transition records its history here, on the already locked
+    # act, so this is the one place `act.status_changed` is emitted: a rejected
+    # or stale request raises before reaching it, and creation (no from_status)
+    # is not a change.
+    if from_status is not None and to_status is not None and from_status.pk != to_status.pk:
+        emit_act_status_changed(act, history_event)
+    # Editing records its own history event from inside the caller's locked,
+    # atomic block, so this is likewise the one place `act.updated` is emitted.
+    elif event_type == ActHistoryEvent.EventType.ACT_EDITED:
+        emit_act_updated(act)
     if emit_notification:
         from notifications.services import notify_history_event
 
@@ -455,6 +476,10 @@ def add_act_comment(act, user, text, notify=True):
             'Комментарий добавлен пользователем.',
             emit_notification=False,
         )
+        # Exactly one event per created comment, including a mandatory return
+        # comment: `notify=False` only suppresses the in-app notification,
+        # because the recipient gets the more specific return event instead.
+        emit_comment_created(comment)
         if notify:
             from notifications.services import notify_comment_added
 

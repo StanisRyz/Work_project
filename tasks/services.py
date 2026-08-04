@@ -1,6 +1,7 @@
 from django.db import transaction
 from django.utils import timezone
 
+from realtime.emitters import emit_task_completed
 from references.models import TaskStatus
 
 from .permissions import can_complete_task
@@ -28,4 +29,7 @@ def complete_task(task, user, execution_comment):
         task.completed_at = timezone.now()
         task.execution_comment = execution_comment
         task.save(update_fields=['status', 'completed_by', 'completed_at', 'execution_comment'])
+        # Inside the lock: a second, parallel completion is refused by
+        # `can_complete_task` above and never reaches this line.
+        emit_task_completed(task)
     return task

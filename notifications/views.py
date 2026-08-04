@@ -3,10 +3,10 @@ from django.core.paginator import Paginator
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .models import Notification
+from .services import mark_notifications_read
 
 
 @login_required
@@ -37,7 +37,7 @@ def notification_list(request):
 @require_POST
 def mark_notification_read(request, pk):
     notification = get_object_or_404(Notification, pk=pk, recipient=request.user)
-    notification.mark_read()
+    mark_notifications_read(request.user, scope='single', notification_ids=[notification.pk])
     selected_filter = request.POST.get('filter')
     if selected_filter == 'unread':
         return redirect(f"{reverse('notifications:list')}?filter=unread")
@@ -47,10 +47,7 @@ def mark_notification_read(request, pk):
 @login_required
 @require_POST
 def mark_all_notifications_read(request):
-    Notification.objects.filter(recipient=request.user, is_read=False).update(
-        is_read=True,
-        read_at=timezone.now(),
-    )
+    mark_notifications_read(request.user, scope='all')
     return redirect('notifications:list')
 
 
@@ -64,10 +61,9 @@ def mark_notifications_read_bulk(request):
         except (TypeError, ValueError):
             continue
 
-    if ids:
-        Notification.objects.filter(
-            recipient=request.user, pk__in=ids, is_read=False,
-        ).update(is_read=True, read_at=timezone.now())
-
-    unread_count = Notification.objects.filter(recipient=request.user, is_read=False).count()
+    # `ids` comes from the client, so it only ever narrows what is marked: the
+    # service still scopes every row to the authenticated recipient.
+    _changed, unread_count = mark_notifications_read(
+        request.user, scope='bell', notification_ids=ids
+    )
     return JsonResponse({'unread_count': unread_count})
