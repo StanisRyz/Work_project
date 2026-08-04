@@ -137,6 +137,7 @@ class NotificationReadEventTests(RealtimeFixtureMixin, TestCase):
         self.assertEqual(events[0].resource_type, 'user')
         self.assertEqual(events[0].resource_id, self.otk_user.pk)
         self.assertEqual(events[0].data['notification_ids'], [notification.pk])
+        self.assertEqual(events[0].data['changed_count'], 1)
         self.assertEqual(events[0].data['unread_count'], 1)
         self.assertEqual(events[0].data['scope'], 'single')
 
@@ -156,6 +157,7 @@ class NotificationReadEventTests(RealtimeFixtureMixin, TestCase):
         self.assertEqual(
             events[0].data['notification_ids'], sorted(item.pk for item in shown)
         )
+        self.assertEqual(events[0].data['changed_count'], 3)
         self.assertEqual(events[0].data['unread_count'], 1)
         self.assertEqual(events[0].data['scope'], 'bell')
 
@@ -169,9 +171,11 @@ class NotificationReadEventTests(RealtimeFixtureMixin, TestCase):
 
         events = publisher.events_of_type(RealtimeEventType.NOTIFICATION_READ)
         self.assertEqual(len(events), 1)
-        self.assertEqual(len(events[0].data['notification_ids']), 4)
+        self.assertEqual(events[0].data['changed_count'], 4)
         self.assertEqual(events[0].data['unread_count'], 0)
         self.assertEqual(events[0].data['scope'], 'all')
+        # «Отметить все» must never carry an unbounded id list.
+        self.assertNotIn('notification_ids', events[0].data)
 
     def test_a_read_event_targets_only_its_owner(self):
         notification = self._make_notification('owner:1')

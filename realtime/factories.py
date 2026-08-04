@@ -20,6 +20,14 @@ from .events import (
 )
 
 
+# Scope of a read operation covering the recipient's whole history.
+READ_SCOPE_ALL = 'all'
+
+# Above this many rows the event reports only counts: a client that needs the
+# exact list refetches it through the ordinary notifications endpoints.
+NOTIFICATION_READ_MAX_IDS = 20
+
+
 def _status_code(instance, attribute='status'):
     return getattr(getattr(instance, attribute, None), 'code', '') or ''
 
@@ -42,18 +50,24 @@ def notification_read_event(user_id, notification_ids, unread_count, scope):
     """One aggregated read event per user per operation.
 
     Reading is a per-user state change that can cover many rows at once, so the
-    resource is always the user; `notification_ids` says exactly which rows
-    moved and `unread_count` is the value the badge should now show.
+    resource is always the user. `changed_count`, `unread_count` and `scope`
+    are always present; the explicit id list is included only when the
+    operation is small enough for it to stay bounded — «отметить все» over a
+    long history must not produce an unbounded payload.
     """
+    identifiers = sorted(int(pk) for pk in notification_ids)
+    data = {
+        'changed_count': len(identifiers),
+        'unread_count': int(unread_count),
+        'scope': str(scope),
+    }
+    if scope != READ_SCOPE_ALL and len(identifiers) <= NOTIFICATION_READ_MAX_IDS:
+        data['notification_ids'] = identifiers
     return RealtimeEvent(
         event_type=RealtimeEventType.NOTIFICATION_READ,
         resource_type=RESOURCE_USER,
         resource_id=user_id,
-        data={
-            'notification_ids': sorted(int(pk) for pk in notification_ids),
-            'unread_count': int(unread_count),
-            'scope': str(scope),
-        },
+        data=data,
     )
 
 

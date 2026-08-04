@@ -516,15 +516,69 @@ receives an event refetches through the normal, permission-checked views.
 `REALTIME_PUBLISHER_BACKEND` points at `NoopRealtimePublisher`, which accepts
 everything and sends nothing, so the project behaves exactly as it did before.
 With real-time disabled the emitters return before resolving any recipient, so
-no extra query runs and no commit callback is registered. Publication is always
-registered through `transaction.on_commit()`, so a rolled-back transaction
-never produces an event; a backend failure is logged to the `realtime` logger
-and never breaks the already saved operation (`REALTIME_FAIL_SILENTLY`).
+no extra query runs, no commit callback is registered, and **no Redis server is
+needed** — `manage.py check`, `runserver` and the test suite all work without
+one. Publication is always registered through `transaction.on_commit()`, so a
+rolled-back transaction never produces an event; a backend failure is logged to
+the `realtime` logger and never breaks the already saved operation
+(`REALTIME_FAIL_SILENTLY`).
 
-**Redis, the SSE endpoint and any visible browser updating are not implemented
-yet.** No new service is required to run the project, and the HTTP interface is
-unchanged. See [Real-time события](docs/realtime.md) for the contract, targets,
-settings, after-commit rules and the RT-2 plan for connecting Redis and SSE.
+### Transport: Redis publisher and personal SSE stream
+
+`RedisRealtimePublisher` serializes an event once and publishes the same
+payload into one Pub/Sub channel per target, named `<prefix>:<target.key>`
+(for example `quality-ecosystem:realtime:user:7`). Redis is a short-lived
+transport only: events are never stored, replayed or acknowledged, and having
+no subscriber is a normal state rather than an error.
+
+`GET /realtime/events/` is an async Server-Sent Events endpoint. The user is
+taken **only** from the Django session: an anonymous request gets 401, a
+disabled configuration gets 204 without touching Redis, an unreachable Redis
+gets 503, and a successful request streams `text/event-stream`. A user is
+subscribed to `user:<request.user.pk>` and nothing else — query string, path
+and body cannot change that, and act channels are not subscribable in this
+stage.
+
+New environment variables:
+
+- `REALTIME_REDIS_URL` — `redis://127.0.0.1:6379/0` by default;
+- `REALTIME_CHANNEL_PREFIX` — `quality-ecosystem:realtime`;
+- `REALTIME_REDIS_CONNECT_TIMEOUT_SECONDS`, `REALTIME_REDIS_SOCKET_TIMEOUT_SECONDS` — `5` each;
+- `REALTIME_HEARTBEAT_SECONDS` — `25`, the silence after which the stream emits a keep-alive comment;
+- `REALTIME_RECONNECT_DELAY_MS` — `3000`, advertised to the client in the initial `retry:` frame;
+- `REALTIME_MAX_EVENT_BYTES` — `16384`, enforced before publishing and again before writing to the stream.
+
+Running it locally requires a Redis server and an ASGI server:
+
+```powershell
+# 1. Redis (any local instance; a container is the simplest option)
+docker run --rm -p 6379:6379 redis:7
+
+# 2. Point the project at the Redis publisher
+$env:REALTIME_ENABLED = "true"
+$env:REALTIME_PUBLISHER_BACKEND = "realtime.backends.RedisRealtimePublisher"
+$env:REALTIME_REDIS_URL = "redis://127.0.0.1:6379/0"
+
+# 3. Verify the transport before anything else
+python manage.py check_realtime_transport
+
+# 4. Serve the async endpoint under ASGI
+python -m uvicorn ecosystem.asgi:application --host 127.0.0.1 --port 8000
+```
+
+`check_realtime_transport` validates the settings, runs a Redis `PING`,
+publishes a random token into a unique throwaway diagnostic channel, reads it
+back, reports the round-trip time and releases every resource. It creates no
+business objects, never touches a user channel and never prints credentials.
+
+**The browser side is not implemented yet.** There is no `EventSource`, no
+frontend JavaScript, no toasts, no bell refresh and no automatic act or task
+updating: this stage delivers only the Publisher → Redis → SSE chain. The HTTP
+interface is otherwise unchanged.
+
+See [Real-time события](docs/realtime.md) for the contract, targets, channel
+namespace, SSE frame format, heartbeat, cleanup rules, size limits and the RT-3
+plan.
 
 ## Concurrent Work and Act Numbering
 
@@ -617,7 +671,7 @@ Open http://127.0.0.1:8000/ in a browser.
 - Reverse migration PostgreSQL → SQLite, delta synchronisation, and any transfer that does not stop writes.
 - Changing the working application address, reverse proxy, HTTPS, production WSGI/ASGI, and permanent backups.
 - REST API.
-- Real-time transport and live UI updates: Redis, the SSE endpoint, `EventSource`, partial endpoints, toasts, WebSocket/Django Channels, polling, and an ASGI production server. Only the transport-independent event foundation exists (see [Real-time события](docs/realtime.md)).
+- Live UI updates: `EventSource` and any frontend JavaScript, toasts, bell refresh, partial endpoints, automatic act/task updating, act-channel subscriptions, fallback polling, `BroadcastChannel`, WebSocket/Django Channels, a production ASGI deployment with reverse proxy and HTTPS, event storage in PostgreSQL and a transactional outbox. The event contract and the Redis/SSE transport exist (see [Real-time события](docs/realtime.md)).
 - Frontend frameworks.
 - Celery, Redis, APScheduler, or an in-process WSGI/ASGI scheduler.
 

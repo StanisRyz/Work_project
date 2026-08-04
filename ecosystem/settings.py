@@ -79,6 +79,9 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'ecosystem.wsgi.application'
+# The SSE stream is an async view and needs a long-lived ASGI connection; the
+# rest of the project keeps working unchanged under WSGI.
+ASGI_APPLICATION = 'ecosystem.asgi.application'
 
 
 # Environment variable helpers
@@ -110,6 +113,31 @@ def env_str_required(name):
     value = os.getenv(name)
     if value is None or not value.strip():
         raise ImproperlyConfigured(f'Environment variable "{name}" is required but not set.')
+    return value
+
+
+def env_number(name, default, *, minimum, maximum, cast=float):
+    """Read a positive number and refuse values outside a sensible range.
+
+    Used by the real-time timing settings, where a zero or absurd value would
+    produce a busy loop or an effectively dead stream instead of a clear error.
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        value = cast(default)
+    else:
+        try:
+            value = cast(raw.strip())
+        except (TypeError, ValueError) as exc:
+            raise ImproperlyConfigured(
+                f'Environment variable "{name}" must be a number; got "{raw}".'
+            ) from exc
+    if value <= 0:
+        raise ImproperlyConfigured(f'Environment variable "{name}" must be positive; got {value}.')
+    if not minimum <= value <= maximum:
+        raise ImproperlyConfigured(
+            f'Environment variable "{name}" must be between {minimum} and {maximum}; got {value}.'
+        )
     return value
 
 
@@ -266,6 +294,33 @@ REALTIME_PUBLISHER_BACKEND = os.getenv(
 # by default it is logged and swallowed. Set to false in a test or diagnostic
 # environment to let the exception surface.
 REALTIME_FAIL_SILENTLY = env_bool('REALTIME_FAIL_SILENTLY', True)
+
+# Redis transport (RT-2). Nothing here is read while REALTIME_ENABLED=false and
+# the Noop publisher is selected: no client is built and no connection is made,
+# so `manage.py check` and an ordinary run need no Redis server at all.
+REALTIME_REDIS_URL = os.getenv('REALTIME_REDIS_URL', 'redis://127.0.0.1:6379/0')
+# Namespace for every Pub/Sub channel: `<prefix>:<target.key>`.
+REALTIME_CHANNEL_PREFIX = os.getenv('REALTIME_CHANNEL_PREFIX', 'quality-ecosystem:realtime')
+REALTIME_REDIS_CONNECT_TIMEOUT_SECONDS = env_number(
+    'REALTIME_REDIS_CONNECT_TIMEOUT_SECONDS', 5.0, minimum=0.1, maximum=60.0
+)
+REALTIME_REDIS_SOCKET_TIMEOUT_SECONDS = env_number(
+    'REALTIME_REDIS_SOCKET_TIMEOUT_SECONDS', 5.0, minimum=0.1, maximum=60.0
+)
+# Silence between events after which the stream emits an SSE comment, so proxies
+# and clients can tell a live connection from a dead one.
+REALTIME_HEARTBEAT_SECONDS = env_number(
+    'REALTIME_HEARTBEAT_SECONDS', 25.0, minimum=1.0, maximum=300.0
+)
+# Reconnect delay advertised to the client in the initial `retry:` frame.
+REALTIME_RECONNECT_DELAY_MS = env_number(
+    'REALTIME_RECONNECT_DELAY_MS', 3000, minimum=100, maximum=300000, cast=int
+)
+# Hard ceiling for one serialized event, enforced before publishing and again
+# before writing to the stream.
+REALTIME_MAX_EVENT_BYTES = env_number(
+    'REALTIME_MAX_EVENT_BYTES', 16384, minimum=256, maximum=1048576, cast=int
+)
 
 
 # Only the `realtime` logger is configured here; Django's own defaults are

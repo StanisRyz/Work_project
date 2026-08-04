@@ -1,0 +1,58 @@
+"""The personal SSE endpoint.
+
+One rule governs this module: the stream a user gets is derived from
+`request.user` and nothing else. Query string, path and request body never
+influence the subscription, so a client cannot ask to listen to somebody else.
+"""
+
+import logging
+
+from django.conf import settings
+from django.http import HttpResponse, HttpResponseNotAllowed, StreamingHttpResponse
+
+from .publisher import realtime_enabled
+from .sse import event_stream, redis_is_reachable
+
+
+logger = logging.getLogger('realtime')
+
+SSE_CONTENT_TYPE = 'text/event-stream'
+
+
+async def realtime_events(request):
+    """`GET /realtime/events/` — the authenticated user's own event stream."""
+    if request.method != 'GET':
+        return HttpResponseNotAllowed(['GET'])
+
+    # The session is the only source of identity here; there is no token or
+    # query parameter that could name a different user.
+    user = await request.auser()
+    if not user.is_authenticated:
+        return HttpResponse(status=401)
+
+    if not realtime_enabled():
+        # Nothing to stream and no reason to touch Redis at all.
+        return HttpResponse(status=204)
+
+    reachable, reason = await redis_is_reachable()
+    if not reachable:
+        logger.warning('realtime stream refused: %s', reason)
+        return HttpResponse(status=503)
+
+    response = StreamingHttpResponse(
+        event_stream(user.pk),
+        content_type=SSE_CONTENT_TYPE,
+    )
+    return _apply_stream_headers(response)
+
+
+def _apply_stream_headers(response):
+    """Headers a streaming SSE response needs to survive proxies and caches.
+
+    Hop-by-hop headers (`Connection`, `Upgrade`) are deliberately not set: the
+    ASGI server owns them.
+    """
+    response['Cache-Control'] = 'no-cache, no-store, no-transform'
+    response['X-Accel-Buffering'] = 'no'
+    response['Vary'] = 'Cookie'
+    return response

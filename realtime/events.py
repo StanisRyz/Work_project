@@ -56,6 +56,21 @@ JSON_SCALARS = (str, int, float, bool, type(None))
 MAX_DATA_KEYS = 20
 MAX_DATA_DEPTH = 3
 
+# The exact set of keys on the wire. Deserialization accepts these and nothing
+# else, so transport-only fields such as targets or a channel name cannot be
+# injected into an event.
+WIRE_FIELDS = frozenset(
+    {
+        'schema_version',
+        'event_id',
+        'event_type',
+        'occurred_at',
+        'resource_type',
+        'resource_id',
+        'data',
+    }
+)
+
 
 class RealtimeEventError(ValueError):
     """An event that does not satisfy the contract."""
@@ -160,6 +175,104 @@ class RealtimeEvent:
     def as_json(self):
         """Deterministic JSON: sorted keys, so equal events serialise equally."""
         return json.dumps(self.as_dict(), sort_keys=True, ensure_ascii=False)
+
+    def as_compact_json(self):
+        """The same payload without padding — what actually goes on the wire."""
+        return json.dumps(
+            self.as_dict(), sort_keys=True, ensure_ascii=False, separators=(',', ':')
+        )
+
+    def byte_size(self):
+        """UTF-8 size of the wire payload, used by the transport size limit."""
+        return len(self.as_compact_json().encode('utf-8'))
+
+    @classmethod
+    def from_dict(cls, payload, *, max_bytes=None):
+        """Rebuild an event from a received payload, revalidating everything.
+
+        A transport message is untrusted input: the wire format must match
+        exactly, so unknown keys — including a smuggled `targets` or channel
+        name — are rejected rather than ignored.
+        """
+        if not isinstance(payload, dict):
+            raise RealtimeEventError('Событие должно быть объектом JSON.')
+
+        keys = set(payload)
+        missing = sorted(WIRE_FIELDS - keys)
+        if missing:
+            raise RealtimeEventError('В событии отсутствуют поля: ' + ', '.join(missing) + '.')
+        unexpected = sorted(keys - WIRE_FIELDS)
+        if unexpected:
+            raise RealtimeEventError(
+                'Событие содержит посторонние поля: ' + ', '.join(unexpected) + '.'
+            )
+
+        raw_event_id = payload['event_id']
+        if not isinstance(raw_event_id, str):
+            raise RealtimeEventError('event_id должен быть строкой UUID.')
+        try:
+            event_id = uuid.UUID(raw_event_id)
+        except ValueError as exc:
+            raise RealtimeEventError(f'Некорректный event_id: {raw_event_id!r}.') from exc
+
+        raw_occurred_at = payload['occurred_at']
+        if not isinstance(raw_occurred_at, str):
+            raise RealtimeEventError('occurred_at должен быть строкой ISO-8601.')
+        try:
+            occurred_at = datetime.fromisoformat(raw_occurred_at)
+        except ValueError as exc:
+            raise RealtimeEventError(f'Некорректный occurred_at: {raw_occurred_at!r}.') from exc
+
+        event = cls(
+            event_type=payload['event_type'],
+            resource_type=payload['resource_type'],
+            resource_id=payload['resource_id'],
+            data=payload['data'],
+            event_id=event_id,
+            occurred_at=occurred_at,
+            schema_version=payload['schema_version'],
+        )
+        if event.schema_version != SCHEMA_VERSION:
+            raise RealtimeEventError(
+                f'Неподдерживаемая версия схемы события: {event.schema_version}. '
+                f'Поддерживается только {SCHEMA_VERSION}.'
+            )
+        if max_bytes is not None and event.byte_size() > max_bytes:
+            raise RealtimeEventError(
+                f'Событие превышает допустимый размер: {event.byte_size()} > {max_bytes} байт.'
+            )
+        return event
+
+    @classmethod
+    def from_json(cls, raw, *, max_bytes=None):
+        """Rebuild an event from raw JSON text or bytes received off the wire."""
+        if isinstance(raw, (bytes, bytearray, memoryview)):
+            encoded = bytes(raw)
+            if max_bytes is not None and len(encoded) > max_bytes:
+                raise RealtimeEventError(
+                    f'Сообщение превышает допустимый размер: {len(encoded)} > {max_bytes} байт.'
+                )
+            try:
+                text = encoded.decode('utf-8')
+            except UnicodeDecodeError as exc:
+                raise RealtimeEventError('Сообщение не является корректным UTF-8.') from exc
+        elif isinstance(raw, str):
+            text = raw
+            if max_bytes is not None and len(text.encode('utf-8')) > max_bytes:
+                raise RealtimeEventError(
+                    'Сообщение превышает допустимый размер: '
+                    f'{len(text.encode("utf-8"))} > {max_bytes} байт.'
+                )
+        else:
+            raise RealtimeEventError(
+                f'Ожидались строка или байты, получено {type(raw).__name__}.'
+            )
+
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise RealtimeEventError(f'Событие не является корректным JSON: {exc}.') from exc
+        return cls.from_dict(payload, max_bytes=max_bytes)
 
     def log_context(self):
         """Non-sensitive fields safe to put in a log record."""

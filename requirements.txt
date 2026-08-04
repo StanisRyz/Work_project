@@ -1,2 +1,7 @@
 Django==6.0.6
 psycopg[binary]==3.2.10
+# Real-time transport (RT-2). `redis` provides both the synchronous client used
+# by the publisher and the asyncio client used by the SSE stream; `uvicorn` runs
+# the ASGI application locally. Neither is contacted while REALTIME_ENABLED=false.
+redis==8.1.0
+uvicorn==0.52.1

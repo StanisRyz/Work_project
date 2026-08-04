@@ -1,12 +1,17 @@
-# Real-time события (RT-1)
+# Real-time события (RT-1 и RT-2)
 
-RT-1 добавляет **транспортно-независимый фундамент** real-time событий.
-Бизнес-сервисы формируют единообразные события после успешной фиксации
-транзакции и ничего не знают о Redis, SSE или WebSocket. Сетевой транспорт и
-изменения интерфейса в этот этап не входят.
+**RT-1** добавил транспортно-независимый фундамент: бизнес-сервисы формируют
+единообразные события после успешной фиксации транзакции и ничего не знают о
+Redis, SSE или WebSocket.
+
+**RT-2** добавил сам транспорт: публикацию событий в Redis Pub/Sub и
+защищённый персональный SSE endpoint под ASGI. Пользовательский интерфейс на
+этом этапе не менялся — реализована и проверена только цепочка
+**Publisher → Redis → SSE stream**.
 
 По умолчанию всё выключено: `REALTIME_ENABLED=false`, backend — `Noop`.
-Проект работает ровно так же, как до появления приложения `realtime`.
+Проект работает ровно так же, как до появления приложения `realtime`, и
+**не требует Redis**.
 
 ## 1. Архитектурные принципы
 
@@ -208,35 +213,248 @@ targets, backend и тип исключения. Payload и персональн
 
 ## 9. Границы RT-1
 
+Приложение `realtime` не имеет моделей и миграций. В RT-1 у него не было и URL,
+views и шаблонов; URL и async view появились в RT-2 (моделей и миграций
+по-прежнему нет).
+
+---
+
+# RT-2: транспорт
+
+## 10. Архитектура RT-2
+
+```
+бизнес-сервис
+  └─ emit_*()                     realtime/emitters.py
+      └─ publish_after_commit()   realtime/publisher.py
+          └─ on_commit ──────────► dispatch_event()
+                                     └─ RedisRealtimePublisher   realtime/backends.py
+                                         └─ PUBLISH <prefix>:<target.key>
+                                              │
+                                            Redis Pub/Sub
+                                              │
+                                         SUBSCRIBE <prefix>:user:<id>
+                                     ┌───────┴────────┐
+                                     │ event_stream() │            realtime/sse.py
+                                     └───────┬────────┘
+                                     GET /realtime/events/         realtime/views.py
+                                              │
+                                        браузер (RT-3)
+```
+
+Ключевые принципы RT-1 не изменились:
+
+- бизнес-сервисы **не импортируют Redis**; клиент создают только
+  `realtime/backends.py`, `realtime/transport.py`, `realtime/sse.py` и
+  диагностическая команда, причём импорт `redis` ленивый;
+- публикация по-прежнему идёт через `publish_after_commit()`;
+- **PostgreSQL остаётся источником истины.** Redis — краткоживущий транспорт:
+  события не хранятся, не переигрываются и не подтверждаются. Потерянное
+  событие означает пропущенное обновление UI, а не потерянные данные;
+- отказ Redis не откатывает и не ломает уже сохранённую операцию;
+- `Noop`, `Capture` и `Failing` publishers продолжают работать.
+
+## 11. Redis channel namespace
+
+Имя канала строится **только** на сервере и только из валидного
+`RealtimeTarget`:
+
+```
+<REALTIME_CHANNEL_PREFIX>:<target.kind>:<target.identifier>
+
+quality-ecosystem:realtime:user:7
+quality-ecosystem:realtime:act:23
+quality-ecosystem:realtime:diagnostic:<uuid4-hex>
+```
+
+`realtime/channels.py` нормализует префикс (только латиница, цифры и `. _ : -`,
+до 64 символов), запрещает пустой префикс, пробелы и управляющие символы и
+отклоняет любое значение, не являющееся `RealtimeTarget`. Функции, принимающей
+произвольную строку в качестве имени канала, не существует — клиент не может
+назвать канал.
+
+`act:<id>` публикуется как маршрутная подсказка, но **подписаться на него в
+RT-2 нельзя**: комнате акта нужна авторизация через `can_view_act`, это RT-3.
+
+## 12. RedisRealtimePublisher
+
+```
+REALTIME_PUBLISHER_BACKEND=realtime.backends.RedisRealtimePublisher
+```
+
+- синхронный клиент из общего `ConnectionPool` (`realtime/transport.py`) —
+  вызывается из `on_commit`, то есть внутри пользовательского запроса;
+- событие сериализуется **один раз** (`as_compact_json()`), одинаковый payload
+  уходит во все каналы нормализованных targets;
+- дубли targets не приводят к повторной публикации;
+- ноль подписчиков — нормальное состояние, не ошибка;
+- длительных retry внутри запроса нет: работают короткие socket-таймауты;
+- ошибка оборачивается в `RealtimePublisherError` и попадает в существующий
+  механизм `REALTIME_FAIL_SILENTLY`;
+- oversized событие не публикуется вовсе — пишется безопасное предупреждение.
+
+## 13. Десериализация и лимиты размера
+
+`RealtimeEvent.from_dict()` и `from_json()` заново валидируют полученное
+сообщение как недоверенный ввод: `schema_version`, `event_id` (UUID),
+`event_type`, `occurred_at` (timezone-aware), `resource_type`, `resource_id`,
+JSON-safe `data` и максимальный размер. Набор полей на проводе фиксирован —
+лишние поля, включая подсунутые `targets` или имя канала, **отклоняются**, а не
+игнорируются.
+
+`REALTIME_MAX_EVENT_BYTES` (по умолчанию 16384) проверяется дважды: перед
+публикацией и перед записью в SSE stream. Слишком большое сообщение не
+передаётся, пишется безопасное предупреждение, и stream из-за него не рвётся.
+
+Payload `notification.read` ограничен: всегда присутствуют `changed_count`,
+`unread_count` и `scope`, а явный список `notification_ids` добавляется только
+для небольших операций (не `scope=all` и не более 20 записей).
+
+## 14. Формат SSE frames
+
+Начальный frame — период переподключения:
+
+```
+retry: 3000
+
+```
+
+Бизнес-событие:
+
+```
+id: 803be2b1-0570-400e-a175-59ac0407007a
+event: notification.created
+data: {"data":{"act_id":3,"actor_id":null,"recipient_id":5},"event_id":"803be2b1-...","event_type":"notification.created","occurred_at":"2026-08-04T09:18:54.380277+00:00","resource_id":11,"resource_type":"notification","schema_version":1}
+
+```
+
+- `id` — `event_id`;
+- `event` — значение `RealtimeEventType`;
+- `data` — компактный JSON в одну строку, UTF-8;
+- каждый frame завершается **двумя** переводами строки;
+- targets и имя Redis-канала в payload отсутствуют.
+
+Heartbeat — SSE-комментарий:
+
+```
+: heartbeat
+
+```
+
+## 15. Endpoint и аутентификация
+
+```
+GET /realtime/events/
+```
+
+| Условие | Ответ |
+| --- | --- |
+| анонимный запрос | `401` |
+| `REALTIME_ENABLED=false` | `204`, к Redis не обращаемся |
+| Redis недоступен (короткий preflight PING) | `503` |
+| метод не GET | `405` |
+| всё в порядке | `200`, `StreamingHttpResponse` с async iterator |
+
+Пользователь определяется **только** через Django session (`request.auser()`).
+Подписка — ровно один канал `user:<request.user.pk>`. Query string, path и тело
+запроса на выбор канала не влияют; act-каналы не подписываются.
+
+Заголовки успешного ответа:
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache, no-store, no-transform
+X-Accel-Buffering: no
+Vary: Cookie
+```
+
+Hop-by-hop заголовки (`Connection`, `Upgrade`) вручную не выставляются — ими
+управляет ASGI-сервер.
+
+## 16. Heartbeat и очистка ресурсов
+
+Подписчик ждёт сообщение с таймаутом `REALTIME_HEARTBEAT_SECONDS`. При таймауте
+выдаётся heartbeat-комментарий, поэтому прокси и клиент отличают живое
+соединение от мёртвого. Служебные `subscribe`/`unsubscribe`-сообщения
+игнорируются.
+
+При отключении клиента (закрытая вкладка) обрабатывается
+`asyncio.CancelledError`, выполняется `unsubscribe`, закрывается `PubSub` и
+освобождается клиент. Обычное закрытие вкладки пишется уровнем `DEBUG`, а не
+как инцидент. Неожиданный disconnect Redis завершает stream контролируемо:
+предупреждение в лог, ресурсы освобождены, клиент переподключится через
+объявленный `retry`. Каждый шаг очистки защищён отдельно, поэтому сбой в
+`unsubscribe` не мешает закрыть остальное.
+
+## 17. Диагностическая команда
+
+```powershell
+python manage.py check_realtime_transport [--timeout 5]
+```
+
+Команда печатает настройки (адрес Redis — **без учётных данных**), выполняет
+`PING`, создаёт уникальный одноразовый канал
+`<prefix>:diagnostic:<uuid4-hex>`, подписывается, публикует случайный token,
+получает его обратно, сравнивает, измеряет round trip и корректно закрывает
+ресурсы. Любой сбой — `CommandError`. Бизнес-объекты не создаются,
+пользовательские каналы не используются, credentials не выводятся.
+
+## 18. Безопасность учётных данных
+
+`realtime/transport.py` — единственное место, где известен полный
+`REALTIME_REDIS_URL`. Наружу отдаются только:
+
+- `safe_redis_location()` → `redis://host:port/db` без имени пользователя и
+  пароля;
+- `sanitize()` → текст с вырезанными URL, username и password;
+- `describe_failure()` → `<ТипИсключения>: <очищенный текст> (адрес: <safe>)`.
+
+Хост остаётся виден для диагностики; пароль — нет.
+
+## 19. Локальная проверка через ASGI
+
+```powershell
+docker run --rm -p 6379:6379 redis:7
+
+$env:REALTIME_ENABLED = "true"
+$env:REALTIME_PUBLISHER_BACKEND = "realtime.backends.RedisRealtimePublisher"
+$env:REALTIME_REDIS_URL = "redis://127.0.0.1:6379/0"
+
+python manage.py check_realtime_transport
+python -m uvicorn ecosystem.asgi:application --host 127.0.0.1 --port 8000
+```
+
+Затем в авторизованной сессии открыть `GET /realtime/events/` и опубликовать
+событие в персональный канал пользователя — например, выполнив обычное
+бизнес-действие или отправив тестовое событие в
+`<prefix>:user:<id>` из `manage.py shell`.
+
+## 20. Границы RT-2
+
 Не входит в этот этап:
 
-- Redis и redis-py;
-- SSE endpoint, `EventSource`, frontend JavaScript;
-- partial endpoints, toast-уведомления;
+- `EventSource` и любой frontend JavaScript;
+- toast-уведомления и обновление колокольчика;
+- partial endpoints;
+- автоматическое обновление задач и актов;
+- подписки на act targets;
+- sync endpoint и fallback polling;
+- `BroadcastChannel`;
 - WebSocket и Django Channels;
-- polling;
-- ASGI production server и reverse proxy;
-- хранение событий в PostgreSQL;
-- Celery и внешние очереди.
+- production reverse proxy и HTTPS;
+- хранение real-time событий в PostgreSQL;
+- transactional outbox.
 
-Приложение `realtime` не имеет моделей, миграций, URL, views и шаблонов.
+## 21. План RT-3
 
-## 10. План RT-2: Redis и SSE
-
-1. Добавить backend `RedisRealtimePublisher` в `realtime/backends.py`,
-   публикующий `event.as_json()` в канал на каждый target
-   (`realtime:user:<id>`, `realtime:act:<id>`). Бизнес-код при этом не
-   меняется — меняется только `REALTIME_PUBLISHER_BACKEND`.
-2. Добавить настройки подключения (`REALTIME_REDIS_URL`, таймауты, heartbeat)
-   рядом с существующими, теми же env-helper'ами.
-3. Добавить SSE endpoint, который аутентифицирует пользователя, подписывается
-   на его `user:<id>` и — только после проверки `can_view_act` — на нужные
-   `act:<id>`.
-4. Добавить `EventSource` на фронтенде: по событию перезапрашивать
+1. Подключить `EventSource` на фронтенде: по событию перезапрашивать
    соответствующий partial обычным HTTP-запросом, а не доверять payload.
-5. Развернуть ASGI-сервер и reverse proxy с поддержкой длительных соединений.
-6. Предусмотреть деградацию: недоступный Redis отключает real-time, но не
-   ломает приложение — это уже гарантировано `REALTIME_FAIL_SILENTLY`.
+2. Обновлять счётчик колокольчика и реестры точечно, без полной перезагрузки.
+3. Добавить авторизуемые подписки на `act:<id>` через `can_view_act`.
+4. Развернуть production ASGI за reverse proxy с HTTPS и длительными
+   соединениями, отключив буферизацию.
+5. При необходимости гарантированной доставки — рассмотреть transactional
+   outbox; сейчас потеря события намеренно допустима.
 
-Новые типы событий добавляются только в централизованный enum и обязательно
-покрываются тестами контракта, targets и интеграции.
+Новые типы событий по-прежнему добавляются только в централизованный enum и
+обязательно покрываются тестами контракта, targets и интеграции.
