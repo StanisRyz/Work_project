@@ -214,7 +214,7 @@ class StreamCleanupTests(SimpleTestCase):
             frames = collect(client, limit=5)
 
         self.assertEqual(frames[-1], ': heartbeat\n\n')
-        self.assertIn('stream stopped', captured.output[0])
+        self.assertIn('realtime.redis_disconnected', captured.output[0])
         self.assertEqual(client.pubsub_instance.unsubscribed, [USER_CHANNEL])
         self.assertTrue(client.pubsub_instance.closed)
         self.assertTrue(client.closed)

@@ -14,6 +14,7 @@ produce an event.
 """
 
 from .factories import (
+    act_created_event,
     act_status_changed_event,
     act_updated_event,
     comment_created_event,
@@ -25,6 +26,7 @@ from .factories import (
 )
 from .publisher import publish_after_commit, realtime_enabled
 from .recipients import (
+    act_created_targets,
     act_status_changed_targets,
     act_targets,
     comment_targets,
@@ -96,6 +98,16 @@ def emit_task_completed(task):
         return None
     event = task_completed_event(task)
     publish_after_commit(event, task_targets(task))
+    return event
+
+
+def emit_act_created(act):
+    """Call only after the act and its defects are saved, inside the atomic
+    block, so a rollback or a failed validation publishes nothing."""
+    if not realtime_enabled():
+        return None
+    event = act_created_event(act)
+    publish_after_commit(event, act_created_targets(act))
     return event
 
 

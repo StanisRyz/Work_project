@@ -240,7 +240,8 @@ class RealtimeTemplateWiringTests(HeaderStateMixin, TestCase):
             f'data-notification-fragment-url="{reverse("notifications:header_fragment")}"', content
         )
         self.assertIn(f'data-notifications-url="{reverse("notifications:list")}"', content)
-        self.assertIn('js/realtime.js', content)
+        for module in ('core', 'tabs', 'sync', 'notifications', 'tasks', 'acts', 'start'):
+            self.assertIn(f'js/realtime/{module}.js', content)
 
     def test_the_config_never_leaks_transport_details(self):
         self.client.force_login(self.otk)
@@ -259,13 +260,15 @@ class RealtimeTemplateWiringTests(HeaderStateMixin, TestCase):
         content = self.client.get(reverse('dashboard:home')).content.decode()
 
         self.assertNotIn('data-realtime-config', content)
-        self.assertNotIn('js/realtime.js', content)
+        self.assertNotIn('js/realtime/core.js', content)
+        self.assertNotIn('js/realtime/start.js', content)
 
     def test_an_anonymous_page_renders_no_client(self):
         content = self.client.get(reverse('accounts:login')).content.decode()
 
         self.assertNotIn('data-realtime-config', content)
-        self.assertNotIn('js/realtime.js', content)
+        self.assertNotIn('js/realtime/core.js', content)
+        self.assertNotIn('js/realtime/start.js', content)
 
     def test_the_toast_region_is_accessible(self):
         self.client.force_login(self.otk)

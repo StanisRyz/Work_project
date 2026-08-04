@@ -35,6 +35,7 @@ class EventTypeContractTests(SimpleTestCase):
                 'TASK_CREATED': 'task.created',
                 'TASK_UPDATED': 'task.updated',
                 'TASK_COMPLETED': 'task.completed',
+                'ACT_CREATED': 'act.created',
                 'ACT_UPDATED': 'act.updated',
                 'ACT_STATUS_CHANGED': 'act.status_changed',
                 'COMMENT_CREATED': 'comment.created',

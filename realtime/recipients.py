@@ -49,6 +49,25 @@ def task_targets(task):
     return [*user_targets(assignee_ids), act_target(task.act_id)]
 
 
+def act_created_targets(act):
+    """Who may already see a brand-new act.
+
+    Its author plus every active user with full act access (managers,
+    administrators and superusers). KO and TO are deliberately excluded: at
+    `CREATED_OTK` the current permissions do not let them see the act, so
+    sending them the event would leak its existence. Duplicates, inactive users
+    and inactive profiles are dropped by `_active_ids`.
+    """
+    from acts.permissions import has_full_act_access
+
+    user_ids = [act.created_by_id]
+    candidates = get_user_model().objects.filter(
+        is_active=True, userprofile__is_active=True
+    ).select_related('userprofile')
+    user_ids += [user.pk for user in candidates if has_full_act_access(user)]
+    return [*user_targets(_active_ids(user_ids)), act_target(act.pk)]
+
+
 def act_targets(act):
     """Users the act already concerns: author, KO/TO authors, action assignees."""
     from notifications.services import get_act_participants

@@ -111,6 +111,19 @@ def task_completed_event(task):
     )
 
 
+def act_created_event(act):
+    """A newly created act. Identifiers and status only — never party data."""
+    return RealtimeEvent(
+        event_type=RealtimeEventType.ACT_CREATED,
+        resource_type=RESOURCE_ACT,
+        resource_id=act.pk,
+        data={
+            'status_code': _status_code(act),
+            'author_id': act.created_by_id,
+        },
+    )
+
+
 def act_updated_event(act):
     return RealtimeEvent(
         event_type=RealtimeEventType.ACT_UPDATED,

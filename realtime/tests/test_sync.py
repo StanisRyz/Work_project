@@ -1,0 +1,262 @@
+"""RT-5 recovery: revision tokens and the `/realtime/sync/` endpoint."""
+
+from datetime import timedelta
+
+from django.test import TestCase
+from django.urls import reverse
+from django.utils import timezone
+
+from acts.models import Act, ActComment, ActCorrectiveAction, ActHistoryEvent, ActRootAnalysis
+from acts.services import add_act_comment, add_act_history_event
+from notifications.models import Notification
+from references.models import TaskStatus
+from realtime.sync import REVISION_KEYS, build_sync_state
+from tasks.models import Task, TaskAssignee
+from tasks.services import complete_task
+
+from .base import RealtimeFixtureMixin
+
+
+class SyncStateMixin(RealtimeFixtureMixin):
+    def make_notification(self, recipient, act, key):
+        return Notification.objects.create(
+            recipient=recipient,
+            actor=self.ko_user,
+            event_type=Notification.EventType.COMMENT_ADDED,
+            title='Заголовок',
+            message='Сообщение',
+            related_act=act,
+            deduplication_key=key,
+        )
+
+    def make_task(self, act, assignee, text='Мероприятие'):
+        root = ActRootAnalysis.objects.create(act=act, root_cause='Причина')
+        action = ActCorrectiveAction.objects.create(
+            root_analysis=root,
+            comment=text,
+            department=self.department,
+            due_date=timezone.localdate() + timedelta(days=5),
+        )
+        task = Task.objects.create(
+            source_action=action,
+            act=act,
+            root_analysis=root,
+            task_text=text,
+            department=self.department,
+            due_date=timezone.localdate() + timedelta(days=5),
+            created_by=self.otk_user,
+            status=TaskStatus.objects.get(code='IN_PROGRESS'),
+        )
+        TaskAssignee.objects.create(task=task, user=assignee)
+        return task
+
+
+class RevisionTokenTests(SyncStateMixin, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.setUpRealtimeData()
+
+    def test_every_documented_revision_is_present(self):
+        state = build_sync_state(self.otk_user)
+
+        self.assertEqual(sorted(state['revisions']), sorted(REVISION_KEYS))
+        self.assertEqual(state['schema_version'], 1)
+        self.assertTrue(state['generated_at'])
+        self.assertEqual(state['unread_notifications'], 0)
+
+    def test_tokens_are_opaque_and_short(self):
+        act = self.make_act(self.status_created)
+        self.make_notification(self.otk_user, act, 'opaque')
+
+        state = build_sync_state(self.otk_user)
+
+        for key, token in state['revisions'].items():
+            with self.subTest(revision=key):
+                # A fixed-length hex digest carries no readable payload at all:
+                # no number, no text, no identifier can be read back out of it.
+                self.assertRegex(token, r'^[0-9a-f]{16}$')
+                self.assertNotIn(act.number.lower(), token.lower())
+        # Different blocks must not collapse onto one value.
+        self.assertEqual(len(set(state['revisions'].values())), len(state['revisions']))
+
+    def test_a_token_does_not_move_without_a_change(self):
+        act = self.make_act(self.status_created)
+        self.make_notification(self.otk_user, act, 'stable')
+
+        first = build_sync_state(self.otk_user)['revisions']
+        second = build_sync_state(self.otk_user)['revisions']
+
+        self.assertEqual(first, second)
+
+    def test_a_new_notification_moves_only_the_notifications_token(self):
+        act = self.make_act(self.status_created)
+        before = build_sync_state(self.otk_user)['revisions']
+
+        self.make_notification(self.otk_user, act, 'fresh')
+        after = build_sync_state(self.otk_user)
+
+        self.assertNotEqual(before['notifications'], after['revisions']['notifications'])
+        self.assertEqual(before['tasks'], after['revisions']['tasks'])
+        self.assertEqual(after['unread_notifications'], 1)
+
+    def test_a_new_act_moves_the_acts_token(self):
+        before = build_sync_state(self.otk_user)['revisions']
+
+        self.make_act(self.status_created)
+        after = build_sync_state(self.otk_user)['revisions']
+
+        self.assertNotEqual(before['acts'], after['acts'])
+
+    def test_a_new_task_moves_tasks_and_activities(self):
+        act = self.make_act(self.status_created)
+        before = build_sync_state(self.to_user)['revisions']
+
+        self.make_task(act, self.to_user)
+        after = build_sync_state(self.to_user)['revisions']
+
+        self.assertNotEqual(before['tasks'], after['tasks'])
+        self.assertNotEqual(before['activities'], after['activities'])
+
+    def test_completing_a_task_moves_tasks_and_activities(self):
+        act = self.make_act(self.status_created)
+        task = self.make_task(act, self.to_user)
+        before = build_sync_state(self.to_user)['revisions']
+
+        complete_task(task, self.to_user, 'Готово')
+        after = build_sync_state(self.to_user)['revisions']
+
+        self.assertNotEqual(before['tasks'], after['tasks'])
+        self.assertNotEqual(before['activities'], after['activities'])
+
+    def test_a_new_comment_moves_the_comments_token(self):
+        act = self.make_act(self.status_created)
+        before = build_sync_state(self.otk_user)['revisions']
+
+        add_act_comment(act, self.otk_user, 'Комментарий', notify=False)
+        after = build_sync_state(self.otk_user)['revisions']
+
+        self.assertNotEqual(before['comments'], after['comments'])
+
+    def test_a_status_change_moves_acts_and_history(self):
+        act = self.make_act(self.status_created)
+        before = build_sync_state(self.otk_user)['revisions']
+
+        act.status = self.status_otk_review
+        act.save(update_fields=['status', 'updated_at'])
+        add_act_history_event(
+            act,
+            self.otk_user,
+            ActHistoryEvent.EventType.SENT_TO_KO,
+            'Передан дальше.',
+            from_status=self.status_created,
+            to_status=self.status_otk_review,
+            emit_notification=False,
+        )
+        after = build_sync_state(self.otk_user)['revisions']
+
+        self.assertNotEqual(before['acts'], after['acts'])
+        self.assertNotEqual(before['comments'], after['comments'])
+
+    def test_another_users_data_does_not_move_this_users_tokens(self):
+        act = self.make_act(self.status_created)
+        before = build_sync_state(self.to_user)['revisions']
+
+        # Everything below belongs to somebody else.
+        self.make_notification(self.otk_user, act, 'foreign')
+        self.make_task(act, self.otk_user, text='Чужое мероприятие')
+
+        after = build_sync_state(self.to_user)['revisions']
+
+        self.assertEqual(before['notifications'], after['notifications'])
+        self.assertEqual(before['tasks'], after['tasks'])
+        self.assertEqual(before['activities'], after['activities'])
+
+    def test_the_query_count_does_not_grow_with_the_data(self):
+        act = self.make_act(self.status_created)
+        with self.assertNumQueries(FIXED_SYNC_QUERIES):
+            build_sync_state(self.otk_user)
+
+        for index in range(5):
+            self.make_notification(self.otk_user, act, f'bulk-{index}')
+            self.make_task(act, self.otk_user, text=f'Мероприятие {index}')
+
+        with self.assertNumQueries(FIXED_SYNC_QUERIES):
+            build_sync_state(self.otk_user)
+
+
+# The service issues a fixed set of aggregate queries; it never loads rows.
+FIXED_SYNC_QUERIES = 13
+
+
+class SyncEndpointTests(SyncStateMixin, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.setUpRealtimeData()
+
+    def setUp(self):
+        self.url = reverse('realtime:sync')
+        self.client.force_login(self.otk_user)
+
+    def test_authentication_is_required(self):
+        self.client.logout()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('accounts:login'), response['Location'])
+
+    def test_only_get_is_allowed(self):
+        self.assertEqual(self.client.post(self.url).status_code, 405)
+
+    def test_the_payload_has_the_documented_shape(self):
+        payload = self.client.get(self.url).json()
+
+        self.assertEqual(sorted(payload), ['generated_at', 'revisions', 'schema_version', 'unread_notifications'])
+        self.assertEqual(sorted(payload['revisions']), sorted(REVISION_KEYS))
+
+    def test_no_user_parameter_is_accepted(self):
+        act = self.make_act(self.status_created)
+        self.make_notification(self.ko_user, act, 'theirs')
+
+        mine = self.client.get(self.url).json()
+        spoofed = self.client.get(
+            self.url, {'user_id': self.ko_user.pk, 'user': self.ko_user.pk}
+        ).json()
+
+        self.assertEqual(mine['revisions'], spoofed['revisions'])
+        self.assertEqual(spoofed['unread_notifications'], 0)
+
+    def test_a_get_changes_nothing(self):
+        act = self.make_act(self.status_created)
+        notification = self.make_notification(self.otk_user, act, 'untouched')
+
+        self.client.get(self.url)
+
+        notification.refresh_from_db()
+        self.assertFalse(notification.is_read)
+        self.assertEqual(Act.objects.count(), 1)
+        self.assertEqual(ActComment.objects.count(), 0)
+
+    def test_the_response_is_not_cacheable(self):
+        response = self.client.get(self.url)
+
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertIn('private', response['Cache-Control'])
+        self.assertEqual(response['Vary'], 'Cookie')
+
+    def test_the_response_reveals_no_transport_configuration(self):
+        body = self.client.get(self.url).content.decode()
+
+        self.assertNotIn('redis', body.lower())
+        self.assertNotIn('quality-ecosystem:realtime', body)
+        self.assertNotIn('channel', body.lower())
+
+    def test_the_token_moves_after_a_visible_change(self):
+        before = self.client.get(self.url).json()['revisions']
+
+        act = self.make_act(self.status_created)
+        self.make_notification(self.otk_user, act, 'moved')
+
+        after = self.client.get(self.url).json()['revisions']
+
+        self.assertNotEqual(before['notifications'], after['notifications'])

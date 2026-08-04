@@ -640,10 +640,67 @@ actions. The task appears without F5; completing it moves it to `Архив`. Th
 open an act in one browser, change its status from the other, and watch the
 badge and route update while any text you have typed survives.
 
-**Still not implemented:** fallback polling, `BroadcastChannel`, WebSocket, act
-channel subscriptions and a `/realtime/sync/` endpoint. History, comments and
-activities refresh only while their tab is open — switching tabs is an ordinary
-server render and therefore already current.
+### Recovery, fallback polling and multiple tabs
+
+SSE is best-effort, so the UI never depends on it alone. `GET /realtime/sync/`
+returns short opaque revision tokens for notifications, tasks, acts,
+comments/history and activities, plus the unread counter. The client compares
+them with its last snapshot and refreshes only the blocks whose token moved —
+identical tokens cost nothing at all. Sync runs on **every** connect and
+reconnect, so a dropped connection, a Redis restart or an hour offline cannot
+leave a stale counter behind. A token is a hash of aggregates over rows the
+user may already see: it can never reveal that somebody else's object exists.
+
+If the stream cannot connect (no `EventSource` support, or nothing arrives
+within `REALTIME_DEGRADED_AFTER_SECONDS`), the client switches to **degraded**
+and polls `/realtime/sync/` — about every 30 s in a visible tab, 90 s in a
+hidden one, with jitter, never while the browser is offline, and never more
+than one request at a time. Polling stops the instant SSE recovers. An
+unobtrusive notice — *«Обновления могут приходить с задержкой»* — appears only
+after a real degradation, not during a short reconnect.
+
+With `BroadcastChannel` available, **all tabs of one user share a single SSE
+connection**: a leader tab holds the stream and forwards events and sync
+snapshots to the others over a local channel. The lease lives in
+`localStorage`; if the leader closes, another tab takes over. Without those
+APIs each tab simply runs on its own — nothing breaks.
+
+The stream also closes itself after `REALTIME_MAX_CONNECTION_SECONDS` (15
+minutes by default) so every reconnect re-authenticates and re-checks
+permissions from scratch.
+
+On the open act page a **clean** «Проработка» form is now replaced with fresh
+server markup after a status change, including the actions the new status
+allows, and the dynamic analysis formsets are re-initialised by the same
+functions that run on first load. A form with unsaved input is still never
+touched.
+
+New environment variables: `REALTIME_DEGRADED_AFTER_SECONDS` (20),
+`REALTIME_SYNC_POLL_SECONDS` (30), `REALTIME_SYNC_HIDDEN_POLL_SECONDS` (90),
+`REALTIME_MAX_CONNECTION_SECONDS` (900), `REALTIME_LEADER_LEASE_SECONDS` (12),
+`REALTIME_LEADER_HEARTBEAT_SECONDS` (4).
+
+Diagnostics:
+
+```powershell
+python manage.py check                     # includes the real-time system checks
+python manage.py check_realtime_transport  # PING + a real publish round trip
+
+$env:REALTIME_SMOKE_PASSWORD = "<пароль тестовой учётной записи>"
+python scripts\realtime_load_smoke.py --base-url http://127.0.0.1:8000 `
+    --username smoke_user --connections 20 --seconds 120
+```
+
+The load script refuses any non-local address without an explicit override and
+never stores a password or reads browser cookies.
+
+**Still not implemented:** WebSocket, act-channel subscriptions, event replay
+or storage, guaranteed delivery, and production deployment. History, comments
+and activities refresh only while their tab is open — switching tabs is an
+ordinary server render and therefore already current. Environment requirements
+for a pilot are in
+[Развёртывание real-time](docs/realtime_production.md); **the production move
+itself is a separate, not-yet-performed stage.**
 
 See [Real-time события](docs/realtime.md) for the contract, targets, channel
 namespace, SSE frame format, heartbeat, cleanup rules, size limits and the RT-3

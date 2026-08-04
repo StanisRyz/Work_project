@@ -25,6 +25,9 @@ class Task(models.Model):
     due_date = models.DateField('Срок')
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_tasks', verbose_name='Создал')
     created_at = models.DateTimeField('Создана', auto_now_add=True)
+    # Bumped by any save of the task row itself, which is what lets the
+    # real-time sync service build a cheap revision token for tasks.
+    updated_at = models.DateTimeField('Обновлена', auto_now=True)
     status = models.ForeignKey(TaskStatus, on_delete=models.PROTECT, verbose_name='Статус')
     completed_by = models.ForeignKey(
         User, on_delete=models.PROTECT, null=True, blank=True,

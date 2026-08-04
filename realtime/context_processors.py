@@ -20,7 +20,14 @@ def realtime_client_config(request):
         'realtime_client': {
             'enabled': True,
             'events_url': reverse('realtime:events'),
+            'sync_url': reverse('realtime:sync'),
             'notification_fragment_url': reverse('notifications:header_fragment'),
             'notifications_url': reverse('notifications:list'),
+            # Plain numbers only. Nothing here describes Redis.
+            'degraded_after_seconds': settings.REALTIME_DEGRADED_AFTER_SECONDS,
+            'sync_poll_seconds': settings.REALTIME_SYNC_POLL_SECONDS,
+            'sync_hidden_poll_seconds': settings.REALTIME_SYNC_HIDDEN_POLL_SECONDS,
+            'leader_lease_seconds': settings.REALTIME_LEADER_LEASE_SECONDS,
+            'leader_heartbeat_seconds': settings.REALTIME_LEADER_HEARTBEAT_SECONDS,
         }
     }

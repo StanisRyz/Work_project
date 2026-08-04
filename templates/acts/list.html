@@ -18,9 +18,11 @@
     <a class="act-registry-tabs__link{% if scope == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?scope=archive">Архив</a>
 </nav>
 
-{# The registry container: only the KPI and results contents are replaced by a
-   live refresh, and the client re-sends the page's own query string so scope,
-   filters and search survive. #}
+{% comment %}
+The registry container: only the KPI and results contents are replaced by a
+live refresh, and the client re-sends the page's own query string so scope,
+filters and search survive.
+{% endcomment %}
 <div data-live-act-registry data-fragment-url="{% url 'acts:list_fragment' %}">
 <section class="act-kpi-grid" aria-label="Показатели актов" data-live-act-registry-kpis>
     {% include 'acts/includes/registry_kpis.html' %}

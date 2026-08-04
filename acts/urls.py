@@ -12,6 +12,7 @@ urlpatterns = [
     path('<int:pk>/', views.act_detail, name='detail'),
     path('<int:pk>/edit/', views.act_edit, name='edit'),
     path('<int:pk>/live-summary-fragment/', views.act_live_summary_fragment, name='live_summary_fragment'),
+    path('<int:pk>/work-fragment/', views.act_work_fragment, name='work_fragment'),
     path('<int:pk>/history-fragment/', views.act_history_fragment, name='history_fragment'),
     path('<int:pk>/comments-fragment/', views.act_comments_fragment, name='comments_fragment'),
     path('<int:pk>/activities-fragment/', views.act_activities_fragment, name='activities_fragment'),

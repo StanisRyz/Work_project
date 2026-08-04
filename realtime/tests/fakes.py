@@ -82,8 +82,11 @@ class FakeAsyncPubSub:
     stream turns into a heartbeat) or an exception instance (raised).
     """
 
-    def __init__(self, script=None):
+    def __init__(self, script=None, honour_timeout=False):
         self.script = list(script or [])
+        # When set, an exhausted script waits out the caller's timeout exactly
+        # like a real client would, so elapsed-time behaviour can be tested.
+        self.honour_timeout = honour_timeout
         self.subscribed = []
         self.unsubscribed = []
         self.closed = False
@@ -104,7 +107,7 @@ class FakeAsyncPubSub:
         if not self.script:
             # Nothing left to say: behave like a quiet channel so the stream
             # keeps heartbeating instead of spinning.
-            await asyncio.sleep(0)
+            await asyncio.sleep(timeout if self.honour_timeout and timeout else 0)
             return None
         item = self.script.pop(0)
         if isinstance(item, BaseException):
@@ -121,8 +124,8 @@ class FakeAsyncPubSub:
 class FakeAsyncRedis:
     """Async client used by the SSE stream and its connectivity probe."""
 
-    def __init__(self, *, script=None, ping_error=None, ping_delay=None):
-        self.pubsub_instance = FakeAsyncPubSub(script)
+    def __init__(self, *, script=None, ping_error=None, ping_delay=None, honour_timeout=False):
+        self.pubsub_instance = FakeAsyncPubSub(script, honour_timeout=honour_timeout)
         self.ping_error = ping_error
         self.ping_delay = ping_delay
         self.closed = False

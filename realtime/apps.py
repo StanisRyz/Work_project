@@ -15,3 +15,8 @@ class RealtimeConfig(AppConfig):
 
     name = 'realtime'
     verbose_name = 'Real-time события'
+
+    def ready(self):
+        # System checks only — still no signal receivers: events are published
+        # explicitly from the business services.
+        from . import checks  # noqa: F401

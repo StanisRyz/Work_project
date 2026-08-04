@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from accounts.models import Department
+from realtime.emitters import emit_act_created
 
 from .forms import (
     ActAttachmentForm,
@@ -159,6 +160,27 @@ def act_comments_fragment(request, pk):
 
 @login_required
 @require_GET
+def act_work_fragment(request, pk):
+    """The «Проработка» tab, rebuilt by the very same context builder.
+
+    Forms, read-only data and the available workflow actions all come from
+    `_get_act_detail_context`, so no permission or workflow logic is duplicated
+    here and the fragment can never offer an action the page would not.
+    """
+    act = _get_live_act(request, pk)
+    context = _get_act_detail_context(act, request.user, detail_tab='work')
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'acts/includes/work_content.html', context, request=request
+            ),
+            'status_code': act.status.code,
+        }
+    )
+
+
+@login_required
+@require_GET
 def act_activities_fragment(request, pk):
     act = _get_live_act(request, pk)
     return _fragment_response(
@@ -222,6 +244,9 @@ def act_create(request):
                         'Акт создан пользователем.',
                         to_status=act.status,
                     )
+                    # Inside the atomic block: a rollback or a failed
+                    # validation therefore publishes nothing.
+                    emit_act_created(act)
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:

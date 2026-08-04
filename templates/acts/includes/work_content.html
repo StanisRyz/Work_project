@@ -1,0 +1,112 @@
+{% comment %}
+The «Проработка» tab. Rendered both by the full detail page and by
+`GET /acts/<pk>/work-fragment/` from the same context builder, so a live
+replacement is byte-for-byte what a reload would produce.
+
+It DOES contain working forms, so the client replaces it only when the
+user has no unsaved input; a dirty form is never touched.
+{% endcomment %}
+<section class="act-work-sequence">
+    <article class="detail-section">
+        <h2>Данные партии</h2>
+        <dl class="act-party-data">
+            <dt>Заказчик</dt><dd>{{ act.customer|default:'Не указан' }}</dd>
+            <dt>Заказ покупателя</dt><dd>{{ act.order_number|default:'Не указан' }}</dd>
+            <dt>Наименование продукции</dt><dd>{{ act.nomenclature|default:'Не указано' }}</dd>
+            <dt>Обозначение по КД</dt><dd>{{ act.kd_designation|default:'Не указано' }}</dd>
+        </dl>
+    </article>
+
+    <article class="detail-section">
+        <h2>Дефекты и решение КО</h2>
+        <div class="act-defects-table-wrap"><table class="data-table act-defects-table"><colgroup><col class="act-defects-table__number"><col class="act-defects-table__workshop"><col class="act-defects-table__party"><col class="act-defects-table__type"><col class="act-defects-table__mp"><col class="act-defects-table__date"><col class="act-defects-table__checked"><col class="act-defects-table__nonconforming"><col class="act-defects-table__description"><col class="act-defects-table__decision"><col class="act-defects-table__comment"></colgroup><thead><tr><th>№</th><th>Цех/<br>поставщик</th><th>Номер<br>партии</th><th>Вид дефекта</th><th>Тип МП</th><th>Дата<br>обнаружения</th><th>Всего<br>проверено</th><th>С<br>отклонением</th><th>Описание</th><th>Решение КО</th><th>Комментарий КО</th></tr></thead><tbody>
+        {% for row in defect_decision_rows %}<tr>
+            <td>{{ forloop.counter }}</td><td>{{ row.defect.get_workshop_display|default:'—' }}</td><td>{{ row.defect.party_number|default:'—' }}</td><td>{{ row.defect.defect_type|default:'Не указан' }}</td><td>{{ row.defect.get_mp_type_display|default:'—' }}</td><td>{{ row.defect.detected_at|date:'d.m.Y'|default:'—' }}</td><td>{{ row.defect.checked_quantity|default_if_none:'—' }}</td><td>{{ row.defect.nonconforming_quantity|default_if_none:'—' }}</td><td>{{ row.defect.description|default:'—' }}</td>
+            <td>{% if available_actions.ko_decision %}{% if row.ko_form %}{{ row.ko_form.id }}{{ row.ko_form.ko_decision }}{{ row.ko_form.ko_decision.errors }}{% else %}{{ ko_decision_form.ko_decision }}{{ ko_decision_form.ko_decision.errors }}{% endif %}{% elif row.defect.ko_decision %}<span class="act-badge act-badge--status">{{ row.defect.get_ko_decision_display }}</span>{% elif act.ko_decision and not has_defect_records %}<span class="act-badge act-badge--status">{{ act.get_ko_decision_display }}</span>{% else %}—{% endif %}</td>
+            <td>{% if available_actions.ko_decision %}{% if row.ko_form %}{{ row.ko_form.ko_comment }}{{ row.ko_form.ko_comment.errors }}{% else %}{{ ko_decision_form.ko_comment }}{{ ko_decision_form.ko_comment.errors }}{% endif %}{% elif row.defect.ko_decision %}{{ row.defect.ko_comment|default:'—' }}{% elif act.ko_decision and not has_defect_records %}{{ act.ko_comment|default:'—' }}{% else %}—{% endif %}</td>
+        </tr>{% endfor %}</tbody></table></div>
+    </article>
+
+    <article class="detail-section to-analysis-section">
+        <h2>Анализ ТО</h2>
+        {% if available_actions.to_analysis %}
+            <form id="to-analysis-form" method="post" action="{% url 'acts:to_analysis' act.pk %}" class="to-analysis-form" onsubmit="return confirm('Передать анализ на проверку ОТК?');">
+                {% csrf_token %}
+                {% if to_analysis_form.non_field_errors %}<ul class="errorlist">{% for error in to_analysis_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+                <div data-root-analysis-list>
+                    {% for root in to_analysis_form.root_rows %}
+                    <section class="root-analysis-card" data-root-analysis>
+                        <input type="hidden" data-root-total-name value="{{ forloop.counter0 }}">
+                        <div class="analysis-card-header" data-root-analysis-header>
+                            <span class="root-analysis-card__title" data-root-analysis-title><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>Корневая причина {{ forloop.counter }}</span>
+                            {% if to_analysis_form.root_rows|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-root-analysis aria-label="Удалить корневую проработку" title="Удалить корневую проработку">×</button>{% endif %}
+                        </div>
+                        <label class="root-analysis-card__cause"><span>Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="2" required>{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
+                        <div class="corrective-action-list" data-corrective-action-list>
+                            {% for action in root.actions %}
+                            <section class="corrective-action-card" data-corrective-action>
+                                <div class="corrective-action-row">
+                                <div class="analysis-card-header" data-corrective-action-header>
+                                    <label><span>Корректирующее мероприятие</span><textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="2" required>{{ action.comment }}</textarea>{% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}</label>
+                                    {% if root.actions|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-corrective-action aria-label="Удалить мероприятие" title="Удалить мероприятие">×</button>{% endif %}
+                                </div>
+                                <div class="corrective-action-card__fields">
+                                    <label><span>Отдел</span><select name="root-{{ root.index }}-actions-{{ action.index }}-department" required data-department-select data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select>{% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}</label>
+                                    <label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select disabled><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if action.assignees.0 == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select>{% if action.errors.assignees %}<span class="field-error">{{ action.errors.assignees }}</span>{% endif %}</label>
+                                    <label><span>Срок</span><input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>{% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}</label>
+                                </div>
+                                </div>
+                                <div class="corrective-action-additional-list" data-additional-assignee-list>{% for assignee in action.additional_assignees %}<div class="corrective-action-card__fields corrective-action-card__fields--additional" data-additional-assignee><label><span>Отдел</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignee_departments" required data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if assignee.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select></label><label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select disabled><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if assignee.user == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select></label><button class="link-button link-button--danger" type="button" data-remove-additional-assignee>Удалить исполнителя</button></div>{% endfor %}</div>
+                                <div class="act-inline-actions" data-corrective-action-actions>
+                                    <button class="link-button link-button--success" type="button" data-add-additional-assignee>Добавить исполнителя</button>
+                                </div>
+                            </section>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" name="root-{{ root.index }}-actions-TOTAL_FORMS" value="{{ root.actions|length }}" data-actions-total>
+                        <div class="act-inline-actions" data-root-analysis-actions>
+                            <button class="link-button link-button--success" type="button" data-add-corrective-action>Добавить корректирующее мероприятие</button>
+                        </div>
+                    </section>
+                    {% endfor %}
+                </div>
+                <input type="hidden" name="root-TOTAL_FORMS" value="{{ to_analysis_form.root_rows|length }}" data-root-total>
+                <div class="act-inline-actions"><button class="link-button link-button--success" type="button" data-add-root-analysis>Добавить корневую проработку</button></div>
+            </form>
+        {% elif root_analyses %}
+            <section class="to-analysis-readonly-list" aria-label="Анализ ТО: причины и корректирующие действия">
+                {% for root in root_analyses %}
+                    <section class="to-analysis-readonly">
+                        <div class="to-analysis-readonly__rail" aria-label="Корневая причина {{ forloop.counter }}">{{ forloop.counter }}</div>
+                        <div class="to-analysis-readonly__cause"><span>Корневая причина</span><p>{{ root.root_cause|linebreaksbr }}</p></div>
+                        <div class="to-analysis-readonly__actions">
+                            <div class="act-defects-table-wrap"><table class="data-table to-analysis-table"><colgroup><col class="to-analysis-table__number"><col class="to-analysis-table__action"><col class="to-analysis-table__assignee"><col class="to-analysis-table__due"><col class="to-analysis-table__status"></colgroup><thead><tr><th>№</th><th>Мероприятие</th><th>Исполнитель(и)</th><th>Срок</th><th>Статус</th></tr></thead><tbody>{% for action in root.corrective_actions.all %}<tr><td>{{ forloop.counter }}</td><td>{{ action.comment }}</td><td>{% include 'acts/includes/to_analysis_assignees_readonly.html' with assignees=action.assignees.all %}</td><td>{{ action.due_date|date:'d.m.Y' }}</td><td>{% if action.task %}{{ action.task.status }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+                        </div>
+                    </section>
+                {% endfor %}
+            </section>
+        {% elif act.to_root_cause or act.to_action_summary %}
+            <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
+            <h3>Корневая причина</h3><p>{{ act.to_root_cause|default:'Не заполнено.' }}</p>
+            <h3>Предлагаемые мероприятия</h3><p>{{ act.to_action_summary|default:'Не заполнено.' }}</p>
+        {% else %}<p class="placeholder-text">Анализ ТО ещё не внесён.</p>{% endif %}
+        {% if available_actions.close_act %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a></div>{% endif %}
+    </article>
+
+    <div class="act-primary-actions">
+        <div class="act-inline-actions">
+            {% if available_actions.print_act %}<a class="link-button link-button--secondary" href="{% url 'acts:print' act.pk %}">Печатная форма</a>{% endif %}
+            <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">К списку</a>
+        </div>
+        <div class="act-inline-actions">
+            {% if available_actions.edit_act %}<a class="link-button link-button--secondary" href="{% url 'acts:edit' act.pk %}">Редактировать</a>{% endif %}
+            {% if available_actions.return_to_otk %}<button class="link-button link-button--secondary" type="button" data-return-to-otk-open>Вернуть ОТК</button>{% endif %}
+            {% if available_actions.return_to_ko %}<button class="link-button link-button--secondary" type="button" data-return-to-ko-open>Вернуть КО</button>{% endif %}
+            {% if available_actions.to_analysis %}<button class="link-button" type="submit" form="to-analysis-form" name="action" value="send_to_otk" data-workflow-submit>На проверку ОТК</button>{% endif %}
+            {% if available_actions.return_to_to %}<button class="link-button link-button--secondary" type="button" data-return-to-to-open>Вернуть ТО</button>{% endif %}
+            {% if available_actions.approve_act %}<form method="post" action="{% url 'acts:approve' act.pk %}" onsubmit="return confirm('Утвердить акт и переместить его в архив?');">{% csrf_token %}<button class="link-button" type="submit" data-workflow-submit>Утвердить</button></form>{% endif %}
+            {% if available_actions.ko_decision %}<form id="ko-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}" onsubmit="return confirm('Сохранить решения КО и передать акт в ТО?');">{% csrf_token %}{% if ko_decision_formset %}{{ ko_decision_formset.management_form }}{% endif %}<button class="link-button" type="submit" data-workflow-submit>Передать в ТО</button></form>{% endif %}
+            {% if available_actions.send_to_ko %}<form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">{% csrf_token %}<button class="link-button" type="submit" data-workflow-submit>Передать в КО</button></form>{% endif %}
+        </div>
+    </div>
+</section>

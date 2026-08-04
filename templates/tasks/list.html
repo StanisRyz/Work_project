@@ -20,9 +20,11 @@
     <a class="link-button link-button--secondary" href="{{ reset_url }}">Сбросить</a>
 </form>
 
-{# Only the contents of this container are ever replaced by a live refresh, and
-   the client re-sends the page's own query string so tab, filters and sorting
-   survive. #}
+{% comment %}
+Only the contents of this container are ever replaced by a live refresh, and
+the client re-sends the page's own query string so tab, filters and sorting
+survive.
+{% endcomment %}
 <div data-live-task-list data-fragment-url="{% url 'tasks:list_fragment' %}">
     {% include 'tasks/includes/list_results.html' %}
 </div>

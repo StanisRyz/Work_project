@@ -1,3 +1,46 @@
+/**
+ * Registry of UI initialisers that must run again after a live fragment
+ * replacement.
+ *
+ * The same functions run on first page load and after every swap, so there is
+ * exactly one implementation of each behaviour. Initialisers must be
+ * idempotent: they mark what they have already wired and skip it next time.
+ * No business validation lives here — that stays on the server.
+ */
+window.qualityFragments = (() => {
+    const initialisers = [];
+    const FLAG = 'qualityInitialised';
+
+    return {
+        register(name, initialise) {
+            initialisers.push({ name, initialise });
+            return initialise;
+        },
+        /** Run every initialiser over a freshly rendered subtree. */
+        reinitialise(root) {
+            const scope = root || document;
+            initialisers.forEach(({ initialise }) => {
+                try {
+                    initialise(scope);
+                } catch (error) {
+                    // One broken initialiser must not stop the others or the page.
+                }
+            });
+            document.dispatchEvent(
+                new CustomEvent('quality:fragment-updated', { detail: { root: scope } }),
+            );
+        },
+        /** True the first time it is asked about this element. */
+        claim(element) {
+            if (!element || element.dataset[FLAG] === 'true') {
+                return false;
+            }
+            element.dataset[FLAG] = 'true';
+            return true;
+        },
+    };
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.querySelector('[data-sidebar-overlay]');

@@ -323,6 +323,34 @@ REALTIME_MAX_EVENT_BYTES = env_number(
     'REALTIME_MAX_EVENT_BYTES', 16384, minimum=256, maximum=1048576, cast=int
 )
 
+# Recovery and multi-tab behaviour (RT-5). Only these plain numbers reach the
+# browser; nothing about Redis ever does.
+#
+# How long the client may stay without a successful SSE `open` before it
+# declares itself degraded and starts polling `/realtime/sync/`.
+REALTIME_DEGRADED_AFTER_SECONDS = env_number(
+    'REALTIME_DEGRADED_AFTER_SECONDS', 20.0, minimum=5.0, maximum=300.0
+)
+# Fallback poll interval for a visible tab, and for a hidden one.
+REALTIME_SYNC_POLL_SECONDS = env_number(
+    'REALTIME_SYNC_POLL_SECONDS', 30.0, minimum=5.0, maximum=600.0
+)
+REALTIME_SYNC_HIDDEN_POLL_SECONDS = env_number(
+    'REALTIME_SYNC_HIDDEN_POLL_SECONDS', 90.0, minimum=10.0, maximum=1800.0
+)
+# A stream is closed after this long so the client re-authenticates and
+# re-checks permissions on a fresh connection. Must exceed the heartbeat.
+REALTIME_MAX_CONNECTION_SECONDS = env_number(
+    'REALTIME_MAX_CONNECTION_SECONDS', 900.0, minimum=30.0, maximum=86400.0
+)
+# Leader-tab lease: how long a lease is valid and how often it is renewed.
+REALTIME_LEADER_LEASE_SECONDS = env_number(
+    'REALTIME_LEADER_LEASE_SECONDS', 12.0, minimum=2.0, maximum=300.0
+)
+REALTIME_LEADER_HEARTBEAT_SECONDS = env_number(
+    'REALTIME_LEADER_HEARTBEAT_SECONDS', 4.0, minimum=1.0, maximum=120.0
+)
+
 
 # Only the `realtime` logger is configured here; Django's own defaults are
 # preserved because `disable_existing_loggers` stays false.

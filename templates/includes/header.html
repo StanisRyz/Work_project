@@ -18,8 +18,10 @@
             </summary>
             <div class="notification-menu__popup">
                 <div class="notification-menu__heading"><strong>Уведомления</strong><a href="{% url 'notifications:list' %}">Все</a></div>
-                {# Only the *contents* of this container are ever replaced, so the
-                   menu toggle handler registered on the <details> stays valid. #}
+                {% comment %}
+                Only the *contents* of this container are ever replaced, so the
+                menu toggle handler registered on the <details> stays valid.
+                {% endcomment %}
                 <div class="notification-menu__items" data-notification-items>{% include 'notifications/includes/header_items.html' %}</div>
                 <a class="notification-menu__all" href="{% url 'notifications:list' %}">Открыть все уведомления</a>
             </div>

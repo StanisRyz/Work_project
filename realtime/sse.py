@@ -11,6 +11,8 @@ user may listen to.
 
 import asyncio
 import logging
+import time
+import uuid
 
 from django.conf import settings
 
@@ -95,11 +97,16 @@ async def _close_quietly(subscription, channel):
             logger.debug('realtime client close failed during cleanup: %s', type(exc).__name__)
 
 
-async def event_stream(user_id, *, client_factory=None, max_messages=None):
+async def event_stream(user_id, *, client_factory=None, max_messages=None, max_lifetime=None):
     """Yield SSE frames for one authenticated user until they disconnect.
 
-    `client_factory` and `max_messages` exist so tests can drive the loop with
-    a fake client and stop it deterministically; production passes neither.
+    The stream also ends by itself after `REALTIME_MAX_CONNECTION_SECONDS`, so
+    a long-lived connection cannot outlive its session: the browser reconnects
+    on its own and the new request re-authenticates and re-checks permissions
+    from scratch. Heartbeats continue right up to that point.
+
+    `client_factory`, `max_messages` and `max_lifetime` exist so tests can drive
+    the loop deterministically; production passes none of them.
     """
     from .transport import (  # noqa: PLC0415 - lazy, keeps redis optional
         async_client,
@@ -110,8 +117,14 @@ async def event_stream(user_id, *, client_factory=None, max_messages=None):
     channel = user_channel(user_id)
     heartbeat = float(getattr(settings, 'REALTIME_HEARTBEAT_SECONDS', 25.0))
     max_bytes = int(getattr(settings, 'REALTIME_MAX_EVENT_BYTES', 16384))
+    if max_lifetime is None:
+        max_lifetime = float(getattr(settings, 'REALTIME_MAX_CONNECTION_SECONDS', 900.0))
+    connection_id = uuid.uuid4().hex[:12]
+    started = time.monotonic()
     subscription = {}
     delivered = 0
+    events_sent = 0
+    reason = 'client_disconnect'
 
     yield format_retry()
 
@@ -121,8 +134,17 @@ async def event_stream(user_id, *, client_factory=None, max_messages=None):
         pubsub = client.pubsub(ignore_subscribe_messages=True)
         subscription['pubsub'] = pubsub
         await pubsub.subscribe(channel)
+        logger.info(
+            'realtime.connection_opened connection_id=%(connection_id)s user_id=%(user_id)s '
+            'max_lifetime=%(max_lifetime).0f',
+            {'connection_id': connection_id, 'user_id': user_id, 'max_lifetime': max_lifetime},
+        )
 
         while True:
+            if max_lifetime and (time.monotonic() - started) >= max_lifetime:
+                # Controlled end of life: no error, the client just reconnects.
+                reason = 'max_lifetime'
+                return
             message = await pubsub.get_message(
                 ignore_subscribe_messages=True, timeout=heartbeat
             )
@@ -132,6 +154,7 @@ async def event_stream(user_id, *, client_factory=None, max_messages=None):
                 if max_messages is not None:
                     delivered += 1
                     if delivered >= max_messages:
+                        reason = 'test_limit'
                         return
                 continue
             # Subscribe/unsubscribe confirmations carry no payload.
@@ -141,22 +164,49 @@ async def event_stream(user_id, *, client_factory=None, max_messages=None):
             event = decode_message(message.get('data'), max_bytes=max_bytes)
             if event is None:
                 # One bad message must not end the stream.
+                logger.warning(
+                    'realtime.invalid_message connection_id=%(connection_id)s '
+                    'user_id=%(user_id)s',
+                    {'connection_id': connection_id, 'user_id': user_id},
+                )
                 continue
             yield format_event(event)
+            events_sent += 1
             if max_messages is not None:
                 delivered += 1
                 if delivered >= max_messages:
+                    reason = 'test_limit'
                     return
     except asyncio.CancelledError:
         # A closed browser tab is ordinary, not an incident.
-        logger.debug('realtime stream cancelled for channel %s', channel)
+        reason = 'cancelled'
+        logger.debug(
+            'realtime.connection_cancelled connection_id=%(connection_id)s user_id=%(user_id)s',
+            {'connection_id': connection_id, 'user_id': user_id},
+        )
         raise
     except redis_exception_types() as exc:
         # An unexpected Redis disconnect ends this stream in a controlled way;
         # the client reconnects after the advertised retry delay.
-        logger.warning('realtime stream stopped: %s', describe_failure(exc))
+        reason = 'redis_disconnected'
+        logger.warning(
+            'realtime.redis_disconnected connection_id=%(connection_id)s user_id=%(user_id)s '
+            'detail=%(detail)s',
+            {'connection_id': connection_id, 'user_id': user_id, 'detail': describe_failure(exc)},
+        )
     finally:
         await _close_quietly(subscription, channel)
+        logger.info(
+            'realtime.connection_closed connection_id=%(connection_id)s user_id=%(user_id)s '
+            'duration_s=%(duration).1f events=%(events)d reason=%(reason)s',
+            {
+                'connection_id': connection_id,
+                'user_id': user_id,
+                'duration': time.monotonic() - started,
+                'events': events_sent,
+                'reason': reason,
+            },
+        )
 
 
 async def redis_is_reachable(*, client_factory=None):

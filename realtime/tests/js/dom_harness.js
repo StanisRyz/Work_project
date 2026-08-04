@@ -255,13 +255,24 @@ class Clock {
         this.timers.delete(id);
     }
 
+    setInterval(callback, delay) {
+        const id = this.nextId++;
+        this.timers.set(id, { callback, due: this.now + (delay || 0), every: delay || 0 });
+        return id;
+    }
+
     advance(ms) {
         this.now += ms;
         const due = [...this.timers.entries()]
             .filter(([, timer]) => timer.due <= this.now)
             .sort((a, b) => a[1].due - b[1].due);
         due.forEach(([id, timer]) => {
-            this.timers.delete(id);
+            if (timer.every) {
+                // Repeating timer: re-arm before running the callback.
+                this.timers.set(id, { ...timer, due: this.now + timer.every });
+            } else {
+                this.timers.delete(id);
+            }
             timer.callback();
         });
     }
@@ -314,6 +325,85 @@ FakeEventSource.OPEN = 1;
 FakeEventSource.CLOSED = 2;
 FakeEventSource.instances = [];
 
+
+// --------------------------------------------------------------------------
+// Fake localStorage and BroadcastChannel, shared between the tabs of one test
+// --------------------------------------------------------------------------
+
+class FakeStorage {
+    constructor({ broken = false } = {}) {
+        this.data = new Map();
+        this.broken = broken;
+    }
+
+    getItem(key) {
+        if (this.broken) {
+            throw new Error('storage unavailable');
+        }
+        return this.data.has(key) ? this.data.get(key) : null;
+    }
+
+    setItem(key, value) {
+        if (this.broken) {
+            throw new Error('storage unavailable');
+        }
+        this.data.set(key, String(value));
+    }
+
+    removeItem(key) {
+        if (this.broken) {
+            throw new Error('storage unavailable');
+        }
+        this.data.delete(key);
+    }
+}
+
+class Bus {
+    constructor() {
+        this.channels = [];
+    }
+}
+
+class FakeBroadcastChannel {
+    constructor(name) {
+        this.name = name;
+        this.listeners = [];
+        this.closed = false;
+        const bus = FakeBroadcastChannel.bus;
+        if (bus) {
+            bus.channels.push(this);
+        }
+    }
+
+    addEventListener(type, handler) {
+        if (type === 'message') {
+            this.listeners.push(handler);
+        }
+    }
+
+    postMessage(data) {
+        if (this.closed) {
+            return;
+        }
+        const bus = FakeBroadcastChannel.bus;
+        if (!bus) {
+            return;
+        }
+        // A real BroadcastChannel never echoes back to its own sender.
+        bus.channels
+            .filter((channel) => channel !== this && !channel.closed)
+            .forEach((channel) =>
+                channel.listeners.forEach((handler) => handler({ data: JSON.parse(JSON.stringify(data)) })),
+            );
+    }
+
+    close() {
+        this.closed = true;
+    }
+}
+
+FakeBroadcastChannel.bus = null;
+
 // --------------------------------------------------------------------------
 // Environment assembly
 // --------------------------------------------------------------------------
@@ -323,9 +413,15 @@ function createEnvironment({
     withEventSource = true,
     page = 'plain',
     actId = 3,
+    storage: storageOption = new FakeStorage(),
+    broadcast = true,
+    resetSources = true,
 } = {}) {
     const clock = new Clock();
-    FakeEventSource.instances = [];
+    const storage = storageOption;
+    if (resetSources) {
+        FakeEventSource.instances = [];
+    }
 
     const root = new Element('body');
 
@@ -335,6 +431,12 @@ function createEnvironment({
     config.setAttribute('data-events-url', '/realtime/events/');
     config.setAttribute('data-notification-fragment-url', '/notifications/header-fragment/');
     config.setAttribute('data-notifications-url', '/notifications/');
+    config.setAttribute('data-sync-url', '/realtime/sync/');
+    config.setAttribute('data-degraded-after-seconds', '20');
+    config.setAttribute('data-sync-poll-seconds', '30');
+    config.setAttribute('data-sync-hidden-poll-seconds', '90');
+    config.setAttribute('data-leader-lease-seconds', '12');
+    config.setAttribute('data-leader-heartbeat-seconds', '4');
     root.append(config);
 
     const region = new Element('div');
@@ -372,6 +474,7 @@ function createEnvironment({
         actConfig.setAttribute('data-live-act-config', '');
         actConfig.setAttribute('data-live-act-id', String(actId));
         actConfig.setAttribute('data-summary-url', `/acts/${actId}/live-summary-fragment/`);
+        actConfig.setAttribute('data-work-url', `/acts/${actId}/work-fragment/`);
         actConfig.setAttribute('data-history-url', `/acts/${actId}/history-fragment/`);
         actConfig.setAttribute('data-comments-url', `/acts/${actId}/comments-fragment/`);
         actConfig.setAttribute('data-activities-url', `/acts/${actId}/activities-fragment/`);
@@ -389,6 +492,9 @@ function createEnvironment({
         const history = new Element('div');
         history.setAttribute('data-live-act-history', '');
         history.textContent = 'исходная история';
+        const work = new Element('div');
+        work.setAttribute('data-live-act-work', '');
+        work.textContent = 'исходная работа';
 
         const conflict = new Element('div');
         conflict.setAttribute('data-act-conflict-banner', '');
@@ -405,10 +511,11 @@ function createEnvironment({
         workflowButton.setAttribute('data-workflow-submit', '');
         workflowButton.disabled = false;
 
-        root.append(summary, history, comments, activities, conflict, access, textarea, workflowButton);
+        root.append(summary, work, history, comments, activities, conflict, access, textarea, workflowButton);
         Object.assign(live, {
             actConfig,
             summary,
+            work,
             history,
             comments,
             activities,
@@ -496,15 +603,36 @@ function createEnvironment({
         });
     };
 
+    const windowListeners = new Map();
     const window = {
         EventSource: withEventSource ? FakeEventSource : undefined,
         setTimeout: (callback, delay) => clock.setTimeout(callback, delay),
         clearTimeout: (id) => clock.clearTimeout(id),
+        setInterval: (callback, delay) => clock.setInterval(callback, delay),
+        clearInterval: (id) => clock.clearTimeout(id),
         matchMedia: () => ({ matches: false }),
-        addEventListener: () => {},
+        addEventListener(type, handler) {
+            if (!windowListeners.has(type)) {
+                windowListeners.set(type, []);
+            }
+            windowListeners.get(type).push(handler);
+        },
+        dispatch(type, event = {}) {
+            (windowListeners.get(type) || []).forEach((handler) => handler({ type, ...event }));
+        },
         qualityNotificationMenu: menu,
+        qualityFragments: {
+            register: () => {},
+            reinitialise() {
+                this.reinitialiseCalls += 1;
+            },
+            reinitialiseCalls: 0,
+            claim: () => true,
+        },
         fetch: fetchStub,
         location: { search: '', reload: () => {} },
+        localStorage: storage,
+        BroadcastChannel: broadcast ? FakeBroadcastChannel : undefined,
     };
 
     return {
@@ -541,4 +669,13 @@ const flush = async (times = 6) => {
     }
 };
 
-module.exports = { createEnvironment, Element, FakeEventSource, flush, matches };
+module.exports = {
+    createEnvironment,
+    Element,
+    FakeEventSource,
+    FakeBroadcastChannel,
+    FakeStorage,
+    Bus,
+    flush,
+    matches,
+};

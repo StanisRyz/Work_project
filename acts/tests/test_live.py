@@ -368,3 +368,76 @@ class ActDetailFragmentTests(ActLiveMixin, TestCase):
         )
         TaskAssignee.objects.create(task=task, user=assignee)
         return task
+
+
+class ActWorkFragmentTests(ActLiveMixin, TestCase):
+    """The «Проработка» fragment must match the tab it replaces."""
+
+    def setUp(self):
+        self.act = self.make_act('CREATED_OTK')
+        self.url = reverse('acts:work_fragment', args=[self.act.pk])
+        self.client.force_login(self.otk)
+
+    def test_authentication_is_required(self):
+        self.client.logout()
+
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+
+    def test_only_get_is_allowed(self):
+        self.assertEqual(self.client.post(self.url).status_code, 405)
+
+    def test_can_view_act_is_enforced(self):
+        self.client.force_login(self.ko)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn(self.act.number, response.content.decode())
+
+    def test_the_fragment_matches_the_work_tab_of_the_full_page(self):
+        page = self.client.get(reverse('acts:detail', args=[self.act.pk]), {'tab': 'work'})
+        payload = self.client.get(self.url).json()
+
+        self.assertTemplateUsed(page, 'acts/includes/work_content.html')
+        self.assertEqual(payload['status_code'], 'CREATED_OTK')
+        # Party data and the defect card come from the same partial.
+        self.assertIn('Данные партии', payload['html'])
+        self.assertIn(self.act.nomenclature, payload['html'])
+
+    def test_the_fragment_carries_the_actions_the_status_allows(self):
+        payload = self.client.get(self.url).json()
+
+        # The OTK author may hand a CREATED_OTK act to KO.
+        self.assertIn('Передать в КО', payload['html'])
+        self.assertIn('data-workflow-submit', payload['html'])
+        self.assertNotIn('Утвердить', payload['html'])
+
+    def test_the_actions_follow_a_status_change(self):
+        self.act.status = self.statuses['KO_REVIEW']
+        self.act.save(update_fields=['status'])
+        self.client.force_login(self.manager)
+
+        payload = self.client.get(self.url).json()
+
+        self.assertEqual(payload['status_code'], 'KO_REVIEW')
+        self.assertIn('Передать в ТО', payload['html'])
+        self.assertNotIn('Передать в КО', payload['html'])
+
+    def test_a_get_changes_nothing(self):
+        self.client.get(self.url)
+
+        self.act.refresh_from_db()
+        self.assertEqual(self.act.status.code, 'CREATED_OTK')
+        self.assertEqual(ActHistoryEvent.objects.filter(act=self.act).count(), 0)
+
+    def test_the_response_is_not_cacheable(self):
+        response = self.client.get(self.url)
+
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertEqual(response['Vary'], 'Cookie')
+
+    def test_the_detail_page_exposes_the_work_container_and_url(self):
+        content = self.client.get(reverse('acts:detail', args=[self.act.pk])).content.decode()
+
+        self.assertIn('data-live-act-work', content)
+        self.assertIn(f'data-work-url="{self.url}"', content)

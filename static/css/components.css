@@ -734,3 +734,40 @@
         flex-direction: column;
     }
 }
+
+/* Degraded real-time notice (RT-5). Unobtrusive: shown only once the client
+   has actually given up on the stream, hidden again as soon as it recovers. */
+
+.realtime-status {
+    position: fixed;
+    z-index: 55;
+    right: 16px;
+    bottom: 16px;
+    max-width: min(320px, calc(100vw - 32px));
+    padding: 9px 13px;
+    border: 1px solid var(--color-border);
+    border-left: 3px solid #d97706;
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    box-shadow: 0 8px 20px rgb(15 23 42 / 12%);
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.realtime-status[hidden] {
+    display: none;
+}
+
+/* The toast region sits above it when both are visible. */
+.toast-region {
+    bottom: 60px;
+}
+
+@media (max-width: 760px) {
+    .realtime-status {
+        right: 12px;
+        left: 12px;
+        bottom: 12px;
+        max-width: none;
+    }
+}

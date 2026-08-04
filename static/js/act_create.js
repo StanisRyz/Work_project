@@ -1,7 +1,10 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const actForm = document.querySelector('.act-form');
-    const formset = document.querySelector('[data-defect-formset]');
-    if (!actForm || !formset) {
+// Registered rather than bound directly, so the same setup runs on first load
+// and again after a live fragment replacement. `claim()` keeps it idempotent.
+const initialiseActDefectFormset = (root) => {
+    const scope = root || document;
+    const actForm = scope.querySelector ? scope.querySelector('.act-form') : null;
+    const formset = scope.querySelector ? scope.querySelector('[data-defect-formset]') : null;
+    if (!actForm || !formset || !window.qualityFragments.claim(formset)) {
         return;
     }
 
@@ -186,4 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     syncDefectUi();
     syncAllWorkshopVisibility();
-});
+};
+
+window.qualityFragments.register("actDefectFormset", initialiseActDefectFormset);
+document.addEventListener("DOMContentLoaded", () => initialiseActDefectFormset(document));
