@@ -377,35 +377,120 @@ existing SQLite data is not migrated by this configuration. See
 error behavior, and a PowerShell example. A template without real secrets is
 in `.env.example`.
 
+Two optional path overrides exist for transfer work only, and both keep their
+current defaults when unset: `SQLITE_DB_PATH` points the SQLite backend at a
+specific file (a stopped copy), and `MEDIA_ROOT_PATH` points `MEDIA_ROOT` at a
+specific directory (a rehearsal target). Relative values resolve against
+`BASE_DIR`.
+
 ## Data Transfer Tooling
 
-The `maintenance` app provides three management commands that *prepare* a
+The `maintenance` app provides the management commands that *prepare* a
 SQLite → PostgreSQL transfer. They never move the live working database on
 their own.
 
-- `export_migration_bundle --output <dir>` — builds a migration bundle
-  (`manifest.json`, `data.json`, `media/`) with SHA-256 checksums and per-model
-  counts, max PKs and deterministic hashes. Run it against a **stopped copy**
-  of `db.sqlite3`, not the live file: point `SQLITE_DB_PATH` at the copy so the
-  working database is never swapped. It refuses a non-empty output directory,
-  a missing attachment file (unless `--allow-missing-media`) and any path
-  escaping `MEDIA_ROOT`, and publishes the directory only after full success.
-- `import_migration_bundle --input <dir> [--dry-run]` — loads a bundle into an
-  **empty** PostgreSQL database. `--dry-run` changes neither the database nor
-  the filesystem: it validates the manifest, every checksum, the migration
-  state, that the transferable tables are empty and that `MEDIA_ROOT` is
-  available, then prints the planned actions. A real import refuses to run on a
-  non-PostgreSQL backend, with `EMAIL_NOTIFICATIONS_ENABLED=true`, with pending
-  migrations, into non-empty tables, or over a non-empty `MEDIA_ROOT`. It never
-  flushes and never deletes existing rows.
+- `check_migration_source [--source-media-root <dir>] [--allow-default-database]`
+  — read-only source preflight on SQLite: database file, separate copy (not the
+  live `db.sqlite3`), backend, pending migrations, `PRAGMA integrity_check`,
+  relational invariants, act-number uniqueness, lagging `ActNumberSequence`,
+  attachment path safety, presence of every attachment file in the chosen
+  source media, declared `file_size` vs. the real file, and the model / row /
+  attachment inventory. Running it on the working `db.sqlite3` requires the
+  explicit `--allow-default-database`.
+- `export_migration_bundle --output <dir> [--source-media-root <dir>]` — builds
+  a migration bundle (`manifest.json`, `data.json`, `media/`) with SHA-256
+  checksums and per-model counts, max PKs and deterministic hashes. Run it
+  against a **stopped copy** of `db.sqlite3` and a **copy of media**: point
+  `SQLITE_DB_PATH` at the database copy and `--source-media-root` at the media
+  copy. It refuses a non-empty output directory, a missing attachment file
+  (unless `--allow-missing-media`) and any path escaping the chosen media root,
+  and publishes the directory only after full success.
+- `verify_migration_bundle --input <dir> --validate-only` — re-validates the
+  bundle on its own: `source_vendor`, exact `model_order`, and per-model counts,
+  max PKs and hashes **recomputed from `data.json`**, so the manifest can never
+  vouch for itself.
+- `prepare_empty_migration_target [--execute --confirm "<phrase>"]` — narrow,
+  PostgreSQL-only cleanup of the rows the data migrations seed in
+  `references.ActStatus` / `references.TaskStatus`. Dry-run by default, refuses
+  outright if any user data is present, never uses `flush`.
+- `check_migration_target [--previous-report <path>]` — target preflight:
+  PostgreSQL backend, applied migrations, email disabled, empty transferable
+  tables, empty `MEDIA_ROOT`, read/write access proved in a rolled-back
+  transaction, required privileges, server version, and no unfinished previous
+  import according to the rehearsal report.
+- `import_migration_bundle --input <dir> [--dry-run] [--accept-missing-media]` —
+  loads a bundle into an **empty** PostgreSQL database. Fixture load, sequence
+  reset and `ActNumberSequence` sync run inside one `transaction.atomic()`, so a
+  failure in any of them rolls every loaded row back; media is activated only
+  after the commit. A partial media activation is reported as `partial` with an
+  exact recovery procedure — never as an ordinary success. It never flushes and
+  never deletes existing rows.
+- `run_postgresql_smoke_checks [--read-only]` — post-import smoke checks on
+  PostgreSQL: read-only traversal of the migrated data through the same
+  querysets and permission helpers the views use, plus a full write round trip
+  inside a transaction that is always rolled back. No email is sent.
 - `verify_migration_bundle --input <dir> [--report <path>]` — compares row
   counts, max PKs and data hashes per model, checks every media file by path,
   size and SHA-256, validates `ActNumberSequence` and the key relational
   invariants, and exits non-zero on any difference.
 
+A bundle whose `missing_media` is not empty is **incomplete**: an ordinary
+import refuses it, `--accept-missing-media` additionally requires a typed
+confirmation and prints the full list, and verification always counts it as a
+difference unless the special `--allow-missing-media` mode is used.
+
 Full step-by-step procedure, including how to prepare the target database and
 what to do on failure: [Перенос данных из SQLite в PostgreSQL](docs/postgresql_migration.md).
 A migration bundle contains real production data and is excluded from Git.
+
+## PostgreSQL Rehearsal
+
+`scripts/run_postgresql_rehearsal.py` runs the whole rehearsal locally, on
+copies. Every stage is a separate `manage.py` subprocess, because SQLite and
+PostgreSQL are selected by environment variables Django reads once at startup —
+one process cannot legitimately be both.
+
+Stages, strictly sequential; the first failure stops everything:
+
+1. source preflight → 2. `export_migration_bundle` → 3. bundle re-validation →
+4. target preflight → 5. `import_migration_bundle --dry-run` →
+6. `import_migration_bundle` → 7. `verify_migration_bundle` →
+8. `run_postgresql_smoke_checks` → 9. the final report.
+
+A **separate copy** of `db.sqlite3` and a **separate copy** of `media` are
+mandatory: stop the application, copy both, and rehearse against the copies.
+PostgreSQL credentials are read **only** from the environment — the password is
+never passed as a command-line argument and never written to a report.
+
+```powershell
+$env:DB_NAME = "quality_rehearsal"
+$env:DB_USER = "quality_rehearsal"
+$env:DB_PASSWORD = "<пароль из окружения>"
+
+python scripts\run_postgresql_rehearsal.py `
+  --source-db transfer\db-copy.sqlite3 `
+  --source-media transfer\media-copy `
+  --bundle transfer\bundle `
+  --target-media transfer\target-media `
+  --json-report transfer\rehearsal-report.json `
+  --markdown-report transfer\rehearsal-report.md
+```
+
+Both reports are written on success *and* on failure. They carry the run time,
+Git commit, OS, Python/Django/Psycopg/SQLite/PostgreSQL versions, source sizes,
+model/row/attachment counts, per-stage durations, final hashes and counts, the
+sequence-reset and `ActNumberSequence` results, relational verification, read
+and write smoke results, missing media, warnings, the overall status, a minimum
+downtime-window estimate and the issues blocking a production move. They never
+contain passwords, `SECRET_KEY`, record contents, password hashes, attachment
+contents or absolute server paths.
+
+See [Репетиция переноса SQLite → PostgreSQL](docs/postgresql_rehearsal.md) for
+the preparation steps, the manual checklist, the downtime estimate, the
+rollback plan and the production-readiness criteria.
+
+**The working system has not been switched to PostgreSQL.** It still runs on
+SQLite; the production move is a separate, not-yet-performed stage.
 
 ## Concurrent Work and Act Numbering
 
@@ -494,7 +579,9 @@ Open http://127.0.0.1:8000/ in a browser.
 - Nonconformities.
 - Reports.
 - Word/PDF export.
-- PostgreSQL production deployment and migrating existing SQLite data to it (switchable configuration is prepared; see [Preparing for PostgreSQL](docs/postgresql_preparation.md)).
+- PostgreSQL production deployment and migrating existing SQLite data to it (switchable configuration, transfer tooling and a full local rehearsal are prepared; see [Preparing for PostgreSQL](docs/postgresql_preparation.md) and [Репетиция переноса](docs/postgresql_rehearsal.md)).
+- Reverse migration PostgreSQL → SQLite, delta synchronisation, and any transfer that does not stop writes.
+- Changing the working application address, reverse proxy, HTTPS, production WSGI/ASGI, and permanent backups.
 - REST API or realtime features.
 - Frontend frameworks.
 - Celery, Redis, APScheduler, or an in-process WSGI/ASGI scheduler.

@@ -204,7 +204,23 @@ STATICFILES_DIRS = [
 ]
 
 MEDIA_URL = 'media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+
+
+def _resolve_media_root():
+    """Return the media directory, honouring the optional MEDIA_ROOT_PATH.
+
+    Defaults to the existing `BASE_DIR / "media"`. A relative override is
+    resolved against BASE_DIR. This exists so a rehearsal can import a bundle
+    into a *separate* target media directory without touching the working one.
+    """
+    raw = os.getenv('MEDIA_ROOT_PATH', '').strip()
+    if not raw:
+        return BASE_DIR / 'media'
+    candidate = Path(raw).expanduser()
+    return candidate if candidate.is_absolute() else (BASE_DIR / candidate).resolve()
+
+
+MEDIA_ROOT = _resolve_media_root()
 
 LOGIN_URL = 'accounts:login'
 LOGIN_REDIRECT_URL = 'dashboard:home'

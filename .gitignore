@@ -25,6 +25,26 @@ migration-bundles/
 verification-report.json
 migration-report*.json
 
+# Rehearsal artefacts: source copies, the target media of a rehearsal,
+# orchestration temporaries and both report formats. The documentation
+# (docs/postgresql_rehearsal.md) and the orchestrator itself
+# (scripts/run_postgresql_rehearsal.py) stay in Git.
+transfer/
+transfer-*/
+rehearsal/
+rehearsal-*/
+db-copy*.sqlite3
+media-copy/
+*-media-copy/
+target-media/
+*-target-media/
+rehearsal-report*.json
+rehearsal-report*.md
+rehearsal-*.json
+rehearsal-*.md
+!docs/postgresql_rehearsal.md
+!scripts/run_postgresql_rehearsal.py
+
 .idea/
 .vscode/
 

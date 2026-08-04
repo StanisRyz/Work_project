@@ -57,7 +57,7 @@ class ImportGuardTests(BundleFixtureMixin, TestCase):
                     dt.check_import_preconditions(self.bundle)
         message = str(ctx.exception)
         self.assertIn('references.ActStatus', message)
-        self.assertIn('очистите их вручную', message)
+        self.assertIn('prepare_empty_migration_target', message)
         self.assertIn('ничего не удаляет', message)
 
     def test_find_non_empty_models_reports_populated_tables(self):

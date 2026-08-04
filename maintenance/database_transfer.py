@@ -1,8 +1,8 @@
 """Services for preparing a SQLite -> PostgreSQL data transfer.
 
-The three management commands in this app are thin wrappers around the
-functions here: they parse arguments, print output and translate
-:class:`TransferError` into ``CommandError``.
+The management commands in this app are thin wrappers around the functions
+here: they parse arguments, print output and translate :class:`TransferError`
+into ``CommandError``.
 
 Nothing in this module migrates the live working database. It produces and
 consumes a *migration bundle* — a self-contained directory that can be
@@ -29,7 +29,10 @@ from django.db import connection, models, transaction
 from django.db.migrations.executor import MigrationExecutor
 
 
-BUNDLE_FORMAT_VERSION = 1
+# Version 2 changed the manifest: per-model hashes use the canonical payload
+# defined below (recomputable from data.json) and a safe source-media
+# description was added. Version 1 bundles are deliberately rejected.
+BUNDLE_FORMAT_VERSION = 2
 MANIFEST_NAME = 'manifest.json'
 DATA_NAME = 'data.json'
 MEDIA_DIR_NAME = 'media'
@@ -73,14 +76,24 @@ EXCLUDED_MODELS = (
 )
 
 # Rows these data migrations create on any freshly migrated database. The
-# bundle carries its own copies, so the target must be cleared of them by the
-# operator before importing; this module never deletes rows itself.
+# bundle carries its own copies, so the target must be cleared of them before
+# importing; `prepare_empty_migration_target` is the only tool allowed to do it
+# and only for the exact codes listed here.
 MIGRATION_SEEDED_MODELS = (
     'references.ActStatus',
     'references.TaskStatus',
 )
 
+MIGRATION_SEEDED_ROWS = {
+    # acts.0014 / acts.0015 create these two act statuses.
+    'references.ActStatus': ('ARCHIVED', 'OTK_REVIEW'),
+    # references.0002 / references.0003 create these two task statuses.
+    'references.TaskStatus': ('COMPLETED', 'IN_PROGRESS'),
+}
+
 ACT_NUMBER_PATTERN = re.compile(r'^АОК-(\d{4})-(\d+)$')
+
+SHA256_PATTERN = re.compile(r'^[0-9a-f]{64}$')
 
 CHUNK_SIZE = 1024 * 1024
 
@@ -130,6 +143,19 @@ def resolve_inside(root, relative_path):
     return candidate
 
 
+def safe_path_label(path, keep=2):
+    """Return a short, non-sensitive label for a filesystem path.
+
+    Reports must never expose full server paths, so only the last few
+    components are kept.
+    """
+    resolved = Path(path)
+    parts = resolved.parts
+    if len(parts) <= keep:
+        return PurePosixPath(*parts).as_posix() if parts else ''
+    return '.../' + '/'.join(parts[-keep:])
+
+
 def file_sha256(path):
     digest = hashlib.sha256()
     with open(path, 'rb') as handle:
@@ -149,6 +175,65 @@ def directory_is_empty(path):
     if not directory.is_dir():
         return False
     return not any(directory.iterdir())
+
+
+def describe_directory(path):
+    """Return {file_count, total_size} for a directory tree."""
+    root = Path(path)
+    count = 0
+    total = 0
+    if root.is_dir():
+        for entry in root.rglob('*'):
+            if entry.is_file():
+                count += 1
+                total += entry.stat().st_size
+    return {'file_count': count, 'total_size': total}
+
+
+# --------------------------------------------------------------------------
+# Media source selection
+# --------------------------------------------------------------------------
+
+def resolve_media_source(source_media_root=None):
+    """Return the media directory an export must read from.
+
+    Defaults to ``settings.MEDIA_ROOT``. An explicit override is normalized and
+    validated exactly like every other filesystem path the tools accept: it
+    must exist and be a directory.
+    """
+    default_root = Path(settings.MEDIA_ROOT)
+    if source_media_root in (None, ''):
+        chosen = default_root
+        is_default = True
+    else:
+        chosen = Path(str(source_media_root)).expanduser()
+        is_default = False
+    try:
+        resolved = chosen.resolve()
+    except OSError as exc:
+        raise TransferError(f'Не удалось разобрать путь к каталогу media: {exc}.') from exc
+    if not resolved.exists():
+        raise TransferError(f'Каталог media не найден: {safe_path_label(resolved)}.')
+    if not resolved.is_dir():
+        raise TransferError(f'Указанный путь media не является каталогом: {safe_path_label(resolved)}.')
+    if not os.access(resolved, os.R_OK):
+        raise TransferError(f'Каталог media недоступен для чтения: {safe_path_label(resolved)}.')
+    try:
+        is_default = is_default or resolved == default_root.resolve()
+    except OSError:
+        pass
+    return resolved, is_default
+
+
+def describe_media_source(resolved_root, is_default):
+    """Safe manifest description of the media source — never an absolute path."""
+    stats = describe_directory(resolved_root)
+    return {
+        'name': resolved_root.name,
+        'is_default_media_root': bool(is_default),
+        'file_count': stats['file_count'],
+        'total_size': stats['total_size'],
+    }
 
 
 # --------------------------------------------------------------------------
@@ -178,23 +263,65 @@ def serialize_model(model):
     )
 
 
+def canonical_model_payload(records):
+    """Canonical text whose SHA-256 is a model's manifest hash.
+
+    Deliberately independent of Django's own JSON framing so the very same
+    value can be recomputed from `data.json` during validation.
+    """
+    return json.dumps(records, indent=2, sort_keys=True, ensure_ascii=False)
+
+
 def collect_model_stats():
     """Return {label: {count, max_pk, hash}} plus the combined object list."""
     stats = {}
     combined = []
     for label in TRANSFERABLE_MODELS:
         model = apps.get_model(label)
-        payload = serialize_model(model)
-        records = json.loads(payload)
+        records = json.loads(serialize_model(model))
         aggregate = model._default_manager.aggregate(value=models.Max('pk'))
         max_pk = aggregate['value']
         stats[label] = {
             'count': len(records),
             'max_pk': max_pk if isinstance(max_pk, int) else None,
-            'hash': text_sha256(payload),
+            'hash': text_sha256(canonical_model_payload(records)),
         }
         combined.extend(records)
     return stats, combined
+
+
+def recompute_model_stats(records):
+    """Recompute per-model count / max PK / hash straight from data.json.
+
+    Every record must belong to one of the allowed models; anything else means
+    the bundle carries data the tooling never exports.
+    """
+    label_by_lowercase = {label.lower(): label for label in TRANSFERABLE_MODELS}
+    buckets = {label: [] for label in TRANSFERABLE_MODELS}
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise TransferError(f'{DATA_NAME}: запись #{index} не является объектом JSON.')
+        raw_label = record.get('model')
+        label = label_by_lowercase.get(str(raw_label).strip().lower())
+        if label is None:
+            raise TransferError(
+                f'{DATA_NAME}: запись #{index} относится к неразрешённой модели {raw_label!r}.'
+            )
+        buckets[label].append(record)
+
+    stats = {}
+    for label, items in buckets.items():
+        primary_keys = [
+            item.get('pk')
+            for item in items
+            if isinstance(item.get('pk'), int) and not isinstance(item.get('pk'), bool)
+        ]
+        stats[label] = {
+            'count': len(items),
+            'max_pk': max(primary_keys) if primary_keys else None,
+            'hash': text_sha256(canonical_model_payload(items)),
+        }
+    return stats
 
 
 def find_non_empty_models():
@@ -232,8 +359,13 @@ def require_all_migrations_applied():
 # Export
 # --------------------------------------------------------------------------
 
-def export_bundle(output_dir, allow_missing_media=False):
-    """Build a migration bundle from the current (SQLite) database."""
+def export_bundle(output_dir, allow_missing_media=False, source_media_root=None):
+    """Build a migration bundle from the current (SQLite) database.
+
+    `source_media_root` selects the media directory to read attachments from;
+    it defaults to ``settings.MEDIA_ROOT`` so a *copy* of media can be exported
+    alongside a *copy* of the SQLite file.
+    """
     if connection.vendor != 'sqlite':
         raise TransferError(
             f'Экспорт разрешён только на SQLite, текущий backend — {connection.vendor}.'
@@ -243,6 +375,7 @@ def export_bundle(output_dir, allow_missing_media=False):
         raise TransferError(
             f'Каталог {output_path} не пуст. Укажите новый или пустой каталог.'
         )
+    media_root, media_is_default = resolve_media_source(source_media_root)
     migration_state = require_all_migrations_applied()
 
     staging_parent = tempfile.mkdtemp(prefix='migration-bundle-export-')
@@ -257,8 +390,13 @@ def export_bundle(output_dir, allow_missing_media=False):
         data_path.write_text(data_text, encoding='utf-8')
 
         media_files, missing_media, warnings = _copy_attachment_files(
-            staging / MEDIA_DIR_NAME, allow_missing_media
+            staging / MEDIA_DIR_NAME, media_root, allow_missing_media
         )
+        if missing_media:
+            warnings.append(
+                f'Пакет неполный: отсутствует файлов вложений — {len(missing_media)}. '
+                'Обычный импорт такого пакета запрещён.'
+            )
 
         manifest = {
             'bundle_format_version': BUNDLE_FORMAT_VERSION,
@@ -275,8 +413,10 @@ def export_bundle(output_dir, allow_missing_media=False):
             'models': stats,
             'model_order': list(TRANSFERABLE_MODELS),
             'excluded_models': list(EXCLUDED_MODELS),
+            'source_media': describe_media_source(media_root, media_is_default),
             'media_files': media_files,
             'missing_media': missing_media,
+            'complete': not missing_media,
             'warnings': warnings,
         }
         manifest_text = json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False)
@@ -297,10 +437,9 @@ def export_bundle(output_dir, allow_missing_media=False):
     return manifest
 
 
-def _copy_attachment_files(media_target, allow_missing_media):
+def _copy_attachment_files(media_target, media_root, allow_missing_media):
     """Copy every file referenced by ActAttachment into the bundle."""
     ActAttachment = apps.get_model('acts.ActAttachment')
-    media_root = Path(settings.MEDIA_ROOT).resolve()
     media_files = []
     missing = []
     warnings = []
@@ -321,7 +460,8 @@ def _copy_attachment_files(media_target, allow_missing_media):
             if not allow_missing_media:
                 raise TransferError(
                     f'Файл вложения отсутствует: {relative} (ActAttachment id={attachment_pk}). '
-                    'Восстановите файл или запустите экспорт с --allow-missing-media.'
+                    'Восстановите файл или запустите экспорт с --allow-missing-media '
+                    '(такой пакет считается неполным).'
                 )
             missing.append(entry)
             continue
@@ -361,8 +501,103 @@ def load_manifest(bundle_dir):
     return manifest
 
 
+def _validate_model_order(manifest):
+    model_order = manifest.get('model_order')
+    if not isinstance(model_order, list) or not all(isinstance(item, str) for item in model_order):
+        raise TransferError(f'В {MANIFEST_NAME} некорректный блок "model_order".')
+    duplicates = sorted({label for label in model_order if model_order.count(label) > 1})
+    if duplicates:
+        raise TransferError(
+            'В "model_order" повторяются модели: ' + ', '.join(duplicates) + '.'
+        )
+    unknown = sorted(set(model_order) - set(TRANSFERABLE_MODELS))
+    if unknown:
+        raise TransferError(
+            'В "model_order" перечислены неизвестные модели: ' + ', '.join(unknown) + '.'
+        )
+    if model_order != list(TRANSFERABLE_MODELS):
+        raise TransferError(
+            'Порядок моделей в пакете не совпадает с текущим TRANSFERABLE_MODELS. '
+            'Пакет собран другой версией инструментов — пересоберите его.'
+        )
+    return model_order
+
+
+def _validate_migration_state(manifest):
+    state = manifest.get('migration_state')
+    if not isinstance(state, dict):
+        raise TransferError(f'В {MANIFEST_NAME} некорректный блок "migration_state".')
+    for key in ('applied', 'pending'):
+        value = state.get(key)
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise TransferError(
+                f'В {MANIFEST_NAME} блок "migration_state.{key}" должен быть списком строк.'
+            )
+    if state['pending']:
+        raise TransferError(
+            'Пакет собран из базы с непринятыми миграциями: '
+            + ', '.join(state['pending']) + '. Пересоберите пакет после migrate.'
+        )
+    return state
+
+
+def _validate_media_blocks(manifest, media_root):
+    media_files = manifest.get('media_files')
+    if not isinstance(media_files, list):
+        raise TransferError(f'В {MANIFEST_NAME} некорректный блок "media_files".')
+
+    seen_paths = set()
+    for index, entry in enumerate(media_files):
+        if not isinstance(entry, dict):
+            raise TransferError(f'В "media_files" запись #{index} не является объектом.')
+        relative = normalize_relative_path(entry.get('path'))
+        if relative in seen_paths:
+            raise TransferError(f'В "media_files" повторяется путь {relative}.')
+        seen_paths.add(relative)
+        size = entry.get('size')
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            raise TransferError(f'В "media_files" некорректный размер для {relative}.')
+        digest = entry.get('sha256')
+        if not isinstance(digest, str) or not SHA256_PATTERN.match(digest):
+            raise TransferError(f'В "media_files" некорректная контрольная сумма для {relative}.')
+
+        stored = resolve_inside(media_root, relative)
+        if not stored.is_file():
+            raise TransferError(f'В пакете нет файла вложения: {relative}.')
+        actual_size = stored.stat().st_size
+        if actual_size != size:
+            raise TransferError(
+                f'Размер файла {relative} не совпадает: ожидалось {size}, фактически {actual_size}.'
+            )
+        actual_hash = file_sha256(stored)
+        if actual_hash != digest:
+            raise TransferError(
+                f'Контрольная сумма файла {relative} не совпадает: ожидалось '
+                f'{digest}, фактически {actual_hash}.'
+            )
+
+    missing_media = manifest.get('missing_media', [])
+    if not isinstance(missing_media, list):
+        raise TransferError(f'В {MANIFEST_NAME} некорректный блок "missing_media".')
+    for index, entry in enumerate(missing_media):
+        if not isinstance(entry, dict):
+            raise TransferError(f'В "missing_media" запись #{index} не является объектом.')
+        attachment_id = entry.get('attachment_id')
+        if not isinstance(attachment_id, int) or isinstance(attachment_id, bool):
+            raise TransferError(f'В "missing_media" запись #{index} без корректного attachment_id.')
+        normalize_relative_path(entry.get('path'))
+        if not isinstance(entry.get('reason'), str) or not entry['reason'].strip():
+            raise TransferError(f'В "missing_media" запись #{index} без причины.')
+
+    return media_files, missing_media
+
+
 def validate_bundle(bundle_dir, check_migration_state=False):
-    """Fully validate a bundle on disk. Raises TransferError on any problem."""
+    """Fully validate a bundle on disk. Raises TransferError on any problem.
+
+    Every number in the manifest is recomputed from `data.json` and from the
+    files actually present, so a manifest can never vouch for itself.
+    """
     bundle_path = Path(bundle_dir)
     if not bundle_path.is_dir():
         raise TransferError(f'Каталог пакета не найден: {bundle_path}.')
@@ -376,9 +611,25 @@ def validate_bundle(bundle_dir, check_migration_state=False):
             f'Поддерживается только {BUNDLE_FORMAT_VERSION}.'
         )
 
-    for key in ('created_at', 'source_vendor', 'data_file', 'models', 'media_files'):
+    required = (
+        'created_at',
+        'source_vendor',
+        'data_file',
+        'models',
+        'model_order',
+        'migration_state',
+        'media_files',
+    )
+    for key in required:
         if key not in manifest:
             raise TransferError(f'В {MANIFEST_NAME} отсутствует обязательное поле "{key}".')
+
+    source_vendor = manifest['source_vendor']
+    if source_vendor != 'sqlite':
+        raise TransferError(
+            f'Пакет собран не из SQLite (source_vendor={source_vendor!r}). '
+            'Поддерживается перенос только из SQLite.'
+        )
 
     data_info = manifest['data_file']
     if not isinstance(data_info, dict) or 'sha256' not in data_info:
@@ -401,6 +652,9 @@ def validate_bundle(bundle_dir, check_migration_state=False):
     if not isinstance(records, list):
         raise TransferError(f'{DATA_NAME} должен содержать список объектов.')
 
+    _validate_model_order(manifest)
+    migration_state = _validate_migration_state(manifest)
+
     models_info = manifest['models']
     if not isinstance(models_info, dict):
         raise TransferError(f'В {MANIFEST_NAME} некорректный блок "models".')
@@ -415,46 +669,55 @@ def validate_bundle(bundle_dir, check_migration_state=False):
             'Пакет содержит неизвестные модели: ' + ', '.join(unexpected_labels) + '.'
         )
 
-    declared_total = sum(entry.get('count', 0) for entry in models_info.values())
+    recomputed = recompute_model_stats(records)
+    for label in TRANSFERABLE_MODELS:
+        declared = models_info[label]
+        if not isinstance(declared, dict):
+            raise TransferError(f'В "models" некорректная запись для {label}.')
+        actual = recomputed[label]
+        if declared.get('count') != actual['count']:
+            raise TransferError(
+                f'{label}: manifest заявляет {declared.get("count")} записей, '
+                f'в {DATA_NAME} их {actual["count"]}.'
+            )
+        if declared.get('max_pk') != actual['max_pk']:
+            raise TransferError(
+                f'{label}: manifest заявляет максимальный PK {declared.get("max_pk")}, '
+                f'в {DATA_NAME} — {actual["max_pk"]}.'
+            )
+        if declared.get('hash') != actual['hash']:
+            raise TransferError(
+                f'{label}: хеш данных в manifest не совпадает с пересчитанным по {DATA_NAME}.'
+            )
+
+    declared_total = sum(entry['count'] for entry in models_info.values())
     if declared_total != len(records):
         raise TransferError(
             f'{DATA_NAME} содержит {len(records)} записей, а manifest заявляет {declared_total}.'
         )
 
-    media_root = bundle_path / MEDIA_DIR_NAME
-    media_files = manifest['media_files']
-    if not isinstance(media_files, list):
-        raise TransferError(f'В {MANIFEST_NAME} некорректный блок "media_files".')
-    for entry in media_files:
-        relative = entry.get('path')
-        stored = resolve_inside(media_root, relative)
-        if not stored.is_file():
-            raise TransferError(f'В пакете нет файла вложения: {relative}.')
-        actual_size = stored.stat().st_size
-        if actual_size != entry.get('size'):
-            raise TransferError(
-                f'Размер файла {relative} не совпадает: ожидалось {entry.get("size")}, '
-                f'фактически {actual_size}.'
-            )
-        actual_hash = file_sha256(stored)
-        if actual_hash != entry.get('sha256'):
-            raise TransferError(
-                f'Контрольная сумма файла {relative} не совпадает: ожидалось '
-                f'{entry.get("sha256")}, фактически {actual_hash}.'
-            )
+    media_files, missing_media = _validate_media_blocks(manifest, bundle_path / MEDIA_DIR_NAME)
+
+    warnings = list(manifest.get('warnings', []))
+    if missing_media:
+        warnings.append(
+            f'Пакет неполный: не хватает файлов вложений — {len(missing_media)}.'
+        )
 
     result = {
         'manifest': manifest,
         'record_count': len(records),
         'media_count': len(media_files),
-        'missing_media': manifest.get('missing_media', []),
-        'warnings': list(manifest.get('warnings', [])),
+        'missing_media': missing_media,
+        'complete': not missing_media,
+        'warnings': warnings,
         'migration_state_matches': None,
+        'recomputed_models': recomputed,
     }
 
     if check_migration_state:
         current = get_applied_migration_state()
-        bundle_applied = set((manifest.get('migration_state') or {}).get('applied', []))
+        bundle_applied = set(migration_state['applied'])
         current_applied = set(current['applied'])
         only_in_bundle = sorted(bundle_applied - current_applied)
         if only_in_bundle:
@@ -472,11 +735,19 @@ def validate_bundle(bundle_dir, check_migration_state=False):
     return result
 
 
+def describe_missing_media(missing_media):
+    """Return the full, printable list of attachments whose file is absent."""
+    return [
+        f'ActAttachment id={entry["attachment_id"]}: {entry["path"]} ({entry["reason"]})'
+        for entry in missing_media
+    ]
+
+
 # --------------------------------------------------------------------------
 # Import
 # --------------------------------------------------------------------------
 
-def check_import_preconditions(bundle_dir):
+def check_import_preconditions(bundle_dir, accept_missing_media=False):
     """Validate everything that must hold before a single row is written."""
     if connection.vendor != 'postgresql':
         raise TransferError(
@@ -490,6 +761,15 @@ def check_import_preconditions(bundle_dir):
     require_all_migrations_applied()
     validation = validate_bundle(bundle_dir, check_migration_state=True)
 
+    if validation['missing_media'] and not accept_missing_media:
+        listed = describe_missing_media(validation['missing_media'])
+        raise TransferError(
+            'Пакет неполный: в нём отмечены отсутствующие файлы вложений ('
+            + str(len(listed)) + '). Обычный импорт неполного пакета запрещён. '
+            'Восстановите файлы и пересоберите пакет либо осознанно запустите импорт '
+            'с --accept-missing-media. Отсутствуют: ' + '; '.join(listed) + '.'
+        )
+
     non_empty = find_non_empty_models()
     if non_empty:
         seeded = [label for label in non_empty if label in MIGRATION_SEEDED_MODELS]
@@ -500,7 +780,8 @@ def check_import_preconditions(bundle_dir):
         if seeded:
             details.append(
                 'заполнены миграциями данных: ' + ', '.join(seeded)
-                + ' (пакет содержит собственные копии этих строк; очистите их вручную)'
+                + ' (пакет содержит собственные копии этих строк; очистите их командой '
+                'prepare_empty_migration_target)'
             )
         raise TransferError(
             'Импорт возможен только в пустые переносимые таблицы. Непустые таблицы — '
@@ -511,32 +792,46 @@ def check_import_preconditions(bundle_dir):
     media_root = Path(settings.MEDIA_ROOT)
     if validation['media_count'] and not directory_is_empty(media_root):
         raise TransferError(
-            f'Каталог MEDIA_ROOT {media_root} не пуст. Перезапись существующих файлов '
-            'не выполняется автоматически: перенесите или очистите каталог вручную.'
+            f'Каталог MEDIA_ROOT {safe_path_label(media_root)} не пуст. Перезапись существующих '
+            'файлов не выполняется автоматически: перенесите или очистите каталог вручную.'
         )
     return validation
 
 
-def plan_import(bundle_dir):
+def plan_import(bundle_dir, accept_missing_media=False):
     """Return the list of actions a real import would perform."""
-    validation = check_import_preconditions(bundle_dir)
+    validation = check_import_preconditions(bundle_dir, accept_missing_media=accept_missing_media)
     manifest = validation['manifest']
     actions = [
-        f'Проверить пакет {Path(bundle_dir).resolve()} (выполнено).',
+        f'Проверить пакет {safe_path_label(bundle_dir)} (выполнено).',
         f'Загрузить {validation["record_count"]} записей в рамках одной транзакции.',
     ]
     for label in TRANSFERABLE_MODELS:
         count = manifest['models'][label]['count']
         actions.append(f'  {label}: {count} записей.')
-    actions.append(f'Скопировать {validation["media_count"]} файлов в {settings.MEDIA_ROOT}.')
     actions.append('Восстановить последовательности PostgreSQL для моделей с AutoField.')
-    actions.append('Синхронизировать ActNumberSequence по фактическим номерам актов.')
+    actions.append('Синхронизировать ActNumberSequence по фактическим номерам актов (до commit).')
+    actions.append(
+        f'После фиксации транзакции скопировать {validation["media_count"]} файлов в '
+        f'{safe_path_label(settings.MEDIA_ROOT)}.'
+    )
+    if validation['missing_media']:
+        actions.append(
+            f'ВНИМАНИЕ: пакет неполный, отсутствующих файлов — {len(validation["missing_media"])}.'
+        )
     return validation, actions
 
 
-def import_bundle(bundle_dir):
-    """Import a validated bundle into an empty PostgreSQL database."""
-    validation = check_import_preconditions(bundle_dir)
+def import_bundle(bundle_dir, accept_missing_media=False):
+    """Import a validated bundle into an empty PostgreSQL database.
+
+    Loading the fixture, resetting PostgreSQL sequences and synchronising
+    `ActNumberSequence` all happen inside one `transaction.atomic()`: if any of
+    them fails, every loaded row is rolled back. Media is activated only after
+    that transaction is committed; a failure there yields a structured
+    partial-success result instead of a bare success.
+    """
+    validation = check_import_preconditions(bundle_dir, accept_missing_media=accept_missing_media)
     bundle_path = Path(bundle_dir)
     media_root = Path(settings.MEDIA_ROOT)
 
@@ -561,25 +856,45 @@ def import_bundle(bundle_dir):
                 deserialized.save()
                 loaded += 1
             sequence_result = reset_database_sequences()
+            number_sequence_result = sync_act_number_sequences()
+        # The transaction is committed from here on: media is activated last.
         media_result = _activate_media(staging_media, media_root)
-        number_sequence_result = sync_act_number_sequences()
     except Exception:
         shutil.rmtree(staging_parent, ignore_errors=True)
         raise
     else:
         shutil.rmtree(staging_parent, ignore_errors=True)
 
-    return {
+    result = {
+        'status': 'ok' if media_result['ok'] else 'partial',
         'loaded': loaded,
         'sequences': sequence_result,
         'media': media_result,
         'act_number_sequences': number_sequence_result,
         'validation': validation,
+        'complete_bundle': validation['complete'],
+        'missing_media': validation['missing_media'],
     }
+    if not media_result['ok']:
+        result['recovery'] = [
+            'Не запускайте приложение на этой базе PostgreSQL: перенос не завершён.',
+            f'Скопируйте файлы из {safe_path_label(bundle_path)}/{MEDIA_DIR_NAME} в '
+            f'{safe_path_label(media_root)}, сохранив относительные пути.',
+            f'Повторно запустите: python manage.py verify_migration_bundle --input '
+            f'{safe_path_label(bundle_path)}.',
+            'Повторный import_migration_bundle в эту базу невозможен — таблицы уже не пусты. '
+            'Если восстановить media не удаётся, очистите целевую базу и MEDIA_ROOT '
+            'и повторите перенос с нуля.',
+        ]
+    return result
 
 
 def _activate_media(staging_media, media_root):
-    """Move prepared files into MEDIA_ROOT after the database is committed."""
+    """Move prepared files into MEDIA_ROOT after the database is committed.
+
+    Never raises: a failure here happens *after* commit, so the caller needs a
+    structured partial result rather than an exception that hides what landed.
+    """
     copied = []
     try:
         media_root.mkdir(parents=True, exist_ok=True)
@@ -590,12 +905,15 @@ def _activate_media(staging_media, media_root):
             shutil.copy2(source, destination)
             copied.append(relative)
     except (OSError, TransferError) as exc:
-        raise TransferError(
-            'База данных импортирована и зафиксирована, но активировать каталог media '
-            f'не удалось: {exc}. Скопируйте файлы из пакета в {media_root} вручную '
-            'и повторно запустите verify_migration_bundle.'
-        ) from exc
-    return {'copied': copied}
+        return {
+            'ok': False,
+            'copied': copied,
+            'error': (
+                'База данных импортирована и зафиксирована, но активировать каталог media '
+                f'не удалось: {exc}'
+            ),
+        }
+    return {'ok': True, 'copied': copied, 'error': ''}
 
 
 def reset_database_sequences():
@@ -624,7 +942,8 @@ def sync_act_number_sequences():
     """Raise every yearly act counter to the highest real number in that year.
 
     Idempotent: an already-correct counter is left alone and a counter is never
-    lowered. Non-standard historical numbers are ignored.
+    lowered. Non-standard historical numbers are ignored. Called inside the
+    import transaction, so a failure rolls the whole import back.
     """
     Act = apps.get_model('acts.Act')
     ActNumberSequence = apps.get_model('acts.ActNumberSequence')
@@ -664,8 +983,12 @@ def sync_act_number_sequences():
 # Verification
 # --------------------------------------------------------------------------
 
-def verify_against_bundle(bundle_dir):
-    """Compare the current database and MEDIA_ROOT against a bundle."""
+def verify_against_bundle(bundle_dir, allow_missing_media=False):
+    """Compare the current database and MEDIA_ROOT against a bundle.
+
+    `missing_media` in the bundle is always a difference unless the operator
+    explicitly runs the diagnostic mode that tolerates an incomplete transfer.
+    """
     validation = validate_bundle(bundle_dir)
     manifest = validation['manifest']
     differences = []
@@ -702,16 +1025,28 @@ def verify_against_bundle(bundle_dir):
     media_report = _verify_media(manifest)
     differences.extend(media_report['differences'])
 
+    missing_media = validation['missing_media']
+    missing_media_listed = describe_missing_media(missing_media)
+    if missing_media and not allow_missing_media:
+        differences.append(
+            f'media: перенос неполный, в пакете отмечено отсутствующих файлов — '
+            f'{len(missing_media)}: ' + '; '.join(missing_media_listed) + '.'
+        )
+
     relations = check_relational_invariants()
     differences.extend(relations['problems'])
 
     report = {
         'checked_at': datetime.now(dt_timezone.utc).isoformat(),
-        'bundle': str(Path(bundle_dir).resolve()),
+        'bundle': safe_path_label(bundle_dir),
         'target_vendor': connection.vendor,
         'models': model_report,
         'media': media_report,
+        'missing_media': missing_media_listed,
+        'missing_media_allowed': bool(allow_missing_media),
+        'complete_transfer': not missing_media,
         'relations': relations,
+        'warnings': validation['warnings'],
         'differences': differences,
         'ok': not differences,
     }
@@ -746,6 +1081,41 @@ def _verify_media(manifest):
         'checked': checked,
         'differences': differences,
     }
+
+
+def check_act_number_uniqueness():
+    """Return the standard act numbers that occur more than once."""
+    Act = apps.get_model('acts.Act')
+    seen = set()
+    duplicates = set()
+    for number in Act._default_manager.values_list('number', flat=True):
+        text = (number or '').strip()
+        if not ACT_NUMBER_PATTERN.match(text):
+            continue
+        if text in seen:
+            duplicates.add(text)
+        seen.add(text)
+    return sorted(duplicates)
+
+
+def find_lagging_act_number_sequences():
+    """Return {year: {counter, highest}} for counters below the real numbers."""
+    Act = apps.get_model('acts.Act')
+    ActNumberSequence = apps.get_model('acts.ActNumberSequence')
+    counters = dict(ActNumberSequence._default_manager.values_list('year', 'last_value'))
+    highest = {}
+    for number in Act._default_manager.values_list('number', flat=True):
+        match = ACT_NUMBER_PATTERN.match((number or '').strip())
+        if not match:
+            continue
+        year, value = int(match.group(1)), int(match.group(2))
+        highest[year] = max(highest.get(year, 0), value)
+    lagging = {
+        year: {'counter': counters.get(year, 0), 'highest': value}
+        for year, value in sorted(highest.items())
+        if counters.get(year, 0) < value
+    }
+    return lagging, highest
 
 
 def check_relational_invariants():
@@ -805,34 +1175,15 @@ def check_relational_invariants():
             f'tasks.Task: несогласованные act/root_analysis/source_action для {sorted(inconsistent)[:10]}.'
         )
 
-    Act = apps.get_model('acts.Act')
-    seen_numbers = {}
-    duplicates = set()
-    for number in Act._default_manager.values_list('number', flat=True):
-        if not ACT_NUMBER_PATTERN.match((number or '').strip()):
-            continue
-        if number in seen_numbers:
-            duplicates.add(number)
-        seen_numbers[number] = True
+    duplicates = check_act_number_uniqueness()
     if duplicates:
-        problems.append('acts.Act: повторяющиеся стандартные номера — ' + ', '.join(sorted(duplicates)) + '.')
+        problems.append('acts.Act: повторяющиеся стандартные номера — ' + ', '.join(duplicates) + '.')
 
-    ActNumberSequence = apps.get_model('acts.ActNumberSequence')
-    counters = dict(ActNumberSequence._default_manager.values_list('year', 'last_value'))
-    highest = {}
-    for number in Act._default_manager.values_list('number', flat=True):
-        match = ACT_NUMBER_PATTERN.match((number or '').strip())
-        if not match:
-            continue
-        year, value = int(match.group(1)), int(match.group(2))
-        highest[year] = max(highest.get(year, 0), value)
-    lagging = sorted(
-        year for year, value in highest.items() if counters.get(year, 0) < value
-    )
+    lagging, highest = find_lagging_act_number_sequences()
     if lagging:
         problems.append(
             'acts.ActNumberSequence: счётчики отстают от фактических номеров за годы '
-            + ', '.join(str(year) for year in lagging) + '.'
+            + ', '.join(str(year) for year in sorted(lagging)) + '.'
         )
 
     return {'problems': problems, 'act_number_years': sorted(highest)}
