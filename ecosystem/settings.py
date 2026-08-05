@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -19,21 +20,36 @@ from django.core.exceptions import ImproperlyConfigured
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+# --------------------------------------------------------------------------
+# Environment mode
+#
+# `APP_ENV` is the single explicit switch between a convenient local setup and
+# a locked-down deployment. Nothing is inferred from DEBUG or from the presence
+# of a variable: production behaviour is opt-in and unambiguous, and an
+# unknown value is refused rather than silently treated as development.
+# --------------------------------------------------------------------------
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-ib1ihuw1mz&*aj!efa@^gj$(4#bgqo-fp*jwf^n7m9kunfw+gx'
+DEVELOPMENT = 'development'
+TEST = 'test'
+PRODUCTION = 'production'
+VALID_APP_ENVS = (DEVELOPMENT, TEST, PRODUCTION)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+APP_ENV = os.getenv('APP_ENV', DEVELOPMENT).strip().lower() or DEVELOPMENT
+if APP_ENV not in VALID_APP_ENVS:
+    raise ImproperlyConfigured(
+        f'Unsupported APP_ENV "{APP_ENV}". Supported values: {", ".join(VALID_APP_ENVS)}.'
+    )
 
-ALLOWED_HOSTS = []
+IS_DEVELOPMENT = APP_ENV == DEVELOPMENT
+IS_TEST = APP_ENV == TEST
+IS_PRODUCTION = APP_ENV == PRODUCTION
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    # The project package itself: no models, only the deployment system checks.
+    'ecosystem',
     'dashboard',
     'accounts',
     'references',
@@ -142,6 +158,219 @@ def env_number(name, default, *, minimum, maximum, cast=float):
     return value
 
 
+def env_list(name, default=()):
+    """Read a comma-separated list: trimmed, de-duplicated, order preserved.
+
+    An empty element is dropped rather than becoming an empty host or origin,
+    which would otherwise silently match nothing (or, for ALLOWED_HOSTS, look
+    configured while being useless).
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return list(default)
+    items = []
+    for chunk in raw.split(','):
+        value = chunk.strip()
+        if value and value not in items:
+            items.append(value)
+    return items
+
+
+def env_timeout_ms(name, default, *, maximum=3_600_000):
+    """A millisecond timeout: a non-negative integer, `0` meaning disabled."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        value = int(default)
+    else:
+        try:
+            value = int(raw.strip())
+        except (TypeError, ValueError) as exc:
+            raise ImproperlyConfigured(
+                f'Environment variable "{name}" must be an integer number of '
+                f'milliseconds; got "{raw}".'
+            ) from exc
+    if value < 0:
+        raise ImproperlyConfigured(
+            f'Environment variable "{name}" must not be negative; got {value}. '
+            'Use 0 to disable the timeout.'
+        )
+    if value > maximum:
+        raise ImproperlyConfigured(
+            f'Environment variable "{name}" must not exceed {maximum} ms; got {value}.'
+        )
+    return value
+
+
+def env_path(name, default):
+    """A filesystem path from the environment; relative resolves against BASE_DIR."""
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return default
+    candidate = Path(raw).expanduser()
+    return candidate if candidate.is_absolute() else (BASE_DIR / candidate).resolve()
+
+
+def _require_https_url(value, name):
+    """Refuse anything that is not an absolute `https://` URL."""
+    parts = urlsplit(value)
+    if parts.scheme != 'https' or not parts.netloc:
+        raise ImproperlyConfigured(
+            f'{name} must be an absolute https:// URL when APP_ENV=production; '
+            f'got scheme "{parts.scheme or "(none)"}".'
+        )
+    return value
+
+
+# --------------------------------------------------------------------------
+# Core Django settings
+#
+# Every one of these is environment-driven. In development they keep working
+# defaults so a fresh clone runs with no configuration at all; in production
+# each is validated at import time, so a misconfiguration stops the process at
+# startup instead of surfacing on the first user request.
+# --------------------------------------------------------------------------
+
+# The key committed for local development. Publicly known by definition — it is
+# in Git — so production must never use it.
+DEVELOPMENT_SECRET_KEY = 'django-insecure-ib1ihuw1mz&*aj!efa@^gj$(4#bgqo-fp*jwf^n7m9kunfw+gx'
+MIN_SECRET_KEY_LENGTH = 50
+# Obvious placeholders somebody might paste in "just to get it running".
+UNSAFE_SECRET_KEY_VALUES = frozenset(
+    {'changeme', 'change-me', 'secret', 'secret-key', 'password', 'test', 'insecure', 'todo'}
+)
+
+
+def _resolve_secret_key():
+    """Return the signing key.
+
+    The key itself is never included in any error message or log line: a
+    misconfiguration report must describe the *problem*, never echo the value
+    it was given.
+    """
+    raw = os.getenv('SECRET_KEY', '').strip()
+    if not IS_PRODUCTION:
+        return raw or DEVELOPMENT_SECRET_KEY
+    if not raw:
+        raise ImproperlyConfigured(
+            'SECRET_KEY is required when APP_ENV=production and must come from '
+            'the deployment environment.'
+        )
+    if raw == DEVELOPMENT_SECRET_KEY or raw.startswith('django-insecure-'):
+        raise ImproperlyConfigured(
+            'SECRET_KEY is the published development key. It is committed to '
+            'Git and therefore public; generate a fresh key for production.'
+        )
+    # Placeholder before length: a placeholder is almost always short too, and
+    # "this is a placeholder" is the more useful of the two messages.
+    if raw.lower() in UNSAFE_SECRET_KEY_VALUES:
+        raise ImproperlyConfigured(
+            'SECRET_KEY is an obvious placeholder value; generate a real key.'
+        )
+    if len(raw) < MIN_SECRET_KEY_LENGTH:
+        raise ImproperlyConfigured(
+            f'SECRET_KEY must be at least {MIN_SECRET_KEY_LENGTH} characters long '
+            'in production; the supplied value does not reach that length.'
+        )
+    return raw
+
+
+SECRET_KEY = _resolve_secret_key()
+
+# SECURITY WARNING: never run with debug turned on in production.
+DEBUG = env_bool('DEBUG', not IS_PRODUCTION)
+if IS_PRODUCTION and DEBUG:
+    raise ImproperlyConfigured('DEBUG must be false when APP_ENV=production.')
+
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', [] if IS_PRODUCTION else ['localhost', '127.0.0.1', '[::1]'])
+if IS_PRODUCTION:
+    if not ALLOWED_HOSTS:
+        raise ImproperlyConfigured(
+            'ALLOWED_HOSTS must list the real hostnames when APP_ENV=production.'
+        )
+    if '*' in ALLOWED_HOSTS:
+        raise ImproperlyConfigured(
+            'ALLOWED_HOSTS must not contain the wildcard "*" in production: it '
+            'disables the Host header check entirely.'
+        )
+
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS')
+if IS_PRODUCTION:
+    if not CSRF_TRUSTED_ORIGINS:
+        raise ImproperlyConfigured(
+            'CSRF_TRUSTED_ORIGINS must list the https:// origins the application '
+            'is served from when APP_ENV=production.'
+        )
+    for _origin in CSRF_TRUSTED_ORIGINS:
+        _require_https_url(_origin, 'CSRF_TRUSTED_ORIGINS')
+
+
+# --------------------------------------------------------------------------
+# Security settings
+#
+# Safe by default in production, adjustable everywhere through the
+# environment. HSTS is the deliberate exception: it is never switched on
+# implicitly, because a wrong value is remembered by browsers and cannot be
+# taken back quickly.
+# --------------------------------------------------------------------------
+
+VALID_SAMESITE = ('Lax', 'Strict', 'None')
+
+
+def _samesite(name, default='Lax'):
+    value = os.getenv(name, default).strip() or default
+    normalized = value.capitalize() if value.lower() != 'none' else 'None'
+    if normalized not in VALID_SAMESITE:
+        raise ImproperlyConfigured(
+            f'{name} must be one of {", ".join(VALID_SAMESITE)}; got "{value}".'
+        )
+    return normalized
+
+
+SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', IS_PRODUCTION)
+CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', IS_PRODUCTION)
+SESSION_COOKIE_HTTPONLY = env_bool('SESSION_COOKIE_HTTPONLY', True)
+SESSION_COOKIE_SAMESITE = _samesite('SESSION_COOKIE_SAMESITE')
+CSRF_COOKIE_SAMESITE = _samesite('CSRF_COOKIE_SAMESITE')
+SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', IS_PRODUCTION)
+# Default 0 everywhere on purpose: enable HSTS explicitly, and only once HTTPS
+# is known to work for every hostname served.
+SECURE_HSTS_SECONDS = env_int('SECURE_HSTS_SECONDS', 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
+SECURE_HSTS_PRELOAD = env_bool('SECURE_HSTS_PRELOAD', False)
+SECURE_CONTENT_TYPE_NOSNIFF = env_bool('SECURE_CONTENT_TYPE_NOSNIFF', True)
+X_FRAME_OPTIONS = os.getenv('X_FRAME_OPTIONS', 'DENY').strip().upper() or 'DENY'
+USE_X_FORWARDED_HOST = env_bool('USE_X_FORWARDED_HOST', False)
+
+# Trusting `X-Forwarded-Proto` is only safe behind a reverse proxy that
+# *overwrites* it. If any client can reach the application directly, a forged
+# header would make Django believe an ordinary HTTP request was secure — so
+# this is opt-in and off by default.
+TRUST_X_FORWARDED_PROTO = env_bool('TRUST_X_FORWARDED_PROTO', False)
+if TRUST_X_FORWARDED_PROTO:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+
+# --------------------------------------------------------------------------
+# Operational feature flags
+# --------------------------------------------------------------------------
+
+# The destructive "delete every act" action exists for local demos only. The
+# URL is not even registered unless this is on (see `acts/urls.py`), and
+# production can never turn it on: the value is forced off there, and the
+# request is additionally reported as a blocking deployment check.
+DEMO_RESET_REQUESTED = env_bool('ENABLE_DEMO_RESET', False)
+ENABLE_DEMO_RESET = DEMO_RESET_REQUESTED and not IS_PRODUCTION
+
+# An administrative acknowledgement, not evidence: it records that somebody
+# takes responsibility for backups. It proves nothing about whether a restore
+# has ever been tested.
+BACKUP_POLICY_ACKNOWLEDGED = env_bool('BACKUP_POLICY_ACKNOWLEDGED', False)
+
+# Set by the operator when Redis is genuinely on a closed internal network, so
+# a plain `redis://` URL is an informed decision rather than an oversight.
+REDIS_NETWORK_IS_TRUSTED = env_bool('REDIS_NETWORK_IS_TRUSTED', False)
+
+
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 #
@@ -167,12 +396,74 @@ def _resolve_sqlite_path():
     return candidate if candidate.is_absolute() else (BASE_DIR / candidate).resolve()
 
 
+if IS_PRODUCTION and DATABASE_ENGINE != 'postgresql':
+    raise ImproperlyConfigured(
+        f'DATABASE_ENGINE must be "postgresql" when APP_ENV=production; got '
+        f'"{DATABASE_ENGINE}". SQLite has no concurrent-write story and no '
+        'row-level locking, which the act workflow relies on.'
+    )
+
+# PostgreSQL runtime parameters. Timeouts are applied per connection through
+# the libpq `options` string, so a single runaway query or a forgotten open
+# transaction cannot hold a lock indefinitely. `0` disables a timeout, which
+# the deployment checks report as a warning rather than silently accepting.
+SUPPORTED_SSLMODES = ('disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full')
+# Modes that still permit an unencrypted connection.
+UNENCRYPTED_SSLMODES = ('disable', 'allow', 'prefer')
+
+DB_SSLMODE = os.getenv('DB_SSLMODE', 'prefer').strip().lower() or 'prefer'
+if DB_SSLMODE not in SUPPORTED_SSLMODES:
+    raise ImproperlyConfigured(
+        f'Unsupported DB_SSLMODE "{DB_SSLMODE}". Supported values: '
+        f'{", ".join(SUPPORTED_SSLMODES)}.'
+    )
+
+DB_APPLICATION_NAME = os.getenv('DB_APPLICATION_NAME', 'quality-ecosystem').strip()
+if not DB_APPLICATION_NAME:
+    raise ImproperlyConfigured('DB_APPLICATION_NAME must not be empty.')
+if len(DB_APPLICATION_NAME) > 63 or not all(
+    character.isalnum() or character in '._- ' for character in DB_APPLICATION_NAME
+):
+    # It is interpolated into the libpq options string and shows up in
+    # `pg_stat_activity`, so it stays a short, boring, quote-free identifier.
+    raise ImproperlyConfigured(
+        'DB_APPLICATION_NAME must be at most 63 characters and contain only '
+        'letters, digits, dot, underscore, hyphen or space.'
+    )
+
+DB_STATEMENT_TIMEOUT_MS = env_timeout_ms('DB_STATEMENT_TIMEOUT_MS', 30_000)
+DB_LOCK_TIMEOUT_MS = env_timeout_ms('DB_LOCK_TIMEOUT_MS', 10_000)
+DB_IDLE_IN_TRANSACTION_TIMEOUT_MS = env_timeout_ms('DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', 60_000)
+
+
+def _postgresql_options():
+    """libpq connection options: SSL mode, application name and timeouts."""
+    runtime = []
+    if DB_STATEMENT_TIMEOUT_MS:
+        runtime.append(f'-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}')
+    if DB_LOCK_TIMEOUT_MS:
+        runtime.append(f'-c lock_timeout={DB_LOCK_TIMEOUT_MS}')
+    if DB_IDLE_IN_TRANSACTION_TIMEOUT_MS:
+        runtime.append(
+            f'-c idle_in_transaction_session_timeout={DB_IDLE_IN_TRANSACTION_TIMEOUT_MS}'
+        )
+    options = {
+        'sslmode': DB_SSLMODE,
+        'application_name': DB_APPLICATION_NAME,
+    }
+    if runtime:
+        options['options'] = ' '.join(runtime)
+    return options
+
+
 if DATABASE_ENGINE == 'sqlite':
     SQLITE_DB_PATH = _resolve_sqlite_path()
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': SQLITE_DB_PATH,
+            # Deliberately no PostgreSQL OPTIONS here: sslmode, application_name
+            # and libpq timeouts are meaningless to SQLite and would raise.
         }
     }
 elif DATABASE_ENGINE == 'postgresql':
@@ -184,8 +475,13 @@ elif DATABASE_ENGINE == 'postgresql':
             'PASSWORD': env_str_required('DB_PASSWORD'),
             'HOST': os.getenv('DB_HOST', '127.0.0.1'),
             'PORT': env_int('DB_PORT', 5432),
+            # 0 stays the recommended default under ASGI: a long-lived stream
+            # must not pin a connection for its whole lifetime. Persistent
+            # connections or a pooler are a decision for after a real load
+            # test, not a default.
             'CONN_MAX_AGE': env_int('DB_CONN_MAX_AGE', 0),
             'CONN_HEALTH_CHECKS': env_bool('DB_CONN_HEALTH_CHECKS', False),
+            'OPTIONS': _postgresql_options(),
         }
     }
 else:
@@ -232,7 +528,14 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
+# Where `collectstatic` gathers everything the web server may publish.
+# **Public by design** — CSS, JavaScript and images only. It is deliberately a
+# different directory from MEDIA_ROOT, which must never be served this way.
+STATIC_ROOT = env_path('STATIC_ROOT_PATH', BASE_DIR / 'staticfiles')
 
+# MEDIA_ROOT holds act attachments and is **protected**: files are served only
+# through `acts.views.act_download_attachment`, which re-checks permissions for
+# every download. It must never be exposed by the web server directly.
 MEDIA_URL = 'media/'
 
 
@@ -261,7 +564,11 @@ LOGOUT_REDIRECT_URL = 'accounts:login'
 # read only from the deployment environment and must never be committed.
 EMAIL_NOTIFICATIONS_ENABLED = env_bool('EMAIL_NOTIFICATIONS_ENABLED', False)
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
-APP_BASE_URL = os.getenv('APP_BASE_URL', 'http://127.0.0.1:8000')
+APP_BASE_URL = os.getenv('APP_BASE_URL', 'http://127.0.0.1:8000').strip().rstrip('/')
+if IS_PRODUCTION:
+    # Notification emails carry links built from this; an http:// value would
+    # send users to an unencrypted address.
+    _require_https_url(APP_BASE_URL, 'APP_BASE_URL')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'quality-ecosystem@localhost')
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
 EMAIL_PORT = env_int('EMAIL_PORT', 25)
@@ -369,24 +676,105 @@ REALTIME_LIVE_SYNC_SECONDS = env_number(
 )
 
 
-# Only the `realtime` logger is configured here; Django's own defaults are
-# preserved because `disable_existing_loggers` stays false.
+# --------------------------------------------------------------------------
+# Logging
+#
+# Console-based on purpose: the process manager (systemd, a Windows service,
+# the container runtime) is responsible for collecting and rotating output.
+# An optional rotating file handler can be switched on through the
+# environment; no third-party logging framework is involved.
+#
+# **What must never be logged**: SECRET_KEY, DB_PASSWORD, a Redis URL with
+# credentials, EMAIL_HOST_PASSWORD, session cookies, CSRF tokens, comment text,
+# defect descriptions, and the content or names of uploaded files. The
+# application logs identifiers, counts, durations and outcomes — never payload.
+# `realtime.transport.sanitize()` exists for exactly this reason.
+# --------------------------------------------------------------------------
+
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').strip().upper() or 'INFO'
+LOG_TO_FILE = env_bool('LOG_TO_FILE', False)
+LOG_FILE_PATH = env_path('LOG_FILE_PATH', BASE_DIR / 'logs' / 'application.log')
+LOG_FILE_MAX_BYTES = env_int('LOG_FILE_MAX_BYTES', 10 * 1024 * 1024)
+LOG_FILE_BACKUP_COUNT = env_int('LOG_FILE_BACKUP_COUNT', 5)
+
+
+class _SafeContextFilter:
+    """Guarantee the optional context fields the formatter references exist.
+
+    `request_id` and `user_id` are filled in by call sites that already know
+    them safely; everything else gets `-` instead of a formatting error. No
+    value is ever derived from a cookie, header or request body here.
+    """
+
+    def __init__(self, name=''):
+        self.name = name
+
+    def filter(self, record):
+        if not hasattr(record, 'request_id'):
+            record.request_id = '-'
+        if not hasattr(record, 'user_id'):
+            record.user_id = '-'
+        return True
+
+
+_LOG_HANDLERS = ['console'] + (['file'] if LOG_TO_FILE else [])
+
+if LOG_TO_FILE:
+    LOG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
 LOGGING = {
     'version': 1,
+    # Django's own defaults stay in place.
     'disable_existing_loggers': False,
-    'formatters': {
-        'realtime': {'format': '[%(asctime)s] %(levelname)s %(name)s: %(message)s'},
+    'filters': {
+        'safe_context': {'()': 'ecosystem.settings._SafeContextFilter'},
     },
-    'handlers': {
-        'realtime_console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'realtime',
+    'formatters': {
+        'safe': {
+            'format': (
+                '[%(asctime)s] %(levelname)s %(name)s '
+                'request=%(request_id)s user=%(user_id)s: %(message)s'
+            ),
         },
     },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'safe',
+            'filters': ['safe_context'],
+        },
+        **(
+            {
+                'file': {
+                    'class': 'logging.handlers.RotatingFileHandler',
+                    'filename': str(LOG_FILE_PATH),
+                    'maxBytes': LOG_FILE_MAX_BYTES,
+                    'backupCount': LOG_FILE_BACKUP_COUNT,
+                    'encoding': 'utf-8',
+                    'formatter': 'safe',
+                    'filters': ['safe_context'],
+                }
+            }
+            if LOG_TO_FILE
+            else {}
+        ),
+    },
     'loggers': {
+        # Unhandled exceptions and 4xx/5xx responses.
+        'django.request': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
+        # Host header failures, suspicious operations, CSRF rejections.
+        'django.security': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
+        # Act and task workflow transitions.
+        'ecosystem.workflow': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
+        # Delivery attempts and their outcomes — never the message body.
+        'notifications.email': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
+        # Migration/transfer tooling.
+        'maintenance': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
+        # Deployment checks, health probes and readiness reports.
+        'deployment': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
         'realtime': {
-            'handlers': ['realtime_console'],
-            'level': os.getenv('REALTIME_LOG_LEVEL', 'INFO'),
+            'handlers': _LOG_HANDLERS,
+            'level': os.getenv('REALTIME_LOG_LEVEL', LOG_LEVEL),
             'propagate': False,
         },
     },

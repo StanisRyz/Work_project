@@ -68,8 +68,21 @@ def can_create_act(user):
 
 
 def can_clear_all_acts(user):
-    """Allow the destructive local reset only for the dedicated demo administrator."""
-    return is_act_admin(user) and getattr(user, 'username', '') == 'admin_user'
+    """Allow the destructive local reset only where it is enabled at all.
+
+    Two independent gates, both required. `ENABLE_DEMO_RESET` decides whether
+    the feature exists in this deployment — production forces it off and the
+    URL is not even registered there — and the administrator role decides who
+    may use it where it does exist.
+
+    The old rule keyed on the literal username `admin_user`, which made a
+    production safeguard depend on a demo account's name: renaming or seeding
+    that account anywhere would have re-enabled a destructive action. The flag
+    is the safeguard now.
+    """
+    from django.conf import settings
+
+    return bool(getattr(settings, 'ENABLE_DEMO_RESET', False)) and is_act_admin(user)
 
 
 def can_view_act(act, user):

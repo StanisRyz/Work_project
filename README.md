@@ -341,6 +341,102 @@ D11 keeps the existing `/acts/create/` server-rendered route and reshapes act cr
 - Verify all defects appear on the detail page.
 - Verify old act records still display without errors.
 
+## Deployment Preparation
+
+The codebase is prepared for a pilot deployment on a clean PostgreSQL with
+Redis and ASGI. **The deployment itself is a separate, not-yet-performed
+stage**: this repository configures and validates the application, but it does
+not install PostgreSQL or Redis, create database roles, configure a reverse
+proxy, HTTPS or certificates, register OS services, or deploy anything.
+
+### `APP_ENV` and the main production variables
+
+`APP_ENV` is the single explicit switch: `development` (default), `test` or
+`production`. An unknown value is refused at startup.
+
+`APP_ENV=production` refuses to start at all — not on the first request — when
+`DEBUG` is true, the backend is not PostgreSQL, `SECRET_KEY` is missing, too
+short, an obvious placeholder or the published development key, `ALLOWED_HOSTS`
+is empty or contains `*`, `APP_BASE_URL` is not `https://`, or
+`CSRF_TRUSTED_ORIGINS` is missing or not `https://`. No error message ever
+echoes the offending secret.
+
+| Variable | Purpose |
+| --- | --- |
+| `APP_ENV` | `development` / `test` / `production` |
+| `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `APP_BASE_URL` | core Django settings, environment-driven |
+| `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SESSION_COOKIE_HTTPONLY`, `*_SAMESITE`, `SECURE_SSL_REDIRECT`, `SECURE_CONTENT_TYPE_NOSNIFF`, `X_FRAME_OPTIONS` | secure by default in production |
+| `SECURE_HSTS_SECONDS`, `SECURE_HSTS_INCLUDE_SUBDOMAINS`, `SECURE_HSTS_PRELOAD` | HSTS is **never** enabled implicitly |
+| `TRUST_X_FORWARDED_PROTO`, `USE_X_FORWARDED_HOST` | only behind a proxy that overwrites the header |
+| `DB_SSLMODE`, `DB_APPLICATION_NAME`, `DB_STATEMENT_TIMEOUT_MS`, `DB_LOCK_TIMEOUT_MS`, `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` | PostgreSQL runtime options |
+| `STATIC_ROOT_PATH`, `MEDIA_ROOT_PATH` | public static vs. protected media |
+| `ENABLE_DEMO_RESET` | `false` by default, forced off in production |
+| `BACKUP_POLICY_ACKNOWLEDGED` | administrative acknowledgement, not evidence |
+| `LOG_LEVEL`, `LOG_TO_FILE`, `LOG_FILE_PATH` | console-first logging |
+
+See `.env.example` for the full annotated list with safe placeholder values.
+
+### Fresh PostgreSQL bootstrap
+
+The first production start is a **clean install on an empty database** — not a
+migration of the development SQLite, and not a demo dataset. The empty database
+and its roles are created outside Django beforehand.
+
+```powershell
+python manage.py check
+python manage.py migrate
+python manage.py seed_references
+python manage.py createsuperuser
+python manage.py collectstatic --noinput
+python manage.py check_fresh_bootstrap
+python manage.py check_production_readiness
+```
+
+`check_fresh_bootstrap` verifies the backend, connection, applied migrations,
+required reference data, `ActNumberSequence`, the absence of demo and
+`PERF-SYNTHETIC` data, the absence of a demo administrator, a disabled demo
+reset, `MEDIA_ROOT`, `STATIC_ROOT`, and consistent real-time/email settings.
+Real working data is *not* an error — the command stays re-runnable after
+go-live and reports it as a warning.
+
+`check_production_readiness` consolidates everything into a `PASS` / `WARNING`
+/ `BLOCKING` report (`--json-report` for a safe JSON copy) and exits non-zero
+on any `BLOCKING`. Both commands are read-only, and neither prints a username
+or any object content.
+
+### Health endpoints
+
+| Endpoint | Meaning |
+| --- | --- |
+| `GET /health/live/` | the process is alive; touches no database, Redis, SMTP or disk |
+| `GET /health/ready/` | ready to serve: `SELECT 1`, no pending migrations, Redis PING (only when real-time uses Redis), `MEDIA_ROOT`, `STATIC_ROOT` |
+
+Both are unauthenticated, `GET`/`HEAD` only (405 otherwise) and `no-store`.
+Readiness answers `{"status": "ready"}` or `503 {"status": "unavailable"}` and
+nothing else — no SQL, exception text, path, host, username or credential;
+detail goes to the `deployment` log. Readiness changes nothing.
+
+### Static, protected media and the demo reset flag
+
+`collectstatic` gathers CSS/JS/images into `STATIC_ROOT`, which is **public**.
+`MEDIA_ROOT` holds act attachments and stays **protected**: files are served
+only through the permission-checked download view and must never be published
+by the web server directly. The two must be different directories.
+
+`ENABLE_DEMO_RESET=false` by default. With the flag off, the destructive
+`/acts/clear-all/` route is not registered at all — a direct request is an
+ordinary 404 and no button is rendered. Production forces it off and reports
+any attempt to enable it. Where it is on, the administrator role, POST-only and
+CSRF protection all still apply.
+
+### Deployment documents
+
+- [Подготовка к развёртыванию](docs/deployment_preparation.md) — variables, checks, health, logging
+- [Первый запуск на чистой PostgreSQL](docs/fresh_postgresql_bootstrap.md)
+- [PostgreSQL в production](docs/postgresql_production.md) — roles and privileges
+- [Резервное копирование и восстановление](docs/backup_restore.md)
+- [Развёртывание real-time](docs/realtime_production.md) — ASGI, proxy, Redis
+
 ## Create and Activate a Virtual Environment
 
 ```powershell

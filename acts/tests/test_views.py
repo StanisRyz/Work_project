@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from accounts.models import Department, UserProfile
 from acts.models import Act, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActDefect, ActHistoryEvent, ActRootAnalysis
+from ecosystem.testing import demo_reset_enabled
 from references.models import ActStatus, DefectType, Operation, Priority, TaskStatus
 from tasks.models import Task, TaskAssignee
 
@@ -471,28 +472,42 @@ class ActViewTests(TestCase):
         self.client.force_login(self.ko_user)
         self.assertNotContains(self.client.get(reverse('acts:list')), 'Создать АКТ')
 
-    def test_registry_cleanup_control_is_visible_only_to_dedicated_administrator(self):
-        dedicated_admin = self._create_user('admin_user', UserProfile.Role.ADMIN)
-
+    def test_registry_cleanup_control_is_hidden_unless_the_demo_flag_is_on(self):
+        # The safeguard is the feature flag, not the name of a demo account.
         self.client.force_login(self.admin_user)
         self.assertNotContains(self.client.get(reverse('acts:list')), 'Очистить акты')
 
-        self.client.force_login(dedicated_admin)
-        self.assertContains(self.client.get(reverse('acts:list')), 'Очистить акты')
+        with demo_reset_enabled():
+            self.assertContains(self.client.get(reverse('acts:list')), 'Очистить акты')
 
-    def test_only_dedicated_admin_user_can_clear_all_acts(self):
+    def test_cleanup_is_refused_for_an_ordinary_user_even_with_the_flag_on(self):
+        self._create_act(self.status_created, party_number='P-CLEAR-DENY')
+
+        with demo_reset_enabled():
+            self.client.force_login(self.otk_user)
+            self.assertEqual(self.client.post(reverse('acts:clear_all')).status_code, 404)
+            self.assertEqual(Act.objects.count(), 1)
+
+    def test_an_administrator_can_clear_all_acts_when_the_flag_is_on(self):
         self._create_act(self.status_created, party_number='P-CLEAR-1')
         self._create_act(self.status_ko, party_number='P-CLEAR-2')
-        dedicated_admin = self._create_user('admin_user', UserProfile.Role.ADMIN)
 
-        self.client.force_login(self.admin_user)
-        self.assertEqual(self.client.post(reverse('acts:clear_all')).status_code, 404)
-
-        self.client.force_login(dedicated_admin)
-        response = self.client.post(reverse('acts:clear_all'))
+        with demo_reset_enabled():
+            self.client.force_login(self.admin_user)
+            response = self.client.post(reverse('acts:clear_all'))
 
         self.assertRedirects(response, reverse('acts:list'))
         self.assertEqual(Act.objects.count(), 0)
+
+    def test_a_get_never_clears_anything(self):
+        self._create_act(self.status_created, party_number='P-CLEAR-GET')
+
+        with demo_reset_enabled():
+            self.client.force_login(self.admin_user)
+            response = self.client.get(reverse('acts:clear_all'))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Act.objects.count(), 1, 'a GET must never be destructive')
 
     def test_cleanup_removes_tasks_that_protect_approved_acts(self):
         act = self._create_act(self.status_archived, party_number='P-CLEAR-TASK')
@@ -508,10 +523,10 @@ class ActViewTests(TestCase):
             status=TaskStatus.objects.get(code='IN_PROGRESS'),
         )
         TaskAssignee.objects.create(task=task, user=self.to_user)
-        dedicated_admin = self._create_user('admin_user', UserProfile.Role.ADMIN)
 
-        self.client.force_login(dedicated_admin)
-        response = self.client.post(reverse('acts:clear_all'))
+        with demo_reset_enabled():
+            self.client.force_login(self.admin_user)
+            response = self.client.post(reverse('acts:clear_all'))
 
         self.assertRedirects(response, reverse('acts:list'))
         self.assertFalse(Act.objects.exists())

@@ -17,7 +17,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
+from . import health
+
 urlpatterns = [
+    # Unauthenticated on purpose: a process manager or load balancer must be
+    # able to probe these. Neither reveals anything about the infrastructure.
+    path('health/live/', health.health_live, name='health_live'),
+    path('health/ready/', health.health_ready, name='health_ready'),
     path('', include('dashboard.urls')),
     path('acts/', include('acts.urls')),
     path('tasks/', include('tasks.urls')),

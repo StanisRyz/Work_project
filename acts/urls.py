@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.urls import path
 
 from . import views
@@ -7,7 +8,6 @@ app_name = 'acts'
 urlpatterns = [
     path('', views.act_list, name='list'),
     path('list-fragment/', views.act_list_fragment, name='list_fragment'),
-    path('clear-all/', views.act_clear_all, name='clear_all'),
     path('create/', views.act_create, name='create'),
     path('<int:pk>/', views.act_detail, name='detail'),
     path('<int:pk>/edit/', views.act_edit, name='edit'),
@@ -38,3 +38,10 @@ urlpatterns = [
         name='delete_attachment',
     ),
 ]
+
+# The destructive demo reset is not part of the URLconf unless it is explicitly
+# enabled. Production forces `ENABLE_DEMO_RESET` off, so there the route simply
+# does not exist and a direct request gets an ordinary 404 — the safeguard does
+# not depend on a view-level check being remembered.
+if getattr(settings, 'ENABLE_DEMO_RESET', False):
+    urlpatterns.append(path('clear-all/', views.act_clear_all, name='clear_all'))
