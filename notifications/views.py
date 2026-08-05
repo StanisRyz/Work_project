@@ -7,6 +7,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from realtime.auth import realtime_login_required
+
 from .models import Notification
 from .services import get_notification_header_state, mark_notifications_read
 
@@ -35,7 +37,7 @@ def notification_list(request):
     )
 
 
-@login_required
+@realtime_login_required
 @require_GET
 def notification_header_fragment(request):
     """Current bell state for the real-time client.

@@ -28,7 +28,13 @@ def complete_task(task, user, execution_comment):
         task.completed_by = user
         task.completed_at = timezone.now()
         task.execution_comment = execution_comment
-        task.save(update_fields=['status', 'completed_by', 'completed_at', 'execution_comment'])
+        # `updated_at` is `auto_now=True`, but Django only bumps an auto_now
+        # field when it is explicitly listed in `update_fields` — omitting it
+        # here would silently leave the timestamp (and the sync revision token
+        # derived from it) unchanged despite the field being auto_now.
+        task.save(
+            update_fields=['status', 'completed_by', 'completed_at', 'execution_comment', 'updated_at']
+        )
         # Inside the lock: a second, parallel completion is refused by
         # `can_complete_task` above and never reaches this line.
         emit_task_completed(task)

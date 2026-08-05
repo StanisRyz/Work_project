@@ -1,10 +1,19 @@
 /**
- * Recovery: `/realtime/sync/` snapshots and fallback polling.
+ * Recovery: `/realtime/sync/` snapshots, fallback polling, and the live
+ * safety-sync.
  *
  * SSE is best-effort. Whenever the stream connects — first time or after any
  * reconnect — and whenever the client is degraded, this module asks the server
  * for opaque revision tokens and refreshes only the blocks whose token moved.
  * Identical tokens cost nothing: no fragment request is made at all.
+ *
+ * While the stream stays `live`, a Redis event can still be published and
+ * never delivered (a restart between publish and subscribe, for example).
+ * The live safety-sync is a deliberately rare periodic `/realtime/sync/` call
+ * — owned by the leader tab only when tabs are coordinated — that catches
+ * exactly that case. It is not a polling replacement: fallback polling and the
+ * safety timer are mutually exclusive, and the safety timer never runs more
+ * often than `REALTIME_LIVE_SYNC_SECONDS`.
  */
 (() => {
     'use strict';
@@ -15,9 +24,12 @@
     }
 
     let lastRevisions = null;
+    let lastSnapshot = null;
+    let lastSuccessfulSyncAt = null;
     let inFlight = null;
     let pollTimer = null;
     let polling = false;
+    let liveSafetyTimer = null;
     let stopped = false;
 
     const jitter = (seconds) => {
@@ -76,33 +88,33 @@
         }
         const controller = typeof AbortController === 'function' ? new AbortController() : null;
         inFlight = controller || true;
-        return fetch(core.config.syncUrl, {
-            method: 'GET',
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            signal: controller ? controller.signal : undefined,
-        })
-            .then((response) => {
-                if (response.status === 401 || response.status === 403) {
-                    // Session gone: stop instead of hammering the server.
-                    stopped = true;
-                    stopPolling();
-                    core.stop();
+        return core
+            .requestJson(core.config.syncUrl, { signal: controller ? controller.signal : undefined })
+            .then((result) => {
+                if (!result.ok) {
+                    if (result.kind === 'auth' || result.kind === 'redirect') {
+                        // Session gone, or an endpoint that redirected when it
+                        // never should have: stop instead of hammering the server.
+                        stopped = true;
+                        stopPolling();
+                        clearLiveSafetyTimer();
+                        core.stop();
+                    } else if (result.kind === 'bad-content-type' || result.kind === 'malformed') {
+                        core.warnUnexpectedResponse(core.config.syncUrl, result.kind);
+                    }
+                    // 401/redirect/malformed/network: `lastSuccessfulSyncAt` and
+                    // `lastSnapshot` are left exactly as they were.
                     return null;
                 }
-                if (!response.ok) {
-                    throw new Error(`Unexpected status ${response.status}`);
-                }
-                return response.json();
-            })
-            .then((snapshot) => {
-                if (!snapshot) {
+                if (!core.isValidSyncSnapshot(result.data)) {
+                    core.warnUnexpectedResponse(core.config.syncUrl, 'invalid-snapshot');
                     return null;
                 }
-                applySnapshot(snapshot);
-                return snapshot;
+                lastSuccessfulSyncAt = window.Date.now();
+                lastSnapshot = result.data;
+                applySnapshot(result.data);
+                return result.data;
             })
-            .catch(() => null)
             .finally(() => {
                 inFlight = null;
             });
@@ -139,6 +151,50 @@
         }
     }
 
+    // -- live safety-sync ----------------------------------------------------
+    //
+    // Only while `live`, only the tab that actually owns this user's stream
+    // (the leader when tabs are coordinated, every tab when they are not), and
+    // never more often than the configured interval.
+
+    const ownsLiveSafety = () => !core.tabs || !core.tabs.isCoordinated || core.tabs.isLeader;
+
+    const dueForLiveSafetySync = () =>
+        lastSuccessfulSyncAt === null ||
+        window.Date.now() - lastSuccessfulSyncAt >= core.config.liveSyncSeconds * 1000;
+
+    const maybeRunLiveSafetySync = () => {
+        if (stopped || inFlight) {
+            // Never parallel with an already-running sync.
+            return;
+        }
+        if (core.state !== core.STATES.LIVE) {
+            return;
+        }
+        if (!ownsLiveSafety()) {
+            return;
+        }
+        if (!dueForLiveSafetySync()) {
+            return;
+        }
+        runSync();
+    };
+
+    function clearLiveSafetyTimer() {
+        if (liveSafetyTimer !== null) {
+            window.clearInterval(liveSafetyTimer);
+            liveSafetyTimer = null;
+        }
+    }
+
+    const scheduleLiveSafetyTimer = () => {
+        clearLiveSafetyTimer();
+        if (stopped || core.state !== core.STATES.LIVE || !ownsLiveSafety()) {
+            return;
+        }
+        liveSafetyTimer = window.setInterval(maybeRunLiveSafetySync, core.config.liveSyncSeconds * 1000);
+    };
+
     // -- lifecycle ---------------------------------------------------------
 
     core.onOpen(() => {
@@ -149,6 +205,7 @@
 
     core.onState((state) => {
         if (state === core.STATES.DEGRADED || state === core.STATES.OFFLINE) {
+            clearLiveSafetyTimer();
             if (state === core.STATES.DEGRADED) {
                 startPolling();
                 runSync();
@@ -158,21 +215,45 @@
         }
         if (state === core.STATES.LIVE) {
             stopPolling();
+            scheduleLiveSafetyTimer();
         }
         if (state === core.STATES.STOPPED) {
             stopped = true;
             stopPolling();
+            clearLiveSafetyTimer();
         }
     });
 
+    // Set by tabs.js's leader-election logic so the safety timer only ever
+    // runs on the tab that actually owns the stream. Promotion always opens a
+    // fresh EventSource first (see `openStream()`), and that connection's own
+    // `open` handler already triggers an ordinary resync — so there is
+    // nothing extra to run here beyond arming the timer for later. Demotion,
+    // however, does not reset the state machine on its own, so clearing the
+    // timer explicitly is what stops a demoted tab from ever ticking again.
+    core.onLeaderPromoted = () => {
+        scheduleLiveSafetyTimer();
+    };
+    core.onLeaderDemoted = () => {
+        clearLiveSafetyTimer();
+    };
+
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && polling) {
+        if (document.visibilityState !== 'visible') {
+            return;
+        }
+        if (polling) {
             // Reschedule at the visible-tab cadence straight away.
             if (pollTimer !== null) {
                 window.clearTimeout(pollTimer);
                 pollTimer = null;
             }
             runSync().finally(scheduleNextPoll);
+        }
+        if (core.state === core.STATES.LIVE) {
+            // A no-op unless the previous successful sync is actually stale —
+            // a short tab-switch must not trigger an extra request.
+            maybeRunLiveSafetySync();
         }
     });
 
@@ -202,6 +283,12 @@
         },
         get revisions() {
             return lastRevisions;
+        },
+        get lastSnapshot() {
+            return lastSnapshot;
+        },
+        get lastSuccessfulSyncAt() {
+            return lastSuccessfulSyncAt;
         },
     };
 })();

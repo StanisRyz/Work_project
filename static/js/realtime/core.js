@@ -68,7 +68,91 @@
             syncHiddenPollSeconds: number('syncHiddenPollSeconds', 90),
             leaderLeaseSeconds: number('leaderLeaseSeconds', 12),
             leaderHeartbeatSeconds: number('leaderHeartbeatSeconds', 4),
+            liveSyncSeconds: number('liveSyncSeconds', 300),
         };
+    };
+
+    const SUPPORTED_SNAPSHOT_SCHEMA_VERSION = 1;
+    const SNAPSHOT_KEYS = ['schema_version', 'generated_at', 'revisions', 'unread_notifications'];
+    const JSON_CONTENT_TYPE = /^application\/json/i;
+
+    /**
+     * One request/response contract for every technical endpoint: check
+     * `redirected` before status, status before Content-Type, and Content-Type
+     * before ever calling `.json()`. Never throws — always resolves to a
+     * discriminated result the caller can safely branch on.
+     */
+    const requestJson = (url, { signal } = {}) =>
+        fetch(url, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            signal,
+        }).then(
+            (response) => {
+                if (response.redirected) {
+                    // A technical endpoint must never redirect. Whatever landed
+                    // here is not trusted JSON — treat it as lost authentication
+                    // or a misconfiguration, and never parse the body.
+                    return { ok: false, kind: 'redirect', status: response.status };
+                }
+                if (response.status === 401 || response.status === 403) {
+                    return { ok: false, kind: 'auth', status: response.status };
+                }
+                if (response.status === 404) {
+                    return { ok: false, kind: 'not-found', status: response.status };
+                }
+                if (!response.ok) {
+                    return { ok: false, kind: 'http-error', status: response.status };
+                }
+                // A stub or a response object built by hand may not carry a
+                // Headers object at all; treat that as the ordinary JSON case
+                // rather than failing a request nothing actually mis-served.
+                const contentType =
+                    response.headers && typeof response.headers.get === 'function'
+                        ? response.headers.get('Content-Type') || ''
+                        : 'application/json';
+                if (!JSON_CONTENT_TYPE.test(contentType)) {
+                    return { ok: false, kind: 'bad-content-type', status: response.status };
+                }
+                return response
+                    .json()
+                    .then((data) => ({ ok: true, status: response.status, data }))
+                    .catch(() => ({ ok: false, kind: 'malformed', status: response.status }));
+            },
+            (error) => ({
+                ok: false,
+                kind: error && error.name === 'AbortError' ? 'aborted' : 'network',
+                status: 0,
+            }),
+        );
+
+    /** A safe diagnostic warning: only the endpoint and the reason, never a body. */
+    const warnUnexpectedResponse = (url, kind) => {
+        if (window.console && typeof window.console.warn === 'function') {
+            window.console.warn(`realtime: unexpected response (${kind}) from ${url}`);
+        }
+    };
+
+    /** Structural validation for a sync snapshot, whether it came from the
+     * server or from another tab over BroadcastChannel — no unknown transport
+     * fields, a supported schema version, and revisions shaped as expected. */
+    const isValidSyncSnapshot = (snapshot) => {
+        if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+            return false;
+        }
+        const keys = Object.keys(snapshot);
+        if (keys.some((key) => !SNAPSHOT_KEYS.includes(key))) {
+            return false;
+        }
+        if (snapshot.schema_version !== SUPPORTED_SNAPSHOT_SCHEMA_VERSION) {
+            return false;
+        }
+        const revisions = snapshot.revisions;
+        if (!revisions || typeof revisions !== 'object' || Array.isArray(revisions)) {
+            return false;
+        }
+        return Object.values(revisions).every((value) => typeof value === 'string');
     };
 
     /**
@@ -101,35 +185,38 @@
             pending.clear();
             const target = typeof url === 'function' ? url() : url;
 
-            fetch(target, {
-                method: 'GET',
-                credentials: 'same-origin',
-                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                signal: controller ? controller.signal : undefined,
-            })
-                .then((response) => {
-                    if (response.status === 401 || response.status === 403 || response.status === 404) {
-                        stopped = true;
-                        if (onDenied) {
-                            onDenied(response.status);
-                        }
-                        return null;
-                    }
-                    if (!response.ok) {
-                        throw new Error(`Unexpected status ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then((payload) => {
-                    if (!payload || requestGeneration !== generation) {
+            requestJson(target, { signal: controller ? controller.signal : undefined })
+                .then((result) => {
+                    if (requestGeneration !== generation) {
+                        // A newer request has already superseded this one.
                         return;
                     }
-                    apply(payload, context);
-                })
-                .catch(() => {
-                    if (onError) {
-                        onError();
+                    if (!result.ok) {
+                        if (result.kind === 'auth' || result.kind === 'redirect') {
+                            stopped = true;
+                            if (onDenied) {
+                                onDenied('auth');
+                            }
+                            return;
+                        }
+                        if (result.kind === 'not-found') {
+                            stopped = true;
+                            if (onDenied) {
+                                onDenied('not-found');
+                            }
+                            return;
+                        }
+                        if (result.kind === 'bad-content-type' || result.kind === 'malformed') {
+                            warnUnexpectedResponse(target, result.kind);
+                        }
+                        // Never touch the DOM on a failed request: the current
+                        // markup and counters stay exactly as they were.
+                        if (onError) {
+                            onError();
+                        }
+                        return;
                     }
+                    apply(result.data, context);
                 })
                 .finally(() => {
                     if (inFlight === controller) {
@@ -270,6 +357,10 @@
         createRefreshCoordinator,
         withCurrentQuery,
         isPositiveInteger,
+        requestJson,
+        isValidSyncSnapshot,
+        warnUnexpectedResponse,
+        SUPPORTED_SNAPSHOT_SCHEMA_VERSION,
 
         subscribe(eventType, handler) {
             if (!handlers.has(eventType)) {

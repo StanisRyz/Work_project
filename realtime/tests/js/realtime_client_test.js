@@ -802,6 +802,333 @@ test('a toast closes on its button and on Escape', async () => {
     assert.equal(env.toasts.length, 0);
 });
 
+// ------------------------------------------------------------------- STAB-1
+
+test('a redirected fragment response is never parsed as JSON and stops the client', async () => {
+    const env = load({ page: 'tasks' });
+    env.setFetchHandler(() => ({ redirected: true }));
+
+    env.source.emitEvent('task.created', taskEvent('task.created', 9, 3));
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.core.state, 'stopped');
+    assert.equal(env.live.taskList.textContent, 'исходный список задач', 'DOM left untouched');
+});
+
+test('an unexpected Content-Type is never parsed as JSON, leaves the DOM untouched and does not stop the client', async () => {
+    const env = load({ page: 'tasks' });
+    env.setFetchHandler(() => ({ contentType: 'text/html' }));
+
+    env.source.emitEvent('task.created', taskEvent('task.created', 9, 3));
+    env.clock.advance(300);
+    await flush();
+
+    assert.notEqual(env.core.state, 'stopped');
+    assert.equal(env.live.taskList.textContent, 'исходный список задач');
+});
+
+test('a 401 from any fragment coordinator stops the whole client', async () => {
+    const env = load();
+    env.setFetchHandler(() => ({ status: 401 }));
+
+    env.source.emitEvent('notification.created', createdEvent(11));
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.core.state, 'stopped');
+});
+
+test('an act fragment 401 stops the whole client, not just that act', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler((call) => (call.url.startsWith('/acts/') ? { status: 401 } : snapshot()));
+
+    env.source.emitEvent('act.status_changed', actEvent('act.status_changed', 3));
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.core.state, 'stopped');
+});
+
+test('an act fragment 404 still stops only that act, leaving the client running', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler((call) => (call.url.startsWith('/acts/') ? { status: 404 } : snapshot()));
+
+    env.source.emitEvent('act.status_changed', actEvent('act.status_changed', 3));
+    env.clock.advance(300);
+    await flush();
+
+    assert.notEqual(env.core.state, 'stopped');
+    assert.equal(env.live.accessBanner.hidden, false);
+});
+
+// -- live safety-sync -------------------------------------------------------
+
+test('the live safety-sync fires on the configured interval while live', async () => {
+    const env = load();
+    env.setFetchHandler(() => snapshot());
+    env.source.emit('open');
+    await flush();
+    assert.equal(env.core.state, 'live');
+    const afterOpen = env.callsTo('/realtime/sync/').length;
+
+    env.clock.advance(299 * 1000);
+    await flush();
+    assert.equal(env.callsTo('/realtime/sync/').length, afterOpen, 'not due yet');
+
+    env.clock.advance(2000);
+    await flush();
+    assert.equal(env.callsTo('/realtime/sync/').length, afterOpen + 1, 'fires once the interval elapses');
+});
+
+test('the live safety-sync never runs twice within one interval', async () => {
+    const env = load();
+    env.setFetchHandler(() => snapshot());
+    env.source.emit('open');
+    await flush();
+    const afterOpen = env.callsTo('/realtime/sync/').length;
+
+    env.clock.advance(300 * 1000);
+    await flush();
+    assert.equal(env.callsTo('/realtime/sync/').length, afterOpen + 1);
+
+    env.clock.advance(100 * 1000);
+    await flush();
+    assert.equal(env.callsTo('/realtime/sync/').length, afterOpen + 1, 'still within the same interval');
+});
+
+test('the live safety-sync never runs while a sync is already in flight', async () => {
+    const env = load();
+    env.setFetchHandler(() => 'manual');
+    env.source.emit('open');
+    await flush();
+    assert.equal(env.callsTo('/realtime/sync/').length, 1, 'the ordinary open-sync is pending and never resolves');
+
+    env.clock.advance(300 * 1000);
+    await flush();
+
+    assert.equal(env.callsTo('/realtime/sync/').length, 1, 'no second request while the first is still in flight');
+});
+
+test('degraded->live turns off fallback polling and arms the safety timer instead', async () => {
+    const env = load();
+    env.setFetchHandler(() => snapshot());
+
+    env.clock.advance(21000);
+    await flush();
+    assert.equal(env.core.state, 'degraded');
+    assert.ok(env.core.sync.isPolling);
+
+    env.source.emit('open');
+    await flush();
+    assert.equal(env.core.state, 'live');
+    assert.equal(env.core.sync.isPolling, false);
+
+    const callsAfterOpen = env.callsTo('/realtime/sync/').length;
+    env.clock.advance(300 * 1000);
+    await flush();
+    assert.ok(env.callsTo('/realtime/sync/').length > callsAfterOpen, 'the safety timer is now armed and fires');
+});
+
+test('live->degraded clears the safety timer and resumes fallback polling', async () => {
+    const env = load();
+    env.setFetchHandler(() => snapshot());
+    env.source.emit('open');
+    await flush();
+    assert.equal(env.core.state, 'live');
+
+    env.source.emit('error');
+    env.clock.advance(21000);
+    await flush();
+    assert.equal(env.core.state, 'degraded');
+    assert.ok(env.core.sync.isPolling, 'fallback polling resumed');
+});
+
+test('a live safety-sync runs after visible only when the previous sync is stale', async () => {
+    const env = load();
+    env.setFetchHandler(() => snapshot());
+    env.source.emit('open');
+    await flush();
+    const afterOpen = env.callsTo('/realtime/sync/').length;
+
+    env.document.visibilityState = 'visible';
+    env.document.dispatch('visibilitychange');
+    await flush();
+    assert.equal(env.callsTo('/realtime/sync/').length, afterOpen, 'a fresh sync is not stale yet');
+
+    env.clock.advance(300 * 1000 + 1000);
+    env.document.dispatch('visibilitychange');
+    await flush();
+    assert.equal(env.callsTo('/realtime/sync/').length, afterOpen + 1, 'a stale sync triggers one on becoming visible');
+});
+
+test('live safety-sync only runs on the leader tab, not a coordinated follower', async () => {
+    // The follower joins only after the leader already has a cached snapshot,
+    // so its startup handshake resolves immediately and leaves no pending
+    // fallback timer that could confuse the later large clock advance below.
+    const [leader] = loadTabs(1);
+    leader.setFetchHandler(() => snapshot());
+    FakeEventSource.instances[0].emit('open');
+    leader.clock.advance(300);
+    await flush();
+    assert.equal(leader.core.state, 'live');
+
+    const follower = load({ storage: leader.window.localStorage, resetSources: false });
+    follower.setFetchHandler(() => snapshot());
+    await flush();
+
+    const leaderBefore = leader.callsTo('/realtime/sync/').length;
+    const followerBefore = follower.callsTo('/realtime/sync/').length;
+
+    leader.clock.advance(300 * 1000);
+    follower.clock.advance(300 * 1000);
+    await flush();
+
+    assert.ok(leader.callsTo('/realtime/sync/').length > leaderBefore, 'the leader ran its safety-sync');
+    assert.equal(follower.callsTo('/realtime/sync/').length, followerBefore, 'the follower must not run its own');
+});
+
+test('demoting a leader clears its safety timer', async () => {
+    const [leader, follower] = loadTabs(2);
+    leader.setFetchHandler(() => snapshot());
+    FakeEventSource.instances[0].emit('open');
+    leader.clock.advance(300);
+    await flush();
+    assert.equal(leader.core.state, 'live');
+
+    // Somebody else grabs the lease: the leader steps down on its next tick.
+    follower.window.localStorage.setItem(
+        'quality-realtime-leader-v1',
+        JSON.stringify({ tab_id: 'somebody-else', expires_at: Date.now() + 60000 }),
+    );
+    leader.core.tabs.renewOrElect();
+    assert.equal(leader.core.tabs.isLeader, false);
+
+    const before = leader.callsTo('/realtime/sync/').length;
+    leader.clock.advance(300 * 1000);
+    await flush();
+    assert.equal(leader.callsTo('/realtime/sync/').length, before, 'a demoted tab never ticks its old timer again');
+});
+
+// -- follower handshake ------------------------------------------------------
+
+test('a new follower requests a snapshot and applies the leader-answered response', async () => {
+    const [leader] = loadTabs(1);
+    leader.setFetchHandler(() => snapshot({ notifications: 'n-existing' }));
+    FakeEventSource.instances[0].emit('open');
+    leader.clock.advance(300);
+    await flush();
+    assert.ok(leader.core.sync.lastSnapshot, 'the leader now has a cached snapshot to answer with');
+
+    const follower = load({ storage: leader.window.localStorage, resetSources: false });
+    await flush();
+
+    assert.equal(
+        follower.core.sync.revisions && follower.core.sync.revisions.notifications,
+        'n-existing',
+        'the handshake response was applied without a request of its own',
+    );
+    assert.equal(follower.callsTo('/realtime/sync/').length, 0, 'no fallback fetch was needed');
+    assert.equal(follower.sources.length, 1, 'still just the leader\'s stream — the follower opened none of its own');
+});
+
+test('the leader answers a sync.request individually for every requesting tab', async () => {
+    const [leader] = loadTabs(1);
+    leader.setFetchHandler(() => snapshot({ notifications: 'n-shared' }));
+    FakeEventSource.instances[0].emit('open');
+    leader.clock.advance(300);
+    await flush();
+
+    const followerA = load({ storage: leader.window.localStorage, resetSources: false });
+    const followerB = load({ storage: leader.window.localStorage, resetSources: false });
+    await flush();
+
+    assert.equal(followerA.core.sync.revisions.notifications, 'n-shared');
+    assert.equal(followerB.core.sync.revisions.notifications, 'n-shared');
+});
+
+test('a mistargeted or malformed sync.response is ignored', async () => {
+    const [, follower] = loadTabs(2);
+    follower.setFetchHandler(() => snapshot({ notifications: 'own-sync' }));
+
+    const spy = new FakeBroadcastChannel('quality-realtime-v1');
+    // Wrong target_tab_id.
+    spy.postMessage({
+        kind: 'sync.response',
+        request_id: 'does-not-matter',
+        target_tab_id: 'somebody-else',
+        snapshot: snapshot(),
+    });
+    // Wrong request_id, and an unknown transport field inside the snapshot.
+    spy.postMessage({
+        kind: 'sync.response',
+        request_id: 'wrong-id',
+        target_tab_id: follower.core.tabs.tabId,
+        snapshot: { ...snapshot(), extra_field: 'nope' },
+    });
+    await flush();
+
+    assert.equal(follower.core.sync.revisions, null, 'neither forged message was applied');
+});
+
+test('no leader response within the timeout triggers exactly one sync of its own', async () => {
+    const [, follower] = loadTabs(2);
+    // The leader never syncs, so it can never answer the follower's request.
+    follower.setFetchHandler(() => snapshot({ notifications: 'own' }));
+
+    assert.equal(follower.callsTo('/realtime/sync/').length, 0);
+    follower.clock.advance(1500);
+    await flush();
+
+    assert.equal(follower.callsTo('/realtime/sync/').length, 1, 'exactly one fallback sync');
+    assert.equal(follower.sources.length, 1, 'still just the leader\'s stream — the follower opened none of its own');
+    assert.equal(follower.core.sync.isPolling, false, 'no persistent polling was started either');
+
+    follower.clock.advance(120000);
+    await flush();
+    assert.equal(follower.callsTo('/realtime/sync/').length, 1, 'still just the one fallback sync, not repeated polling');
+});
+
+test('leader.state mirrors the connection state onto a follower without opening a stream', async () => {
+    const [leader, follower] = loadTabs(2);
+    leader.setFetchHandler(() => snapshot());
+    follower.setFetchHandler(() => snapshot());
+
+    assert.notEqual(follower.core.state, 'live');
+    FakeEventSource.instances[0].emit('open');
+    leader.clock.advance(300);
+    follower.clock.advance(300);
+    await flush();
+
+    assert.equal(leader.core.state, 'live');
+    assert.equal(follower.core.state, 'live', 'the leader.state broadcast mirrored live onto the follower');
+    assert.equal(FakeEventSource.instances.length, 1, 'the follower never opened a stream of its own');
+});
+
+test('a leader closing still lets another tab take over and become live', async () => {
+    const [leader, follower] = loadTabs(2);
+    follower.setFetchHandler(() => snapshot());
+    leader.core.stop();
+
+    follower.window.localStorage.setItem(
+        'quality-realtime-leader-v1',
+        JSON.stringify({ tab_id: 'gone', expires_at: Date.now() - 1000 }),
+    );
+    follower.core.tabs.renewOrElect();
+    follower.clock.advance(500);
+    await flush();
+
+    assert.equal(follower.core.tabs.isLeader, true);
+    assert.equal(FakeEventSource.instances.length, 2, 'the new leader opened its own stream');
+
+    FakeEventSource.instances[1].emit('open');
+    follower.clock.advance(300);
+    await flush();
+
+    assert.equal(follower.core.state, 'live');
+    assert.ok(follower.callsTo('/realtime/sync/').length >= 1, 'promotion led to a sync once the fresh stream opened');
+});
+
 // --------------------------------------------------------------------------
 
 (async () => {

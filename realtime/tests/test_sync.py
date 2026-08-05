@@ -202,8 +202,13 @@ class SyncEndpointTests(SyncStateMixin, TestCase):
 
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, 302)
-        self.assertIn(reverse('accounts:login'), response['Location'])
+        # STAB-1: a technical endpoint answers 401 JSON, never an HTML login
+        # redirect the fetch()-based client cannot parse as JSON.
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn('Location', response)
+        self.assertEqual(response.json(), {'error': 'authentication_required'})
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertIn('private', response['Cache-Control'])
 
     def test_only_get_is_allowed(self):
         self.assertEqual(self.client.post(self.url).status_code, 405)

@@ -29,5 +29,6 @@ def realtime_client_config(request):
             'sync_hidden_poll_seconds': settings.REALTIME_SYNC_HIDDEN_POLL_SECONDS,
             'leader_lease_seconds': settings.REALTIME_LEADER_LEASE_SECONDS,
             'leader_heartbeat_seconds': settings.REALTIME_LEADER_HEARTBEAT_SECONDS,
+            'live_sync_seconds': settings.REALTIME_LIVE_SYNC_SECONDS,
         }
     }

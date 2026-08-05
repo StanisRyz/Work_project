@@ -437,6 +437,7 @@ function createEnvironment({
     config.setAttribute('data-sync-hidden-poll-seconds', '90');
     config.setAttribute('data-leader-lease-seconds', '12');
     config.setAttribute('data-leader-heartbeat-seconds', '4');
+    config.setAttribute('data-live-sync-seconds', '300');
     root.append(config);
 
     const region = new Element('div');
@@ -591,15 +592,40 @@ function createEnvironment({
             if (outcome === 'manual') {
                 return;
             }
+            if (outcome && outcome.redirected) {
+                // A technical endpoint redirected: a real fetch would still
+                // report `ok: true` for the final (HTML) response, so the
+                // client must catch this from `redirected` alone.
+                resolve({
+                    ok: true,
+                    status: outcome.status || 200,
+                    redirected: true,
+                    headers: { get: () => outcome.contentType || 'text/html' },
+                    json: async () => ({}),
+                });
+                return;
+            }
+            if (outcome && outcome.contentType && outcome.contentType !== 'application/json') {
+                resolve({
+                    ok: true,
+                    status: outcome.status || 200,
+                    redirected: false,
+                    headers: { get: () => outcome.contentType },
+                    json: async () => {
+                        throw new Error('not json');
+                    },
+                });
+                return;
+            }
             if (outcome && outcome.status && outcome.status !== 200) {
-                resolve({ ok: false, status: outcome.status, json: async () => ({}) });
+                resolve({ ok: false, status: outcome.status, redirected: false, json: async () => ({}) });
                 return;
             }
             if (options.signal && options.signal.aborted) {
                 reject(new Error('aborted'));
                 return;
             }
-            resolve({ ok: true, status: 200, json: async () => outcome });
+            resolve({ ok: true, status: 200, redirected: false, json: async () => outcome });
         });
     };
 
@@ -610,6 +636,11 @@ function createEnvironment({
         clearTimeout: (id) => clock.clearTimeout(id),
         setInterval: (callback, delay) => clock.setInterval(callback, delay),
         clearInterval: (id) => clock.clearTimeout(id),
+        // Deliberately separate from the real global `Date` that `tabs.js`'s
+        // leader lease still uses: only code that explicitly reads
+        // `window.Date.now()` (the live safety-sync staleness check) moves in
+        // lockstep with the fake clock that `advance()` controls.
+        Date: { now: () => clock.now },
         matchMedia: () => ({ matches: false }),
         addEventListener(type, handler) {
             if (!windowListeners.has(type)) {

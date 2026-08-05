@@ -9,7 +9,6 @@ import logging
 import time
 
 from django.conf import settings
-from django.contrib.auth.decorators import login_required
 from django.http import (
     HttpResponse,
     HttpResponseNotAllowed,
@@ -18,6 +17,7 @@ from django.http import (
 )
 from django.views.decorators.http import require_GET
 
+from .auth import realtime_login_required
 from .publisher import realtime_enabled
 from .sse import event_stream, redis_is_reachable
 from .sync import build_sync_state
@@ -59,7 +59,7 @@ async def realtime_events(request):
     return _apply_stream_headers(response)
 
 
-@login_required
+@realtime_login_required
 @require_GET
 def realtime_sync(request):
     """`GET /realtime/sync/` — opaque revision tokens for the current user.

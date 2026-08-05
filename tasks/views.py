@@ -6,6 +6,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
+from realtime.auth import realtime_login_required
+
 from .permissions import can_complete_task, get_visible_tasks_queryset
 from .selectors import build_task_list_state
 from .services import TaskWorkflowError, complete_task
@@ -19,7 +21,7 @@ def task_list(request):
     })
 
 
-@login_required
+@realtime_login_required
 @require_GET
 def task_list_fragment(request):
     """Current registry results for the live client.

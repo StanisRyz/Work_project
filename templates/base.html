@@ -51,7 +51,8 @@
          data-sync-poll-seconds="{{ realtime_client.sync_poll_seconds|stringformat:'.0f' }}"
          data-sync-hidden-poll-seconds="{{ realtime_client.sync_hidden_poll_seconds|stringformat:'.0f' }}"
          data-leader-lease-seconds="{{ realtime_client.leader_lease_seconds|stringformat:'.0f' }}"
-         data-leader-heartbeat-seconds="{{ realtime_client.leader_heartbeat_seconds|stringformat:'.0f' }}"></div>
+         data-leader-heartbeat-seconds="{{ realtime_client.leader_heartbeat_seconds|stringformat:'.0f' }}"
+         data-live-sync-seconds="{{ realtime_client.live_sync_seconds|stringformat:'.0f' }}"></div>
     {% comment %}
     Unobtrusive degraded notice: shown only after the client actually gives
     up on the stream, never during a short reconnect.
@@ -63,13 +64,13 @@
     Physically separate modules, loaded deferred in a fixed order: the core
     first, then the feature modules that register on its bus.
     {% endcomment %}
-    <script src="{% static 'js/realtime/core.js' %}?v=20260804-2" defer></script>
-    <script src="{% static 'js/realtime/tabs.js' %}?v=20260804-2" defer></script>
-    <script src="{% static 'js/realtime/sync.js' %}?v=20260804-2" defer></script>
-    <script src="{% static 'js/realtime/notifications.js' %}?v=20260804-2" defer></script>
-    <script src="{% static 'js/realtime/tasks.js' %}?v=20260804-2" defer></script>
-    <script src="{% static 'js/realtime/acts.js' %}?v=20260804-2" defer></script>
-    <script src="{% static 'js/realtime/start.js' %}?v=20260804-2" defer></script>
+    <script src="{% static 'js/realtime/core.js' %}?v=20260805-1" defer></script>
+    <script src="{% static 'js/realtime/tabs.js' %}?v=20260805-1" defer></script>
+    <script src="{% static 'js/realtime/sync.js' %}?v=20260805-1" defer></script>
+    <script src="{% static 'js/realtime/notifications.js' %}?v=20260805-1" defer></script>
+    <script src="{% static 'js/realtime/tasks.js' %}?v=20260805-1" defer></script>
+    <script src="{% static 'js/realtime/acts.js' %}?v=20260805-1" defer></script>
+    <script src="{% static 'js/realtime/start.js' %}?v=20260805-1" defer></script>
     {% endif %}
     {% block scripts %}{% endblock %}
 </body>

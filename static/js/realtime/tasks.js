@@ -30,6 +30,10 @@
                 window.qualityFragments.reinitialise(container);
             }
         },
+        // A lost session on this endpoint means every block is stale, not
+        // just the task list: stop the whole client rather than leaving the
+        // rest of the page (bell, other coordinators, tabs) running dead.
+        onDenied: () => core.stop(),
     });
 
     core.registerAdapter({

@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from accounts.models import Department, UserProfile
 from acts.models import Act, ActCorrectiveAction, ActCorrectiveActionAssignee, ActRootAnalysis
+from realtime.sync import build_sync_state
 from references.models import ActStatus, DefectType, Operation, TaskStatus
 
 from .models import Task, TaskAssignee
@@ -117,6 +118,35 @@ class TaskViewsTests(TestCase):
         self.assertEqual(task.execution_comment, 'Мероприятие выполнено.')
         with self.assertRaises(TaskWorkflowError):
             complete_task(task, self.employee, 'Повторное завершение.')
+
+    def test_completing_a_task_bumps_updated_at_and_moves_the_tasks_revision(self):
+        # `updated_at` is `auto_now=True`, but Django only bumps it when the
+        # field is explicitly listed in `save(update_fields=...)` — this is the
+        # STAB-1 regression the sync-revision token alone would not catch,
+        # since `completed_at` (already in `update_fields`) moves the token too.
+        task = self._task(self.employee, timezone.localdate())
+        before_updated_at = task.updated_at
+        before_revision = build_sync_state(self.employee)['revisions']['tasks']
+
+        complete_task(task, self.employee, 'Мероприятие выполнено.')
+        task.refresh_from_db()
+
+        self.assertGreater(task.updated_at, before_updated_at)
+        after_revision = build_sync_state(self.employee)['revisions']['tasks']
+        self.assertNotEqual(before_revision, after_revision)
+
+    def test_repeated_completion_does_not_move_updated_at(self):
+        task = self._task(self.employee, timezone.localdate())
+        complete_task(task, self.employee, 'Первое завершение.')
+        task.refresh_from_db()
+        updated_at_after_first = task.updated_at
+
+        with self.assertRaises(TaskWorkflowError):
+            complete_task(task, self.employee, 'Повторное завершение.')
+
+        task.refresh_from_db()
+        self.assertEqual(task.updated_at, updated_at_after_first)
+        self.assertEqual(task.execution_comment, 'Первое завершение.')
 
     def test_tabs_respect_permissions_and_archive(self):
         own = self._task(self.employee, timezone.localdate())

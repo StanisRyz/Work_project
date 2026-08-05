@@ -350,6 +350,13 @@ REALTIME_LEADER_LEASE_SECONDS = env_number(
 REALTIME_LEADER_HEARTBEAT_SECONDS = env_number(
     'REALTIME_LEADER_HEARTBEAT_SECONDS', 4.0, minimum=1.0, maximum=120.0
 )
+# STAB-1: how often a live leader tab re-runs `/realtime/sync/` as a safety net
+# against a Redis event that was published but never delivered. Deliberately
+# rare — this is not a polling replacement, only a periodic correctness check
+# while SSE itself is working.
+REALTIME_LIVE_SYNC_SECONDS = env_number(
+    'REALTIME_LIVE_SYNC_SECONDS', 300.0, minimum=60.0, maximum=1800.0
+)
 
 
 # Only the `realtime` logger is configured here; Django's own defaults are

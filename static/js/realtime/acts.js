@@ -33,6 +33,9 @@
                     }
                 }
             },
+            // A lost session on this endpoint means every block is stale, not
+            // just the registry: stop the whole client.
+            onDenied: () => core.stop(),
         });
 
         core.registerAdapter({
@@ -163,7 +166,11 @@
                     window.qualityFragments.reinitialise(element);
                 }
             },
-            onDenied: handleAccessLoss,
+            // A lost session (401, or a stray redirect) means every block on
+            // every page is stale, not just this act: stop the whole client.
+            // A per-act 404 only means this act became inaccessible — the
+            // bell and every other coordinator keep working.
+            onDenied: (reason) => (reason === 'auth' ? core.stop() : handleAccessLoss()),
         });
         return { element, coordinator };
     };

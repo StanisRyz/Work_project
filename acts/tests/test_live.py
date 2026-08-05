@@ -127,7 +127,11 @@ class ActRegistryFragmentTests(ActLiveMixin, TestCase):
 
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, 302)
+        # STAB-1: a technical fragment endpoint answers 401 JSON, never an
+        # HTML login redirect the fetch()-based client cannot parse as JSON.
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn('Location', response)
+        self.assertEqual(response.json(), {'error': 'authentication_required'})
 
     def test_only_get_is_allowed(self):
         self.assertEqual(self.client.post(self.url).status_code, 405)
@@ -220,7 +224,11 @@ class ActDetailFragmentTests(ActLiveMixin, TestCase):
 
         for name, url in self.urls.items():
             with self.subTest(fragment=name):
-                self.assertEqual(self.client.get(url).status_code, 302)
+                response = self.client.get(url)
+                # STAB-1: 401 JSON, never an HTML login redirect.
+                self.assertEqual(response.status_code, 401)
+                self.assertNotIn('Location', response)
+                self.assertEqual(response.json(), {'error': 'authentication_required'})
 
     def test_every_fragment_checks_can_view_act(self):
         # A KO user cannot see an act still sitting at CREATED_OTK.
@@ -381,7 +389,12 @@ class ActWorkFragmentTests(ActLiveMixin, TestCase):
     def test_authentication_is_required(self):
         self.client.logout()
 
-        self.assertEqual(self.client.get(self.url).status_code, 302)
+        response = self.client.get(self.url)
+
+        # STAB-1: 401 JSON, never an HTML login redirect.
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn('Location', response)
+        self.assertEqual(response.json(), {'error': 'authentication_required'})
 
     def test_only_get_is_allowed(self):
         self.assertEqual(self.client.post(self.url).status_code, 405)

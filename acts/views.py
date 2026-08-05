@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from accounts.models import Department
+from realtime.auth import realtime_login_required
 from realtime.emitters import emit_act_created
 
 from .forms import (
@@ -66,7 +67,7 @@ def act_list(request):
     })
 
 
-@login_required
+@realtime_login_required
 @require_GET
 def act_list_fragment(request):
     """Current registry KPIs and results for the live client.
@@ -109,7 +110,7 @@ def _get_live_act(request, pk):
     return act
 
 
-@login_required
+@realtime_login_required
 @require_GET
 def act_live_summary_fragment(request, pk):
     act = _get_live_act(request, pk)
@@ -125,7 +126,7 @@ def act_live_summary_fragment(request, pk):
     )
 
 
-@login_required
+@realtime_login_required
 @require_GET
 def act_history_fragment(request, pk):
     act = _get_live_act(request, pk)
@@ -141,7 +142,7 @@ def act_history_fragment(request, pk):
     )
 
 
-@login_required
+@realtime_login_required
 @require_GET
 def act_comments_fragment(request, pk):
     act = _get_live_act(request, pk)
@@ -158,7 +159,7 @@ def act_comments_fragment(request, pk):
     )
 
 
-@login_required
+@realtime_login_required
 @require_GET
 def act_work_fragment(request, pk):
     """The «Проработка» tab, rebuilt by the very same context builder.
@@ -179,7 +180,7 @@ def act_work_fragment(request, pk):
     )
 
 
-@login_required
+@realtime_login_required
 @require_GET
 def act_activities_fragment(request, pk):
     act = _get_live_act(request, pk)

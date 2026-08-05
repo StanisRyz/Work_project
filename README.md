@@ -678,7 +678,68 @@ touched.
 New environment variables: `REALTIME_DEGRADED_AFTER_SECONDS` (20),
 `REALTIME_SYNC_POLL_SECONDS` (30), `REALTIME_SYNC_HIDDEN_POLL_SECONDS` (90),
 `REALTIME_MAX_CONNECTION_SECONDS` (900), `REALTIME_LEADER_LEASE_SECONDS` (12),
-`REALTIME_LEADER_HEARTBEAT_SECONDS` (4).
+`REALTIME_LEADER_HEARTBEAT_SECONDS` (4), `REALTIME_LIVE_SYNC_SECONDS` (300,
+allowed range 60–1800 — see "Live safety-sync" below).
+
+### Expired-session protection
+
+Every technical JSON and fragment endpoint (`/realtime/sync/`, the
+notification/task/act fragment endpoints) answers an anonymous or
+expired-session request with a compact `{"error": "authentication_required"}`
+JSON `401` and `Cache-Control: no-store, private` — never an HTML login
+redirect a `fetch()`-based client would otherwise have to parse. The browser
+client checks `response.redirected`, the HTTP status and the `Content-Type`
+header, in that order, before ever calling `.json()`; a stray redirect or an
+unexpected `Content-Type` is treated the same as lost authentication and never
+reaches the JSON parser or the DOM. Losing authentication stops the whole
+client cleanly: the `EventSource` closes, fallback polling stops, the live
+safety-sync timer clears, any pending follower handshake clears, and no
+client-built reconnect loop or repeated technical error is shown to the user.
+A per-act fragment `404` (the act became inaccessible) only stops updates for
+that one act — the bell and every other open block keep working.
+
+### Live safety-sync
+
+While the stream stays `live`, a Redis event can still be published and never
+delivered (a restart between publish and subscribe, for example) — nothing
+about `live` guarantees every event arrives. The leader tab (or a standalone
+tab holding its own `EventSource`) therefore also runs an occasional
+`/realtime/sync/` call — `REALTIME_LIVE_SYNC_SECONDS`, 300 s by default —
+reusing the same revision-token comparison as every other sync: identical
+tokens cost nothing, and only a moved block is refetched. This is
+deliberately **not** a polling replacement: it is mutually exclusive with
+fallback polling (`degraded` keeps polling; `live` keeps the safety timer),
+never runs in parallel with another sync, and never fires more often than the
+configured interval. It also runs once right after a tab is promoted to
+leader and once after the page returns from hidden to visible, but only if the
+previous successful sync has actually gone stale — a quick tab switch never
+triggers an extra request.
+
+### Follower initial sync
+
+A new follower tab does not wait for the next SSE event or periodic sync to
+learn current state. On start it sends a `sync.request` to the leader over
+`BroadcastChannel`; the leader answers with `sync.response`, carrying its last
+valid `/realtime/sync/` snapshot (the same opaque tokens the server would hand
+that user directly — no user id, no Redis channel name, no HTML). The
+follower applies it through the same revision-comparison path as a normal
+sync, so identical tokens still touch nothing and dirty forms are still never
+replaced. If the leader does not answer within about a second and a half, the
+follower performs exactly one `/realtime/sync/` request of its own as its
+initial sync — it never opens a second `EventSource` and never starts
+persistent polling while a leader is still assumed active. A `leader.state`
+broadcast also lets a follower show or hide the degraded indicator correctly
+without ever opening a stream of its own.
+
+Local check for multiple tabs and an expired session: open two tabs of the
+same logged-in user and confirm only one holds the `EventSource` (check the
+browser's network panel); open a third tab and confirm it renders current
+counts immediately rather than waiting for the next event. Then end the
+session (log out in another tab, or expire it server-side) and confirm every
+tab's background requests stop — no repeating 401s in the network panel — and
+that logging back in and reloading initializes normally. Finally, complete a
+task while the stream stays connected and confirm `Task.updated_at` and the
+task list both change without a reload.
 
 Diagnostics:
 
