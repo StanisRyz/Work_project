@@ -250,19 +250,66 @@ static/media, demo reset и email эта команда проверяет са�
 
 ## 12. Логирование
 
-Основной handler — console: сбор и ротацию выполняет process manager или ОС.
-Опциональный `RotatingFileHandler` включается через `LOG_TO_FILE=true`
-(`LOG_FILE_PATH`, `LOG_FILE_MAX_BYTES`, `LOG_FILE_BACKUP_COUNT`). Сторонние
-logging-фреймворки не добавляются.
+**Основной носитель — ротируемый текстовый файл UTF-8** (`LOG_TO_FILE`, по
+умолчанию `true` при `APP_ENV=production`). Консоль остаётся включённой рядом
+(`LOG_TO_CONSOLE`, по умолчанию `true`): её собирает process manager, и через
+неё позже подключается централизованный сбор без изменения бизнес-кода. Хотя бы
+один обработчик обязан быть включён — иначе процесс не стартует. Сторонние
+logging-фреймворки и внешние платформы (ELK, Loki, Sentry, Graylog) не
+добавляются.
 
-Настроенные loggers: `django.request`, `django.security`, `ecosystem.workflow`,
-`notifications.email`, `maintenance`, `deployment`, `realtime`. Общий
-формат: время, уровень, logger, request id и user id (если они уже безопасно
-известны), сообщение.
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | общий уровень |
+| `REALTIME_LOG_LEVEL` | как `LOG_LEVEL` | уровень logger'а `realtime` |
+| `LOG_TO_FILE` | `true` в production | файловый журнал |
+| `LOG_TO_CONSOLE` | `true` | stdout |
+| `LOG_FILE_PATH` | `BASE_DIR/logs/application.log` | в production абсолютный, вне репозитория |
+| `LOG_FILE_MAX_BYTES` | `20971520` | размер одного файла |
+| `LOG_FILE_BACKUP_COUNT` | `10` | архивных копий |
+| `LOG_SLOW_REQUEST_MS` | `2000` | порог медленного запроса |
+| `LOG_MUTATING_REQUESTS` | `true` | писать POST/PUT/PATCH/DELETE |
+| `LOG_HEALTH_REQUESTS` | `false` | писать health-пробы |
+| `APP_RELEASE` | пусто | безопасная метка версии |
+
+Формат строки:
+
+```
+[timestamp] LEVEL logger request=<request_id> user=<user_id>: event key=value ...
+```
+
+Настроенные loggers: `django.request`, `django.security`, `ecosystem.request`,
+`ecosystem.startup`, `ecosystem.workflow`, `ecosystem.attachments`,
+`notifications.email`, `maintenance`, `deployment`, `realtime`.
+
+Каждый обычный запрос получает `request_id`, который возвращается в заголовке
+`X-Request-ID` и проставляется во все строки, записанные во время этого
+запроса. Входящий `X-Request-ID` не принимается. На уровне INFO пишутся только
+изменяющие запросы; `GET` — лишь при превышении `LOG_SLOW_REQUEST_MS`, при
+4xx/5xx или при исключении. Health-пробы, static, media и favicon исключены;
+SSE `/realtime/events/` не подпадает под правило медленного запроса.
+
+Проверки конфигурации: `ecosystem.E022` (нет обработчиков), `E023`/`E024`
+(некорректная ротация), `E025` (журнал внутри `STATIC_ROOT`/`MEDIA_ROOT`),
+`E026` (относительный путь в production), `E027`/`W007` (недоступен для
+записи). Отдельно:
+
+```powershell
+python manage.py check_logging
+python manage.py check_logging --write-probe
+```
 
 **Никогда не логируются**: `SECRET_KEY`, `DB_PASSWORD`, Redis URL с учётными
-данными, `EMAIL_HOST_PASSWORD`, cookie сессии, CSRF-токены, тексты
-комментариев, описания дефектов, содержимое и имена вложений.
+данными, `EMAIL_HOST_PASSWORD`, cookie сессии, CSRF-токены, заголовки
+`Authorization`, query string и тело запроса, тексты комментариев, описания
+дефектов, корневые причины, тексты задач и результатов, данные заказчика и
+партии, имена пользователей, адреса получателей, содержимое и имена вложений.
+Фильтр редактирования навешен на все обработчики.
+
+`ActHistory` остаётся бизнес-аудитом; журнал — диагностика и может быть
+ротирован. `RotatingFileHandler` корректен только в однопроцессном пилоте — при
+нескольких Uvicorn workers ротацию должен выполнять внешний системный механизм.
+Подробно: [Операционное логирование](operational_logging.md).
 
 ## 13. Email
 

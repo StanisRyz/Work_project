@@ -135,18 +135,38 @@ python scripts/realtime_load_smoke.py --base-url http://127.0.0.1:8000 `
 
 ## 9. Логи
 
-Приложение пишет структурированные записи в logger `realtime`:
+Приложение пишет структурированные записи в logger `realtime`, в общем формате
+`event key=value ...` (см. [Операционное логирование](operational_logging.md)):
 `realtime.connection_opened`, `connection_closed`, `connection_cancelled`,
-`redis_disconnected`, `sync_completed`, `sync_slow`, `invalid_message`. В них
-есть идентификатор соединения, идентификатор пользователя, длительность,
-причина закрытия, число событий и время сверки — и нет payload, текстов,
-email и учётных данных.
+`redis_disconnected`, `stream_refused`, `sync_completed`, `slow_sync`,
+`invalid_message`, `publish_failed`, `slow_publish`, `event_oversized`.
+
+Безопасные поля: `connection_id`, `user_id`, `event_type`, `channel_count`,
+`duration_ms`, `reason`, `event_count`. Не записываются: сериализованное
+событие, имена Redis-каналов, Redis URL, payload уведомления и HTML-фрагменты.
+Уровень задаётся отдельной переменной `REALTIME_LOG_LEVEL`.
+
+Объём удерживается намеренно: heartbeat не логируется вовсе, а успешный быстрый
+`/realtime/sync/` и успешная публикация в Redis остаются на `DEBUG` — при INFO
+они одни заполнили бы файл. На INFO и выше попадают только открытие и закрытие
+соединения и все отклонения.
+
+**SSE-поток исключён из обычного правила медленного запроса**
+(`LOG_SLOW_REQUEST_MS`): соединение открыто минутами по своей природе, поэтому
+`ecosystem.request` его не записывает, а весь жизненный цикл виден в logger'е
+`realtime` по `connection_id`.
 
 Стоит следить за:
 
 - ростом `redis_disconnected` — проблема сети или самого Redis;
-- ростом `sync_slow` — агрегаты сверки упираются в размер таблиц;
-- `invalid_message` — несовместимые версии приложения на одном Redis.
+- ростом `slow_sync` — агрегаты сверки упираются в размер таблиц;
+- `invalid_message` — несовместимые версии приложения на одном Redis;
+- `publish_failed` — событие не ушло в транспорт; бизнес-операция при этом уже
+  зафиксирована и не пострадала.
+
+При запуске нескольких Uvicorn workers файловый журнал не должен ротироваться
+каждым процессом независимо — см. раздел 9
+[Операционного логирования](operational_logging.md).
 
 ## 11. Связь с общей подготовкой развёртывания
 

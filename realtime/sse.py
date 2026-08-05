@@ -16,6 +16,8 @@ import uuid
 
 from django.conf import settings
 
+from ecosystem.logging_utils import log_event
+
 from .channels import user_channel
 from .events import RealtimeEvent, RealtimeEventError
 
@@ -134,10 +136,15 @@ async def event_stream(user_id, *, client_factory=None, max_messages=None, max_l
         pubsub = client.pubsub(ignore_subscribe_messages=True)
         subscription['pubsub'] = pubsub
         await pubsub.subscribe(channel)
-        logger.info(
-            'realtime.connection_opened connection_id=%(connection_id)s user_id=%(user_id)s '
-            'max_lifetime=%(max_lifetime).0f',
-            {'connection_id': connection_id, 'user_id': user_id, 'max_lifetime': max_lifetime},
+        # The channel name is never logged: it is built from the user target
+        # and belongs to the transport, not to the diagnostic record.
+        log_event(
+            logger,
+            'INFO',
+            'realtime.connection_opened',
+            connection_id=connection_id,
+            user_id=user_id,
+            max_lifetime_s=float(max_lifetime),
         )
 
         while True:
@@ -163,11 +170,15 @@ async def event_stream(user_id, *, client_factory=None, max_messages=None, max_l
 
             event = decode_message(message.get('data'), max_bytes=max_bytes)
             if event is None:
-                # One bad message must not end the stream.
-                logger.warning(
-                    'realtime.invalid_message connection_id=%(connection_id)s '
-                    'user_id=%(user_id)s',
-                    {'connection_id': connection_id, 'user_id': user_id},
+                # One bad message must not end the stream. The payload itself
+                # is never logged — a malformed message may contain anything.
+                log_event(
+                    logger,
+                    'WARNING',
+                    'realtime.invalid_message',
+                    connection_id=connection_id,
+                    user_id=user_id,
+                    outcome='dropped',
                 )
                 continue
             yield format_event(event)
@@ -180,32 +191,41 @@ async def event_stream(user_id, *, client_factory=None, max_messages=None, max_l
     except asyncio.CancelledError:
         # A closed browser tab is ordinary, not an incident.
         reason = 'cancelled'
-        logger.debug(
-            'realtime.connection_cancelled connection_id=%(connection_id)s user_id=%(user_id)s',
-            {'connection_id': connection_id, 'user_id': user_id},
+        log_event(
+            logger,
+            'DEBUG',
+            'realtime.connection_cancelled',
+            connection_id=connection_id,
+            user_id=user_id,
         )
         raise
     except redis_exception_types() as exc:
         # An unexpected Redis disconnect ends this stream in a controlled way;
         # the client reconnects after the advertised retry delay.
         reason = 'redis_disconnected'
-        logger.warning(
-            'realtime.redis_disconnected connection_id=%(connection_id)s user_id=%(user_id)s '
-            'detail=%(detail)s',
-            {'connection_id': connection_id, 'user_id': user_id, 'detail': describe_failure(exc)},
+        log_event(
+            logger,
+            'WARNING',
+            'realtime.redis_disconnected',
+            connection_id=connection_id,
+            user_id=user_id,
+            error_type=type(exc).__name__,
+            # `describe_failure` keeps the host visible for diagnosis but
+            # strips the URL, username and password.
+            detail=describe_failure(exc),
+            outcome='disconnected',
         )
     finally:
         await _close_quietly(subscription, channel)
-        logger.info(
-            'realtime.connection_closed connection_id=%(connection_id)s user_id=%(user_id)s '
-            'duration_s=%(duration).1f events=%(events)d reason=%(reason)s',
-            {
-                'connection_id': connection_id,
-                'user_id': user_id,
-                'duration': time.monotonic() - started,
-                'events': events_sent,
-                'reason': reason,
-            },
+        log_event(
+            logger,
+            'INFO',
+            'realtime.connection_closed',
+            connection_id=connection_id,
+            user_id=user_id,
+            duration_ms=(time.monotonic() - started) * 1000,
+            event_count=events_sent,
+            reason=reason,
         )
 
 

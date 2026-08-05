@@ -372,7 +372,7 @@ echoes the offending secret.
 | `STATIC_ROOT_PATH`, `MEDIA_ROOT_PATH` | public static vs. protected media |
 | `ENABLE_DEMO_RESET` | `false` by default, forced off in production |
 | `BACKUP_POLICY_ACKNOWLEDGED` | administrative acknowledgement, not evidence |
-| `LOG_LEVEL`, `LOG_TO_FILE`, `LOG_FILE_PATH` | console-first logging |
+| `LOG_LEVEL`, `REALTIME_LOG_LEVEL`, `LOG_TO_FILE`, `LOG_TO_CONSOLE`, `LOG_FILE_PATH`, `LOG_FILE_MAX_BYTES`, `LOG_FILE_BACKUP_COUNT`, `LOG_SLOW_REQUEST_MS`, `LOG_MUTATING_REQUESTS`, `LOG_HEALTH_REQUESTS`, `APP_RELEASE` | file-first logging with console alongside |
 
 See `.env.example` for the full annotated list with safe placeholder values.
 
@@ -433,6 +433,84 @@ static/media, demo reset and email itself — each with a deeper, live check
 exactly once in the report. Both commands are read-only, and neither prints a
 username or any object content.
 
+### Логирование пилота
+
+**Основной диагностический носитель — ротируемый текстовый файл UTF-8.**
+Консольный вывод сохраняется рядом: его собирает process manager, и через него
+позже можно подключить централизованный сбор, не меняя бизнес-код. Используется
+только стандартный `logging`; ELK, Loki, Sentry и Graylog не добавляются.
+
+Формат строки:
+
+```
+[timestamp] LEVEL logger request=<request_id> user=<user_id>: event key=value ...
+```
+
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | общий уровень |
+| `REALTIME_LOG_LEVEL` | как `LOG_LEVEL` | уровень logger'а `realtime` |
+| `LOG_TO_FILE` | `true` в production | файловый журнал |
+| `LOG_TO_CONSOLE` | `true` везде | stdout для process manager |
+| `LOG_FILE_PATH` | `BASE_DIR/logs/application.log` | путь; в production абсолютный и **вне репозитория** |
+| `LOG_FILE_MAX_BYTES` | `20971520` | размер одного файла |
+| `LOG_FILE_BACKUP_COUNT` | `10` | число архивных копий |
+| `LOG_SLOW_REQUEST_MS` | `2000` | порог медленного запроса |
+| `LOG_MUTATING_REQUESTS` | `true` | писать POST/PUT/PATCH/DELETE |
+| `LOG_HEALTH_REQUESTS` | `false` | писать health-пробы |
+| `APP_RELEASE` | пусто | безопасная метка версии или commit SHA |
+
+Пример production-конфигурации с файлом и консолью одновременно:
+
+```
+LOG_TO_FILE=true
+LOG_TO_CONSOLE=true
+LOG_FILE_PATH=/var/log/quality/application.log
+LOG_FILE_MAX_BYTES=20971520
+LOG_FILE_BACKUP_COUNT=12
+```
+
+Хотя бы один обработчик обязан быть включён — при обоих выключенных процесс не
+стартует. Файл журнала не должен лежать внутри `STATIC_ROOT` (раздаётся
+публично) или `MEDIA_ROOT` (вложения актов).
+
+```powershell
+python manage.py check_logging                 # только чтение
+python manage.py check_logging --write-probe   # одна строка logging.probe в файл
+```
+
+`--write-probe` записывает обычную INFO-строку и проверяет, что файл изменился;
+искусственный `ERROR` он не создаёт и базу не трогает. Полный путь печатается
+локальному оператору, но в JSON-отчёт не попадает.
+
+**Поиск по `request_id`.** Каждый запрос получает новый идентификатор, который
+возвращается в заголовке ответа `X-Request-ID` и проставляется во все строки
+журнала, записанные во время этого запроса — включая строки из сервисов актов,
+задач и почты. Входящий `X-Request-ID` от клиента не принимается.
+
+```bash
+grep -h "request=8f3c1d" /var/log/quality/application.log*
+```
+
+Записываются идентификаторы, коды статусов, счётчики, `duration_ms` и
+`outcome`. Никогда не записываются тексты пользователей (описания дефектов,
+комментарии, корневые причины, тексты задач), имена и email, имена вложений,
+секреты, cookie и токены — на каждый обработчик дополнительно навешен фильтр
+редактирования. `История акта` остаётся бизнес-аудитом, журнал — диагностикой.
+
+Ротация: `LOG_FILE_MAX_BYTES` × `LOG_FILE_BACKUP_COUNT` — верхняя граница
+занимаемого места (при значениях по умолчанию ≈ 220 МБ). За свободным местом
+приложение не следит: разместите журнал на разделе, где его рост не вытеснит
+базу или `MEDIA_ROOT`, и включите мониторинг средствами ИТ-службы.
+
+> **Несколько Uvicorn workers.** `RotatingFileHandler` корректен только в
+> однопроцессном пилоте. Несколько процессов, независимо ротирующих один общий
+> файл, перемешают записи и потеряют часть строк. При более чем одном worker'е
+> оставьте только консоль и поручите сбор и ротацию системе, либо выдайте
+> каждому процессу свой `LOG_FILE_PATH`, либо ротируйте внешним механизмом.
+
+Подробно: [Операционное логирование](docs/operational_logging.md).
+
 ### Health endpoints
 
 | Endpoint | Meaning |
@@ -464,6 +542,7 @@ CSRF protection all still apply.
 - [Первый запуск на чистой PostgreSQL](docs/fresh_postgresql_bootstrap.md)
 - [PostgreSQL в production](docs/postgresql_production.md) — roles and privileges
 - [Резервное копирование и восстановление](docs/backup_restore.md)
+- [Операционное логирование](docs/operational_logging.md) — формат, request_id, ротация
 - [Развёртывание real-time](docs/realtime_production.md) — ASGI, proxy, Redis
 
 ## Create and Activate a Virtual Environment

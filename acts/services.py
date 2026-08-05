@@ -1,8 +1,13 @@
+import logging
+import time
+from contextlib import contextmanager
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import UserProfile
+from ecosystem.logging_utils import log_event
 from realtime.emitters import (
     emit_act_status_changed,
     emit_act_updated,
@@ -29,8 +34,92 @@ from .permissions import (
 )
 
 
+logger = logging.getLogger('ecosystem.workflow')
+attachment_logger = logging.getLogger('ecosystem.attachments')
+
+
 class ActWorkflowError(Exception):
     pass
+
+
+@contextmanager
+def _workflow_logging(action, act_or_pk, user):
+    """Log one act transition: started, then completed / rejected / failed.
+
+    Only identifiers, status codes, a duration and an outcome are recorded.
+    Never the return comment, the KO decision text, the root cause, the
+    corrective-action text, or any customer or party data — the act's own
+    `ActHistoryEvent` records remain the business audit trail, and these lines
+    exist purely to diagnose *why* an operation behaved as it did.
+
+    `previous_status` is captured lazily inside the block, because the caller
+    only learns the authoritative status after the row lock is taken.
+    """
+    state = {'previous_status': None, 'next_status': None, 'act_id': _pk_of(act_or_pk)}
+    started = time.monotonic()
+    log_event(
+        logger,
+        'DEBUG',
+        'workflow.transition_started',
+        action=action,
+        act_id=state['act_id'],
+        actor_user_id=_pk_of(user),
+    )
+    try:
+        yield state
+    except ActWorkflowError as exc:
+        # A refusal is an ordinary outcome — a stale tab, a lost race, a role
+        # without the right. The message is the application's own fixed text,
+        # never user input, but the outcome code is what matters here.
+        log_event(
+            logger,
+            'INFO',
+            'workflow.transition_rejected',
+            action=action,
+            act_id=state['act_id'],
+            actor_user_id=_pk_of(user),
+            previous_status=state['previous_status'],
+            duration_ms=(time.monotonic() - started) * 1000,
+            reason=type(exc).__name__,
+            outcome='rejected',
+        )
+        raise
+    except Exception as exc:
+        log_event(
+            logger,
+            'ERROR',
+            'workflow.transition_failed',
+            action=action,
+            act_id=state['act_id'],
+            actor_user_id=_pk_of(user),
+            previous_status=state['previous_status'],
+            duration_ms=(time.monotonic() - started) * 1000,
+            error_type=type(exc).__name__,
+            outcome='failed',
+            exc_info=True,
+        )
+        raise
+    else:
+        log_event(
+            logger,
+            'INFO',
+            'workflow.transition_completed',
+            action=action,
+            act_id=state['act_id'],
+            actor_user_id=_pk_of(user),
+            previous_status=state['previous_status'],
+            next_status=state['next_status'],
+            duration_ms=(time.monotonic() - started) * 1000,
+            outcome='ok',
+        )
+
+
+def _pk_of(value):
+    return getattr(value, 'pk', value if isinstance(value, int) else None)
+
+
+def _status_code_of(status):
+    return getattr(status, 'code', None)
 
 
 def lock_act_for_update(act_or_pk):
@@ -79,13 +168,16 @@ def _lock_act_root_analyses(act):
 
 
 def send_to_ko(act, user):
-    with transaction.atomic():
+    with _workflow_logging('send_to_ko', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_send_to_ko(act, user):
             raise ActWorkflowError('Передача акта в КО недоступна для вашей роли или текущего статуса.')
         _require_status(act, 'CREATED_OTK')
         from_status = act.status
         to_status = _get_required_status('KO_REVIEW')
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(from_status)
+        log_state['next_status'] = _status_code_of(to_status)
         act.status = to_status
         act.save(update_fields=['status', 'updated_at'])
         add_act_history_event(
@@ -100,7 +192,7 @@ def send_to_ko(act, user):
 
 
 def apply_ko_decision(act, user, defect_decisions):
-    with transaction.atomic():
+    with _workflow_logging('apply_ko_decision', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_apply_ko_decision(act, user):
             raise ActWorkflowError('Решение КО недоступно для вашей роли или текущего статуса.')
@@ -131,6 +223,9 @@ def apply_ko_decision(act, user, defect_decisions):
 
         from_status = act.status
         to_status = _get_required_status('TO_ANALYSIS')
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(from_status)
+        log_state['next_status'] = _status_code_of(to_status)
         first_defect, first_decision, first_comment = defect_decisions[0]
         act.ko_decision = first_decision
         act.ko_comment = first_comment
@@ -173,7 +268,7 @@ def return_to_otk(act, user, return_comment):
     return_comment = (return_comment or '').strip()
     if not return_comment:
         raise ActWorkflowError('Укажите комментарий к возврату.')
-    with transaction.atomic():
+    with _workflow_logging('return_to_otk', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_return_to_otk(act, user):
             raise ActWorkflowError('Возврат акта в ОТК недоступен для вашей роли или текущего статуса.')
@@ -181,6 +276,9 @@ def return_to_otk(act, user, return_comment):
         add_act_comment(act, user, return_comment, notify=False)
         from_status = act.status
         to_status = _get_required_status('CREATED_OTK')
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(from_status)
+        log_state['next_status'] = _status_code_of(to_status)
         act.status = to_status
         act.save(update_fields=['status', 'updated_at'])
         add_act_history_event(
@@ -195,13 +293,16 @@ def return_to_otk(act, user, return_comment):
 
 
 def apply_to_analysis(act, user, root_cause, action_summary):
-    with transaction.atomic():
+    with _workflow_logging('apply_to_analysis', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_apply_to_analysis(act, user):
             raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
         _require_status(act, 'TO_ANALYSIS')
         from_status = act.status
         to_status = _get_required_status('OTK_REVIEW')
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(from_status)
+        log_state['next_status'] = _status_code_of(to_status)
         act.to_root_cause = root_cause
         act.to_action_summary = action_summary
         act.to_analysis_by = user
@@ -229,7 +330,9 @@ def apply_to_analysis(act, user, root_cause, action_summary):
 
 
 def apply_structured_to_analysis(act, user, analysis_data):
-    with transaction.atomic():
+    with _workflow_logging(
+        'apply_structured_to_analysis', act, user
+    ) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_apply_to_analysis(act, user):
             raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
@@ -238,6 +341,9 @@ def apply_structured_to_analysis(act, user, analysis_data):
             raise ActWorkflowError('Добавьте корневую причину и корректирующее мероприятие.')
         from_status = act.status
         to_status = _get_required_status('OTK_REVIEW')
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(from_status)
+        log_state['next_status'] = _status_code_of(to_status)
         # Lock any previously submitted structure before replacing it.
         _lock_act_root_analyses(act)
         ActRootAnalysis.objects.filter(act=act).delete()
@@ -297,13 +403,16 @@ def return_to_ko(act, user, return_comment):
     return_comment = (return_comment or '').strip()
     if not return_comment:
         raise ActWorkflowError('Укажите комментарий к возврату.')
-    with transaction.atomic():
+    with _workflow_logging('return_to_ko', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_return_to_ko(act, user):
             raise ActWorkflowError('Возврат акта в КО недоступен для вашей роли или текущего статуса.')
         _require_status(act, 'TO_ANALYSIS')
         from_status = act.status
         to_status = _get_required_status('KO_REVIEW')
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(from_status)
+        log_state['next_status'] = _status_code_of(to_status)
         add_act_comment(act, user, return_comment, notify=False)
         act.status = to_status
         act.save(update_fields=['status', 'updated_at'])
@@ -322,13 +431,16 @@ def return_to_to(act, user, return_comment):
     return_comment = (return_comment or '').strip()
     if not return_comment:
         raise ActWorkflowError('Укажите комментарий к возврату.')
-    with transaction.atomic():
+    with _workflow_logging('return_to_to', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_return_to_to(act, user):
             raise ActWorkflowError('Возврат акта в ТО недоступен для вашей роли или текущего статуса.')
         _require_status(act, 'OTK_REVIEW')
         from_status = act.status
         to_status = _get_required_status('TO_ANALYSIS')
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(from_status)
+        log_state['next_status'] = _status_code_of(to_status)
         add_act_comment(act, user, return_comment, notify=False)
         act.status = to_status
         act.save(update_fields=['status', 'updated_at'])
@@ -344,7 +456,7 @@ def return_to_to(act, user, return_comment):
 
 
 def approve_act(act, user):
-    with transaction.atomic():
+    with _workflow_logging('approve_act', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_approve_act(act, user):
             raise ActWorkflowError('Утверждение акта недоступно для вашей роли или текущего статуса.')
@@ -389,8 +501,24 @@ def approve_act(act, user):
             # Emitted only once the task and all its assignees exist, so the
             # event can never describe a half-built task.
             emit_task_created(task, assignee_ids)
+            # Ids and a count: the task text is the corrective action's own
+            # wording and the assignees are people, so neither is logged.
+            log_event(
+                logger,
+                'INFO',
+                'task.created',
+                task_id=task.pk,
+                act_id=act.pk,
+                actor_user_id=_pk_of(user),
+                assignee_count=len(assignee_ids),
+                next_status=new_task_status.code,
+                outcome='ok',
+            )
         from_status = act.status
         to_status = _get_required_status('ARCHIVED')
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(from_status)
+        log_state['next_status'] = _status_code_of(to_status)
         act.approved_by = user
         act.approved_at = timezone.now()
         act.status = to_status
@@ -488,42 +616,102 @@ def add_act_comment(act, user, text, notify=True):
 
 
 def add_act_attachment(act, user, uploaded_file, description=''):
-    attachment = ActAttachment.objects.create(
-        act=act,
-        uploaded_by=user if getattr(user, 'is_authenticated', False) else None,
-        file=uploaded_file,
-        original_name=uploaded_file.name,
-        description=description,
-        file_size=getattr(uploaded_file, 'size', 0) or 0,
-        content_type=getattr(uploaded_file, 'content_type', '') or '',
-    )
+    try:
+        attachment = ActAttachment.objects.create(
+            act=act,
+            uploaded_by=user if getattr(user, 'is_authenticated', False) else None,
+            file=uploaded_file,
+            original_name=uploaded_file.name,
+            description=description,
+            file_size=getattr(uploaded_file, 'size', 0) or 0,
+            content_type=getattr(uploaded_file, 'content_type', '') or '',
+        )
+    except OSError as exc:
+        # A full disk or an unwritable MEDIA_ROOT. The file name is the user's
+        # own text and the storage path is infrastructure, so neither is logged.
+        log_event(
+            attachment_logger,
+            'ERROR',
+            'attachment.storage_failed',
+            act_id=_pk_of(act),
+            user_id=_pk_of(user),
+            operation='upload',
+            error_type=type(exc).__name__,
+            outcome='failed',
+            exc_info=True,
+        )
+        raise
     add_act_history_event(
         act,
         user,
         ActHistoryEvent.EventType.ATTACHMENT_ADDED,
         f'Вложение добавлено: {attachment.original_name}.',
     )
+    log_event(
+        attachment_logger,
+        'INFO',
+        'attachment.uploaded',
+        attachment_id=attachment.pk,
+        act_id=_pk_of(act),
+        user_id=_pk_of(user),
+        size_bytes=attachment.file_size,
+        operation='upload',
+        outcome='ok',
+    )
     return attachment
 
 
 def delete_act_attachment(attachment, user):
     if not can_delete_attachment(attachment, user):
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.access_denied',
+            attachment_id=_pk_of(attachment),
+            act_id=getattr(attachment, 'act_id', None),
+            user_id=_pk_of(user),
+            operation='delete',
+            outcome='denied',
+        )
         raise ActWorkflowError('Удаление вложения недоступно для вашей роли.')
 
     act = attachment.act
+    attachment_id = attachment.pk
     original_name = attachment.original_name
     file_field = attachment.file
     attachment.delete()
     if file_field:
         try:
             file_field.delete(save=False)
-        except OSError:
-            pass
+        except OSError as exc:
+            # The row is already gone; a leftover file is an operational
+            # cleanup task, not a user-visible failure.
+            log_event(
+                attachment_logger,
+                'WARNING',
+                'attachment.storage_failed',
+                attachment_id=attachment_id,
+                act_id=_pk_of(act),
+                user_id=_pk_of(user),
+                operation='delete_file',
+                error_type=type(exc).__name__,
+                outcome='orphaned_file',
+            )
     add_act_history_event(
         act,
         user,
         ActHistoryEvent.EventType.ATTACHMENT_DELETED,
         f'Вложение удалено: {original_name}.',
+    )
+    log_event(
+        attachment_logger,
+        'INFO',
+        'attachment.deleted',
+        attachment_id=attachment_id,
+        act_id=_pk_of(act),
+        user_id=_pk_of(user),
+        operation='delete',
+        outcome='ok',
     )
 
 
@@ -576,13 +764,16 @@ def validate_act_can_be_closed(act):
 
 
 def close_act(act, user, closing_comment=''):
-    with transaction.atomic():
+    with _workflow_logging('close_act', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_close_act(act, user):
             raise ActWorkflowError('Закрытие акта недоступно для вашей роли или текущего статуса.')
         validate_act_can_be_closed(act)
         from_status = act.status
         to_status = _get_required_status('CLOSED')
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(from_status)
+        log_state['next_status'] = _status_code_of(to_status)
         act.status = to_status
         act.closed_by = user
         act.closed_at = timezone.now()

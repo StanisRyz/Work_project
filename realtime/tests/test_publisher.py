@@ -121,8 +121,9 @@ class DispatchFailureTests(SimpleTestCase):
         message = captured.output[0]
         self.assertIn(str(event.event_id), message)
         self.assertIn('act.updated', message)
-        self.assertIn('act:3', message)
-        self.assertIn('targets=2', message)
+        self.assertIn('resource_type=act', message)
+        self.assertIn('resource_id=3', message)
+        self.assertIn('target_count=2', message)
         self.assertIn('FailingRealtimePublisher', message)
         self.assertIn('RealtimePublisherError', message)
         # The payload itself must never be logged.

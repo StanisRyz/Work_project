@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from accounts.models import Department
+from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
 from realtime.emitters import emit_act_created
 
@@ -39,6 +40,7 @@ from .selectors import (
 )
 from .services import (
     ActWorkflowError,
+    attachment_logger,
     add_act_comment,
     add_act_attachment,
     add_act_history_event,
@@ -409,12 +411,63 @@ def act_download_attachment(request, pk, attachment_id):
         act_id=pk,
     )
     if not can_download_attachment(attachment, request.user):
+        # A refused download of protected production data is worth a line: it
+        # is either a stale link or somebody probing. Ids only — never the
+        # file's name, its path or its content type.
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.access_denied',
+            attachment_id=attachment.pk,
+            act_id=attachment.act_id,
+            user_id=request.user.pk,
+            operation='download',
+            outcome='denied',
+        )
         raise Http404('No Act matches the given query.')
     if not attachment.file:
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.storage_failed',
+            attachment_id=attachment.pk,
+            act_id=attachment.act_id,
+            user_id=request.user.pk,
+            operation='download',
+            outcome='missing_file',
+        )
         raise Http404('Attachment file is missing.')
 
+    try:
+        handle = attachment.file.open('rb')
+    except OSError as exc:
+        log_event(
+            attachment_logger,
+            'ERROR',
+            'attachment.storage_failed',
+            attachment_id=attachment.pk,
+            act_id=attachment.act_id,
+            user_id=request.user.pk,
+            operation='download',
+            error_type=type(exc).__name__,
+            outcome='failed',
+            exc_info=True,
+        )
+        raise Http404('Attachment file is missing.') from exc
+
+    log_event(
+        attachment_logger,
+        'INFO',
+        'attachment.downloaded',
+        attachment_id=attachment.pk,
+        act_id=attachment.act_id,
+        user_id=request.user.pk,
+        size_bytes=attachment.file_size,
+        operation='download',
+        outcome='ok',
+    )
     return FileResponse(
-        attachment.file.open('rb'),
+        handle,
         as_attachment=True,
         filename=attachment.original_name,
         content_type=attachment.content_type or 'application/octet-stream',

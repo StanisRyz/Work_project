@@ -57,6 +57,7 @@ class Command(BaseCommand):
         results.extend(_static_and_media())
         results.extend(_demo_reset())
         results.extend(_email())
+        results.extend(_logging())
         results.extend(_backup())
 
         blocking = [item for item in results if item['status'] == BLOCKING]
@@ -243,6 +244,23 @@ def _email():
     # here either: a mail server being briefly unreachable is not a reason to
     # block a deployment.
     return _check_email_configuration()
+
+
+def _logging():
+    """Is the diagnostic record usable? Read-only — nothing is written here.
+
+    The same evaluation `manage.py check_logging` prints, so the two can never
+    disagree. Only the verdicts reach the report: the log file's path is a
+    server detail and stays out of a shareable artefact.
+    """
+    from ecosystem.logging_utils import describe_logging_configuration
+
+    from .check_logging import evaluate_logging_configuration
+
+    try:
+        return evaluate_logging_configuration(describe_logging_configuration())
+    except Exception as exc:  # noqa: BLE001
+        return [_result('log_handlers', BLOCKING, f'Не удалось проверить ({type(exc).__name__}).')]
 
 
 def _backup():

@@ -13,6 +13,8 @@ from django.db import transaction
 from django.dispatch import receiver
 from django.utils.module_loading import import_string
 
+from ecosystem.logging_utils import log_event
+
 from .targets import normalize_targets
 
 
@@ -80,25 +82,43 @@ def dispatch_event(event, targets):
         return False
 
     publisher = get_publisher()
-    context = {**event.log_context(), 'targets': len(targets), 'backend': publisher.label}
+    context = event.log_context()
     try:
         publisher.publish(event, targets)
     except Exception as exc:  # noqa: BLE001 - the transport boundary is deliberate
-        logger.error(
-            'realtime publish failed: event_id=%(event_id)s event_type=%(event_type)s '
-            'resource=%(resource_type)s:%(resource_id)s targets=%(targets)d '
-            'backend=%(backend)s exception=%(exception)s',
-            {**context, 'exception': type(exc).__name__},
+        # Never the serialized event, the channel names or the Redis URL: the
+        # event type, how many targets and which exception type, nothing more.
+        log_event(
+            logger,
+            'ERROR',
+            'realtime.publish_failed',
+            event_id=context.get('event_id'),
+            event_type=context.get('event_type'),
+            resource_type=context.get('resource_type'),
+            resource_id=context.get('resource_id'),
+            target_count=len(targets),
+            backend=publisher.label,
+            error_type=type(exc).__name__,
+            outcome='failed',
             exc_info=not fail_silently(),
         )
         if not fail_silently():
             raise
         return False
 
-    logger.debug(
-        'realtime published: event_id=%(event_id)s event_type=%(event_type)s '
-        'resource=%(resource_type)s:%(resource_id)s targets=%(targets)d backend=%(backend)s',
-        context,
+    # DEBUG: a successful publish happens on every business event and would
+    # double the log volume for no diagnostic value.
+    log_event(
+        logger,
+        'DEBUG',
+        'realtime.published',
+        event_id=context.get('event_id'),
+        event_type=context.get('event_type'),
+        resource_type=context.get('resource_type'),
+        resource_id=context.get('resource_id'),
+        target_count=len(targets),
+        backend=publisher.label,
+        outcome='ok',
     )
     return True
 

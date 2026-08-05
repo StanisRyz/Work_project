@@ -57,6 +57,90 @@ def check_deployment_configuration(app_configs, **kwargs):
     return problems
 
 
+@register()
+def check_logging_configuration(app_configs, **kwargs):
+    """Logging must be usable in *every* environment, not just production.
+
+    Registered separately and without the production guard: a rotation limit
+    of zero or a log file nobody can write silently discards the only record
+    of what went wrong, and that is just as broken in development. Severity
+    still follows the environment — outside production these are warnings.
+    """
+    from .logging_utils import describe_logging_configuration
+
+    summary = describe_logging_configuration()
+    production = _is_production()
+    problems = []
+
+    if not summary['to_file'] and not summary['to_console']:
+        problems.append(
+            Error(
+                'Ни один обработчик логов не включён.',
+                hint='Включите LOG_TO_FILE=true или LOG_TO_CONSOLE=true.',
+                id='ecosystem.E022',
+            )
+        )
+
+    if summary['to_file']:
+        if summary['max_bytes'] <= 0:
+            problems.append(
+                Error(
+                    'LOG_FILE_MAX_BYTES должен быть положительным.',
+                    hint='Без предела размера файл журнала растёт до заполнения диска.',
+                    id='ecosystem.E023',
+                )
+            )
+        if summary['backup_count'] <= 0:
+            problems.append(
+                Error(
+                    'LOG_FILE_BACKUP_COUNT должен быть положительным.',
+                    hint=(
+                        'При нулевом значении ротация удаляет предыдущий журнал, '
+                        'не сохраняя ни одной архивной копии.'
+                    ),
+                    id='ecosystem.E024',
+                )
+            )
+        if summary['collides_with_static_or_media']:
+            problems.append(
+                Error(
+                    'LOG_FILE_PATH находится внутри STATIC_ROOT или MEDIA_ROOT.',
+                    hint=(
+                        'STATIC_ROOT раздаётся публично, а MEDIA_ROOT содержит '
+                        'вложения актов. Журнал должен лежать в отдельном каталоге.'
+                    ),
+                    id='ecosystem.E025',
+                )
+            )
+        if production and not summary['file_path_absolute']:
+            problems.append(
+                Error(
+                    'LOG_FILE_PATH должен быть абсолютным путём в production.',
+                    hint=(
+                        'Относительный путь зависит от рабочего каталога процесса '
+                        'и приведёт к журналам в разных местах.'
+                    ),
+                    id='ecosystem.E026',
+                )
+            )
+        if not summary['writable']:
+            # Blocking in production, informational elsewhere: a developer may
+            # legitimately not have created the directory yet.
+            problem = Error if production else Warning
+            problems.append(
+                problem(
+                    'Каталог или файл журнала недоступен для записи.',
+                    hint=(
+                        'Создайте каталог и выдайте служебной учётной записи право '
+                        'записи. Проверить: python manage.py check_logging.'
+                    ),
+                    id='ecosystem.E027' if production else 'ecosystem.W007',
+                )
+            )
+
+    return problems
+
+
 # -- blocking ---------------------------------------------------------------
 
 def _check_core():

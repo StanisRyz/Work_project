@@ -131,7 +131,7 @@ class RedisPublisherTests(SimpleTestCase):
                 self.publisher.publish(event, (user_target(7),))
 
         self.assertEqual(self.client.published, [])
-        self.assertIn('dropped before publish', captured.output[0])
+        self.assertIn('realtime.event_oversized', captured.output[0])
         self.assertNotIn('xxxx', captured.output[0])
 
     def test_no_targets_means_no_call_to_redis(self):
@@ -152,7 +152,7 @@ class RedisPublisherTests(SimpleTestCase):
         logged = '\n'.join(captured.output)
         self.assertIn('realtime.slow_publish', logged)
         self.assertIn('act.status_changed', logged)
-        self.assertIn('channels=1', logged)
+        self.assertIn('channel_count=1', logged)
         self.assertIn('duration_ms=', logged)
         # Never the payload, the Redis URL or any credential.
         self.assertNotIn('s3cr3t-redis-password', logged)

@@ -11,6 +11,8 @@ from abc import ABC, abstractmethod
 
 from django.conf import settings
 
+from ecosystem.logging_utils import log_event
+
 from .channels import channels_for_targets, normalize_channel_prefix
 from .targets import normalize_targets
 
@@ -134,11 +136,18 @@ class RedisRealtimePublisher(RealtimePublisher):
         payload = event.as_compact_json().encode('utf-8')
         max_bytes = get_max_event_bytes()
         if len(payload) > max_bytes:
-            logger.warning(
-                'realtime event dropped before publish: event_id=%(event_id)s '
-                'event_type=%(event_type)s resource=%(resource_type)s:%(resource_id)s '
-                'bytes=%(bytes)d limit=%(limit)d',
-                {**event.log_context(), 'bytes': len(payload), 'limit': max_bytes},
+            context = event.log_context()
+            log_event(
+                logger,
+                'WARNING',
+                'realtime.event_oversized',
+                event_id=context.get('event_id'),
+                event_type=context.get('event_type'),
+                resource_type=context.get('resource_type'),
+                resource_id=context.get('resource_id'),
+                bytes=len(payload),
+                limit=max_bytes,
+                outcome='dropped',
             )
             return None
 
@@ -176,24 +185,30 @@ class RedisRealtimePublisher(RealtimePublisher):
         delivered = sum(int(result or 0) for result in results or ())
 
         slow_after_ms = float(getattr(settings, 'REALTIME_REDIS_SLOW_PUBLISH_MS', 250.0))
-        context = {
-            **event.log_context(),
-            'channels': len(channels),
-            'subscribers': delivered,
-            'duration_ms': int(duration_ms),
-        }
+        context = event.log_context()
         if duration_ms >= slow_after_ms:
-            # Never the payload, the Redis URL or any credential: only the
-            # event type, how many channels were written and how long it took.
-            logger.warning(
-                'realtime.slow_publish event_type=%(event_type)s channels=%(channels)d '
-                'duration_ms=%(duration_ms)d',
-                context,
+            # Never the payload, the channel names, the Redis URL or any
+            # credential: the event type, how many channels were written and
+            # how long it took.
+            log_event(
+                logger,
+                'WARNING',
+                'realtime.slow_publish',
+                event_type=context.get('event_type'),
+                channel_count=len(channels),
+                duration_ms=duration_ms,
+                outcome='slow',
             )
         else:
-            logger.debug(
-                'realtime published to redis: event_id=%(event_id)s event_type=%(event_type)s '
-                'channels=%(channels)d subscribers=%(subscribers)d duration_ms=%(duration_ms)d',
-                context,
+            log_event(
+                logger,
+                'DEBUG',
+                'realtime.redis_published',
+                event_id=context.get('event_id'),
+                event_type=context.get('event_type'),
+                channel_count=len(channels),
+                subscribers=delivered,
+                duration_ms=duration_ms,
+                outcome='ok',
             )
         return None

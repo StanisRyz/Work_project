@@ -1,5 +1,7 @@
+import logging
 import re
 import smtplib
+import time
 from datetime import timedelta
 
 from django.conf import settings
@@ -8,9 +10,13 @@ from django.db.models import F
 from django.template.loader import render_to_string
 from django.utils import timezone
 
+from ecosystem.logging_utils import log_event
+
 from .models import NotificationDelivery
 from .services import get_notification_url, get_required_action
 
+
+logger = logging.getLogger('notifications.email')
 
 PERMANENT_SMTP_EXCEPTIONS = (
     smtplib.SMTPAuthenticationError,
@@ -23,6 +29,7 @@ PERMANENT_SMTP_EXCEPTIONS = (
 
 def process_pending_deliveries(batch_size=None):
     batch_size = batch_size or settings.EMAIL_NOTIFICATION_BATCH_SIZE
+    started = time.monotonic()
     _recover_stale_deliveries()
     delivery_ids = list(
         NotificationDelivery.objects.filter(
@@ -34,12 +41,33 @@ def process_pending_deliveries(batch_size=None):
         .order_by('available_at', 'pk')
         .values_list('pk', flat=True)[:batch_size]
     )
+    log_event(
+        logger,
+        'INFO',
+        'email.worker_started',
+        batch_size=batch_size,
+        claimed=len(delivery_ids),
+        email_enabled=bool(settings.EMAIL_NOTIFICATIONS_ENABLED),
+    )
     summary = {'processed': 0, **{status: 0 for status in ('sent', 'pending', 'failed', 'skipped')}}
     for delivery_id in delivery_ids:
         status, processed = _process_delivery(delivery_id)
         if processed:
             summary['processed'] += 1
             summary[status] += 1
+    # Aggregate counts only — one line per invocation, not per delivery.
+    log_event(
+        logger,
+        'INFO',
+        'email.worker_completed',
+        processed=summary['processed'],
+        sent=summary['sent'],
+        retry_scheduled=summary['pending'],
+        failed=summary['failed'],
+        skipped=summary['skipped'],
+        duration_ms=(time.monotonic() - started) * 1000,
+        outcome='ok',
+    )
     return summary
 
 
@@ -118,12 +146,13 @@ def _process_delivery(delivery_id):
     attempt_number = delivery.attempts
     notification = delivery.notification
 
+    send_started = time.monotonic()
     try:
         sent_count = _send_email(notification)
         if sent_count != 1:
             raise RuntimeError('Почтовый backend не подтвердил отправку сообщения.')
     except Exception as exc:  # The delivery boundary must never affect a business transaction.
-        return _record_failure(delivery_id, attempt_number, exc)
+        return _record_failure(delivery_id, attempt_number, exc, notification=notification)
 
     now = timezone.now()
     updated = NotificationDelivery.objects.filter(
@@ -138,6 +167,17 @@ def _process_delivery(delivery_id):
         updated_at=now,
     )
     if updated:
+        log_event(
+            logger,
+            'INFO',
+            'email.delivery_sent',
+            delivery_id=delivery_id,
+            notification_id=notification.pk,
+            recipient_user_id=notification.recipient_id,
+            attempt_number=attempt_number,
+            duration_ms=(time.monotonic() - send_started) * 1000,
+            outcome='sent',
+        )
         return NotificationDelivery.Status.SENT, True
     return NotificationDelivery.objects.values_list('status', flat=True).get(pk=delivery_id), False
 
@@ -169,7 +209,7 @@ def _send_email(notification):
     return message.send(fail_silently=False)
 
 
-def _record_failure(delivery_id, attempt_number, exc):
+def _record_failure(delivery_id, attempt_number, exc, *, notification=None):
     now = timezone.now()
     retryable = _is_retryable(exc)
     can_retry = retryable and attempt_number < settings.EMAIL_NOTIFICATION_MAX_ATTEMPTS
@@ -190,6 +230,28 @@ def _record_failure(delivery_id, attempt_number, exc):
         attempts=attempt_number,
     ).update(**updates)
     if updated:
+        # The exception *type* only. A full SMTP response can quote the
+        # recipient address, the relay host or an authentication failure that
+        # names the service account — none of which belongs in a log file.
+        if can_retry:
+            event, level, outcome = 'email.delivery_retry_scheduled', 'WARNING', 'retry_scheduled'
+        elif retryable:
+            # Retryable in kind, but the attempt budget is spent.
+            event, level, outcome = 'email.delivery_abandoned', 'ERROR', 'abandoned'
+        else:
+            event, level, outcome = 'email.delivery_failed', 'ERROR', 'failed'
+        log_event(
+            logger,
+            level,
+            event,
+            delivery_id=delivery_id,
+            notification_id=getattr(notification, 'pk', None),
+            recipient_user_id=getattr(notification, 'recipient_id', None),
+            attempt_number=attempt_number,
+            max_attempts=settings.EMAIL_NOTIFICATION_MAX_ATTEMPTS,
+            error_type=type(exc).__name__,
+            outcome=outcome,
+        )
         return status, True
     current_status = NotificationDelivery.objects.values_list('status', flat=True).get(pk=delivery_id)
     return current_status, False

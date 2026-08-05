@@ -100,7 +100,8 @@ class FailingPublisherTests(RealtimeFixtureMixin, TestCase):
 
         message = captured.output[0]
         self.assertIn('act.status_changed', message)
-        self.assertIn(f'act:{act.pk}', message)
+        self.assertIn('resource_type=act', message)
+        self.assertIn(f'resource_id={act.pk}', message)
         self.assertIn('RealtimePublisherError', message)
         self.assertIn('FailingRealtimePublisher', message)
 

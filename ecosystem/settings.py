@@ -72,6 +72,10 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # After AuthenticationMiddleware on purpose: it needs a resolvable
+    # `request.user` to record a user id, and it must wrap the view so it can
+    # time the request and catch an exception on the way out.
+    'ecosystem.middleware.RequestLoggingMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -679,58 +683,93 @@ REALTIME_LIVE_SYNC_SECONDS = env_number(
 # --------------------------------------------------------------------------
 # Logging
 #
-# Console-based on purpose: the process manager (systemd, a Windows service,
-# the container runtime) is responsible for collecting and rotating output.
-# An optional rotating file handler can be switched on through the
-# environment; no third-party logging framework is involved.
+# **The rotating text file is the primary diagnostic record for the pilot.**
+# It is human-readable, stays on the server, and needs no external service to
+# read. Console output stays available alongside it so a process manager
+# (systemd, a Windows service, a container runtime) can collect the same
+# stream, and so a centralised collector can be added later without touching
+# any business code. No third-party logging framework is involved.
+#
+# One line per event:
+#     [timestamp] LEVEL logger request=<request_id> user=<user_id>: event key=value ...
 #
 # **What must never be logged**: SECRET_KEY, DB_PASSWORD, a Redis URL with
 # credentials, EMAIL_HOST_PASSWORD, session cookies, CSRF tokens, comment text,
-# defect descriptions, and the content or names of uploaded files. The
-# application logs identifiers, counts, durations and outcomes — never payload.
-# `realtime.transport.sanitize()` exists for exactly this reason.
+# defect descriptions, KO decision text, root causes, customer and party data,
+# recipient email addresses, message subjects and bodies, and the content or
+# names of uploaded files. The application logs identifiers, codes, counts,
+# durations and outcomes — never payload. `ecosystem.logging_utils.log_event()`
+# is the helper for this, `realtime.transport.sanitize()` for Redis specifics,
+# and `SensitiveValueRedactionFilter` is the safety net on every handler.
+#
+# **Rotation is single-process.** `RotatingFileHandler` is safe for the
+# one-worker pilot. Several Uvicorn workers rotating one shared file would
+# interleave and lose records — with more than one worker, use console output
+# plus OS-level collection/rotation instead. See docs/operational_logging.md.
 # --------------------------------------------------------------------------
 
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').strip().upper() or 'INFO'
-LOG_TO_FILE = env_bool('LOG_TO_FILE', False)
+REALTIME_LOG_LEVEL = os.getenv('REALTIME_LOG_LEVEL', LOG_LEVEL).strip().upper() or LOG_LEVEL
+# The file is the primary record in production and opt-in elsewhere, so a
+# fresh clone still writes nothing to disk without being asked.
+LOG_TO_FILE = env_bool('LOG_TO_FILE', IS_PRODUCTION)
+# Console stays on everywhere by default: it costs nothing and it is what a
+# process manager and any future centralised collector read.
+LOG_TO_CONSOLE = env_bool('LOG_TO_CONSOLE', True)
+if not LOG_TO_FILE and not LOG_TO_CONSOLE:
+    raise ImproperlyConfigured(
+        'At least one log handler must be enabled: set LOG_TO_FILE=true or '
+        'LOG_TO_CONSOLE=true. Running with no handler would discard every '
+        'error message silently.'
+    )
+
+# No production path is hardcoded: the deployment supplies an absolute path
+# outside the repository. The local fallback keeps a fresh clone working.
 LOG_FILE_PATH = env_path('LOG_FILE_PATH', BASE_DIR / 'logs' / 'application.log')
-LOG_FILE_MAX_BYTES = env_int('LOG_FILE_MAX_BYTES', 10 * 1024 * 1024)
-LOG_FILE_BACKUP_COUNT = env_int('LOG_FILE_BACKUP_COUNT', 5)
+LOG_FILE_MAX_BYTES = env_int('LOG_FILE_MAX_BYTES', 20 * 1024 * 1024)
+LOG_FILE_BACKUP_COUNT = env_int('LOG_FILE_BACKUP_COUNT', 10)
 
+# A request slower than this is logged even when it is an ordinary successful
+# read, because a slow read is the symptom worth catching early.
+LOG_SLOW_REQUEST_MS = env_int('LOG_SLOW_REQUEST_MS', 2000)
+# Every POST/PUT/PATCH/DELETE gets one INFO line. Turning this off leaves only
+# errors and slow requests, for a deployment that wants a very quiet log.
+LOG_MUTATING_REQUESTS = env_bool('LOG_MUTATING_REQUESTS', True)
+# Health probes run every few seconds; logging them buries everything else.
+# Switch on temporarily when diagnosing a load balancer.
+LOG_HEALTH_REQUESTS = env_bool('LOG_HEALTH_REQUESTS', False)
 
-class _SafeContextFilter:
-    """Guarantee the optional context fields the formatter references exist.
+# An optional, safe build marker (a version or short commit SHA) recorded once
+# at startup so a log file can be tied to the code that produced it.
+APP_RELEASE = os.getenv('APP_RELEASE', '').strip()
 
-    `request_id` and `user_id` are filled in by call sites that already know
-    them safely; everything else gets `-` instead of a formatting error. No
-    value is ever derived from a cookie, header or request body here.
-    """
-
-    def __init__(self, name=''):
-        self.name = name
-
-    def filter(self, record):
-        if not hasattr(record, 'request_id'):
-            record.request_id = '-'
-        if not hasattr(record, 'user_id'):
-            record.user_id = '-'
-        return True
-
-
-_LOG_HANDLERS = ['console'] + (['file'] if LOG_TO_FILE else [])
+_LOG_HANDLERS = ([  # noqa: RUF005 - explicit order: console first, file second
+    'console'
+] if LOG_TO_CONSOLE else []) + (['file'] if LOG_TO_FILE else [])
 
 if LOG_TO_FILE:
+    # Created eagerly so a missing directory is a startup error the operator
+    # sees immediately, not a silently dropped log an hour into the pilot.
     LOG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+_LOG_FILTERS = ['request_context', 'redact_secrets']
 
 LOGGING = {
     'version': 1,
     # Django's own defaults stay in place.
     'disable_existing_loggers': False,
     'filters': {
-        'safe_context': {'()': 'ecosystem.settings._SafeContextFilter'},
+        'request_context': {'()': 'ecosystem.logging_utils.RequestContextFilter'},
+        # Applied to every handler, so a secret that reaches a record from any
+        # source — including Django internals and third-party libraries — is
+        # masked before it is written.
+        'redact_secrets': {'()': 'ecosystem.logging_utils.SensitiveValueRedactionFilter'},
     },
     'formatters': {
         'safe': {
+            # Redaction runs again after formatting, so a stack trace rendered
+            # by the formatter cannot smuggle a secret past the filters.
+            '()': 'ecosystem.logging_utils.SafeFormatter',
             'format': (
                 '[%(asctime)s] %(levelname)s %(name)s '
                 'request=%(request_id)s user=%(user_id)s: %(message)s'
@@ -738,11 +777,17 @@ LOGGING = {
         },
     },
     'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'safe',
-            'filters': ['safe_context'],
-        },
+        **(
+            {
+                'console': {
+                    'class': 'logging.StreamHandler',
+                    'formatter': 'safe',
+                    'filters': _LOG_FILTERS,
+                }
+            }
+            if LOG_TO_CONSOLE
+            else {}
+        ),
         **(
             {
                 'file': {
@@ -752,7 +797,7 @@ LOGGING = {
                     'backupCount': LOG_FILE_BACKUP_COUNT,
                     'encoding': 'utf-8',
                     'formatter': 'safe',
-                    'filters': ['safe_context'],
+                    'filters': _LOG_FILTERS,
                 }
             }
             if LOG_TO_FILE
@@ -764,8 +809,14 @@ LOGGING = {
         'django.request': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
         # Host header failures, suspicious operations, CSRF rejections.
         'django.security': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
-        # Act and task workflow transitions.
+        # One line per mutating, slow or failed HTTP request.
+        'ecosystem.request': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
+        # Process startup and the logging self-check.
+        'ecosystem.startup': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
+        # Act and task workflow transitions: ids, statuses, outcomes only.
         'ecosystem.workflow': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
+        # Protected attachment upload, download and refusal.
+        'ecosystem.attachments': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
         # Delivery attempts and their outcomes — never the message body.
         'notifications.email': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
         # Migration/transfer tooling.
@@ -774,7 +825,7 @@ LOGGING = {
         'deployment': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
         'realtime': {
             'handlers': _LOG_HANDLERS,
-            'level': os.getenv('REALTIME_LOG_LEVEL', LOG_LEVEL),
+            'level': REALTIME_LOG_LEVEL,
             'propagate': False,
         },
     },

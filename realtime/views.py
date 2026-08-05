@@ -17,6 +17,8 @@ from django.http import (
 )
 from django.views.decorators.http import require_GET
 
+from ecosystem.logging_utils import log_event
+
 from .auth import realtime_login_required
 from .publisher import realtime_enabled
 from .sse import event_stream, redis_is_reachable
@@ -49,7 +51,16 @@ async def realtime_events(request):
 
     reachable, reason = await redis_is_reachable()
     if not reachable:
-        logger.warning('realtime stream refused: %s', reason)
+        # `reason` comes from `describe_failure`, which keeps the host visible
+        # for diagnosis but never the URL, username or password.
+        log_event(
+            logger,
+            'WARNING',
+            'realtime.stream_refused',
+            user_id=user.pk,
+            detail=reason,
+            outcome='redis_unavailable',
+        )
         return HttpResponse(status=503)
 
     response = StreamingHttpResponse(
@@ -73,14 +84,24 @@ def realtime_sync(request):
     duration = time.monotonic() - started
 
     if duration >= SLOW_SYNC_SECONDS:
-        logger.warning(
-            'realtime.sync_slow user_id=%(user_id)s duration_ms=%(duration_ms)d',
-            {'user_id': request.user.pk, 'duration_ms': int(duration * 1000)},
+        log_event(
+            logger,
+            'WARNING',
+            'realtime.slow_sync',
+            user_id=request.user.pk,
+            duration_ms=duration * 1000,
+            outcome='slow',
         )
     else:
-        logger.debug(
-            'realtime.sync_completed user_id=%(user_id)s duration_ms=%(duration_ms)d',
-            {'user_id': request.user.pk, 'duration_ms': int(duration * 1000)},
+        # DEBUG: a fast sync that changed nothing runs on every connect,
+        # reconnect and safety timer — at INFO it would drown the file.
+        log_event(
+            logger,
+            'DEBUG',
+            'realtime.sync_completed',
+            user_id=request.user.pk,
+            duration_ms=duration * 1000,
+            outcome='ok',
         )
 
     response = JsonResponse(state)
