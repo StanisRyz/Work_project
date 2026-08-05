@@ -6,6 +6,7 @@ from io import StringIO
 from pathlib import Path
 from unittest import mock
 
+from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -13,6 +14,11 @@ from django.db import connection
 from django.urls import reverse
 
 from ecosystem import checks as deployment_checks
+from maintenance.management.commands.check_fresh_bootstrap import (
+    BLOCKING as BOOTSTRAP_BLOCKING,
+    PASS as BOOTSTRAP_PASS,
+    run_fresh_bootstrap_checks,
+)
 
 
 VALID_TEST_KEY = 'x7Qw9zLp2mR4tYv8bN3kJ6hG1sD5fA0cE7uI9oP4rT2wX6yZ8aB3'
@@ -413,6 +419,163 @@ class FreshBootstrapCommandTests(TestCase):
         self.assertEqual((Act.objects.count(), User.objects.count()), before)
 
 
+class ActStatusRequirementTests(TestCase):
+    """The bootstrap check must require the full status set the workflow uses."""
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command('seed_references', stdout=StringIO())
+
+    def _act_statuses_result(self):
+        results = run_fresh_bootstrap_checks(allow_sqlite=True)
+        return next(item for item in results if item['check'] == 'act_statuses')
+
+    def test_the_full_seeded_status_set_passes(self):
+        self.assertEqual(self._act_statuses_result()['status'], BOOTSTRAP_PASS)
+
+    def test_each_additional_required_status_blocks_when_missing(self):
+        from references.models import ActStatus
+
+        # D20-era codes already covered elsewhere; these three were added to
+        # the required set by this patch.
+        for code in ('ACTIONS_ASSIGNED', 'CLOSED', 'CANCELLED'):
+            with self.subTest(code=code):
+                ActStatus.objects.get(code=code).delete()
+                result = self._act_statuses_result()
+                self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+                self.assertIn(code, result['detail'])
+                call_command('seed_references', stdout=StringIO())
+
+    def test_the_task_status_set_is_unchanged(self):
+        results = run_fresh_bootstrap_checks(allow_sqlite=True)
+        result = next(item for item in results if item['check'] == 'task_statuses')
+        self.assertEqual(result['status'], BOOTSTRAP_PASS)
+        self.assertIn('2', result['detail'])
+
+
+class ActNumberSequenceCheckTests(TestCase):
+    """Regression coverage for the strengthened `act_number_sequence` check."""
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command('seed_references', stdout=StringIO())
+        cls.user = User.objects.create_user('sequence_probe')
+
+    def _make_act(self, number):
+        from acts.models import Act
+        from references.models import ActStatus, DefectType, Operation
+
+        return Act.objects.create(
+            number=number,
+            created_by=self.user,
+            party_number='P-1',
+            nomenclature='Изделие',
+            operation=Operation.objects.first(),
+            defect_type=DefectType.objects.first(),
+            status=ActStatus.objects.get(code='CREATED_OTK'),
+            description='Test',
+        )
+
+    def _result(self):
+        results = run_fresh_bootstrap_checks(allow_sqlite=True)
+        return next(item for item in results if item['check'] == 'act_number_sequence')
+
+    def test_an_empty_installation_passes(self):
+        self.assertEqual(self._result()['status'], BOOTSTRAP_PASS)
+
+    def test_a_sequence_row_with_no_acts_for_the_year_passes(self):
+        from acts.models import ActNumberSequence
+
+        ActNumberSequence.objects.create(year=2030, last_value=0)
+        self.assertEqual(self._result()['status'], BOOTSTRAP_PASS)
+
+    def test_a_correct_sequence_passes(self):
+        from acts.models import ActNumberSequence
+
+        self._make_act('АОК-2026-001')
+        ActNumberSequence.objects.create(year=2026, last_value=1)
+        self.assertEqual(self._result()['status'], BOOTSTRAP_PASS)
+
+    def test_acts_without_a_sequence_row_are_blocking(self):
+        self._make_act('АОК-2026-001')
+
+        result = self._result()
+
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+        self.assertIn('2026', result['detail'])
+
+    def test_a_lagging_last_value_is_blocking(self):
+        from acts.models import ActNumberSequence
+
+        self._make_act('АОК-2026-005')
+        ActNumberSequence.objects.create(year=2026, last_value=2)
+
+        result = self._result()
+
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+        self.assertIn('2026', result['detail'])
+
+    def test_a_last_value_with_headroom_passes(self):
+        from acts.models import ActNumberSequence
+
+        self._make_act('АОК-2026-002')
+        ActNumberSequence.objects.create(year=2026, last_value=10)
+
+        self.assertEqual(self._result()['status'], BOOTSTRAP_PASS)
+
+    def test_multiple_years_are_checked_independently(self):
+        from acts.models import ActNumberSequence
+
+        self._make_act('АОК-2025-003')
+        self._make_act('АОК-2026-001')
+        ActNumberSequence.objects.create(year=2025, last_value=3)
+        ActNumberSequence.objects.create(year=2026, last_value=0)
+
+        result = self._result()
+
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+        self.assertIn('2026', result['detail'])
+        self.assertNotIn('2025:', result['detail'])
+
+    def test_a_non_canonical_historical_number_is_ignored(self):
+        self._make_act('LEGACY/OLD-000123')
+
+        self.assertEqual(self._result()['status'], BOOTSTRAP_PASS)
+
+    def test_a_negative_last_value_is_blocking(self):
+        # `PositiveIntegerField` carries a database CHECK constraint on every
+        # supported backend, so a negative value can never come from ordinary
+        # ORM writes; this defensively covers a row corrupted outside Django
+        # (a manual UPDATE, a restored dump from an older schema).
+        from acts.models import ActNumberSequence
+
+        with mock.patch.object(
+            ActNumberSequence.objects, 'values_list', return_value=[(2019, -1)]
+        ):
+            result = self._result()
+
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+
+    def test_the_check_never_creates_or_modifies_a_sequence_row(self):
+        from acts.models import ActNumberSequence
+
+        self._make_act('АОК-2026-001')
+        before = list(ActNumberSequence.objects.values_list('year', 'last_value'))
+
+        self._result()
+
+        after = list(ActNumberSequence.objects.values_list('year', 'last_value'))
+        self.assertEqual(before, after)
+        self.assertFalse(ActNumberSequence.objects.filter(year=2026).exists())
+
+    def test_the_detail_never_names_a_specific_act_number(self):
+        self._make_act('АОК-2026-001')
+
+        result = self._result()
+
+        self.assertNotIn('АОК-2026-001', result['detail'])
+
+
 class ProductionReadinessCommandTests(TestCase):
     def _run(self, **options):
         buffer = StringIO()
@@ -491,6 +654,86 @@ class ProductionReadinessCommandTests(TestCase):
         self.assertEqual(Act.objects.count(), before)
 
 
+class ProductionReadinessDeduplicationTests(TestCase):
+    """Every logical section must appear exactly once in the readiness report."""
+
+    def _run(self, **options):
+        buffer = StringIO()
+        try:
+            call_command('check_production_readiness', stdout=buffer, stderr=buffer, **options)
+            code = 0
+        except SystemExit as exc:
+            code = exc.code
+        return code, buffer.getvalue()
+
+    def _json_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'readiness.json'
+            self._run(json_report=str(path))
+            return json.loads(path.read_text(encoding='utf-8'))
+
+    def test_check_names_are_not_repeated(self):
+        report = self._json_report()
+
+        names = [item['check'] for item in report['results']]
+
+        self.assertEqual(len(names), len(set(names)), f'duplicate check names: {names}')
+
+    def test_summary_matches_the_actual_number_of_unique_results(self):
+        report = self._json_report()
+
+        total = (
+            report['summary']['pass'] + report['summary']['warning'] + report['summary']['blocking']
+        )
+
+        self.assertEqual(total, len(report['results']))
+
+    def test_a_stricter_bootstrap_result_is_not_lost(self):
+        from acts.models import Act
+        from references.models import ActStatus, DefectType, Operation
+
+        call_command('seed_references', stdout=StringIO())
+        user = User.objects.create_user('readiness_sequence_probe')
+        Act.objects.create(
+            number='АОК-2026-005',
+            created_by=user,
+            party_number='P-1',
+            nomenclature='Изделие',
+            operation=Operation.objects.first(),
+            defect_type=DefectType.objects.first(),
+            status=ActStatus.objects.get(code='CREATED_OTK'),
+            description='Test',
+        )
+        # No matching ActNumberSequence row: this is a bootstrap-core BLOCKING
+        # that has no readiness-level counterpart to be shadowed by.
+
+        code, output = self._run()
+
+        self.assertEqual(code, 1)
+        self.assertIn('act_number_sequence', output)
+
+    def test_standalone_fresh_bootstrap_still_runs_its_full_section_set(self):
+        buffer = StringIO()
+        call_command('seed_references', stdout=StringIO())
+        try:
+            call_command(
+                'check_fresh_bootstrap', stdout=buffer, stderr=buffer, allow_sqlite=True
+            )
+        except SystemExit:
+            pass
+        output = buffer.getvalue()
+
+        for section in ('realtime', 'email', 'demo_reset', 'media_root', 'static_root'):
+            self.assertIn(section, output)
+
+    def test_the_command_changes_nothing(self):
+        from acts.models import Act
+
+        before = Act.objects.count()
+        self._run()
+        self.assertEqual(Act.objects.count(), before)
+
+
 class EmailConfigurationCheckTests(SimpleTestCase):
     """Configuration only — no SMTP connection is ever attempted."""
 
@@ -535,5 +778,205 @@ class EmailConfigurationCheckTests(SimpleTestCase):
             DEFAULT_FROM_EMAIL='quality@example.internal',
         )
 
-        for check_id in ('ecosystem.E014', 'ecosystem.E015', 'ecosystem.E016', 'ecosystem.E017'):
+        for check_id in (
+            'ecosystem.E014', 'ecosystem.E015', 'ecosystem.E016', 'ecosystem.E017',
+            'ecosystem.E020', 'ecosystem.E021',
+        ):
             self.assertNotIn(check_id, reported)
+
+    def test_an_empty_email_host_is_blocking(self):
+        reported = self._email_problems(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_HOST='',
+        )
+
+        self.assertIn('ecosystem.E020', reported)
+
+    def test_port_zero_is_blocking(self):
+        reported = self._email_problems(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_PORT=0,
+        )
+
+        self.assertIn('ecosystem.E021', reported)
+
+    def test_port_above_65535_is_blocking(self):
+        reported = self._email_problems(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_PORT=70000,
+        )
+
+        self.assertIn('ecosystem.E021', reported)
+
+    def test_a_negative_processing_timeout_is_blocking(self):
+        reported = self._email_problems(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS=-1,
+        )
+
+        self.assertIn('ecosystem.E017', reported)
+
+    def test_tls_and_ssl_together_is_blocking(self):
+        reported = self._email_problems(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_USE_TLS=True,
+            EMAIL_USE_SSL=True,
+        )
+
+        self.assertIn('ecosystem.E015', reported)
+
+    def test_a_relay_without_credentials_is_not_blocking(self):
+        # A corporate SMTP relay reachable only by IP allow-list needs no
+        # EMAIL_HOST_USER/EMAIL_HOST_PASSWORD; whether authentication is
+        # required is an IT decision, not one these checks make.
+        reported = self._email_problems(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_HOST='smtp.internal.example',
+            EMAIL_PORT=25,
+            EMAIL_HOST_USER='',
+            EMAIL_HOST_PASSWORD='',
+        )
+
+        for check_id in ('ecosystem.E014', 'ecosystem.E020', 'ecosystem.E021'):
+            self.assertNotIn(check_id, reported)
+
+    def test_a_relay_with_credentials_still_passes(self):
+        reported = self._email_problems(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_HOST='smtp.internal.example',
+            EMAIL_PORT=587,
+            EMAIL_USE_TLS=True,
+            EMAIL_HOST_USER='service-account',
+            EMAIL_HOST_PASSWORD='irrelevant-here',
+        )
+
+        for check_id in ('ecosystem.E014', 'ecosystem.E015', 'ecosystem.E020', 'ecosystem.E021'):
+            self.assertNotIn(check_id, reported)
+
+    def test_no_smtp_connection_is_ever_attempted(self):
+        with mock.patch('smtplib.SMTP') as smtp, mock.patch('smtplib.SMTP_SSL') as smtp_ssl:
+            self._email_problems(
+                EMAIL_NOTIFICATIONS_ENABLED=True,
+                EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                DEFAULT_FROM_EMAIL='quality@example.internal',
+            )
+
+        smtp.assert_not_called()
+        smtp_ssl.assert_not_called()
+
+
+class BootstrapEmailConfigurationCheckTests(SimpleTestCase):
+    """The same rules, exercised through `check_fresh_bootstrap`'s own helper."""
+
+    def _result(self, **overrides):
+        from maintenance.management.commands.check_fresh_bootstrap import (
+            _check_email_configuration,
+        )
+
+        with override_settings(**overrides):
+            return _check_email_configuration()[0]
+
+    def test_disabled_notifications_require_nothing(self):
+        result = self._result(EMAIL_NOTIFICATIONS_ENABLED=False)
+        self.assertEqual(result['status'], BOOTSTRAP_PASS)
+
+    def test_empty_host_is_blocking(self):
+        result = self._result(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            EMAIL_HOST='',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+        )
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+        self.assertIn('EMAIL_HOST', result['detail'])
+
+    def test_port_zero_is_blocking(self):
+        result = self._result(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            EMAIL_PORT=0,
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+        )
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+        self.assertIn('EMAIL_PORT', result['detail'])
+
+    def test_port_above_65535_is_blocking(self):
+        result = self._result(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            EMAIL_PORT=99999,
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+        )
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+
+    def test_negative_processing_timeout_is_blocking(self):
+        result = self._result(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            EMAIL_HOST='smtp.internal.example',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS=-5,
+        )
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+
+    def test_tls_and_ssl_together_is_blocking(self):
+        result = self._result(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            EMAIL_HOST='smtp.internal.example',
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_USE_TLS=True,
+            EMAIL_USE_SSL=True,
+        )
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+
+    def test_a_relay_without_credentials_passes(self):
+        result = self._result(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            EMAIL_HOST='smtp.internal.example',
+            EMAIL_PORT=25,
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_HOST_USER='',
+            EMAIL_HOST_PASSWORD='',
+        )
+        self.assertEqual(result['status'], BOOTSTRAP_PASS)
+
+    def test_a_relay_with_credentials_passes(self):
+        result = self._result(
+            EMAIL_NOTIFICATIONS_ENABLED=True,
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            EMAIL_HOST='smtp.internal.example',
+            EMAIL_PORT=587,
+            EMAIL_USE_TLS=True,
+            DEFAULT_FROM_EMAIL='quality@example.internal',
+            EMAIL_HOST_USER='service-account',
+            EMAIL_HOST_PASSWORD='irrelevant-here',
+        )
+        self.assertEqual(result['status'], BOOTSTRAP_PASS)
+
+    def test_no_smtp_connection_is_ever_attempted(self):
+        with mock.patch('smtplib.SMTP') as smtp, mock.patch('smtplib.SMTP_SSL') as smtp_ssl:
+            self._result(
+                EMAIL_NOTIFICATIONS_ENABLED=True,
+                EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                EMAIL_HOST='smtp.internal.example',
+                DEFAULT_FROM_EMAIL='quality@example.internal',
+            )
+
+        smtp.assert_not_called()
+        smtp_ssl.assert_not_called()

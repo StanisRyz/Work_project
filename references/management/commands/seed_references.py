@@ -108,7 +108,8 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                'Reference data ready: 13 operations, 20 defect types, '
-                '8 act statuses, 6 task statuses, 4 priorities.'
+                f'Reference data ready: {len(operations)} operations, '
+                f'{len(defect_types)} defect types, {len(act_statuses)} act statuses, '
+                f'{len(task_statuses)} task statuses, {len(priorities)} priorities.'
             )
         )

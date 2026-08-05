@@ -299,6 +299,7 @@ def _check_email():
         'EMAIL_NOTIFICATION_MAX_ATTEMPTS',
         'EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS',
         'EMAIL_NOTIFICATION_BATCH_SIZE',
+        'EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS',
     ):
         if int(getattr(settings, name, 0) or 0) <= 0:
             problems.append(
@@ -308,6 +309,31 @@ def _check_email():
                     id='ecosystem.E017',
                 )
             )
+    if not str(getattr(settings, 'EMAIL_HOST', '') or '').strip():
+        problems.append(
+            Error(
+                'EMAIL_HOST пуст при включённых уведомлениях.',
+                hint=(
+                    'Укажите адрес SMTP/Exchange relay. EMAIL_HOST_USER и '
+                    'EMAIL_HOST_PASSWORD остаются необязательными — relay может '
+                    'работать по IP allow-list без аутентификации.'
+                ),
+                id='ecosystem.E020',
+            )
+        )
+    port = getattr(settings, 'EMAIL_PORT', None)
+    try:
+        port_is_valid = 1 <= int(port) <= 65535
+    except (TypeError, ValueError):
+        port_is_valid = False
+    if not port_is_valid:
+        problems.append(
+            Error(
+                'EMAIL_PORT вне допустимого диапазона 1-65535.',
+                hint='Укажите порт SMTP/Exchange relay, обычно 25, 465 или 587.',
+                id='ecosystem.E021',
+            )
+        )
     return problems
 
 

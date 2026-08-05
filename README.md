@@ -399,10 +399,39 @@ reset, `MEDIA_ROOT`, `STATIC_ROOT`, and consistent real-time/email settings.
 Real working data is *not* an error — the command stays re-runnable after
 go-live and reports it as a warning.
 
+The `ActNumberSequence` check compares `last_value` against the highest
+`АОК-YYYY-NNN` suffix actually issued for each year (one projection query,
+regardless of how many acts or years exist — never one query per act). A
+missing counter row for a year that has acts, or a `last_value` that has
+fallen behind the real maximum, blocks readiness; an empty installation and a
+counter with headroom both pass. Historical numbers in any other shape are
+never counted. The check never writes: no missing row is created and no
+counter is raised automatically, and a reported gap names only the year and
+aggregated counts, never a specific act number — see
+[Первый запуск на чистой PostgreSQL](docs/fresh_postgresql_bootstrap.md) for
+the manual fix.
+
+Required reference data now includes the full act status set the workflow
+uses — `CREATED_OTK`, `KO_REVIEW`, `TO_ANALYSIS`, `OTK_REVIEW`,
+`ACTIONS_ASSIGNED`, `ARCHIVED`, `CLOSED`, `CANCELLED` — plus `IN_PROGRESS` and
+`COMPLETED` task statuses; `seed_references` creates exactly this set and its
+summary always reports what it actually created.
+
+With email notifications enabled, `EMAIL_HOST`, an `EMAIL_PORT` in
+`1-65535`, `DEFAULT_FROM_EMAIL`, and positive queue timing settings are all
+required, and `EMAIL_USE_TLS`/`EMAIL_USE_SSL` cannot both be on — checked
+without ever opening an SMTP connection. `EMAIL_HOST_USER`/
+`EMAIL_HOST_PASSWORD` stay optional throughout: a corporate relay reachable
+only by an IP allow-list needs no application-level credentials.
+
 `check_production_readiness` consolidates everything into a `PASS` / `WARNING`
 / `BLOCKING` report (`--json-report` for a safe JSON copy) and exits non-zero
-on any `BLOCKING`. Both commands are read-only, and neither prints a username
-or any object content.
+on any `BLOCKING`. It reuses the fresh-bootstrap core for backend, connection,
+migrations, reference data and `ActNumberSequence`, then reports real-time,
+static/media, demo reset and email itself — each with a deeper, live check
+(an actual Redis PING, for example) — so every logical section appears
+exactly once in the report. Both commands are read-only, and neither prints a
+username or any object content.
 
 ### Health endpoints
 

@@ -21,14 +21,10 @@ from django.core.management.base import BaseCommand
 from django.db import connection
 
 
-# Reference rows the workflow cannot run without.
-REQUIRED_ACT_STATUS_CODES = (
-    'CREATED_OTK',
-    'KO_REVIEW',
-    'TO_ANALYSIS',
-    'OTK_REVIEW',
-    'ARCHIVED',
-)
+# Reference rows the workflow cannot run without. The act status codes are not
+# repeated here as a second literal list: `_check_reference_data()` reads them
+# from `acts.models.ACT_STATUS_CODES`, the same constant the workflow itself
+# uses, so this check and the workflow can never silently drift apart.
 REQUIRED_TASK_STATUS_CODES = ('IN_PROGRESS', 'COMPLETED')
 
 # Markers left by the local demo and performance tooling.
@@ -97,8 +93,24 @@ def _result(check, status, detail):
     return {'check': check, 'status': status, 'detail': detail}
 
 
-def run_fresh_bootstrap_checks(*, allow_demo_admin=False, allow_sqlite=False):
-    """Return a list of `{check, status, detail}` — never raises, never writes."""
+def run_fresh_bootstrap_checks(
+    *,
+    allow_demo_admin=False,
+    allow_sqlite=False,
+    include_demo_reset=True,
+    include_media=True,
+    include_static=True,
+    include_realtime=True,
+    include_email=True,
+):
+    """Return a list of `{check, status, detail}` — never raises, never writes.
+
+    The `include_*` flags let a caller that already reports a given section in
+    more detail (`check_production_readiness` probes Redis and compares
+    `MEDIA_ROOT`/`STATIC_ROOT` for real) opt out of it here, so each logical
+    check appears exactly once across both commands. `check_fresh_bootstrap`
+    itself always runs with every flag on and reports its full, standalone set.
+    """
     results = []
     results.append(_check_backend(allow_sqlite))
     results.append(_check_connection())
@@ -106,10 +118,16 @@ def run_fresh_bootstrap_checks(*, allow_demo_admin=False, allow_sqlite=False):
     results.extend(_check_reference_data())
     results.append(_check_act_number_sequence())
     results.extend(_check_no_demo_data(allow_demo_admin))
-    results.append(_check_demo_reset_flag())
-    results.append(_check_media_root())
-    results.append(_check_static_root())
-    results.extend(_check_service_configuration())
+    if include_demo_reset:
+        results.append(_check_demo_reset_flag())
+    if include_media:
+        results.append(_check_media_root())
+    if include_static:
+        results.append(_check_static_root())
+    if include_realtime:
+        results.extend(_check_realtime_configuration())
+    if include_email:
+        results.extend(_check_email_configuration())
     return results
 
 
@@ -155,11 +173,16 @@ def _check_migrations():
 
 
 def _check_reference_data():
+    from acts.models import ACT_STATUS_CODES
     from references.models import ActStatus, DefectType, Operation, TaskStatus
+
+    # The full set the workflow depends on (`acts.models.get_act_status`), not
+    # a second, independently maintained list.
+    required_act_status_codes = tuple(ACT_STATUS_CODES.values())
 
     results = []
     for model, codes, name in (
-        (ActStatus, REQUIRED_ACT_STATUS_CODES, 'act_statuses'),
+        (ActStatus, required_act_status_codes, 'act_statuses'),
         (TaskStatus, REQUIRED_TASK_STATUS_CODES, 'task_statuses'),
     ):
         try:
@@ -188,22 +211,84 @@ def _check_reference_data():
     return results
 
 
+def _max_issued_act_numbers_by_year():
+    """`{year: highest canonical suffix actually issued}` in one query.
+
+    Only the `number` column is fetched — never a full `Act` row — and parsed
+    in Python with the existing `ACT_NUMBER_PATTERN`/`ACT_NUMBER_PREFIX`, so a
+    historical or manually entered number in any other shape is silently
+    skipped rather than mistaken for a canonical `АОК-YYYY-NNN` one. One query
+    regardless of how many years or acts exist.
+    """
+    from acts.models import ACT_NUMBER_PATTERN, ACT_NUMBER_PREFIX, Act
+
+    numbers = Act.objects.filter(number__startswith=f'{ACT_NUMBER_PREFIX}-').values_list(
+        'number', flat=True
+    )
+    max_by_year = {}
+    for number in numbers:
+        match = ACT_NUMBER_PATTERN.match(number)
+        if not match:
+            continue
+        year = int(match.group(1))
+        suffix = int(match.group(2))
+        if suffix > max_by_year.get(year, 0):
+            max_by_year[year] = suffix
+    return max_by_year
+
+
 def _check_act_number_sequence():
-    from acts.models import Act, ActNumberSequence
+    """Compare `ActNumberSequence.last_value` against numbers actually issued.
+
+    Read-only: this never creates a missing row, never raises an existing
+    `last_value`, and never touches `Act` data. A gap is reported for an
+    operator to fix through the manual procedure in
+    docs/fresh_postgresql_bootstrap.md — only the affected years and their
+    aggregated counters are named, never a specific act number.
+    """
+    from acts.models import ActNumberSequence
 
     try:
-        rows = list(ActNumberSequence.objects.values_list('year', 'last_value'))
-        act_count = Act.objects.count()
+        max_by_year = _max_issued_act_numbers_by_year()
+        sequence_by_year = dict(ActNumberSequence.objects.values_list('year', 'last_value'))
     except Exception as exc:  # noqa: BLE001
         return _result('act_number_sequence', BLOCKING, f'Недоступно ({type(exc).__name__}).')
 
-    if not rows and not act_count:
-        return _result('act_number_sequence', PASS, 'Счётчик пуст, актов нет — ожидаемо.')
-    lagging = [year for year, last_value in rows if last_value < 0]
-    if lagging:
-        return _result('act_number_sequence', BLOCKING, 'Счётчик содержит отрицательные значения.')
+    years = sorted(set(max_by_year) | set(sequence_by_year))
+    if not years:
+        return _result(
+            'act_number_sequence', PASS, 'Счётчик пуст, актов с каноническим номером нет — ожидаемо.'
+        )
+
+    problems = []
+    for year in years:
+        max_actual = max_by_year.get(year, 0)
+        last_value = sequence_by_year.get(year)
+        if last_value is None:
+            # Only possible when acts exist for `year`: otherwise `year` would
+            # not have entered the union above.
+            problems.append(
+                f'{year}: нет строки счётчика, выдано номеров с максимальным суффиксом {max_actual}'
+            )
+        elif last_value < 0:
+            problems.append(f'{year}: недопустимое отрицательное значение счётчика ({last_value})')
+        elif last_value < max_actual:
+            problems.append(
+                f'{year}: счётчик={last_value}, фактически выдан максимум {max_actual}'
+            )
+
+    if problems:
+        return _result(
+            'act_number_sequence',
+            BLOCKING,
+            'ActNumberSequence отстаёт от выданных номеров: ' + '; '.join(problems) + '. '
+            'Автоматическое исправление не выполняется — требуется ручная проверка '
+            'администратором по процедуре из docs/fresh_postgresql_bootstrap.md.',
+        )
     return _result(
-        'act_number_sequence', PASS, f'Строк счётчика: {len(rows)}, актов: {act_count}.'
+        'act_number_sequence',
+        PASS,
+        f'Согласован по годам: {len(years)}.',
     )
 
 
@@ -305,33 +390,65 @@ def _check_static_root():
     return _result('static_root', PASS, 'Каталог собран.')
 
 
-def _check_service_configuration():
-    """Real-time and email must be internally consistent, without connecting."""
-    results = []
+def _check_realtime_configuration():
+    """Real-time must be internally consistent, without connecting to Redis."""
     realtime_enabled = bool(getattr(settings, 'REALTIME_ENABLED', False))
     publisher = getattr(settings, 'REALTIME_PUBLISHER_BACKEND', '')
     if realtime_enabled and publisher.endswith('NoopRealtimePublisher'):
-        results.append(
-            _result('realtime', BLOCKING, 'REALTIME_ENABLED=true с publisher без транспорта.')
-        )
-    elif realtime_enabled:
-        results.append(_result('realtime', PASS, 'Включён с транспортом.'))
-    else:
-        results.append(_result('realtime', PASS, 'Выключен — допустимая конфигурация.'))
+        return [_result('realtime', BLOCKING, 'REALTIME_ENABLED=true с publisher без транспорта.')]
+    if realtime_enabled:
+        return [_result('realtime', PASS, 'Включён с транспортом.')]
+    return [_result('realtime', PASS, 'Выключен — допустимая конфигурация.')]
 
+
+def _check_email_configuration():
+    """Email must be internally consistent, without ever opening an SMTP connection.
+
+    With `EMAIL_NOTIFICATIONS_ENABLED=false` nothing below is required: a
+    corporate SMTP relay reachable only by IP allow-list needs no
+    `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD`, so those two stay unchecked here
+    on purpose — whether authentication is needed is an IT decision, not one
+    this command can make from the environment alone.
+    """
     if not getattr(settings, 'EMAIL_NOTIFICATIONS_ENABLED', False):
-        results.append(_result('email', PASS, 'Выключен — SMTP не требуется.'))
-        return results
+        return [_result('email', PASS, 'Выключен — SMTP не требуется.')]
 
-    backend = getattr(settings, 'EMAIL_BACKEND', '')
+    problems = []
+    backend = str(getattr(settings, 'EMAIL_BACKEND', '') or '')
     if backend.endswith('console.EmailBackend'):
-        results.append(
-            _result('email', BLOCKING, 'Уведомления включены, но backend печатает письма в консоль.')
-        )
-    elif getattr(settings, 'EMAIL_USE_TLS', False) and getattr(settings, 'EMAIL_USE_SSL', False):
-        results.append(_result('email', BLOCKING, 'EMAIL_USE_TLS и EMAIL_USE_SSL включены одновременно.'))
-    elif not str(getattr(settings, 'DEFAULT_FROM_EMAIL', '') or '').strip():
-        results.append(_result('email', BLOCKING, 'DEFAULT_FROM_EMAIL пуст.'))
+        problems.append('backend печатает письма в консоль вместо отправки')
+    if getattr(settings, 'EMAIL_USE_TLS', False) and getattr(settings, 'EMAIL_USE_SSL', False):
+        problems.append('EMAIL_USE_TLS и EMAIL_USE_SSL включены одновременно')
+    if not str(getattr(settings, 'EMAIL_HOST', '') or '').strip():
+        problems.append('EMAIL_HOST пуст')
+
+    port = getattr(settings, 'EMAIL_PORT', None)
+    try:
+        port_value = int(port)
+    except (TypeError, ValueError):
+        problems.append('EMAIL_PORT задан некорректно')
     else:
-        results.append(_result('email', PASS, 'Конфигурация непротиворечива (без сетевой проверки).'))
-    return results
+        if not 1 <= port_value <= 65535:
+            problems.append('EMAIL_PORT вне допустимого диапазона 1-65535')
+
+    if not str(getattr(settings, 'DEFAULT_FROM_EMAIL', '') or '').strip():
+        problems.append('DEFAULT_FROM_EMAIL пуст')
+
+    for name in (
+        'EMAIL_TIMEOUT',
+        'EMAIL_NOTIFICATION_MAX_ATTEMPTS',
+        'EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS',
+        'EMAIL_NOTIFICATION_BATCH_SIZE',
+        'EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS',
+    ):
+        value = getattr(settings, name, 0)
+        try:
+            positive = int(value) > 0
+        except (TypeError, ValueError):
+            positive = False
+        if not positive:
+            problems.append(f'{name} должен быть положительным')
+
+    if problems:
+        return [_result('email', BLOCKING, '; '.join(problems) + '.')]
+    return [_result('email', PASS, 'Конфигурация непротиворечива (без сетевой проверки).')]

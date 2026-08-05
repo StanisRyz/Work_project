@@ -24,7 +24,13 @@ from django.core.checks import Error, Warning as CheckWarning, run_checks
 from django.core.management.base import BaseCommand
 from django.db import connection
 
-from .check_fresh_bootstrap import BLOCKING, PASS, WARNING, run_fresh_bootstrap_checks
+from .check_fresh_bootstrap import (
+    BLOCKING,
+    PASS,
+    WARNING,
+    _check_email_configuration,
+    run_fresh_bootstrap_checks,
+)
 
 
 class Command(BaseCommand):
@@ -148,11 +154,25 @@ def _database():
 
 
 def _reference_and_bootstrap(allow_demo_admin):
-    """Reuse the fresh-bootstrap checks rather than re-deriving them."""
+    """Reuse the fresh-bootstrap checks rather than re-deriving them.
+
+    `realtime`, `static_root`/`media_root`, `demo_reset` and `email` are
+    excluded here: this command reports each of those itself, in more depth
+    (a real Redis PING, a `MEDIA_ROOT`/`STATIC_ROOT` isolation comparison, an
+    `IS_PRODUCTION`-aware demo-reset severity). Excluding them from the shared
+    core — rather than filtering duplicate lines out of the final report —
+    keeps every logical check appearing exactly once without ever risking that
+    a stricter bootstrap result gets silently dropped in favour of a looser one.
+    """
     try:
         return run_fresh_bootstrap_checks(
             allow_demo_admin=allow_demo_admin,
             allow_sqlite=not getattr(settings, 'IS_PRODUCTION', False),
+            include_realtime=False,
+            include_static=False,
+            include_media=False,
+            include_demo_reset=False,
+            include_email=False,
         )
     except Exception as exc:  # noqa: BLE001
         return [_result('fresh_bootstrap', BLOCKING, f'Не удалось выполнить ({type(exc).__name__}).')]
@@ -218,16 +238,11 @@ def _demo_reset():
 
 
 def _email():
-    if not getattr(settings, 'EMAIL_NOTIFICATIONS_ENABLED', False):
-        return [_result('email', PASS, 'Уведомления по почте выключены — SMTP не требуется.')]
-    backend = getattr(settings, 'EMAIL_BACKEND', '')
-    if backend.endswith('console.EmailBackend'):
-        return [_result('email', BLOCKING, 'Console backend при включённых уведомлениях.')]
-    if getattr(settings, 'EMAIL_USE_TLS', False) and getattr(settings, 'EMAIL_USE_SSL', False):
-        return [_result('email', BLOCKING, 'EMAIL_USE_TLS и EMAIL_USE_SSL одновременно.')]
-    # Deliberately no SMTP connection here either: a mail server being briefly
-    # unreachable is not a reason to block a deployment.
-    return [_result('email', PASS, 'Конфигурация корректна (без сетевой проверки SMTP).')]
+    # The same validation `check_fresh_bootstrap` uses, so the two commands
+    # can never enforce different email rules. Deliberately no SMTP connection
+    # here either: a mail server being briefly unreachable is not a reason to
+    # block a deployment.
+    return _check_email_configuration()
 
 
 def _backup():

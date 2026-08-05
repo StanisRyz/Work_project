@@ -166,8 +166,13 @@ SSE-соединение не должно удерживать соединен
 cookies; `E009` SSL redirect; `E010` не PostgreSQL; `E011` нет STATIC_ROOT;
 `E012` STATIC_ROOT совпадает с MEDIA_ROOT; `E013` demo reset; `E014` console
 email при включённых уведомлениях; `E015` TLS+SSL одновременно; `E016` пустой
-отправитель; `E017` неположительные параметры очереди; `E018` real-time с Noop
-publisher; `E019` нет ASGI_APPLICATION.
+отправитель; `E017` неположительные параметры очереди (включая
+`EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS`); `E018` real-time с Noop
+publisher; `E019` нет ASGI_APPLICATION; `E020` пустой EMAIL_HOST при
+включённых уведомлениях; `E021` EMAIL_PORT вне диапазона 1-65535.
+`EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` ни при каких условиях не проверяются
+как обязательные — корпоративный SMTP relay может работать по IP allow-list
+без аутентификации.
 
 Предупреждения: `W001` HSTS выключен; `W002` не настроены proxy-заголовки;
 `W003` sslmode допускает незашифрованное соединение; `W004` отключены runtime
@@ -210,12 +215,27 @@ python manage.py check_production_readiness --json-report readiness.json
 создания администратора и начала эксплуатации, и сообщает об этом
 предупреждением. Имена пользователей и содержимое объектов не выводятся.
 
+Обязательные справочники — полный набор статусов актов (`CREATED_OTK`,
+`KO_REVIEW`, `TO_ANALYSIS`, `OTK_REVIEW`, `ACTIONS_ASSIGNED`, `ARCHIVED`,
+`CLOSED`, `CANCELLED`, читается из `acts.models.ACT_STATUS_CODES` — той же
+константы, что использует сам workflow) и статусов задач (`IN_PROGRESS`,
+`COMPLETED`). Проверка `ActNumberSequence` сравнивает `last_value` с
+фактически выданным максимальным номером `АОК-YYYY-NNN` за каждый год (один
+запрос независимо от числа актов и лет), никогда не создаёт и не изменяет
+данные счётчика, и называет в сообщении только год и агрегированные значения —
+см. [Первый запуск на чистой PostgreSQL](fresh_postgresql_bootstrap.md) для
+таблицы состояний и ручной процедуры исправления.
+
 `check_production_readiness` — сводный отчёт: системные проверки Django,
-backend и версия PostgreSQL, миграции, справочники, Redis (с настоящим PING,
-если real-time включён), static/media, demo reset, email, fresh bootstrap и
-подтверждение резервного копирования. Формат: `PASS` / `WARNING` /
-`BLOCKING`; при наличии `BLOCKING` код возврата ненулевой. JSON-отчёт не
-содержит секретов, полных путей, имён пользователей и бизнес-данных.
+backend и версия PostgreSQL, миграции, справочники, `ActNumberSequence`, Redis
+(с настоящим PING, если real-time включён), static/media, demo reset, email и
+подтверждение резервного копирования. Backend/соединение/миграции/справочники/
+`ActNumberSequence` переиспользуются из `check_fresh_bootstrap`; real-time,
+static/media, demo reset и email эта команда проверяет сама, подробнее —
+поэтому каждый логический раздел появляется в отчёте ровно один раз. Формат:
+`PASS` / `WARNING` / `BLOCKING`; при наличии `BLOCKING` код возврата
+ненулевой. JSON-отчёт не содержит секретов, полных путей, имён пользователей и
+бизнес-данных.
 
 ## 11. Резервное копирование
 
