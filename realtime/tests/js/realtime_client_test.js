@@ -1129,6 +1129,145 @@ test('a leader closing still lets another tab take over and become live', async 
     assert.ok(follower.callsTo('/realtime/sync/').length >= 1, 'promotion led to a sync once the fresh stream opened');
 });
 
+// ------------------------------------------------------- STAB-2 recovery ownership
+
+test('a degraded leader polls, and its follower shows the indicator without polling', async () => {
+    const [leader, follower] = loadTabs(2);
+    leader.setFetchHandler(() => snapshot());
+    follower.setFetchHandler(() => snapshot());
+
+    // The leader never connects, so it degrades and takes over recovery.
+    leader.clock.advance(21000);
+    follower.clock.advance(21000);
+    await flush();
+
+    assert.equal(leader.core.state, 'degraded');
+    assert.equal(leader.core.sync.isPolling, true, 'the recovery owner polls');
+    assert.equal(follower.core.state, 'degraded', 'the follower mirrors the state for its indicator');
+    assert.equal(follower.core.sync.isPolling, false, 'but must never start its own poll loop');
+
+    const followerBefore = follower.callsTo('/realtime/sync/').length;
+    follower.clock.advance(180000);
+    await flush();
+    assert.equal(
+        follower.callsTo('/realtime/sync/').length,
+        followerBefore,
+        'a follower issues no periodic recovery requests at all',
+    );
+});
+
+test('ownsRecovery is true for a leader and for a standalone tab, false for a follower', async () => {
+    const [leader, follower] = loadTabs(2);
+    assert.equal(leader.core.sync.ownsRecovery, true);
+    assert.equal(follower.core.sync.ownsRecovery, false);
+
+    FakeBroadcastChannel.bus = new Bus();
+    FakeEventSource.instances = [];
+    const standalone = load({ broadcast: false, resetSources: false });
+    assert.equal(standalone.core.tabs.isCoordinated, false);
+    assert.equal(standalone.core.sync.ownsRecovery, true, 'an uncoordinated tab recovers for itself');
+});
+
+test('a promoted tab takes over polling from the leader that went away', async () => {
+    const [leader, follower] = loadTabs(2);
+    leader.setFetchHandler(() => snapshot());
+    follower.setFetchHandler(() => snapshot());
+
+    leader.clock.advance(21000);
+    follower.clock.advance(21000);
+    await flush();
+    assert.equal(follower.core.sync.isPolling, false);
+
+    // The leader disappears and its lease expires.
+    leader.core.stop();
+    follower.window.localStorage.setItem(
+        'quality-realtime-leader-v1',
+        JSON.stringify({ tab_id: 'gone', expires_at: Date.now() - 1000 }),
+    );
+    follower.core.tabs.renewOrElect();
+    follower.clock.advance(500);
+    await flush();
+
+    assert.equal(follower.core.tabs.isLeader, true, 'the follower was promoted');
+    assert.equal(follower.core.sync.ownsRecovery, true, 'and now owns recovery');
+    // Promotion opens a fresh EventSource, so the new leader starts in
+    // `connecting` rather than inheriting `degraded`. If that stream also
+    // fails to deliver, the ordinary degrade timeout hands it the polling.
+    assert.equal(follower.core.state, 'connecting');
+
+    follower.clock.advance(21000);
+    await flush();
+    assert.equal(follower.core.state, 'degraded');
+    assert.equal(follower.core.sync.isPolling, true, 'the new leader took over recovery polling');
+});
+
+test('a demoted leader stops polling as well as its safety timer', async () => {
+    const [leader, follower] = loadTabs(2);
+    leader.setFetchHandler(() => snapshot());
+    leader.clock.advance(21000);
+    await flush();
+    assert.equal(leader.core.sync.isPolling, true);
+
+    follower.window.localStorage.setItem(
+        'quality-realtime-leader-v1',
+        JSON.stringify({ tab_id: 'somebody-else', expires_at: Date.now() + 60000 }),
+    );
+    leader.core.tabs.renewOrElect();
+
+    assert.equal(leader.core.tabs.isLeader, false);
+    assert.equal(leader.core.sync.isPolling, false, 'a demoted tab must hand recovery back');
+});
+
+test('stopping releases every timer, request and channel', async () => {
+    const [leader, follower] = loadTabs(2);
+    leader.setFetchHandler(() => snapshot());
+    follower.setFetchHandler(() => snapshot());
+    FakeEventSource.instances[0].emit('open');
+    leader.clock.advance(300);
+    await flush();
+
+    const source = FakeEventSource.instances[0];
+    leader.core.stop();
+
+    assert.equal(leader.core.state, 'stopped');
+    assert.equal(source.closed, true, 'the EventSource is closed');
+    assert.equal(leader.core.sync.isPolling, false, 'polling is stopped');
+
+    // Nothing may tick afterwards, however far the clock is advanced.
+    const calls = leader.fetchCalls.length;
+    leader.clock.advance(600 * 1000);
+    await flush();
+    assert.equal(leader.fetchCalls.length, calls, 'no timer survived the stop');
+
+    // And the leader must not keep broadcasting onto the shared channel.
+    const followerStateBefore = follower.core.state;
+    leader.core.setState('live');
+    await flush();
+    assert.equal(follower.core.state, followerStateBefore, 'a stopped tab broadcasts nothing');
+});
+
+test('re-running the client scripts never doubles timers or listeners', async () => {
+    const env = load();
+    env.setFetchHandler(() => snapshot());
+    env.source.emit('open');
+    await flush();
+    const afterOpen = env.callsTo('/realtime/sync/').length;
+
+    // A second include of every module, exactly as a duplicated script tag.
+    SOURCES.forEach(([name, source]) => vm.runInContext(source, env.context, { filename: name }));
+    env.clock.advance(400);
+    await flush();
+
+    assert.equal(env.sources.length, 1, 'still exactly one EventSource');
+    env.clock.advance(300 * 1000);
+    await flush();
+    assert.equal(
+        env.callsTo('/realtime/sync/').length,
+        afterOpen + 1,
+        'one safety-sync fired, not two',
+    );
+});
+
 // --------------------------------------------------------------------------
 
 (async () => {

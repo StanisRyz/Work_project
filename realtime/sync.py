@@ -7,19 +7,23 @@ Comparing tokens tells the client *which block* to refetch; the blocks
 themselves are still fetched through the ordinary permission-checked fragment
 endpoints.
 
-Two rules shape everything here:
+Three rules shape everything here:
 
 * a token is derived only from rows the user may already see, through the very
-  same querysets the pages use, so it can never reveal that somebody else's
-  object exists;
+  same permission rules the pages use, so it can never reveal that somebody
+  else's object exists;
 * a token is a hash of aggregates, never a serialized row, so no business text,
-  no identifier of a foreign object and no personal data can leak through it.
+  no identifier of a foreign object and no personal data can leak through it;
+* the cost is a fixed, small number of aggregate queries. Nothing here loads
+  rows or materialises identifiers in Python, so a user who can see thousands
+  of acts costs exactly what a user who can see none costs. The budget is
+  pinned by `realtime/tests/test_sync.py`.
 """
 
 import hashlib
 from datetime import datetime, timezone as dt_timezone
 
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.utils import timezone
 
 
@@ -62,13 +66,15 @@ def _token(*parts):
 def _notifications_revision(user):
     from notifications.models import Notification
 
-    scoped = Notification.objects.filter(recipient=user)
-    aggregate = scoped.aggregate(
+    # One query: the unread count is a filtered aggregate rather than a second
+    # `.count()` round trip over the same rows.
+    aggregate = Notification.objects.filter(recipient=user).aggregate(
         total=Count('pk'),
+        unread=Count('pk', filter=Q(is_read=False)),
         last_created=Max('created_at'),
         last_read=Max('read_at'),
     )
-    unread = scoped.filter(is_read=False).count()
+    unread = aggregate['unread'] or 0
     return (
         _token(
             'n',
@@ -78,6 +84,24 @@ def _notifications_revision(user):
             aggregate['last_read'],
         ),
         unread,
+    )
+
+
+def _status_counts(queryset):
+    """`(status_code, count)` pairs, deterministically ordered.
+
+    `.order_by()` clears the model's default ordering on purpose: Django adds
+    ordering columns to `GROUP BY`, so `Task.Meta.ordering` would silently turn
+    this into a per-(status, due_date, created_at) distribution — more rows to
+    group, and a token sensitive to columns it never meant to describe.
+    """
+    return tuple(
+        sorted(
+            queryset.order_by()
+            .values_list('status__code')
+            .annotate(count=Count('pk', distinct=True))
+            .values_list('status__code', 'count')
+        )
     )
 
 
@@ -91,16 +115,17 @@ def _tasks_revision(user):
         last_updated=Max('updated_at'),
         last_completed=Max('completed_at'),
         assignments=Count('assignees', distinct=True),
+        # Assignment fingerprint: the count alone cannot tell "swap assignee A
+        # for assignee B" from "nothing happened". The highest assignment id
+        # moves whenever a row is added, so a replacement changes the token
+        # even though the number of assignees is unchanged — and it costs the
+        # database one more aggregate over a join it is already doing, rather
+        # than a list of assignee ids loaded into Python.
+        last_assignment=Max('assignees__pk'),
     )
     # Status mix, so completing a task changes the token even when the row
     # count and the timestamps happen to look the same.
-    statuses = tuple(
-        sorted(
-            visible.values_list('status__code')
-            .annotate(count=Count('pk', distinct=True))
-            .values_list('status__code', 'count')
-        )
-    )
+    statuses = _status_counts(visible)
     return _token(
         't',
         aggregate['total'],
@@ -108,54 +133,63 @@ def _tasks_revision(user):
         aggregate['last_updated'],
         aggregate['last_completed'],
         aggregate['assignments'],
+        aggregate['last_assignment'],
         statuses,
     )
 
 
-def _visible_acts(user):
-    """Active and archived acts the user may see, as two querysets."""
-    from acts.permissions import get_archived_acts_queryset
-    from acts.services import get_visible_acts_for_user
+ARCHIVED = Q(status__code='ARCHIVED')
 
-    active = get_visible_acts_for_user(user).exclude(status__code='ARCHIVED')
-    return active, get_archived_acts_queryset(user)
+
+def _visible_acts(user):
+    """Every act the user may see, active and archived, as one queryset.
+
+    Deliberately the shared permission-aware queryset rather than two separate
+    ones: it is used both for aggregates here and as a *subquery* for comments
+    and history, so no act identifier is ever loaded into Python.
+    """
+    from acts.permissions import get_all_visible_acts_queryset
+
+    return get_all_visible_acts_queryset(user)
 
 
 def _acts_revision(user):
-    active, archived = _visible_acts(user)
-    active_aggregate = active.aggregate(total=Count('pk', distinct=True), last=Max('updated_at'))
-    archived_aggregate = archived.aggregate(
-        total=Count('pk', distinct=True), last=Max('updated_at')
+    visible = _visible_acts(user)
+    # One query for both halves: filtered aggregates split active from archived
+    # without a second round trip and without loading a single row.
+    aggregate = visible.aggregate(
+        active_total=Count('pk', filter=~ARCHIVED, distinct=True),
+        active_last=Max('updated_at', filter=~ARCHIVED),
+        archived_total=Count('pk', filter=ARCHIVED, distinct=True),
+        archived_last=Max('updated_at', filter=ARCHIVED),
     )
-    statuses = tuple(
-        sorted(
-            active.values_list('status__code')
-            .annotate(count=Count('pk', distinct=True))
-            .values_list('status__code', 'count')
-        )
-    )
+    statuses = _status_counts(visible.exclude(status__code='ARCHIVED'))
     return _token(
         'a',
-        active_aggregate['total'],
-        active_aggregate['last'],
-        archived_aggregate['total'],
-        archived_aggregate['last'],
+        aggregate['active_total'],
+        aggregate['active_last'],
+        aggregate['archived_total'],
+        aggregate['archived_last'],
         statuses,
     )
 
 
 def _comments_revision(user):
-    """Comments and history inside the acts this user may see."""
+    """Comments and history inside the acts this user may see.
+
+    The visible-acts queryset is passed to the database as a subquery
+    (`act__in=<queryset>`), never resolved into a list of primary keys first:
+    PostgreSQL aggregates the whole thing itself, and the cost stops growing
+    with how many acts the user can see. Portable ORM only, so this still runs
+    on SQLite for the ordinary test suite.
+    """
     from acts.models import ActComment, ActHistoryEvent
 
-    active, archived = _visible_acts(user)
-    act_ids = list(active.values_list('pk', flat=True)) + list(
-        archived.values_list('pk', flat=True)
-    )
-    comments = ActComment.objects.filter(act_id__in=act_ids).aggregate(
+    visible = _visible_acts(user)
+    comments = ActComment.objects.filter(act__in=visible).aggregate(
         total=Count('pk'), last=Max('created_at')
     )
-    history = ActHistoryEvent.objects.filter(act_id__in=act_ids).aggregate(
+    history = ActHistoryEvent.objects.filter(act__in=visible).aggregate(
         total=Count('pk'), last=Max('created_at')
     )
     return _token(
@@ -176,19 +210,19 @@ def _activities_revision(user):
         total=Count('pk', distinct=True),
         last_updated=Max('updated_at'),
         last_completed=Max('completed_at'),
+        # Same assignment fingerprint as the tasks revision: a replaced
+        # assignee must move this token too, since the act detail lists them.
+        assignments=Count('assignees', distinct=True),
+        last_assignment=Max('assignees__pk'),
     )
-    statuses = tuple(
-        sorted(
-            linked.values_list('status__code')
-            .annotate(count=Count('pk', distinct=True))
-            .values_list('status__code', 'count')
-        )
-    )
+    statuses = _status_counts(linked)
     return _token(
         'v',
         aggregate['total'],
         aggregate['last_updated'],
         aggregate['last_completed'],
+        aggregate['assignments'],
+        aggregate['last_assignment'],
         statuses,
     )
 
@@ -196,8 +230,10 @@ def _activities_revision(user):
 def build_sync_state(user):
     """Return the user's current revision snapshot.
 
-    A fixed, small number of aggregate queries — it never loads rows, so the
-    cost does not grow with how much data the user can see.
+    A fixed, small number of aggregate queries — it never loads rows and never
+    materialises identifiers, so the cost does not grow with how much data the
+    user can see. The wire format (schema version, revision keys, counters) is
+    part of the client contract and must not change here.
     """
     notifications_token, unread = _notifications_revision(user)
     return {

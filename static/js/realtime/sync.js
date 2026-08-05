@@ -14,12 +14,22 @@
  * exactly that case. It is not a polling replacement: fallback polling and the
  * safety timer are mutually exclusive, and the safety timer never runs more
  * often than `REALTIME_LIVE_SYNC_SECONDS`.
+ *
+ * **Recovery has exactly one owner per user.** Every periodic server request
+ * in this module — fallback polling and the safety-sync alike — is gated on
+ * `ownsRecovery()`. A follower learns the leader's connection state over
+ * BroadcastChannel so its degraded indicator stays correct, but it must never
+ * turn that shared state into its own request loop: N tabs would otherwise
+ * multiply one user's recovery traffic by N. A follower's only server request
+ * is the single handshake fallback in tabs.js.
  */
 (() => {
     'use strict';
 
     const core = window.QualityRealtime;
-    if (!core) {
+    if (!core || !core.claimModule('sync')) {
+        // A repeated include would arm a second set of timers and register a
+        // second copy of every listener below.
         return;
     }
 
@@ -27,10 +37,21 @@
     let lastSnapshot = null;
     let lastSuccessfulSyncAt = null;
     let inFlight = null;
+    let inFlightController = null;
     let pollTimer = null;
     let polling = false;
     let liveSafetyTimer = null;
     let stopped = false;
+
+    /**
+     * Does this tab own recovery for the user?
+     *
+     * The leader when tabs are coordinated; every tab when they are not
+     * (no BroadcastChannel or no localStorage means each tab holds its own
+     * EventSource and must recover for itself). A coordinated follower never
+     * owns recovery — its leader does it once on everybody's behalf.
+     */
+    const ownsRecovery = () => !core.tabs || !core.tabs.isCoordinated || core.tabs.isLeader;
 
     const jitter = (seconds) => {
         // A little spread so many tabs do not poll in lockstep.
@@ -88,6 +109,7 @@
         }
         const controller = typeof AbortController === 'function' ? new AbortController() : null;
         inFlight = controller || true;
+        inFlightController = controller;
         return core
             .requestJson(core.config.syncUrl, { signal: controller ? controller.signal : undefined })
             .then((result) => {
@@ -117,6 +139,7 @@
             })
             .finally(() => {
                 inFlight = null;
+                inFlightController = null;
             });
     };
 
@@ -139,6 +162,11 @@
         if (polling || stopped) {
             return;
         }
+        if (!ownsRecovery()) {
+            // A follower shares the leader's degraded state for the indicator,
+            // but must not turn it into its own request loop.
+            return;
+        }
         polling = true;
         scheduleNextPoll();
     };
@@ -153,11 +181,8 @@
 
     // -- live safety-sync ----------------------------------------------------
     //
-    // Only while `live`, only the tab that actually owns this user's stream
-    // (the leader when tabs are coordinated, every tab when they are not), and
-    // never more often than the configured interval.
-
-    const ownsLiveSafety = () => !core.tabs || !core.tabs.isCoordinated || core.tabs.isLeader;
+    // Only while `live`, only the tab that owns recovery, and never more often
+    // than the configured interval.
 
     const dueForLiveSafetySync = () =>
         lastSuccessfulSyncAt === null ||
@@ -171,7 +196,7 @@
         if (core.state !== core.STATES.LIVE) {
             return;
         }
-        if (!ownsLiveSafety()) {
+        if (!ownsRecovery()) {
             return;
         }
         if (!dueForLiveSafetySync()) {
@@ -189,7 +214,7 @@
 
     const scheduleLiveSafetyTimer = () => {
         clearLiveSafetyTimer();
-        if (stopped || core.state !== core.STATES.LIVE || !ownsLiveSafety()) {
+        if (stopped || core.state !== core.STATES.LIVE || !ownsRecovery()) {
             return;
         }
         liveSafetyTimer = window.setInterval(maybeRunLiveSafetySync, core.config.liveSyncSeconds * 1000);
@@ -207,8 +232,12 @@
         if (state === core.STATES.DEGRADED || state === core.STATES.OFFLINE) {
             clearLiveSafetyTimer();
             if (state === core.STATES.DEGRADED) {
+                // Both are no-ops on a follower: `startPolling` refuses, and a
+                // follower's snapshots arrive from the leader instead.
                 startPolling();
-                runSync();
+                if (ownsRecovery()) {
+                    runSync();
+                }
             } else {
                 stopPolling();
             }
@@ -221,25 +250,36 @@
             stopped = true;
             stopPolling();
             clearLiveSafetyTimer();
+            if (inFlightController) {
+                // Cancel the request in flight instead of letting it land on a
+                // client that has already shut down.
+                inFlightController.abort();
+                inFlightController = null;
+                inFlight = null;
+            }
         }
     });
 
-    // Set by tabs.js's leader-election logic so the safety timer only ever
-    // runs on the tab that actually owns the stream. Promotion always opens a
-    // fresh EventSource first (see `openStream()`), and that connection's own
-    // `open` handler already triggers an ordinary resync — so there is
-    // nothing extra to run here beyond arming the timer for later. Demotion,
-    // however, does not reset the state machine on its own, so clearing the
-    // timer explicitly is what stops a demoted tab from ever ticking again.
+    // Set by tabs.js's leader-election logic so every periodic request only
+    // ever runs on the tab that owns recovery. A promoted tab takes over the
+    // whole job: the fresh EventSource it just opened resyncs through its own
+    // `open` handler, and if the stream is already known to be degraded it
+    // must also pick up the fallback polling the previous leader was doing.
     core.onLeaderPromoted = () => {
         scheduleLiveSafetyTimer();
+        if (core.state === core.STATES.DEGRADED) {
+            startPolling();
+        }
     };
+    // Demotion does not move the state machine on its own, so a stepped-down
+    // tab has to be told explicitly to stop doing recovery work.
     core.onLeaderDemoted = () => {
         clearLiveSafetyTimer();
+        stopPolling();
     };
 
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState !== 'visible') {
+        if (stopped || document.visibilityState !== 'visible') {
             return;
         }
         if (polling) {
@@ -289,6 +329,9 @@
         },
         get lastSuccessfulSyncAt() {
             return lastSuccessfulSyncAt;
+        },
+        get ownsRecovery() {
+            return ownsRecovery();
         },
     };
 })();

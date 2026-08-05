@@ -6,13 +6,14 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from accounts.models import UserProfile
 from acts.models import Act, ActComment, ActCorrectiveAction, ActHistoryEvent, ActRootAnalysis
 from acts.services import add_act_comment, add_act_history_event
 from notifications.models import Notification
 from references.models import TaskStatus
 from realtime.sync import REVISION_KEYS, build_sync_state
 from tasks.models import Task, TaskAssignee
-from tasks.services import complete_task
+from tasks.services import complete_task, replace_task_assignees
 
 from .base import RealtimeFixtureMixin
 
@@ -183,9 +184,71 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
         with self.assertNumQueries(FIXED_SYNC_QUERIES):
             build_sync_state(self.otk_user)
 
+    def test_the_query_budget_holds_for_every_role(self):
+        # Full access takes a different queryset branch than the scoped roles,
+        # so the budget is pinned for both rather than for one lucky path.
+        act = self.make_act(self.status_created)
+        self.make_notification(self.otk_user, act, 'role-budget')
+        self.make_task(act, self.to_user)
+        manager = self.make_user('rt_budget_manager', UserProfile.Role.MANAGER)
 
-# The service issues a fixed set of aggregate queries; it never loads rows.
-FIXED_SYNC_QUERIES = 13
+        for user in (self.otk_user, self.ko_user, self.to_user, manager):
+            with self.subTest(user=user.username):
+                # Warm the profile cache: `has_full_act_access` resolves
+                # `user.userprofile` once per request, which is session/auth
+                # work rather than part of the sync budget itself.
+                build_sync_state(user)
+                with self.assertNumQueries(FIXED_SYNC_QUERIES):
+                    build_sync_state(user)
+
+    def test_a_much_larger_dataset_costs_exactly_the_same_number_of_queries(self):
+        act = self.make_act(self.status_created)
+        build_sync_state(self.otk_user)
+        with self.assertNumQueries(FIXED_SYNC_QUERIES):
+            small = build_sync_state(self.otk_user)
+
+        for index in range(25):
+            self.make_notification(self.otk_user, act, f'large-{index}')
+            self.make_task(act, self.otk_user, text=f'Мероприятие {index}')
+            add_act_comment(act, self.otk_user, f'Комментарий {index}', notify=False)
+        for index in range(10):
+            self.make_act(self.status_created)
+
+        with self.assertNumQueries(FIXED_SYNC_QUERIES):
+            large = build_sync_state(self.otk_user)
+
+        # Same cost, genuinely different state.
+        self.assertNotEqual(small['revisions'], large['revisions'])
+
+    def test_replacing_an_assignee_moves_tasks_and_activities(self):
+        act = self.make_act(self.status_created)
+        task = self.make_task(act, self.to_user)
+        before = build_sync_state(self.to_user)['revisions']
+
+        # Same number of assignees, different person: the count alone could
+        # not tell these apart, which is what the assignment fingerprint is for.
+        replace_task_assignees(task, [self.otk_user], actor=self.otk_user)
+
+        after = build_sync_state(self.otk_user)['revisions']
+        self.assertNotEqual(before['tasks'], after['tasks'])
+        self.assertNotEqual(before['activities'], after['activities'])
+
+
+# The service issues a fixed set of aggregate queries; it never loads rows and
+# never materialises identifiers, so this number is independent of how much
+# data the user can see. The nine are, in order:
+#   1. notifications: total + filtered unread + max(created_at) + max(read_at)
+#   2. tasks: totals, timestamps and the assignment fingerprint
+#   3. tasks: status distribution
+#   4. acts: active/archived totals and timestamps as filtered aggregates
+#   5. acts: active status distribution
+#   6. comments: count + max(created_at) over the visible-acts subquery
+#   7. history: count + max(created_at) over the visible-acts subquery
+#   8. activities: linked-task totals, timestamps and assignment fingerprint
+#   9. activities: linked-task status distribution
+# Session authentication and the one cached `user.userprofile` lookup are not
+# counted here — they belong to the request, not to this service.
+FIXED_SYNC_QUERIES = 9
 
 
 class SyncEndpointTests(SyncStateMixin, TestCase):

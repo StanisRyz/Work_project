@@ -9,7 +9,8 @@
     'use strict';
 
     const core = window.QualityRealtime;
-    if (!core) {
+    if (!core || !core.claimModule('notifications')) {
+        // A repeated include would subscribe a second handler and toast twice.
         return;
     }
 

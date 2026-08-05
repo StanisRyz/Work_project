@@ -35,19 +35,64 @@ class RedisPublisherTests(SimpleTestCase):
         with mock.patch.object(
             RealtimeEvent, 'as_compact_json', wraps=event.as_compact_json
         ) as serializer:
-            self.publisher.publish(event, (user_target(7), act_target(3)))
+            self.publisher.publish(event, (user_target(7), user_target(9)))
 
         self.assertEqual(serializer.call_count, 1)
         payloads = {payload for _channel, payload in self.client.published}
         self.assertEqual(len(payloads), 1)
 
-    def test_each_target_gets_its_own_prefixed_channel(self):
+    def test_every_user_target_gets_its_own_prefixed_channel(self):
+        self.publisher.publish(build_event(), (user_target(9), user_target(7)))
+
+        self.assertEqual(
+            [channel for channel, _payload in self.client.published],
+            ['demo:realtime:user:7', 'demo:realtime:user:9'],
+        )
+
+    def test_channel_order_is_deterministic(self):
+        first = FakeSyncRedis()
+        second = FakeSyncRedis()
+
+        RedisRealtimePublisher(client_factory=lambda: first).publish(
+            build_event(), (user_target(11), user_target(2), user_target(7))
+        )
+        RedisRealtimePublisher(client_factory=lambda: second).publish(
+            build_event(), (user_target(7), user_target(11), user_target(2))
+        )
+
+        self.assertEqual(
+            [channel for channel, _payload in first.published],
+            [channel for channel, _payload in second.published],
+        )
+
+    def test_every_channel_is_written_in_one_pipelined_round_trip(self):
+        self.publisher.publish(build_event(), (user_target(7), user_target(9)))
+
+        self.assertEqual(len(self.client.pipelines), 1)
+        pipeline = self.client.pipelines[0]
+        self.assertTrue(pipeline.executed)
+        self.assertEqual(len(pipeline.queued), 2)
+        # Independent fire-and-forget PUBLISH commands: MULTI/EXEC would add
+        # two commands and guarantee something a best-effort transport does
+        # not need.
+        self.assertFalse(pipeline.transaction)
+
+    def test_an_act_target_is_not_published_while_nobody_may_subscribe_to_it(self):
+        # `act:<id>` stays a valid routing hint in the event contract, but the
+        # browser cannot subscribe to an act room yet, so writing it would send
+        # a message nobody can ever receive.
         self.publisher.publish(build_event(), (user_target(7), act_target(3)))
 
         self.assertEqual(
             [channel for channel, _payload in self.client.published],
-            ['demo:realtime:act:3', 'demo:realtime:user:7'],
+            ['demo:realtime:user:7'],
         )
+
+    def test_an_act_only_target_list_costs_no_redis_command_at_all(self):
+        self.publisher.publish(build_event(), (act_target(3),))
+
+        self.assertEqual(self.client.published, [])
+        self.assertEqual(self.client.pipelines, [])
 
     def test_the_configured_prefix_is_applied(self):
         with override_settings(REALTIME_CHANNEL_PREFIX='other:ns'):
@@ -92,6 +137,32 @@ class RedisPublisherTests(SimpleTestCase):
     def test_no_targets_means_no_call_to_redis(self):
         self.assertIsNone(self.publisher.publish(build_event(), ()))
         self.assertEqual(self.client.published, [])
+        self.assertEqual(self.client.pipelines, [])
+
+    def test_a_slow_publish_is_logged_without_payload_or_credentials(self):
+        client = FakeSyncRedis(publish_delay=0.05)
+        publisher = RedisRealtimePublisher(client_factory=lambda: client)
+
+        with override_settings(
+            REALTIME_REDIS_SLOW_PUBLISH_MS=1.0, REALTIME_REDIS_URL=SECRET_URL
+        ):
+            with self.assertLogs('realtime', level=logging.WARNING) as captured:
+                publisher.publish(build_event(), (user_target(7),))
+
+        logged = '\n'.join(captured.output)
+        self.assertIn('realtime.slow_publish', logged)
+        self.assertIn('act.status_changed', logged)
+        self.assertIn('channels=1', logged)
+        self.assertIn('duration_ms=', logged)
+        # Never the payload, the Redis URL or any credential.
+        self.assertNotIn('s3cr3t-redis-password', logged)
+        self.assertNotIn(SECRET_URL, logged)
+        self.assertNotIn('CREATED_OTK', logged)
+
+    def test_a_fast_publish_produces_no_warning(self):
+        with override_settings(REALTIME_REDIS_SLOW_PUBLISH_MS=10000.0):
+            with self.assertNoLogs('realtime', level=logging.WARNING):
+                self.publisher.publish(build_event(), (user_target(7),))
 
 
 @override_settings(REALTIME_CHANNEL_PREFIX='demo:realtime')

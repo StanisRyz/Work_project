@@ -1,3 +1,6 @@
+from django.contrib.auth import get_user_model
+from django.db.models import Q
+
 from accounts.models import UserProfile
 
 from .models import Act
@@ -190,6 +193,62 @@ def get_archived_acts_queryset(user):
     if is_to(user):
         return queryset.filter(status__code='ARCHIVED', to_analysis_by=user)
     return queryset.none()
+
+
+def get_visible_acts_filter(user):
+    """Return a `Q` matching exactly the acts `can_view_act` would allow.
+
+    Deliberately mirrors `can_view_act` clause for clause — active *and*
+    archived — so the two can never drift apart. Returns `None` when the user
+    may see nothing at all, which callers turn into an empty queryset; an empty
+    `Q()` would mean "everything" and is reserved for full access.
+    """
+    if has_full_act_access(user):
+        return Q()
+    if is_otk(user):
+        return Q(created_by=user, status__code__in=['CREATED_OTK', 'OTK_REVIEW', 'ARCHIVED'])
+    if is_ko(user):
+        return Q(status__code='KO_REVIEW') | Q(status__code='ARCHIVED', ko_decision_by=user)
+    if is_to(user):
+        return (
+            Q(status__code='TO_ANALYSIS')
+            | Q(status__code='ACTIONS_ASSIGNED', to_analysis_by=user)
+            | Q(status__code='ARCHIVED', to_analysis_by=user)
+        )
+    return None
+
+
+def get_all_visible_acts_queryset(user):
+    """Every act this user may see — active and archived — as one queryset.
+
+    The single permission-aware queryset the real-time revision service builds
+    its aggregates on. It carries no `select_related`, because its only job is
+    to be counted and aggregated (or used as a subquery), never rendered — and
+    it never materialises identifiers in Python, so a user who can see ten
+    thousand acts costs the same number of queries as one who can see none.
+    """
+    condition = get_visible_acts_filter(user)
+    if condition is None:
+        return Act.objects.none()
+    return Act.objects.filter(condition)
+
+
+def get_full_act_access_users_queryset():
+    """Active users who may already see any act, resolved by the database.
+
+    `has_full_act_access` in Python would need every user loaded; this is the
+    same rule (administrator role, superuser fallback, or manager) expressed as
+    a filter, with the inactive-user and inactive-profile exclusions that
+    `notifications.services.create_notifications` also applies.
+    """
+    return (
+        get_user_model()
+        .objects.filter(is_active=True, userprofile__is_active=True)
+        .filter(
+            Q(is_superuser=True)
+            | Q(userprofile__role__in=[UserProfile.Role.ADMIN, UserProfile.Role.MANAGER])
+        )
+    )
 
 
 def _status_code(act):

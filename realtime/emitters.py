@@ -82,9 +82,8 @@ def emit_task_created(task, assignee_ids):
 def emit_task_updated(task, changed_fields=()):
     """Call after a significant change to an already-saved task.
 
-    No business operation currently modifies a saved task other than completion,
-    so this has no call site yet; a future task-editing service must use it
-    instead of inventing its own event.
+    Currently emitted by `tasks.services.replace_task_assignees`. A future
+    task-editing service must use this too, instead of inventing its own event.
     """
     if not realtime_enabled():
         return None

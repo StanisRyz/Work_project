@@ -55,16 +55,19 @@ def act_created_targets(act):
     Its author plus every active user with full act access (managers,
     administrators and superusers). KO and TO are deliberately excluded: at
     `CREATED_OTK` the current permissions do not let them see the act, so
-    sending them the event would leak its existence. Duplicates, inactive users
-    and inactive profiles are dropped by `_active_ids`.
+    sending them the event would leak its existence.
+
+    The full-access set is resolved by the database
+    (`acts.permissions.get_full_act_access_users_queryset`) instead of loading
+    every active user and testing `has_full_act_access` in Python — the old
+    shape made the cost of creating one act grow with the size of the whole
+    user table. The rule itself is unchanged, and it stays defined in
+    `acts.permissions`, not duplicated here.
     """
-    from acts.permissions import has_full_act_access
+    from acts.permissions import get_full_act_access_users_queryset
 
     user_ids = [act.created_by_id]
-    candidates = get_user_model().objects.filter(
-        is_active=True, userprofile__is_active=True
-    ).select_related('userprofile')
-    user_ids += [user.pk for user in candidates if has_full_act_access(user)]
+    user_ids += list(get_full_act_access_users_queryset().values_list('pk', flat=True))
     return [*user_targets(_active_ids(user_ids)), act_target(act.pk)]
 
 

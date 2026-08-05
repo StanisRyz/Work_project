@@ -9,7 +9,9 @@
     'use strict';
 
     const core = window.QualityRealtime;
-    if (!core) {
+    if (!core || !core.claimModule('acts')) {
+        // A repeated include would register duplicate dirty-state listeners
+        // and a second coordinator per block.
         return;
     }
 

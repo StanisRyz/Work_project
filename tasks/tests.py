@@ -11,7 +11,7 @@ from realtime.sync import build_sync_state
 from references.models import ActStatus, DefectType, Operation, TaskStatus
 
 from .models import Task, TaskAssignee
-from .services import TaskWorkflowError, complete_task
+from .services import TaskWorkflowError, complete_task, replace_task_assignees
 
 
 class TaskViewsTests(TestCase):
@@ -147,6 +147,49 @@ class TaskViewsTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.updated_at, updated_at_after_first)
         self.assertEqual(task.execution_comment, 'Первое завершение.')
+
+    def test_replacing_assignees_is_atomic_and_bumps_updated_at(self):
+        # Assignments live in a child table, so writing them leaves the task
+        # row — and the sync revision derived from it — untouched unless the
+        # service saves the parent explicitly. That is what this guards.
+        task = self._task(self.employee, timezone.localdate())
+        before = task.updated_at
+
+        replace_task_assignees(task, [self.other_employee], actor=self.manager)
+
+        task.refresh_from_db()
+        self.assertGreater(task.updated_at, before)
+        self.assertEqual(
+            list(TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True)),
+            [self.other_employee.pk],
+        )
+
+    def test_replacing_assignees_adds_and_removes_in_one_operation(self):
+        task = self._task(self.employee, timezone.localdate())
+
+        replace_task_assignees(task, [self.employee, self.other_employee])
+
+        self.assertEqual(
+            sorted(TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True)),
+            sorted([self.employee.pk, self.other_employee.pk]),
+        )
+
+    def test_replacing_with_the_same_assignees_changes_nothing(self):
+        task = self._task(self.employee, timezone.localdate())
+        before = task.updated_at
+
+        replace_task_assignees(task, [self.employee])
+
+        task.refresh_from_db()
+        self.assertEqual(task.updated_at, before, 'a no-op must not move the revision')
+
+    def test_a_task_may_never_be_left_without_an_assignee(self):
+        task = self._task(self.employee, timezone.localdate())
+
+        with self.assertRaises(TaskWorkflowError):
+            replace_task_assignees(task, [])
+
+        self.assertEqual(TaskAssignee.objects.filter(task=task).count(), 1)
 
     def test_tabs_respect_permissions_and_archive(self):
         own = self._task(self.employee, timezone.localdate())

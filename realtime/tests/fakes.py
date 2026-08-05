@@ -7,6 +7,7 @@ timeouts and malformed payloads deterministically.
 """
 
 import asyncio
+import time
 
 from redis import exceptions as redis_exceptions
 
@@ -14,13 +15,16 @@ from redis import exceptions as redis_exceptions
 class FakeSyncRedis:
     """Synchronous client used by the publisher and the diagnostic command."""
 
-    def __init__(self, *, subscribers=1, publish_error=None, ping_error=None):
+    def __init__(self, *, subscribers=1, publish_error=None, ping_error=None, publish_delay=0.0):
         self.published = []
         self.subscribers = subscribers
         self.publish_error = publish_error
         self.ping_error = ping_error
+        # Lets a test drive the slow-publish threshold deterministically.
+        self.publish_delay = publish_delay
         self.closed = False
         self.pubsubs = []
+        self.pipelines = []
 
     def publish(self, channel, message):
         if self.publish_error is not None:
@@ -29,6 +33,11 @@ class FakeSyncRedis:
         for pubsub in self.pubsubs:
             pubsub.deliver(channel, message)
         return self.subscribers
+
+    def pipeline(self, transaction=True):
+        pipeline = FakeSyncPipeline(self, transaction=transaction)
+        self.pipelines.append(pipeline)
+        return pipeline
 
     def ping(self):
         if self.ping_error is not None:
@@ -42,6 +51,31 @@ class FakeSyncRedis:
 
     def close(self):
         self.closed = True
+
+
+class FakeSyncPipeline:
+    """Buffers commands and sends them in one `execute()`, like redis-py.
+
+    Delegates the actual delivery back to its client's `publish`, so a
+    subclass that overrides `publish` (the diagnostic fakes below do) keeps
+    behaving the same way whether the caller pipelines or not.
+    """
+
+    def __init__(self, client, *, transaction=True):
+        self.client = client
+        self.transaction = transaction
+        self.queued = []
+        self.executed = False
+
+    def publish(self, channel, message):
+        self.queued.append((channel, message))
+        return self
+
+    def execute(self):
+        self.executed = True
+        if self.client.publish_delay:
+            time.sleep(self.client.publish_delay)
+        return [self.client.publish(channel, message) for channel, message in self.queued]
 
 
 class FakeSyncPubSub:

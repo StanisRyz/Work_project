@@ -302,11 +302,21 @@ REALTIME_FAIL_SILENTLY = env_bool('REALTIME_FAIL_SILENTLY', True)
 REALTIME_REDIS_URL = os.getenv('REALTIME_REDIS_URL', 'redis://127.0.0.1:6379/0')
 # Namespace for every Pub/Sub channel: `<prefix>:<target.key>`.
 REALTIME_CHANNEL_PREFIX = os.getenv('REALTIME_CHANNEL_PREFIX', 'quality-ecosystem:realtime')
+# Deliberately short: publication runs inside `on_commit`, i.e. inside the
+# user's own request. An unreachable Redis must cost that request ~1 second,
+# not 5 — the event is best-effort and the client resyncs anyway. Real
+# deployments can raise these through the environment if the network needs it.
 REALTIME_REDIS_CONNECT_TIMEOUT_SECONDS = env_number(
-    'REALTIME_REDIS_CONNECT_TIMEOUT_SECONDS', 5.0, minimum=0.1, maximum=60.0
+    'REALTIME_REDIS_CONNECT_TIMEOUT_SECONDS', 1.0, minimum=0.1, maximum=60.0
 )
 REALTIME_REDIS_SOCKET_TIMEOUT_SECONDS = env_number(
-    'REALTIME_REDIS_SOCKET_TIMEOUT_SECONDS', 5.0, minimum=0.1, maximum=60.0
+    'REALTIME_REDIS_SOCKET_TIMEOUT_SECONDS', 1.0, minimum=0.1, maximum=60.0
+)
+# A pipelined publish slower than this is logged as `realtime.slow_publish`
+# with the event type, channel count and duration only — never the payload,
+# the Redis URL or any credential.
+REALTIME_REDIS_SLOW_PUBLISH_MS = env_number(
+    'REALTIME_REDIS_SLOW_PUBLISH_MS', 250.0, minimum=1.0, maximum=60000.0
 )
 # Silence between events after which the stream emits an SSE comment, so proxies
 # and clients can tell a live connection from a dead one.

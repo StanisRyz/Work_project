@@ -284,6 +284,7 @@
     const adapters = [];
     const seenIds = new Set();
     const seenOrder = [];
+    const loadedModules = new Set();
 
     let source = null;
     let state = STATES.IDLE;
@@ -361,6 +362,24 @@
         isValidSyncSnapshot,
         warnUnexpectedResponse,
         SUPPORTED_SNAPSHOT_SCHEMA_VERSION,
+
+        /**
+         * Let a feature module refuse to initialise twice.
+         *
+         * The core protects itself with the `window.QualityRealtime` guard, but
+         * a duplicated `<script>` tag would otherwise re-run every feature
+         * module: a second `tabs.js` would replace `core.tabs` with a fresh
+         * instance whose `isLeader` is false, so the tab that actually holds
+         * the EventSource would quietly stop owning recovery — and a second
+         * `sync.js` would register duplicate timers and listeners.
+         */
+        claimModule(name) {
+            if (loadedModules.has(name)) {
+                return false;
+            }
+            loadedModules.add(name);
+            return true;
+        },
 
         subscribe(eventType, handler) {
             if (!handlers.has(eventType)) {

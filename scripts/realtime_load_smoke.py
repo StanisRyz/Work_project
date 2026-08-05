@@ -27,6 +27,7 @@ import argparse
 import http.cookiejar
 import json
 import os
+import pathlib
 import statistics
 import sys
 import threading
@@ -70,11 +71,42 @@ def build_parser():
     parser.add_argument('--connections', type=int, default=10)
     parser.add_argument('--seconds', type=float, default=60.0)
     parser.add_argument(
+        '--json-report',
+        help='Write a safe JSON summary (counts and timings only, never a cookie).',
+    )
+    parser.add_argument(
         '--i-know-this-is-not-local',
         action='store_true',
         help='Required to target any host other than localhost.',
     )
     return parser
+
+
+def build_report(options, duration, stats):
+    """A summary safe to keep: counts and timings, no credential of any kind."""
+    errors = {}
+    for error in stats.errors:
+        errors[error] = errors.get(error, 0) + 1
+    report = {
+        'schema_version': 1,
+        # The host, never the session cookie and never the password.
+        'target_host': urlsplit(options.base_url).hostname or '',
+        'requested_connections': options.connections,
+        'requested_seconds': options.seconds,
+        'duration_seconds': round(duration, 1),
+        'connected': stats.connected,
+        'reconnects': stats.reconnects,
+        'heartbeats': stats.heartbeats,
+        'events': stats.events,
+        'errors': errors,
+    }
+    if stats.latencies:
+        report['event_latency_ms'] = {
+            'median': round(statistics.median(stats.latencies) * 1000),
+            'max': round(max(stats.latencies) * 1000),
+            'samples': len(stats.latencies),
+        }
+    return report
 
 
 def require_local(base_url, override):
@@ -212,6 +244,22 @@ def main(argv=None):
         print(f'Ошибки:              {summary}')
     else:
         print('Ошибки:              нет')
+
+    if options.json_report:
+        destination = pathlib.Path(options.json_report)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
+            json.dumps(build_report(options, duration, stats), ensure_ascii=False, indent=2),
+            encoding='utf-8',
+        )
+        print(f'JSON-отчёт:          {destination}')
+
+    print('')
+    print(
+        'Для проверки соединений PostgreSQL выполните в другом терминале, пока '
+        'этот прогон идёт:\n'
+        '    python manage.py check_sse_db_connections --label during'
+    )
     return 0 if stats.connected else 1
 
 

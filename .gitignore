@@ -45,6 +45,16 @@ rehearsal-*.md
 !docs/postgresql_rehearsal.md
 !scripts/run_postgresql_rehearsal.py
 
+# Local performance artefacts: profiling reports, EXPLAIN output, load-smoke
+# summaries, pg_stat_activity snapshots and any throwaway performance database.
+# Only the safe aggregate figures in docs/realtime_performance.md are committed.
+perf-report*.json
+perf*.sqlite3
+explain-*.txt
+smoke-report*.json
+sse-connections*.json
+!docs/realtime_performance.md
+
 .idea/
 .vscode/
 

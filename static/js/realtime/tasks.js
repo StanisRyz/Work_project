@@ -8,7 +8,9 @@
     'use strict';
 
     const core = window.QualityRealtime;
-    if (!core) {
+    if (!core || !core.claimModule('tasks')) {
+        // A repeated include would register a second coordinator for the same
+        // container and double every fragment request.
         return;
     }
 

@@ -1257,3 +1257,187 @@ sync (`isFirstSync`), то есть без toast.
 - новые модели, миграции или зависимости;
 - новый пользовательский функционал — только исправление корректности уже
   реализованного RT-1…RT-5.
+
+---
+
+# STAB-2: производительность и владение recovery
+
+STAB-2 не добавляет пользовательский функционал и не меняет бизнес-процессы.
+Это оптимизация стоимости уже реализованного, плюс инструменты измерения.
+Методика, набор данных и фактические числа — в
+[Производительность real-time](realtime_performance.md).
+
+## 70. Владелец recovery — ровно один на пользователя
+
+STAB-1 научил лидера транслировать своё состояние через `leader.state`, чтобы
+follower корректно показывал индикатор degraded. Побочный эффект: follower
+принимал это состояние как своё и **запускал собственный fallback polling** —
+N вкладок давали N потоков recovery-запросов вместо одного.
+
+`static/js/realtime/sync.js` вводит единый признак владения:
+
+```js
+const ownsRecovery = () => !core.tabs || !core.tabs.isCoordinated || core.tabs.isLeader;
+```
+
+| Вкладка | `ownsRecovery()` |
+| --- | --- |
+| coordinated leader | `true` |
+| coordinated follower | `false` |
+| standalone (нет BroadcastChannel/localStorage) | `true` |
+
+Через него проходит **каждый** периодический серверный запрос модуля:
+`startPolling()` отказывается стартовать у follower, safety-sync не тикает у
+follower. Follower по-прежнему видит `degraded` и показывает индикатор, но его
+единственный серверный запрос — одноразовый fallback handshake из `tabs.js`.
+
+Смена роли обрабатывается явно: `core.onLeaderPromoted` заново планирует
+safety-timer (и подхватывает polling, если состояние уже `degraded`),
+`core.onLeaderDemoted` останавливает и polling, и safety-timer. Повышение
+открывает свежий `EventSource`, поэтому новый лидер стартует в `connecting`, а
+не наследует `degraded`; если и этот поток не заработает, обычный degrade
+timeout переведёт его в `degraded` и включит polling.
+
+## 71. Полная очистка при STOPPED
+
+При переходе в `stopped` (потеря авторизации или выход) освобождается всё:
+
+| Ресурс | Где |
+| --- | --- |
+| `EventSource` | `core.stop()` → `closeStream()` |
+| fallback polling | `sync.js`, `stopPolling()` |
+| live safety timer | `sync.js`, `clearLiveSafetyTimer()` |
+| активный `AbortController` sync-запроса | `sync.js`, `inFlightController.abort()` |
+| coordinator'ы блоков | `core.stop()` → `adapter.stop()` |
+| leader heartbeat interval | `tabs.js`, `releaseCoordination()` |
+| pending handshake timeout | `tabs.js`, `clearPendingRequest()` |
+| leader lease | `tabs.js`, `clearLease()` |
+| BroadcastChannel и его listener | `tabs.js`, `releaseCoordination()` |
+
+`releaseCoordination()` идемпотентна: она вызывается и на `pagehide`, и при
+`stopped`, в любом порядке.
+
+### Повторное подключение скрипта
+
+`core.js` защищён флагом `window.QualityRealtime`, но остальные модули раньше
+не были защищены ничем. Дублирующий `<script>` приводил к тому, что второй
+`tabs.js` **заменял `core.tabs`** новым экземпляром с `isLeader === false`: та
+самая вкладка, которая держит единственный `EventSource`, тихо переставала
+владеть recovery — ни polling, ни safety-sync. Второй `sync.js` при этом
+регистрировал дублирующие таймеры и listeners.
+
+Решение — `core.claimModule(name)`: каждый функциональный модуль начинается с
+
+```js
+if (!core || !core.claimModule('tabs')) { return; }
+```
+
+и повторный запуск просто выходит. Покрыто тестом
+«re-running the client scripts never doubles timers or listeners».
+
+## 72. Бюджет запросов `/realtime/sync/`
+
+**9 запросов**, независимо от объёма данных. Wire-формат снапшота не менялся:
+те же `schema_version`, те же ключи revisions, те же счётчики.
+
+Полная таблица запросов и сравнение «до/после» — в
+[разделе 4 документа о производительности](realtime_performance.md). Кратко:
+
+| | до | после |
+| --- | --- | --- |
+| запросов | 13 | **9** |
+| материализация PK актов в Python | два `list(values_list(...))` | нет |
+| unread | отдельный `.count()` | filtered aggregate |
+| active/archive акты | два aggregate | один filtered aggregate |
+
+Ключевое изменение — comments/history больше не собирают список
+идентификаторов доступных актов в Python. Видимые акты передаются как
+**подзапрос**:
+
+```python
+ActComment.objects.filter(act__in=get_all_visible_acts_queryset(user)).aggregate(...)
+```
+
+Только переносимый ORM, поэтому обычные тесты по-прежнему идут на SQLite, а
+агрегацию целиком выполняет база.
+
+`acts.permissions.get_visible_acts_filter()` / `get_all_visible_acts_queryset()`
+повторяют `can_view_act` пункт в пункт (активные **и** архивные) и являются
+единственным источником этого правила — `realtime` не выводит видимость актов
+заново.
+
+Отдельно исправлено: `Task.Meta.ordering` протекал в `GROUP BY` распределения
+по статусам, превращая его в разрез по `(status, due_date, created_at)`.
+`_status_counts()` снимает ordering через `.order_by()`.
+
+## 73. Fingerprint назначений
+
+`Count(assignees)` не отличает замену исполнителя A на B от «ничего не
+произошло». Добавлен `Max(assignees__pk)` в revisions задач и мероприятий:
+новая строка `TaskAssignee` всегда получает больший id.
+
+Изменение состава исполнителей выполняется только через
+`tasks.services.replace_task_assignees()` — транзакционно, с явным
+`task.save(update_fields=['updated_at'])` и `emit_task_updated()`. Signals не
+используются. UI редактирования исполнителей пока нет: сервис существует как
+безопасная точка расширения, а не как функция.
+
+## 74. Redis: pipeline и поддерживаемые каналы
+
+- событие сериализуется **один раз** и уходит во все каналы одним
+  `pipeline(transaction=False)` — один сетевой round trip;
+- `MULTI/EXEC` не используется: это две лишние команды и гарантии, которые
+  best-effort транспорту не нужны;
+- порядок каналов детерминирован;
+- ноль подписчиков — нормальный результат;
+- ошибка по-прежнему оборачивается в `RealtimePublisherError` и попадает в
+  существующий механизм `REALTIME_FAIL_SILENTLY`;
+- retry внутри HTTP-запроса нет.
+
+**Публикуются только каналы, на которые кто-то может подписаться** —
+`RedisRealtimePublisher.SUBSCRIBABLE_KINDS`, сегодня это `{'user'}`.
+`act_target()` остаётся в контракте события как маршрутная подсказка, но в
+Redis не материализуется: браузеру запрещено подписываться на комнату акта,
+пока она не авторизована через `can_view_act`. Расширять `SUBSCRIBABLE_KINDS`
+можно только вместе с этой авторизацией, не раньше. Отсутствие лишней команды
+закреплено тестом.
+
+Таймауты Redis по умолчанию снижены до **1 с** (было 5): публикация идёт из
+`on_commit`, то есть внутри пользовательского запроса. Новая настройка
+`REALTIME_REDIS_SLOW_PUBLISH_MS` (250) логирует медленную публикацию как
+`realtime.slow_publish` с типом события, числом каналов и длительностью —
+без payload, URL и учётных данных.
+
+## 75. Получатели `act.created`
+
+Раньше выбирались все активные пользователи и каждый проверялся
+`has_full_act_access()` в Python — стоимость создания одного акта росла вместе
+с таблицей пользователей. Теперь то же правило выражено фильтром базы:
+`acts.permissions.get_full_act_access_users_queryset()` (superuser, роль ADMIN
+или MANAGER, активные User и UserProfile). Правило по-прежнему живёт в
+`acts.permissions`, а не дублируется в `realtime`; существующие тесты
+маршрутизации не менялись.
+
+## 76. SSE и соединения PostgreSQL
+
+`manage.py check_sse_db_connections` снимает `pg_stat_activity` и отдельно
+считает `active`, `idle` и `idle in transaction`. Замеры делаются до, во время
+и после прогона `scripts/realtime_load_smoke.py`.
+
+Ожидаемая гарантия: 20–50 открытых потоков не создают 20–50 соединений
+`idle in transaction`, а после закрытия число возвращается к исходному; после
+аутентификации поток работает только с Redis.
+
+**Принудительное освобождение соединения перед стримом намеренно не
+добавлено** — сначала измерение. На момент STAB-2 PostgreSQL в среде
+недоступна, замер не выполнен, поэтому и изменения нет.
+
+## 77. Границы STAB-2
+
+Не входит: индексы без подтверждённого `EXPLAIN (ANALYZE, BUFFERS)` на
+PostgreSQL; GitHub Actions; production-настройки (`SECRET_KEY`, `DEBUG`,
+HTTPS, secure cookies); reverse proxy; production-роли и runtime timeouts
+PostgreSQL; регулярные backups; SMTP; WebSocket и Django Channels; React, npm
+и bundler; Celery; transactional outbox; гарантированная доставка; перенос
+SQLite → PostgreSQL; production-развёртывание; любой новый пользовательский
+функционал.

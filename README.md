@@ -525,11 +525,15 @@ the `realtime` logger and never breaks the already saved operation
 
 ### Transport: Redis publisher and personal SSE stream
 
-`RedisRealtimePublisher` serializes an event once and publishes the same
-payload into one Pub/Sub channel per target, named `<prefix>:<target.key>`
-(for example `quality-ecosystem:realtime:user:7`). Redis is a short-lived
-transport only: events are never stored, replayed or acknowledged, and having
-no subscriber is a normal state rather than an error.
+`RedisRealtimePublisher` serializes an event once and writes the same payload
+into every subscribable channel — named `<prefix>:<target.key>`, for example
+`quality-ecosystem:realtime:user:7` — in a single `pipeline(transaction=False)`
+round trip. Only targets a client can actually subscribe to are published:
+today that means `user:<id>` alone. `act:<id>` remains a routing hint in the
+event contract but is never written to Redis while the browser is not allowed
+to subscribe to an act room. Redis is a short-lived transport only: events are
+never stored, replayed or acknowledged, and having no subscriber is a normal
+state rather than an error.
 
 `GET /realtime/events/` is an async Server-Sent Events endpoint. The user is
 taken **only** from the Django session: an anonymous request gets 401, a
@@ -543,7 +547,8 @@ New environment variables:
 
 - `REALTIME_REDIS_URL` — `redis://127.0.0.1:6379/0` by default;
 - `REALTIME_CHANNEL_PREFIX` — `quality-ecosystem:realtime`;
-- `REALTIME_REDIS_CONNECT_TIMEOUT_SECONDS`, `REALTIME_REDIS_SOCKET_TIMEOUT_SECONDS` — `5` each;
+- `REALTIME_REDIS_CONNECT_TIMEOUT_SECONDS`, `REALTIME_REDIS_SOCKET_TIMEOUT_SECONDS` — `1` each: publication runs inside the user's own request, so an unreachable Redis must cost that request about a second, not five;
+- `REALTIME_REDIS_SLOW_PUBLISH_MS` — `250`; a slower pipelined publish is logged with the event type, channel count and duration only;
 - `REALTIME_HEARTBEAT_SECONDS` — `25`, the silence after which the stream emits a keep-alive comment;
 - `REALTIME_RECONNECT_DELAY_MS` — `3000`, advertised to the client in the initial `retry:` frame;
 - `REALTIME_MAX_EVENT_BYTES` — `16384`, enforced before publishing and again before writing to the stream.
@@ -741,6 +746,62 @@ that logging back in and reloading initializes normally. Finally, complete a
 task while the stream stays connected and confirm `Task.updated_at` and the
 task list both change without a reload.
 
+**Recovery has one owner per user.** Fallback polling and the live safety-sync
+run only on the tab that actually holds the `EventSource` — the leader when
+tabs are coordinated, or every tab when `BroadcastChannel`/`localStorage` are
+unavailable and each tab streams for itself. A follower mirrors the leader's
+state so its "updates may be delayed" indicator stays correct, but never turns
+that into its own polling loop; N open tabs therefore cost one recovery
+stream, not N.
+
+### Performance tooling
+
+`/realtime/sync/` costs a fixed **9 SQL queries** regardless of how much data
+the user can see — no revision query loads rows or materialises identifiers in
+Python. The budget is pinned by tests for every role.
+
+```powershell
+# Profile the sync endpoint and the live list endpoints (read-only)
+python manage.py profile_realtime_sync --user 1 --repeat 10
+python manage.py profile_realtime_sync --user 1 --repeat 10 --json-report perf.json
+python manage.py profile_realtime_sync --user 1 --explain          # PostgreSQL only
+python manage.py profile_realtime_sync --user 1 --explain-analyze  # separate explicit flag
+```
+
+A local performance dataset, into a **separate throwaway database** so the
+working `db.sqlite3` is never touched:
+
+```powershell
+$env:SQLITE_DB_PATH = "transfer\perf.sqlite3"
+python manage.py migrate
+python manage.py seed_references
+# dry-run by default; --execute is required to write anything
+python manage.py seed_performance_dataset --users 50 --acts 5000 --tasks 10000 `
+    --comments 20000 --history 20000 --notifications-per-user 20 --execute
+```
+
+It refuses to run with `DEBUG=False` unless explicitly overridden, marks every
+generated row `PERF-SYNTHETIC`, and gives its accounts an unusable password.
+Production data is never used.
+
+Whether a long-lived SSE stream pins a PostgreSQL connection is measured, not
+assumed:
+
+```powershell
+python manage.py check_sse_db_connections --label before --json-report before.json
+# run the load smoke below in another terminal, then --label during, then --label after
+```
+
+It reads `pg_stat_activity` only, reports `active` / `idle` /
+`idle in transaction` separately, and refuses to run on a non-PostgreSQL
+backend rather than produce a meaningless number.
+
+**Performance claims need a real environment.** The numbers in
+[Производительность real-time](docs/realtime_performance.md) were measured on
+SQLite; PostgreSQL execution plans, `EXPLAIN ANALYZE`, Redis publish latency
+and the SSE connection behaviour all require an actual PostgreSQL, Redis and
+ASGI stack and are listed there as *not yet performed*.
+
 Diagnostics:
 
 ```powershell
@@ -749,11 +810,13 @@ python manage.py check_realtime_transport  # PING + a real publish round trip
 
 $env:REALTIME_SMOKE_PASSWORD = "<пароль тестовой учётной записи>"
 python scripts\realtime_load_smoke.py --base-url http://127.0.0.1:8000 `
-    --username smoke_user --connections 20 --seconds 120
+    --username smoke_user --connections 20 --seconds 120 `
+    --json-report transfer\smoke.json
 ```
 
 The load script refuses any non-local address without an explicit override and
-never stores a password or reads browser cookies.
+never stores a password or reads browser cookies. Its JSON report holds the
+host, counts and timings — never a session cookie.
 
 **Still not implemented:** WebSocket, act-channel subscriptions, event replay
 or storage, guaranteed delivery, and production deployment. History, comments

@@ -22,7 +22,10 @@
     'use strict';
 
     const core = window.QualityRealtime;
-    if (!core) {
+    if (!core || !core.claimModule('tabs')) {
+        // A repeated include must not replace `core.tabs`: the running
+        // instance holds this tab's leader state, and a fresh one would
+        // report `isLeader === false` while the stream is still open here.
         return;
     }
 
@@ -118,6 +121,8 @@
     let isLeader = false;
     let heartbeatTimer = null;
     let pendingRequest = null; // { requestId, timeoutId }
+    let messageListener = null;
+    let channelClosed = false;
 
     const leaseMs = core.config.leaderLeaseSeconds * 1000;
     const heartbeatMs = core.config.leaderHeartbeatSeconds * 1000;
@@ -269,7 +274,7 @@
     // -- message passing ---------------------------------------------------
 
     const post = (message) => {
-        if (!channel) {
+        if (!channel || channelClosed) {
             return;
         }
         try {
@@ -284,15 +289,21 @@
     core.onLeaderEvent = (eventType, payload) => post({ kind: MESSAGE_EVENT, eventType, payload });
     core.onLeaderSync = (snapshot) => post({ kind: MESSAGE_SYNC, snapshot });
     core.onState((state) => {
+        if (state === core.STATES.STOPPED) {
+            // Terminal: release every coordination resource this tab owns, so
+            // nothing keeps ticking or listening against a dead session.
+            releaseCoordination();
+            return;
+        }
         if (isLeader) {
             post({ kind: MESSAGE_LEADER_STATE, state });
         }
     });
 
     if (channel) {
-        channel.addEventListener('message', (message) => {
+        messageListener = (message) => {
             const data = message && message.data;
-            if (!data || typeof data !== 'object') {
+            if (!data || typeof data !== 'object' || channelClosed) {
                 return;
             }
             if (data.kind === MESSAGE_EVENT) {
@@ -306,24 +317,43 @@
             } else if (data.kind === MESSAGE_LEADER_STATE) {
                 handleLeaderState(data);
             }
-        });
+        };
+        channel.addEventListener('message', messageListener);
     }
 
-    window.addEventListener('pagehide', () => {
+    /**
+     * Release every timer, listener and channel this module owns.
+     *
+     * Idempotent on purpose: it runs on `pagehide` *and* when the client stops
+     * after losing authentication, and either may happen first. Nothing here
+     * may throw — a closed channel or an unavailable storage is an ordinary
+     * outcome, not an error.
+     */
+    function releaseCoordination() {
         if (heartbeatTimer !== null) {
             window.clearInterval(heartbeatTimer);
             heartbeatTimer = null;
         }
         clearPendingRequest();
         clearLease();
-        if (channel) {
+        if (channel && !channelClosed) {
+            channelClosed = true;
+            try {
+                if (messageListener && typeof channel.removeEventListener === 'function') {
+                    channel.removeEventListener('message', messageListener);
+                }
+            } catch (error) {
+                // Not every implementation supports removal; closing is enough.
+            }
             try {
                 channel.close();
             } catch (error) {
                 // Already closed.
             }
         }
-    });
+    }
+
+    window.addEventListener('pagehide', releaseCoordination);
 
     core.tabs = {
         tabId,
