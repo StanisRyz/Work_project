@@ -1,4 +1,4 @@
-"""RT-3 server side: the shared bell state, its fragment endpoint and the
+"""Server side of the bell: the shared state, its fragment endpoint and the
 template wiring the browser client depends on."""
 
 from django.contrib.auth.models import AnonymousUser
@@ -109,7 +109,7 @@ class NotificationHeaderFragmentTests(HeaderStateMixin, TestCase):
     def test_authentication_is_required(self):
         response = self.client.get(self.url)
 
-        # STAB-1: a technical fragment endpoint answers 401 JSON, never an
+        # A technical fragment endpoint answers 401 JSON, never an
         # HTML login redirect the fetch()-based client cannot parse as JSON.
         self.assertEqual(response.status_code, 401)
         self.assertNotIn('Location', response)

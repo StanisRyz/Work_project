@@ -836,7 +836,7 @@ def render_markdown(report):
     else:
         add('- блокирующих проблем не обнаружено')
     add('')
-    add('Ручной checklist из `docs/postgresql_rehearsal.md` обязателен независимо от этого отчёта.')
+    add('Ручной checklist из `docs/archive/postgresql_rehearsal.md` обязателен независимо от этого отчёта.')
     add('')
 
     return '\n'.join(lines)

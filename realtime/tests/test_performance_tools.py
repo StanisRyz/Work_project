@@ -1,4 +1,4 @@
-"""STAB-2 performance tooling: the profiling command and the dataset generator.
+"""Performance tooling: the profiling command and the dataset generator.
 
 These verify the *safety* contract of the tools — read-only, dry-run by
 default, no business content in a report — rather than any particular timing,

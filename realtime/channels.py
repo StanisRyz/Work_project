@@ -75,8 +75,8 @@ def user_channel(user_or_id, prefix=None):
 def act_channel(act_or_id, prefix=None):
     """Channel for an act-scoped routing hint.
 
-    RT-2 publishes to it but never lets a client subscribe: an act room needs
-    `acts.permissions.can_view_act` authorisation, which is an RT-3 concern.
+    No client may subscribe to it: an act room would need
+    `acts.permissions.can_view_act` authorisation, which does not exist yet.
     """
     target = act_target(act_or_id)
     if target is None:

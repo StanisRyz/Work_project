@@ -1,4 +1,4 @@
-"""RT-5 recovery: revision tokens and the `/realtime/sync/` endpoint."""
+"""Recovery: revision tokens and the `/realtime/sync/` endpoint."""
 
 from datetime import timedelta
 
@@ -265,7 +265,7 @@ class SyncEndpointTests(SyncStateMixin, TestCase):
 
         response = self.client.get(self.url)
 
-        # STAB-1: a technical endpoint answers 401 JSON, never an HTML login
+        # A technical endpoint answers 401 JSON, never an HTML login
         # redirect the fetch()-based client cannot parse as JSON.
         self.assertEqual(response.status_code, 401)
         self.assertNotIn('Location', response)

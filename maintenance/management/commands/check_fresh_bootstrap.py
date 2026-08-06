@@ -243,7 +243,7 @@ def _check_act_number_sequence():
     Read-only: this never creates a missing row, never raises an existing
     `last_value`, and never touches `Act` data. A gap is reported for an
     operator to fix through the manual procedure in
-    docs/fresh_postgresql_bootstrap.md — only the affected years and their
+    docs/deployment.md — only the affected years and their
     aggregated counters are named, never a specific act number.
     """
     from acts.models import ActNumberSequence
@@ -283,7 +283,7 @@ def _check_act_number_sequence():
             BLOCKING,
             'ActNumberSequence отстаёт от выданных номеров: ' + '; '.join(problems) + '. '
             'Автоматическое исправление не выполняется — требуется ручная проверка '
-            'администратором по процедуре из docs/fresh_postgresql_bootstrap.md.',
+            'администратором по процедуре из docs/deployment.md.',
         )
     return _result(
         'act_number_sequence',

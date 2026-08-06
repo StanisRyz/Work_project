@@ -1,226 +1,200 @@
 # Agent Notes
 
-## Project Direction
+Rules for changing this codebase. Every statement here is backed by current
+code. Product and operational detail lives in `docs/` — do not duplicate it.
 
-- Preserve the project concept: the first system is a quality ecosystem.
-- Treat digital OTK and micro-MES as future stages.
-- Use Russian UI labels by default.
-- New major business areas should be separate Django apps.
-- Use the standard Django User model until explicitly asked otherwise.
-- Do not create a custom user model in later patches without explicit approval.
-- `UserProfile.role` is the source for MVP role awareness.
-- Reference data belongs in the `references` app.
-- Use reference models instead of free-text fields in future business models where possible.
-- Acts belong in the `acts` app.
-- Act history events belong in the `acts` module.
-- Act attachments belong in the `acts` module.
-- Use `references.Operation`, `DefectType`, `ActStatus`, and `Priority` in act models/forms.
-- `UserProfile.role` is used for MVP act visibility.
-- Regular users see only acts currently assigned to their processing stage.
-- Act visibility must be enforced in backend permissions, not only templates.
-- Act workflow transitions belong in `acts/services.py`.
-- Act closing belongs in `acts/services.py`.
-- Workflow services should record history when act status changes.
-- Comments are manual user notes and should not replace workflow history.
-- Act history should be append-only from normal UI flow.
-- Attachment actions should record history when history models are available.
-- Act role and action checks belong in `acts/permissions.py`.
-- Administrator full act access must be explicit in `acts/permissions.py`; a Django superuser must retain full access as a safety fallback even when the profile is unavailable.
-- Administrators may act on any visible act only through transitions valid for its current workflow status.
-- Administrator access changes must preserve strict OTK/KO/TO visibility and be manually validated through the UI.
-- Closing permissions belong in `acts/permissions.py`.
-- Act creation UI should preserve the production form structure.
-- Multiple defects belong to `ActDefect` records.
-- `Act.defect_type`, `Act.description`, and `Act.due_date` remain summary compatibility fields using the first defect.
-- `order_number`, `znp_number`, and `party_number` accept only digits, hyphen, and slash.
-- Product nomenclature and KD designation input restrictions must be validated server-side; browser-side validation is supplementary.
-- Defect detected dates cannot be later than the current local date.
-- The CREATED_OTK work tab order is party data, defects and KO decision, TO analysis, then the bottom-right action panel.
-- On wide screens, party-data labels must remain on one line and every defect card must use rows for ZNP/party/MP type, full-width defect type, operation/date, quantities, and full-width description.
-- Act editing is available only before transfer to KO: the OTK author and managers/administrators may edit acts in CREATED_OTK only.
-- Act create form dynamic defect rows must still be backed by server-side formset validation.
-- On the act detail page, use `defect_rows` as the primary source for defects.
-- Preserve the legacy detail-page fallback for acts that have no `ActDefect` records.
-- Send-to-KO authorization belongs in `acts/permissions.py`, and the transition implementation belongs in `acts/services.py`.
-- Detail-page tabs control presentation only; they must not change access checks, visibility, or workflow state.
-- The `Вложения и комментарии` tab keeps attachments first, followed by the normal comment form and comment history; comments are not displayed on the work tab.
-- KO decisions must use `available_actions` for template visibility and the existing authorization in `acts/permissions.py` and transition service in `acts/services.py`.
-- The work tab must keep this section order: party data, defects, KO decision, TO analysis, workflow actions.
-- Returning an act from KO to OTK requires a non-whitespace comment and must save that comment and both history events atomically with the transition.
-- Attachments belong only on the detail-page attachments tab; preserve its validation, protected access, and attachment history.
-- Every new KO decision must transition an act from `KO_REVIEW` to `TO_ANALYSIS` through `apply_ko_decision()`.
-- New KO decisions are, in order: prohibit use; allow use with a deviation and no rework; allow use with a deviation and rework; allow use without a deviation and rework. Legacy KO decision values remain readable for historical acts.
-- When an act has multiple defects, KO must provide a separate decision for every defect before the act can transition to TO.
-- Preserve legacy KO decision values and historical events for existing acts; do not rewrite them in a data migration.
-- TO analysis is entered on the act detail work tab; the legacy TO URL redirects there on GET and accepts the structured form on POST.
-- `ActRootAnalysis` stores one or more root causes and `ActCorrectiveAction` stores one or more actions for each root cause.
-- Every root cause and corrective action text is required; each action has a responsible department and one or more active assignees. Each assignee is selected only after choosing that assignee's department and must belong to it; assignees may belong to different departments.
-- Saving structured TO analysis must be atomic, update legacy TO summary fields from the first root/action, transition to `OTK_REVIEW`, and create the existing TO history event.
-- Structured TO analysis is read-only after submission; old acts without structured records use the legacy TO field fallback. Read-only assignee display (OTK review, archived acts, and any other non-editable view of the same table) must never render the editable department/assignee `<select>` controls; use `acts/includes/to_analysis_assignees_readonly.html` to list every assignee, falling back to `—` when an action has none.
-- `TO_ANALYSIS` has two actions: return to `KO_REVIEW` with a mandatory atomic comment, or submit validated structured analysis to `OTK_REVIEW`.
-- `OTK_REVIEW` is an OTK queue stage; its existing approval and return actions remain supported.
-- Do not render delete buttons for the initial single root analysis or its single action. Show them only once the respective collection has more than one item.
-- Use `link-button--success` for add-analysis actions and `link-button--danger` for delete-analysis actions.
-- At `OTK_REVIEW`, the OTK author and managers/administrators may atomically return the act to `TO_ANALYSIS` with a mandatory comment or approve it to `ARCHIVED`; approval atomically creates one `tasks.Task` for every corrective action.
-- `ARCHIVED` acts are read-only for workflow actions but retain permitted viewing, comments, attachments, history, and printing.
-- The acts registry scopes are `my`, `all`, and `archive`; scope selection must not bypass backend act visibility.
-- D27 keeps the `/acts/` registry compact: the topbar title is `Акты`; the filter panel contains search, current workflow statuses, type (`Операционный контроль` or the prepared future `Входной контроль`), and a due-date filter (`Все`, `Просроченные`, `Не просроченные`). Existing acts default to operational control; an overdue act has a due date strictly before the current local date. The table has fixed height and internal scrolling and shows number, creation date, type, status, and due date. Archived acts belong only on the `archive` scope, including for full-access users. Permitted creation and the dedicated administrator cleanup action are below the registry. The operation filter is intentionally absent while operation data remains in acts and their details.
-- Tasks belong in the `tasks` app. A single shared task is created only during successful OTK approval and is linked one-to-one with its source corrective action.
-- `ActCorrectiveActionAssignee` and `TaskAssignee` are the multi-assignee relations; each pair is unique and each corrective action requires at least one assignee.
-- Regular users see only tasks where they are a `TaskAssignee`; managers and administrators have full task visibility. Task links on archived acts are read-only.
-- An assigned employee may atomically complete an active shared task once. `completed_by` and `completed_at` are shared by every assignee.
-- The `/tasks/` registry is compact: `№ задачи`, `Статус` (`По акту`), `Источник`, and `Срок`. Task primary keys link to protected details; technical task statuses remain for execution and detail pages.
-- The `/tasks/` registry has `my`, `all`, and `archive` tabs with GET filters and due-date sorting. Tabs never bypass task visibility: `my` and `all` show active tasks, `archive` shows completed tasks, and regular users see only assigned tasks.
-- Task details show compact metadata, assignees with their actual departments, root cause, task text, and execution result. An assigned executor or administrator may atomically complete an active shared task, and a non-whitespace execution comment is required; successful completion sends the task to the archive.
-- Internal notifications belong in the `notifications` app. `Notification` read state is independent from `NotificationDelivery` channel state, and normal UI flow never deletes read notifications.
-- The topbar bell menu lists only the recipient's up-to-five most recent unread notifications. Opening it marks just those as read (bulk, owner-scoped, CSRF-protected POST returning the current unread count) and removes them from the menu client-side, showing `Новых уведомлений нет.` once empty; it must never mark the recipient's full notification history. `Отметить все прочитанными` on `/notifications/` remains the separate, explicit action for that.
-- Notification event text, recipients, related-act links, deduplication, and email eligibility belong in `notifications/services.py`; views and templates must not reproduce routing rules.
-- Queue transitions notify every active user/profile of the target KO or TO role. Transfer to OTK verification and return to OTK notify the act author because regular OTK visibility is author-scoped.
-- Corrective-action assignment notifies only the active individual assignees, including a self-assignee; act approval and normal comments are in-app only. Approval recipients are active act participants except the actor. Comment recipients are relevant participants who can currently view the act, except its author.
-- Mandatory return comments are part of the return transaction but must not emit a duplicate normal-comment notification.
-- Supported event notifications must be created in the same database transaction as their workflow event or assignment. A stable event/source key must deduplicate each recipient.
-- Email delivery is deferred to `NotificationDelivery` processing. Disabled email and missing recipient addresses are recorded as `skipped`; skipped old events must not become a backlog when email is later enabled.
-- Email messages must not contain defect details, attachments, return comments, or other sensitive production data. SMTP secrets belong only in environment variables.
-- Email processing uses `process_notification_deliveries`; retries and failures must be recorded and must never roll back act transitions, comments, or assignments.
-- Email queue automation is deployed as a separate once-per-minute server task. The repository provides Linux systemd and Windows Task Scheduler configurations; they are not production-active until installed and enabled on the selected server.
-- Each queue invocation processes one batch of 100 by default and exits. Overlapping runs must atomically claim deliveries and scheduler configuration must suppress a second active instance.
-- SMTP and the selected server scheduler must be configured and activated during deployment. User actions and internal notifications must remain independent of SMTP availability.
-- Celery, Redis, APScheduler, and schedulers embedded in WSGI/ASGI processes are not used for notification delivery.
-- Real-time business events belong in the `realtime` app: no models, no migrations, no URLs, views or templates — only the event contract, targets, the publisher abstraction, its backends and their tests.
-- Real-time events are published **explicitly from the business services**, never from generic `post_save` signals. A signal would fire on fixture loads and migration-bundle imports, react to technical saves, publish before dependent objects exist (a task without assignees), and create hidden duplicates.
-- Publication always goes through `publish_after_commit()`, so a rolled-back transaction publishes nothing. PostgreSQL stays the source of truth: an event announces a fact, and the client refetches through the ordinary permission-checked endpoints.
-- An event payload carries only minimal safe metadata — identifiers, status codes, counters. Never comment text, defect descriptions, email addresses, file names, authorisation data, password hashes, permissions or whole models.
-- Targets are built server-side from the *existing* internal-notification routing (`get_act_participants`, `get_comment_participants`, `get_recipients_for_history_event`) — `realtime` adds no second routing rule — and never appear in the public payload. A client parameter must never influence who receives an event.
-- Business code must not import Redis clients or know about the future SSE/WebSocket transport. The backend is selected by `REALTIME_PUBLISHER_BACKEND` and loaded by dotted path; `REALTIME_ENABLED` is false by default and the default backend sends nothing.
-- A real-time backend failure must never break an already saved business operation: publication happens after commit, so with `REALTIME_FAIL_SILENTLY=true` the error is logged to the `realtime` logger and swallowed. The log records event id, type, resource, target count, backend and exception type — never the payload.
-- New event types are added only to the central `RealtimeEventType` enum, with stable string values, and must be covered by contract, target and integration tests. Do not add one event type per act status: transitions use `act.status_changed` with `from_status_code` / `to_status_code`.
-- RT-2 adds the transport only: `RedisRealtimePublisher` and a personal SSE endpoint. Redis is a **short-lived transport**, never a store — events are not persisted, not replayed and not acknowledged. PostgreSQL remains the source of truth, and a client that receives an event refetches through the ordinary permission-checked endpoints.
-- Business services still must not import Redis. Only `realtime/backends.py`, `realtime/transport.py`, `realtime/sse.py` and the diagnostic command may touch a Redis client, and they import it lazily so `REALTIME_ENABLED=false` needs no Redis server and no client object at all.
-- The SSE endpoint builds its user target **only** from `request.user`, resolved through the Django session. Query string, path and request body never influence the subscription; an anonymous request gets 401.
-- Act targets are published but are not subscribable in RT-2: a client may only ever listen to `user:<request.user.pk>`. An act room needs `acts.permissions.can_view_act` authorisation, which is RT-3.
-- A Redis outage must never break a saved business operation. Publication runs after commit under the existing `REALTIME_FAIL_SILENTLY` policy, the publisher performs no long retry inside a user request, and the SSE endpoint answers 503 on a failed preflight instead of hanging.
-- The streaming endpoint is an async view and requires ASGI (`ASGI_APPLICATION`, uvicorn locally). The rest of the project keeps working unchanged under WSGI.
-- Every PubSub resource must be released on disconnect: handle `asyncio.CancelledError`, unsubscribe, close the PubSub and close the client. A closed browser tab is a debug-level event, not an error; an unexpected Redis disconnect ends the stream in a controlled way.
-- Malformed, unknown and oversized transport messages are dropped with a safe warning and never forwarded to the client; one bad message must not tear down the stream. Sizes are checked before publishing and again before writing to the stream (`REALTIME_MAX_EVENT_BYTES`).
-- Redis credentials must never reach logs, command output or error messages: use `realtime.transport.safe_redis_location()` / `sanitize()` / `describe_failure()`, which keep the host visible for diagnosis but strip the URL, username and password.
-- Channel names are always built server-side from a validated `RealtimeTarget` (`<prefix>:<target.key>`); there is deliberately no function turning an arbitrary string into a channel.
-- RT-3 connects the browser: `EventSource` is created **only** from the server-rendered configuration element in `base.html` and never accepts a user id, target or channel name from anywhere. If real-time is disabled or the user is anonymous, no config and no client script are rendered at all.
-- **SSE is a signal to refetch, never a data source.** An event says only that something changed; every visible string and every URL is fetched afterwards from an ordinary authenticated Django endpoint. Never insert an SSE payload into the DOM and never take a notification's title, message or link from it.
-- Bell markup is rendered by Django from one partial (`templates/notifications/includes/header_items.html`), used both on a full page load and by `GET /notifications/header-fragment/`. JavaScript never builds notification markup. `notifications.services.get_notification_header_state()` is the single source for both paths.
-- `notification.created` shows a toast; `notification.read` only synchronises the counter and menu across the user's tabs and must never toast. `notification.read` must not rely on `notification_ids` — `scope=all` deliberately reports counts only.
-- Fragment replacement must not break the existing mark-as-read flow: only the *contents* of `[data-notification-items]` are swapped, never the container or the `<details>`, so the single toggle handler keeps finding new items and is never re-registered.
-- The client must refresh the fragment on **every** SSE `open`, including each browser-driven reconnect, so events missed while offline or during a Redis restart cannot leave a stale counter. The first open must not toast pre-existing notifications.
-- Events are deduplicated by `event_id` (or `lastEventId`) in a bounded set, so a redelivery never produces a second toast; a duplicate may still trigger a safe resync.
-- SSE errors must never block the ordinary interface: no user-visible technical errors, no removal of existing markup, no hand-rolled reconnect loop on top of `EventSource`, and no fallback polling. A 401/403 stops the client cleanly instead of retrying forever.
-- Every browser module shares **one** `EventSource` and one internal event bus (`subscribe(eventType, handler)` / `onOpen(handler)`) owned by the core in `static/js/realtime.js`. Feature modules never construct an `EventSource`, and a second script include must not open a second stream. Modules register before the stream opens, so an event arriving immediately after connect always finds its handler.
-- An SSE event triggers a refetch; it is never the source of HTML, text or permissions. Whether a task belongs in the current tab, whether an act is visible, and what any block contains are decided by the Django queryset behind the fragment endpoint.
-- The full page and every fragment must go through the same state builder — `tasks.selectors.build_task_list_state`, `acts.selectors.build_act_list_state` — and the same partials, so a refreshed block can never disagree with a reload. Act detail helpers (`build_route_steps`, `group_history_events`, `get_act_comments`, `get_related_tasks`) are shared the same way.
-- Only `notification.created` produces a toast. `task.created`, `task.updated`, `task.completed`, `act.updated`, `act.status_changed` and `comment.created` update blocks silently — the user already gets a toast through the matching internal notification when the business rules define one.
-- A live refresh must never replace a form holding unsaved input: the KO decision form, the TO analysis form and its dynamic rows, the new-comment textarea, the return dialogs and the attachment form are all outside the replaceable partials. Only read-only blocks (summary, history, comment list, related activities) are swapped.
-- Dirty state is set only by a real user gesture on `input`/`change` or by adding/removing a dynamic row; a programmatic fragment replacement dispatches nothing and must never raise a false positive. When the act changes externally while a form is dirty, show the permanent conflict banner and keep the typed text intact and copyable. On `act.status_changed` also disable `[data-workflow-submit]` buttons — ordinary fields stay editable, and the server-side lock plus status re-check remains the real guard.
-- Every fragment endpoint re-loads its object, re-checks `request.user` and the existing permissions, accepts no user id, changes nothing on GET, and is served with `Cache-Control: no-store, private`. Losing access returns a plain 404 with no object data; the client then stops updating that act, disables workflow actions and shows a return link.
-- A fragment error must never clear the current UI: keep the existing markup and counters, and let the next open/reconnect resync.
-- **SSE is a best-effort transport; `/realtime/sync/` is what makes the UI correct again.** Every connect and reconnect resyncs, so a missed event, a Redis restart or an offline laptop can never leave stale state. Sync returns opaque revision tokens and safe counters only — never an identifier or any data of an object the user cannot already see, and never anything about Redis.
-- Creating an act must publish `act.created` (after commit, inside the atomic block, so a rollback or a failed validation publishes nothing). Its recipients are the author plus active users with full act access; KO and TO are excluded while the current permissions do not let them see a `CREATED_OTK` act.
-- When `BroadcastChannel` is available, only the leader tab holds the EventSource and the fallback polling; it forwards normalized events and sync snapshots to follower tabs over the local channel, and they feed those into the same core bus. The leader lease lives in `localStorage`; a brief double leader is acceptable because event-id deduplication prevents a duplicate toast.
-- Missing browser APIs must degrade safely, never disable real-time: without `BroadcastChannel` or `localStorage` each tab simply runs standalone, and a `localStorage` exception must never break the page.
-- Fallback polling runs **only** in the degraded state (or when `EventSource` does not exist), uses `/realtime/sync/`, backs off for hidden tabs, adds jitter, never runs while `navigator.onLine` is false, and stops the moment SSE recovers. Never more than one sync request at a time, and never a hand-rolled reconnect loop on top of `EventSource`.
-- A dirty form is never replaced — the conflict banner appears instead and the typed text stays intact. A **clean** work fragment may be replaced after `act.status_changed` with current server markup, and the shared initialiser registry (`window.qualityFragments`) must re-wire the dynamic formsets without registering duplicate handlers.
-- Dangerous real-time configuration is caught by Django system checks (`realtime/checks.py`): enabled real-time on the Noop publisher, a missing/invalid/non-`redis://` URL, a missing `ASGI_APPLICATION`, a heartbeat not shorter than the connection lifetime, bad polling or leader intervals, an invalid channel prefix. Severity follows `DEBUG`; with `DEBUG=False` they are errors.
-- Secrets are forbidden in logs, in check messages and in the browser config. Only plain numbers and reversed URLs reach the client; the Redis URL, its password and the channel namespace never do.
-- RT-5 deliberately excludes GitHub Actions, WebSocket/Channels, React, npm/bundlers, Celery, event storage or replay, a transactional outbox, guaranteed delivery, chat/presence/typing, production deployment, real reverse proxy, HTTPS or Redis service configuration, and any real secret. See `docs/realtime.md` and `docs/realtime_production.md`.
-- The full-width act-card redesign is deferred. Preserve the current detail-page implementation and access behavior until a separate approved UI stage resumes it.
-- Every `ActDefect` has a `workshop` field (`MP_SHOP` — «Цех МП», `TRANSFORMERS_SHOP` — «Цех трансформаторов»); the model field stays `blank=True` so existing rows are never backfilled with an invented value, but `ActDefectForm` requires a real choice for every new or edited defect.
-- In the create/edit act form, each defect row shows only its «Цех/поставщик» selector until a value is chosen; the other defect fields (ЗНП, партия, вид дефекта, операция, тип МП, дата обнаружения, проверено, с отклонением, описание) stay hidden via the `hidden` attribute so the browser does not block submission on a field the user cannot see. Selecting either option reveals the rest of that row without a page reload and without clearing already-entered values; this applies independently to the first row, rows added by «Добавить ещё дефект», existing rows on edit, and rows redisplayed after a validation error. Both workshop choices currently share the same fields, validation, and business process — do not implement per-workshop differences without an explicit request.
-- The workshop show/hide behavior lives in `static/js/act_create.js` alongside the existing defect formset logic; do not introduce a separate script or a frontend framework for it.
-- The saved workshop value is shown read-only wherever defect data is already displayed (act detail defects table, print view); legacy defects saved before this field existed show a placeholder instead of an invented value.
+## Project snapshot
 
-## Patch Rules
+Quality-management system for production acts (АОК). An act travels
+ОТК → КО → ТО → ОТК; approving it creates shared tasks for every corrective
+action. Django monolith, server-rendered templates plus vanilla JavaScript,
+ASGI (Uvicorn), PostgreSQL in production and SQLite in development, Redis
+Pub/Sub → SSE for live updates, corporate SMTP relay for email. Russian UI
+labels by default; new major business areas become separate Django apps.
+Standard Django `User` plus `accounts.UserProfile` for roles — no custom user
+model without explicit approval.
 
-- Keep patches small and staged.
-- D2 is structural only; do not add business models or workflows here.
-- Do not implement business logic before the planned stage.
-- Demo users and demo passwords are for local development only.
-- Seed commands must be idempotent and safe to run multiple times.
-- Do not implement a real access-control matrix before the relevant business module patch.
-- Do not add custom CRUD for references until explicitly requested.
-- Do not implement task objects inside `acts`; shared tasks belong in the `tasks` module.
-- Keep act workflow simple until protocols are implemented.
-- Views must not duplicate act workflow business logic.
-- Act UI must use service-provided available actions.
-- Act templates must not duplicate role/status permission logic.
-- UI patches must not change workflow transitions unless explicitly requested.
-- Downloads for protected act files must go through access-checked Django views.
-- Direct media links should not be used for protected act files.
-- Upload validation must check file size and extension.
-- Attachment delete permission is author, manager, or admin.
-- Closed acts are read-only in the normal workflow.
-- Print view is HTML/browser-print only until an explicit export request.
-- PDF/Word export must not be added without explicit request.
-- D8, D10, D12, D13, and D14 intentionally use manual validation instead of adding automated tests for their scoped UI changes.
-- D27 is a registry UI-only patch: do not restore the introductory, role-description, or administrator-mode notices, and do not reintroduce operation filtering without an explicit requirement.
-- Templates must not decide act permissions directly.
-- Preserve existing workflow tests when workflow behavior changes; D12, D13, and D14 are manual-validation UI patches and do not add automated tests.
-- Do not add backend complexity before it is needed.
-- Do not add frontend frameworks.
-- Keep navigation server-rendered unless a later patch asks for frontend behavior.
-- Do not add realtime or WebSocket features yet.
-- Keep local development beginner-friendly.
-- Notification pages and POST actions must always scope objects to `request.user`; notification links never bypass act backend permissions.
-- Do not send email synchronously from act workflow services. Any future dispatch trigger must be registered only after database commit.
-- The project supports both SQLite and PostgreSQL via `DATABASE_ENGINE` in `ecosystem/settings.py`; SQLite stays the default local backend, and PostgreSQL is selected only through the environment (`DATABASE_ENGINE=postgresql` plus `DB_NAME`/`DB_USER`/`DB_PASSWORD`, never hardcoded). `SQLITE_DB_PATH` and `MEDIA_ROOT_PATH` are optional transfer-only overrides for the SQLite file and `MEDIA_ROOT`; both keep the existing defaults when unset. Database secrets must never be committed to Git. A missing required PostgreSQL variable or an unsupported `DATABASE_ENGINE` value must raise `ImproperlyConfigured` with no hidden fallback to SQLite. Migrations must stay compatible with both backends. Actual PostgreSQL deployment and migrating existing SQLite data to it are not implemented yet — see `docs/postgresql_preparation.md`.
-- The `maintenance` app is technical tooling only: no models, no migrations. It hosts `check_migration_source`, `export_migration_bundle`, `check_migration_target`, `prepare_empty_migration_target`, `import_migration_bundle`, `verify_migration_bundle` and `run_postgresql_smoke_checks`. Shared logic lives in `maintenance/database_transfer.py` (bundle export/validate/import/verify), `maintenance/preflight.py` (source and target preflight), `maintenance/target_preparation.py` and `maintenance/smoke_checks.py`; management commands must only parse arguments, print output and call those services.
-- `TRANSFERABLE_MODELS` in `maintenance/database_transfer.py` is the single source of truth for what moves (users, groups, profiles, departments, references, acts and all their child records, tasks, notifications, deliveries, `ActNumberSequence`) and its order must keep every model after the models it references. `EXCLUDED_MODELS` covers `ContentType`, `Permission`, `Session` and `admin.LogEntry`; references to system permissions travel as Django natural keys instead of primary keys.
-- Import is only allowed into a PostgreSQL database whose transferable tables are empty. The tools must never flush, delete existing rows, or silently overwrite a non-empty `MEDIA_ROOT`. The only exception is `prepare_empty_migration_target`, which may delete exactly the codes listed in `MIGRATION_SEEDED_ROWS` (`references.ActStatus`: `ARCHIVED`, `OTK_REVIEW`; `references.TaskStatus`: `IN_PROGRESS`, `COMPLETED`) — PostgreSQL only, dry-run by default, requiring `--execute` plus a typed confirmation, refusing outright when any user data exists, and never touching users, acts, tasks, notifications or files.
-- Every bundle carries SHA-256 checksums for `data.json` and each media file plus per-model counts, max PKs and deterministic hashes. Validation must recompute counts, max PKs and hashes **from `data.json`** and compare them with the manifest, require `source_vendor == "sqlite"` and an exact `model_order` match with `TRANSFERABLE_MODELS`, reject duplicated or unknown models and any record of a model outside that set, and check the shape of the `migration_state`, `media_files` and `missing_media` blocks. A manifest must never be able to vouch for itself.
-- A transfer is only considered done once `verify_migration_bundle` passes **and** `run_postgresql_smoke_checks` passes. The mandatory stage order is: source preflight → export → bundle re-validation → target preflight → dry-run → import → verification → smoke checks.
-- A bundle with a non-empty `missing_media` is **incomplete**. `--allow-missing-media` on export stays a diagnostic option; an ordinary import must refuse such a bundle; `--accept-missing-media` must additionally require a typed confirmation and print the full list of absent files; verification must always report `missing_media` as a difference unless the special check mode allows it explicitly; the incomplete status must appear in both the JSON and the Markdown rehearsal report.
-- Export reads attachments from `--source-media-root`, defaulting to `settings.MEDIA_ROOT`. The path is normalized and validated as strictly as every other file path, and the manifest stores only a safe description of the source (directory name, default flag, file count, total size) — never an absolute path.
-- Loading the fixture, resetting PostgreSQL sequences and synchronising `ActNumberSequence` must run inside one `transaction.atomic()`, with the `ActNumberSequence` sync completing **before commit**. If the reset or the sync fails, every loaded row must roll back. Media activation stays after the commit; a failure there must return a structured partial-success result with an exact recovery procedure and must never be reported as an ordinary successful import.
-- `ActNumberSequence` synchronisation only ever raises a counter to the highest real `АОК-YYYY-NNN` number for that year: it creates missing rows, never lowers an existing value, ignores non-standard numbers, and is idempotent.
-- A local rehearsal runs SQLite and PostgreSQL as **separate processes** (`scripts/run_postgresql_rehearsal.py`), because the backend is selected by environment variables Django reads once at startup. PostgreSQL credentials come only from the environment; the password must never be a command-line argument or appear in a report.
-- Rehearsal reports and migration bundles contain sensitive information and are forbidden in Git: bundle directories, source copies, rehearsal target media, orchestration temporaries and both report formats stay in `.gitignore`. Reports must never carry passwords, `SECRET_KEY`, record contents, password hashes, attachment contents or absolute server paths.
-- Successful export/import/verify/smoke runs prove the tooling works — they do not mean the production transfer has been performed or that PostgreSQL is deployed. The production move must never be declared done without the manual checklist in `docs/postgresql_rehearsal.md` and a successful rehearsal report.
-- Signal receivers must stay inert during deserialization: `post_save` handlers accept `raw` and return early when it is true, so loading a bundle cannot duplicate rows such as `UserProfile`.
-- Critical act transitions (`send_to_ko`, `apply_ko_decision`, `return_to_otk`, `apply_to_analysis`, `apply_structured_to_analysis`, `return_to_ko`, `return_to_to`, `approve_act`, `close_act`) must open `transaction.atomic()`, re-load and row-lock the act through `lock_act_for_update()`, and only then re-check the user's permission and the act's status. Always act on the returned locked instance, never on the possibly stale object the request supplied; view call sites must reassign it. The POST branch of act editing follows the same rule and refuses the write when the act has left `CREATED_OTK`.
-- The lock order is fixed everywhere and must not be varied: Act first, then its defects / root analyses / corrective actions, then tasks, then history and notification records. Lock queries must avoid `select_related()` so a joined `SELECT ... FOR UPDATE` does not also lock shared reference rows.
-- A second parallel or outdated request must fail with a controlled `ActWorkflowError` — never with an unhandled `IntegrityError` or HTTP 500 — and must not create duplicate history events, return comments, tasks, assignees, notifications, or email deliveries.
-- `ActNumberSequence` is the single source of automatic act numbering: one row per year, locked with `select_for_update()` while a number is issued. An explicitly supplied `Act.number` is preserved untouched, the public `АОК-YYYY-NNN` format is unchanged, and the unique constraint on `Act.number` stays as the final database-level safety net. Only the administrator full cleanup resets sequences; deleting a single act must never rewind a counter.
-- PostgreSQL-only concurrency tests (`acts/tests/test_concurrency.py`) are skipped on SQLite because `select_for_update()` is a no-op there. They must not be deleted, weakened, or skipped on PostgreSQL to make CI pass.
-- `.github/workflows/database-compatibility.yml` runs both an SQLite job and a PostgreSQL job (disposable `postgres:17` service container) on every push to `main` and every pull request; every ORM-affecting patch and every migration must pass both. The PostgreSQL job must not be disabled, skipped, or given `continue-on-error` just to get a PR green — a real failure there means real backend incompatibility. Migrations must apply cleanly from zero on both SQLite and PostgreSQL. Backend-specific code (e.g. checking `connection.vendor`) is only acceptable with an explicit, documented reason; prefer portable ORM code otherwise. A green `database-compatibility` workflow confirms code/migration compatibility only — it does not mean production data has been migrated to PostgreSQL or that PostgreSQL has been deployed anywhere real.
-- STAB-1 — technical-endpoint authentication, `Task.updated_at`, live safety-sync, follower handshake. Every technical JSON or fragment endpoint (`/realtime/sync/`, the notification/task/act fragment endpoints) is wrapped in `realtime.auth.realtime_login_required`, not the human-facing `login_required`: an anonymous or expired-session request gets a compact `{"error": "authentication_required"}` JSON 401 with `Cache-Control: no-store, private`, never an HTML login redirect. The decorator carries no model or object permission of its own; object-level access (a safe 404 for an act the user cannot see) stays with each view exactly as before.
-- The browser client checks `response.redirected`, HTTP status and `Content-Type` — in that order — before ever calling `.json()`, via the shared `core.requestJson()` helper in `static/js/realtime/core.js`; a fragment/sync request never lets an unexpected HTML response reach the JSON parser or touch the DOM. Losing authentication (401/403, or a stray redirect the endpoint should never produce) moves the whole client to `stopped`: the `EventSource` closes, fallback polling stops, the live safety-sync timer clears, any pending follower handshake timer clears, and in-flight sync/fragment requests are aborted — with no client-built reconnect loop and no repeating stream of technical errors shown to the user. A per-act fragment `404` only stops that one act's blocks (bell, task list and every other act keep updating); this distinction lives in `acts.js`'s `onDenied` handler.
-- Any service that changes a saved `Task`'s visible or functional state (status, completion, execution result, or any future due-date/text/department/assignee edit) must include `updated_at` in `save(update_fields=[...])` explicitly — `auto_now=True` is silently skipped by Django when the field is not listed in `update_fields`, so omitting it leaves the timestamp, and the `tasks` sync-revision token that depends on it, stale. Do not reach for a `post_save` signal to paper over a missing `update_fields` entry; fix the explicit call in the service.
-- While `live`, a leader tab (or a standalone tab with its own `EventSource`) runs an occasional `/realtime/sync/` safety-sync — `REALTIME_LIVE_SYNC_SECONDS`, default 300s, range 60–1800s — to catch an event Redis published but never delivered. It reuses the existing revision-token comparison, never runs in parallel with another sync, never fires more often than the configured interval, and is mutually exclusive with fallback polling (`degraded` keeps polling; `live` keeps the safety timer; only one of the two ever runs). It is not a polling replacement and must not be turned into one.
-- A new follower tab does not wait for the next event or periodic sync to learn current state: it sends `sync.request` to the leader over `BroadcastChannel` and applies the `sync.response` snapshot through the existing revision-comparison path (`core.applySyncSnapshot`) — no second comparison system. If the leader does not answer within its short timeout, the follower performs exactly one `/realtime/sync/` of its own, never opens a second `EventSource`, and never starts persistent polling while a leader is still assumed active. `leader.state` broadcasts let a follower reflect the leader's live/degraded/offline indicator without ever opening a stream of its own.
-- Inter-tab `BroadcastChannel` messages (`event`, `sync`, `sync.request`, `sync.response`, `leader.state`) carry only the same opaque data the server would hand that user anyway through `/realtime/events/` or `/realtime/sync/` — no user id, no Redis channel name, no HTML, no business object content beyond what was already public to that session.
-- None of the above changes what gets replaced on screen: a dirty act form (KO decision, TO analysis, the comment textarea, return dialogs, the attachment form) is still never overwritten by any live refresh, sync snapshot, or follower handshake — the existing conflict-banner behavior is unchanged.
-- STAB-2 — performance. **Recovery has exactly one owner per user.** Every periodic server request in `static/js/realtime/sync.js` — fallback polling *and* the live safety-sync — is gated on `ownsRecovery()`: the leader when tabs are coordinated, every tab when `BroadcastChannel`/`localStorage` are unavailable and each tab holds its own `EventSource`. A follower learns the leader's state through `leader.state` so its degraded indicator stays correct, but must never turn that shared state into its own request loop; its only server request is the single handshake fallback in `tabs.js`. A promoted tab takes over the whole job, a demoted one hands it back.
-- Every feature module guards itself with `core.claimModule(<name>)`. A duplicated `<script>` tag would otherwise re-run `tabs.js` and replace `core.tabs` with a fresh instance reporting `isLeader === false`, silently disabling recovery on the very tab that still holds the stream — and would arm a second set of timers and listeners in `sync.js`. Losing authentication releases everything: heartbeat interval, pending handshake timeout, polling, safety timer, in-flight `AbortController`, the BroadcastChannel and its listener, and the `EventSource`.
-- `/realtime/sync/` has a **fixed query budget of 9**, pinned by `realtime/tests/test_sync.py` for the OTK, KO, TO and manager roles, and it must not grow with the amount of data a user can see. Revision queries never load rows and never materialise identifiers in Python: the visible-acts queryset is handed to comments/history as a *subquery* (`act__in=<queryset>`), never as a list of primary keys. `acts.permissions.get_visible_acts_filter` / `get_all_visible_acts_queryset` mirror `can_view_act` clause for clause and are the single source of that rule — do not re-derive act visibility inside `realtime`.
-- Any change to a task's assignees goes through `tasks.services.replace_task_assignees()`, which is transactional and explicitly bumps `Task.updated_at`. Assignments live in a child table, so writing them alone would leave the task row — and the sync revision derived from it — untouched. The tasks and activities revisions additionally carry `Max(assignees.pk)` as an assignment fingerprint, so swapping assignee A for B moves the token even though the count is unchanged. No signals.
-- The Redis publisher serializes an event once and writes every channel in a single `pipeline(transaction=False)` round trip. It publishes **only to targets a client can actually subscribe to** — today `user:<id>` alone. `act:<id>` stays a routing hint in the event contract but is never written to Redis until an act room is authorised through `can_view_act`; extending `SUBSCRIBABLE_KINDS` must happen together with that authorisation, never before. Redis timeouts default to 1 second because publication runs inside the user's request, and `REALTIME_REDIS_SLOW_PUBLISH_MS` logs a slow publish with the event type, channel count and duration only.
-- Indexes are added only after a real `EXPLAIN (ANALYZE, BUFFERS)` on PostgreSQL against a realistic dataset shows an expensive scan in a hot query that the index measurably changes. A SQLite timing is never an argument for a PostgreSQL index, and no empty migration is created when the measurement shows nothing. SSE connection behaviour is verified through `pg_stat_activity` (`manage.py check_sse_db_connections`), and no forced DB-connection release is added to the stream before that measurement exists.
-- Performance reports and generated datasets contain no business data and no secrets: `profile_realtime_sync` records vendor, role and numbers only; `seed_performance_dataset` is dry-run by default, refuses `DEBUG=False` without an explicit override, marks every row `PERF-SYNTHETIC`, and gives its accounts an unusable password. Local EXPLAIN output and reports stay out of Git; only safe aggregate figures and decisions belong in `docs/realtime_performance.md`.
-- Production is decided by an explicit `APP_ENV` (`development` | `test` | `production`, default `development`, unknown value refused at startup) — never inferred from `DEBUG` or from which variables happen to be set. `IS_DEVELOPMENT` / `IS_TEST` / `IS_PRODUCTION` are the flags to branch on.
-- `APP_ENV=production` refuses at **import time**, so the process never starts misconfigured: `DEBUG=True`, a `DATABASE_ENGINE` other than `postgresql`, a missing/short/placeholder `SECRET_KEY` or the published development key, an empty or wildcard `ALLOWED_HOSTS`, a non-`https://` `APP_BASE_URL`, and missing or non-`https://` `CSRF_TRUSTED_ORIGINS`. Every secret — `SECRET_KEY`, `DB_PASSWORD`, `EMAIL_HOST_PASSWORD`, the Redis URL — is read only from the environment, and no error message, check message or log line ever echoes its value.
-- PostgreSQL runtime timeouts are mandatory and environment-driven: `DB_STATEMENT_TIMEOUT_MS`, `DB_LOCK_TIMEOUT_MS` and `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` reach libpq through `DATABASES["default"]["OPTIONS"]` alongside `sslmode` and `application_name`. `0` disables a timeout and is reported as a warning, never silently accepted. These options are never attached to SQLite. `DB_CONN_MAX_AGE=0` stays the recommended ASGI default until a real load test says otherwise — no PgBouncer, no in-process pool, no persistent connections on a hunch.
-- `STATIC_ROOT` is public and collected by `collectstatic`; `MEDIA_ROOT` holds act attachments and is served **only** through the permission-checked download view. They must be different directories (`ecosystem.E012`), and `MEDIA_ROOT` must never be published by the web server — doing so would bypass act visibility entirely. Attachment download permissions are unchanged.
-- The destructive demo reset is off by default (`ENABLE_DEMO_RESET=false`): with it off the `/acts/clear-all/` route is not registered at all, so a direct request is an ordinary 404 and no control is rendered. Production forces the flag off and reports any attempt to enable it as blocking (`ecosystem.E013`). The safeguard must never again depend on a username such as `admin_user`; where the flag is on, the administrator role, POST-only and CSRF still apply, and a GET is never destructive.
-- Deployment system checks live in `ecosystem/checks.py` with stable `ecosystem.E…` / `ecosystem.W…` ids and run inside the ordinary `manage.py check`. They inspect configuration only: never connecting to PostgreSQL, Redis or SMTP, never printing a secret, and staying silent outside production.
-- `GET /health/live/` touches nothing — no database, Redis, SMTP or filesystem — so a dependency outage can never make a healthy process look dead. `GET /health/ready/` is read-only and checks `SELECT 1`, pending migrations, Redis (only when real-time runs on the Redis backend), `MEDIA_ROOT` and `STATIC_ROOT`. Both are unauthenticated, `GET`/`HEAD` only, `Cache-Control: no-store`, and answer with nothing but `{"status": …}`: no SQL, exception text, path, host, username, Redis URL or credential ever reaches the response body — detail goes to the `deployment` logger.
-- `check_fresh_bootstrap` and `check_production_readiness` are strictly read-only and exit non-zero on `BLOCKING`. Existing working data is never a bootstrap failure — the command stays re-runnable after go-live and reports it as a warning instead — and neither command prints a username or any object content.
-- Logs never contain `SECRET_KEY`, `DB_PASSWORD`, a Redis URL with credentials, `EMAIL_HOST_PASSWORD`, session cookies, CSRF tokens, comment text, defect descriptions, or attachment names and content. The console handler is primary; the process manager owns collection and rotation, and an optional rotating file handler is environment-gated. No third-party logging framework.
-- The first production bootstrap is a **clean install on an empty PostgreSQL**: `migrate`, `seed_references`, `createsuperuser`, `collectstatic`, then the two readiness commands. It deliberately does not use the SQLite export/import bundle, the rehearsal importer, the existing development `db.sqlite3`, or any demo/synthetic data — those remain a separate, separately agreed migration scenario.
-- The **rotating UTF-8 text file is the primary diagnostic record for the pilot** (`LOG_TO_FILE`, default true under `APP_ENV=production`). Console logging stays on alongside it (`LOG_TO_CONSOLE`, default true everywhere) so a process manager collects the same stream and a centralised collector can be attached later without touching business code. At least one handler must be enabled — a configuration with neither refuses to start. Standard Python `logging` only: no third-party logging framework, and no ELK/Loki/Sentry/Graylog.
-- Every ordinary request gets a fresh `request_id`; an incoming `X-Request-ID` header is never trusted, because a client-chosen value could deliberately collide with another request's. It is returned in the response as `X-Request-ID`, carried through `ContextVar` (the only mechanism correct under ASGI), and cleared in `finally` so no request inherits another's context. `RequestLoggingMiddleware` sits **after** `AuthenticationMiddleware` and exists in both a sync and an async form.
-- Request-log volume is a design constraint: INFO for `POST`/`PUT`/`PATCH`/`DELETE`, and a `GET`/`HEAD` only when it was slower than `LOG_SLOW_REQUEST_MS`, returned 4xx/5xx, or raised. Health probes, static, media and favicon are excluded (`LOG_HEALTH_REQUESTS` re-enables health for diagnosis). `/realtime/events/` is exempt from the slow-request rule — it is open for minutes by design and its lifecycle is logged by the `realtime` logger, keyed by `connection_id`. Do not log every heartbeat, every fast `/realtime/sync/` or every fragment fetch; repeating successful events stay on DEBUG or are aggregated (the email worker writes one summary line per run, not one per delivery).
-- Business operations log **only** identifiers, status codes, counts, `duration_ms` and `outcome`, through `ecosystem.logging_utils.log_event()` — one line, deterministic field order, escaped control characters, scalars only. A dict, model or form is rendered `<unsupported:...>` rather than serialized. Forbidden in any log line: user-written text (defect descriptions, return comments, KO decision text, root causes, corrective-action and task text, execution comments), customer/party data, usernames, email addresses, message subjects and bodies, attachment file names and paths, serialized realtime events, Redis channel names and URLs, and every secret. `SensitiveValueRedactionFilter` is the safety net on every handler; `SafeFormatter` re-applies it after formatting so a rendered stack trace cannot smuggle a secret past the filters. ERROR records keep their full traceback.
-- **`ActHistory` remains the business audit trail; log files are diagnostics** and may be rotated away. Do not add an `AuditLog` model and do not add migrations for logging.
-- `RotatingFileHandler` is only correct in the **single-process pilot**. Several Uvicorn workers rotating one shared file interleave and lose records; with more than one worker use console output plus OS-level collection/rotation, or a separate path per process. No multi-process logging library is added, and no shutdown hook — process termination is the process manager's responsibility. Logging configuration is validated by `ecosystem.E022`–`E027`/`W007`, by the `log_handlers`/`log_rotation`/`log_path` section of `check_production_readiness`, and by `manage.py check_logging [--write-probe]`, whose probe writes one ordinary INFO line and never a synthetic ERROR. See `docs/operational_logging.md`.
-- `BACKUP_POLICY_ACKNOWLEDGED` is an administrative acknowledgement, not evidence. A backup counts as ready only after a real restore test against a separate database and media directory, following the checklist in `docs/backup_restore.md`; a database dump without its matching `MEDIA_ROOT` is an incomplete backup.
-- `check_fresh_bootstrap` compares `ActNumberSequence.last_value` against the highest canonical `АОК-YYYY-NNN` suffix actually issued that year, computed with the existing `ACT_NUMBER_PATTERN`/`ACT_NUMBER_PREFIX` in a single projection query — never one query per act or per year. A missing sequence row for a year with acts, or a `last_value` lagging behind the real maximum, is `BLOCKING`; a negative or otherwise impossible value is `BLOCKING` even with no acts; an empty installation and a sequence with headroom both `PASS`. Non-canonical historical numbers never enter the calculation.
-- Neither readiness command ever writes to `ActNumberSequence`: no missing row is created, no `last_value` is raised. A reported gap names only the affected year and aggregated counters, never a specific act number, and directs the operator to the manual fix procedure in `docs/fresh_postgresql_bootstrap.md`.
-- `check_fresh_bootstrap`'s required `ActStatus` codes are read from `acts.models.ACT_STATUS_CODES` — the same constant `get_act_status()` uses — rather than a second, independently maintained list, so the check and the workflow cannot silently drift apart. The full set is `CREATED_OTK`, `KO_REVIEW`, `TO_ANALYSIS`, `OTK_REVIEW`, `ACTIONS_ASSIGNED`, `ARCHIVED`, `CLOSED`, `CANCELLED`; required `TaskStatus` codes stay `IN_PROGRESS`, `COMPLETED`. `seed_references` creates exactly this set, and its summary line always reports `len(...)` of what it actually created, never a hand-maintained number.
-- With `EMAIL_NOTIFICATIONS_ENABLED=false`, SMTP host, port, credentials and sender are not required and no SMTP connection is attempted anywhere. With it `true`, `ecosystem/checks.py`, `check_fresh_bootstrap` and `check_production_readiness` all enforce the same rule set — a non-console backend, non-empty `EMAIL_HOST`, `EMAIL_PORT` in `1-65535`, non-empty `DEFAULT_FROM_EMAIL`, positive `EMAIL_TIMEOUT`/`EMAIL_NOTIFICATION_MAX_ATTEMPTS`/`EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS`/`EMAIL_NOTIFICATION_BATCH_SIZE`/`EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS`, and not both `EMAIL_USE_TLS` and `EMAIL_USE_SSL` — without ever opening a socket. `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` stay optional in all three: a corporate relay reachable only by an IP allow-list needs no application-level credentials, and whether it does is an IT decision, not one these checks make.
-- `check_production_readiness` calls `run_fresh_bootstrap_checks()` with `include_realtime=False`, `include_static=False`, `include_media=False`, `include_demo_reset=False`, `include_email=False` and reports those five sections itself, in more depth (a real Redis PING, a `MEDIA_ROOT`/`STATIC_ROOT` isolation comparison, an `IS_PRODUCTION`-aware demo-reset severity, and the shared `_check_email_configuration()` helper for email). Every other logical section — backend, connection, migrations, reference data, `ActNumberSequence`, synthetic/demo data, django checks, database version, backup policy — appears exactly once. Do not restore deduplication by filtering the final result list; excluding a section from the shared core is the only way that never risks silently dropping a stricter result. `check_fresh_bootstrap` itself always runs every section standalone.
+## App ownership
+
+| App | Owns |
+| --- | --- |
+| `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware. No models |
+| `accounts` | `Department`, `UserProfile` (role, department), login |
+| `references` | operations, defect types, act/task statuses, priorities; `seed_references` |
+| `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
+| `tasks` | tasks created on approval, their assignees and completion |
+| `notifications` | in-app notifications, routing, deduplication, email delivery queue |
+| `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
+| `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
+| `dashboard` | landing page |
+
+Reference data belongs in `references`, never as free text on a business model;
+tasks never live inside `acts`.
+
+## Non-negotiable architecture
+
+- **PostgreSQL is the source of truth.** Redis is a best-effort transport:
+  events are not stored, replayed or acknowledged, and a lost message means a
+  delayed UI update, never lost data.
+- **Workflow changes only through services.** `acts/services.py` and
+  `tasks/services.py` are the single place state moves; views parse the request,
+  call permissions and services, and render. Templates decide nothing.
+- **Permissions are backend-enforced.** `acts/permissions.py` and
+  `tasks/permissions.py` are the only definition of who sees and may do what;
+  `realtime` reuses them instead of restating visibility.
+- **Events are published explicitly after commit**, from services, never from
+  `post_save`. A signal would fire on fixture loads, on technical saves, and
+  before dependent objects exist.
+- **SSE payload is never a source of HTML or of permissions.** An event says
+  what changed; the client refetches through ordinary permission-checked
+  endpoints. A full page and its fragment go through the same state builder and
+  the same partials.
+- **Attachments are protected media**, served only by
+  `acts.views.act_download_attachment` with a per-request permission check.
+  `MEDIA_ROOT` is never published by the web server and is a different
+  directory from `STATIC_ROOT`.
+- Django Templates and vanilla JavaScript only: no framework, bundler or npm.
+
+## Domain invariants
+
+- Act visibility: ОТК sees own acts in `CREATED_OTK`/`OTK_REVIEW`, КО sees
+  `KO_REVIEW`, ТО sees `TO_ANALYSIS` (plus `ACTIONS_ASSIGNED` with own analysis);
+  managers, administrators and superusers see everything. Registry scopes never
+  widen visibility, and editing is allowed only in `CREATED_OTK`.
+- Every return transition requires a non-whitespace comment saved atomically
+  with it, and must not emit a duplicate ordinary-comment notification. With
+  several defects, КО must decide on **every** defect before the act may leave
+  `KO_REVIEW`; legacy decision values stay readable and must not be rewritten by
+  a data migration.
+- Every defect requires a workshop/supplier choice on the form, while the model
+  field stays `blank=True` so existing rows keep no invented value. Revealing
+  the remaining fields must never clear already-entered values.
+- Structured TO analysis is atomic and read-only after submission; each
+  corrective action needs text, a department, a due date and at least one active
+  assignee. Approval revalidates it all under lock and creates exactly one
+  `tasks.Task` per corrective action.
+- A shared task is completed **once** by any assignee and requires a
+  non-whitespace execution result; assignee changes go only through
+  `tasks.services.replace_task_assignees()`.
+- `ActNumberSequence` is the single source of automatic `АОК-YYYY-NNN`
+  numbering: one row per year, locked while a number is issued. An explicit
+  `Act.number` is preserved; only the administrator full cleanup resets it.
+- `ActHistoryEvent` is the business audit trail, append-only from the normal UI.
+  Comments are manual notes and never replace history. Do not add an `AuditLog`
+  model — logs are diagnostics and may be rotated away.
+- Notifications are created in the same transaction as their business event,
+  deduplicated per recipient by a stable source key, and routed in one place:
+  `notifications/services.py`.
+
+## Security and permissions
+
+- Never rely on a template check, a username, or a URL not being guessed: the
+  `/acts/clear-all/` route is not registered unless `ENABLE_DEMO_RESET` is on,
+  and production forces it off. Notification pages and POST actions always
+  scope objects to `request.user`.
+- The SSE endpoint and `/realtime/sync/` derive identity from the session only:
+  no query string, path or body may influence the subscription. Technical
+  endpoints use `realtime.auth.realtime_login_required` (a JSON 401), not the
+  HTML `login_required` redirect.
+- Secrets — `SECRET_KEY`, `DB_PASSWORD`, `EMAIL_HOST_PASSWORD`, the Redis URL —
+  come only from the environment and never appear in an error message, a check
+  message, the browser config or a log line.
+- Upload validation checks size and extension; attachment deletion is limited to
+  the uploader, a manager or an administrator.
+
+## Transactions and locking
+
+- Every critical act transition — and the POST branch of act editing — opens
+  `transaction.atomic()`, re-loads and row-locks the act via
+  `lock_act_for_update()`, and only then re-checks permission and status. Always
+  act on the returned locked instance; call sites must reassign it.
+- Lock order is fixed everywhere: act → its defects / root analyses /
+  corrective actions → tasks → history and notification records. Lock queries
+  avoid `select_related()` so a joined `SELECT … FOR UPDATE` does not lock
+  shared reference rows.
+- A second parallel or outdated request fails with a controlled
+  `ActWorkflowError` / `TaskWorkflowError` — never an unhandled `IntegrityError`
+  or a 500 — and creates no duplicate history events, tasks, assignees,
+  notifications or deliveries.
+- Any service changing a saved `Task`'s visible state must list `updated_at` in
+  `save(update_fields=[…])`: Django skips an `auto_now` field that is not listed,
+  leaving the sync revision derived from it stale. Fix the explicit call, never
+  paper over it with a signal.
+
+## Redis and SSE rules
+
+- Business code must not import a Redis client: only `realtime/backends.py`,
+  `realtime/transport.py`, `realtime/sse.py` and the diagnostic command may, and
+  they import it lazily so `REALTIME_ENABLED=false` needs no Redis at all.
+- Publication always goes through `publish_after_commit()`; a transport failure
+  happens after commit and must never break a saved business operation.
+- New event types go only into `RealtimeEventType`, with stable string values,
+  and need contract, target and integration tests. Do not add one type per act
+  status — transitions use `act.status_changed`. Payloads carry identifiers and
+  safe metadata only: never user text, email addresses, file names, permissions
+  or whole models.
+- Targets are computed server-side from the existing notification routing and
+  never travel in a payload. Channel names come only from a validated
+  `RealtimeTarget`, and Redis publishes only to kinds a client can subscribe to —
+  today `user:<id>`; `act:<id>` needs the authorised subscription first.
+- A live refresh never replaces a form holding unsaved input: only read-only
+  blocks are swapped, and a dirty form gets the conflict banner with the typed
+  text intact. Recovery has one owner per user — every periodic request is gated
+  on the leader tab when tabs are coordinated.
+
+## Logging
+
+- Log identifiers, status codes, counts, `duration_ms` and `outcome` through
+  `ecosystem.logging_utils.log_event()` — never user text, customer/party data,
+  usernames, email addresses, message subjects or bodies, attachment names or
+  paths, serialized events, Redis channel names, or any secret.
+- Keep volume bounded: no heartbeat, no fast successful sync, no fragment fetch
+  at INFO; repeating successes stay on DEBUG or are aggregated. Standard Python
+  `logging` only, no third-party logging framework.
+
+## Change workflow
+
+- Keep changes small and reversible; do not add backend complexity before it is
+  needed. Seed commands stay idempotent; demo accounts are local-only.
+- **Never edit an existing migration.** Add a new one, applying cleanly from
+  zero on both SQLite and PostgreSQL.
+- New reference values go into `seed_references` in the same change, so a fresh
+  installation gets them; `check_fresh_bootstrap` reads required act statuses
+  from `acts.models.ACT_STATUS_CODES` — extend the constant, not a second list.
+- Preserve existing workflow and permission tests when behaviour changes; the
+  PostgreSQL-only concurrency tests must never be weakened to get a green run.
+- React, WebSocket/Django Channels, Celery, a bundler, event storage or replay,
+  and any other major component are added **only by a separate architectural
+  decision**.
+- Update the matching `docs/` document in the same change as the behaviour it
+  describes. Documentation states the current state; stage history belongs in
+  Git, and stage markers are allowed only under `docs/archive/`.
+
+## Validation commands
+
+```powershell
+python manage.py check
+python manage.py makemigrations --check --dry-run
+python manage.py test
+python manage.py check_documentation
+```
+
+For deployment-facing changes also run the read-only `check_logging`,
+`check_realtime_transport`, `check_fresh_bootstrap` and
+`check_production_readiness`.
+
+## Documentation map
+
+| Need | Read |
+| --- | --- |
+| Roles, visibility, statuses, tasks, notifications | [docs/domain.md](docs/domain.md) |
+| Layers, dependencies, sources of truth | [docs/architecture.md](docs/architecture.md) |
+| Event contract, SSE, sync, tabs | [docs/realtime.md](docs/realtime.md) |
+| Local setup, tests, diagnostics | [docs/development.md](docs/development.md) |
+| Production, PostgreSQL bootstrap, proxy, Redis, SMTP | [docs/deployment.md](docs/deployment.md) |
+| Logging, incidents, health, email worker | [docs/operations.md](docs/operations.md) |
+| Backup and restore | [docs/backup_restore.md](docs/backup_restore.md) |
+| Full map, including the archive | [docs/index.md](docs/index.md) |
+
+Exact dependency versions live in `requirements.txt`; the environment variable
+list lives in `.env.example` and `ecosystem/settings.py`.

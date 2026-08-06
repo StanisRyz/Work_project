@@ -8,7 +8,7 @@ Two kinds exist for now:
 
 * ``user:<id>`` — the authoritative per-recipient target;
 * ``act:<id>`` — an additional routing hint for act-scoped events. A transport
-  that ever exposes act rooms (RT-2) must still authorise the subscription with
+  that ever exposes act rooms must still authorise the subscription with
   ``acts.permissions.can_view_act``; the target alone grants nothing.
 """
 

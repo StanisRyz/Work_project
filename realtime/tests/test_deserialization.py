@@ -68,7 +68,7 @@ class RoundTripTests(SimpleTestCase):
     def test_the_deterministic_serialization_is_unchanged(self):
         event = build_event()
 
-        # `as_json` keeps the RT-1 wire format: sorted keys, indented-free JSON.
+        # `as_json` keeps the wire format: sorted keys, indented-free JSON.
         self.assertEqual(json.loads(event.as_json()), event.as_dict())
         self.assertEqual(event.as_json(), event.as_json())
         # `as_compact_json` is the same document without padding.

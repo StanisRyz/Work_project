@@ -1,4 +1,4 @@
-"""RT-5 server side: act.created, connection lifetime, checks and settings."""
+"""Server side: act.created, connection lifetime, checks and settings."""
 
 import asyncio
 import logging

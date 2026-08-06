@@ -1,8 +1,8 @@
 """Publisher backends.
 
-`Noop` remains the default and sends nothing. `Capture` and `Failing` exist for
-tests. `Redis` is the RT-2 transport — adding it required no change to any
-business service, which is the point of the publisher abstraction.
+`Noop` is the default and sends nothing. `Capture` and `Failing` exist for
+tests. `Redis` is the production transport: business services never change when
+the backend does, which is the point of the publisher abstraction.
 """
 
 import logging
@@ -41,11 +41,7 @@ class RealtimePublisher(ABC):
 
 
 class NoopRealtimePublisher(RealtimePublisher):
-    """The default: accepts everything, sends nothing.
-
-    With this backend the project behaves exactly as it did before real-time
-    events existed.
-    """
+    """The default: accepts everything, sends nothing."""
 
     def publish(self, event, targets):
         return None

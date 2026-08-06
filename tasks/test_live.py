@@ -1,4 +1,4 @@
-"""RT-4 server side for the task registry: shared builder and live fragment."""
+"""Server side of the task registry: shared builder and live fragment."""
 
 from datetime import timedelta
 
@@ -120,7 +120,7 @@ class TaskListFragmentTests(TaskLiveMixin, TestCase):
 
         response = self.client.get(self.url)
 
-        # STAB-1: a technical fragment endpoint answers 401 JSON, never an
+        # A technical fragment endpoint answers 401 JSON, never an
         # HTML login redirect the fetch()-based client cannot parse as JSON.
         self.assertEqual(response.status_code, 401)
         self.assertNotIn('Location', response)

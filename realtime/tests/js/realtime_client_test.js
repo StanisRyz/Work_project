@@ -712,7 +712,7 @@ test('losing access stops updates and shows the access banner', async () => {
     assert.equal(env.callsTo('/acts/3/comments-fragment/').length, calls);
 });
 
-// -------------------------------------------------------------- RT-3 / RT-4
+// ------------------------------------------------- bell, tasks and act blocks
 
 test('notification.created still shows one toast from server markup', async () => {
     const env = load();
@@ -802,7 +802,7 @@ test('a toast closes on its button and on Escape', async () => {
     assert.equal(env.toasts.length, 0);
 });
 
-// ------------------------------------------------------------------- STAB-1
+// ------------------------------------------- expired session and safety-sync
 
 test('a redirected fragment response is never parsed as JSON and stops the client', async () => {
     const env = load({ page: 'tasks' });
@@ -1129,7 +1129,7 @@ test('a leader closing still lets another tab take over and become live', async 
     assert.ok(follower.callsTo('/realtime/sync/').length >= 1, 'promotion led to a sync once the fresh stream opened');
 });
 
-// ------------------------------------------------------- STAB-2 recovery ownership
+// -------------------------------------------------------- recovery ownership
 
 test('a degraded leader polls, and its follower shows the indicator without polling', async () => {
     const [leader, follower] = loadTabs(2);

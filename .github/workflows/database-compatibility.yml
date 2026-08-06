@@ -2,7 +2,7 @@ name: Database compatibility
 
 # Checks that the project runs correctly on both supported database backends:
 # the default SQLite (local development) and PostgreSQL (see
-# docs/postgresql_preparation.md). This workflow does not deploy anything and
+# docs/deployment.md). This workflow does not deploy anything and
 # does not migrate existing data; the PostgreSQL service below is a disposable
 # CI-only container.
 

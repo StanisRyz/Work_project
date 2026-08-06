@@ -122,7 +122,7 @@ class TaskViewsTests(TestCase):
     def test_completing_a_task_bumps_updated_at_and_moves_the_tasks_revision(self):
         # `updated_at` is `auto_now=True`, but Django only bumps it when the
         # field is explicitly listed in `save(update_fields=...)` — this is the
-        # STAB-1 regression the sync-revision token alone would not catch,
+        # A regression the sync-revision token alone would not catch,
         # since `completed_at` (already in `update_fields`) moves the token too.
         task = self._task(self.employee, timezone.localdate())
         before_updated_at = task.updated_at

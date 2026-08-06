@@ -52,7 +52,7 @@ class EndpointAccessTests(TestCase):
             response = self.client.get(reverse('realtime:events'))
 
         self.assertEqual(response.status_code, 401)
-        # STAB-1: confirms the SSE endpoint never falls back to an HTML login
+        # Confirms the SSE endpoint never falls back to an HTML login
         # redirect either — it already derived 401 from the session alone.
         self.assertNotIn('Location', response)
 

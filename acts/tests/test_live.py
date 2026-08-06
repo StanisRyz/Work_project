@@ -1,4 +1,4 @@
-"""RT-4 server side for the acts registry and the open act page."""
+"""Server side of the live acts registry and the open act page."""
 
 from datetime import timedelta
 
@@ -127,7 +127,7 @@ class ActRegistryFragmentTests(ActLiveMixin, TestCase):
 
         response = self.client.get(self.url)
 
-        # STAB-1: a technical fragment endpoint answers 401 JSON, never an
+        # A technical fragment endpoint answers 401 JSON, never an
         # HTML login redirect the fetch()-based client cannot parse as JSON.
         self.assertEqual(response.status_code, 401)
         self.assertNotIn('Location', response)
@@ -225,7 +225,7 @@ class ActDetailFragmentTests(ActLiveMixin, TestCase):
         for name, url in self.urls.items():
             with self.subTest(fragment=name):
                 response = self.client.get(url)
-                # STAB-1: 401 JSON, never an HTML login redirect.
+                # 401 JSON, never an HTML login redirect.
                 self.assertEqual(response.status_code, 401)
                 self.assertNotIn('Location', response)
                 self.assertEqual(response.json(), {'error': 'authentication_required'})
@@ -391,7 +391,7 @@ class ActWorkFragmentTests(ActLiveMixin, TestCase):
 
         response = self.client.get(self.url)
 
-        # STAB-1: 401 JSON, never an HTML login redirect.
+        # 401 JSON, never an HTML login redirect.
         self.assertEqual(response.status_code, 401)
         self.assertNotIn('Location', response)
         self.assertEqual(response.json(), {'error': 'authentication_required'})

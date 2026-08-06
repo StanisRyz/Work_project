@@ -380,7 +380,7 @@ REDIS_NETWORK_IS_TRUSTED = env_bool('REDIS_NETWORK_IS_TRUSTED', False)
 #
 # DATABASE_ENGINE selects the backend: "sqlite" (default, no extra
 # configuration required) or "postgresql" (requires DB_NAME, DB_USER, and
-# DB_PASSWORD; see docs/postgresql_preparation.md). There is no hidden
+# DB_PASSWORD; see docs/deployment.md). There is no hidden
 # fallback to SQLite if PostgreSQL is selected but misconfigured.
 
 DATABASE_ENGINE = os.getenv('DATABASE_ENGINE', 'sqlite').strip().lower()
@@ -590,12 +590,11 @@ EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS = env_int(
 )
 
 
-# Real-time events (RT-1: contract only, no transport)
+# Real-time events
 #
 # Disabled by default: with REALTIME_ENABLED=false the emitters return before
-# resolving any recipient, so no extra query runs and the project behaves
-# exactly as it did before the `realtime` app existed. The default backend
-# sends nothing; a Redis/SSE backend is an RT-2 concern and is configured by
+# resolving any recipient, so no extra query runs and no Redis client is built.
+# The default backend sends nothing; the Redis/SSE transport is selected by
 # pointing REALTIME_PUBLISHER_BACKEND at it — business code never changes.
 REALTIME_ENABLED = env_bool('REALTIME_ENABLED', False)
 REALTIME_PUBLISHER_BACKEND = os.getenv(
@@ -607,9 +606,9 @@ REALTIME_PUBLISHER_BACKEND = os.getenv(
 # environment to let the exception surface.
 REALTIME_FAIL_SILENTLY = env_bool('REALTIME_FAIL_SILENTLY', True)
 
-# Redis transport (RT-2). Nothing here is read while REALTIME_ENABLED=false and
-# the Noop publisher is selected: no client is built and no connection is made,
-# so `manage.py check` and an ordinary run need no Redis server at all.
+# Redis transport. Nothing here is read while REALTIME_ENABLED=false and the
+# Noop publisher is selected: no client is built and no connection is made, so
+# `manage.py check` and an ordinary run need no Redis server at all.
 REALTIME_REDIS_URL = os.getenv('REALTIME_REDIS_URL', 'redis://127.0.0.1:6379/0')
 # Namespace for every Pub/Sub channel: `<prefix>:<target.key>`.
 REALTIME_CHANNEL_PREFIX = os.getenv('REALTIME_CHANNEL_PREFIX', 'quality-ecosystem:realtime')
@@ -644,8 +643,8 @@ REALTIME_MAX_EVENT_BYTES = env_number(
     'REALTIME_MAX_EVENT_BYTES', 16384, minimum=256, maximum=1048576, cast=int
 )
 
-# Recovery and multi-tab behaviour (RT-5). Only these plain numbers reach the
-# browser; nothing about Redis ever does.
+# Recovery and multi-tab behaviour. Only these plain numbers reach the browser;
+# nothing about Redis ever does.
 #
 # How long the client may stay without a successful SSE `open` before it
 # declares itself degraded and starts polling `/realtime/sync/`.
@@ -671,7 +670,7 @@ REALTIME_LEADER_LEASE_SECONDS = env_number(
 REALTIME_LEADER_HEARTBEAT_SECONDS = env_number(
     'REALTIME_LEADER_HEARTBEAT_SECONDS', 4.0, minimum=1.0, maximum=120.0
 )
-# STAB-1: how often a live leader tab re-runs `/realtime/sync/` as a safety net
+# How often a live leader tab re-runs `/realtime/sync/` as a safety net
 # against a Redis event that was published but never delivered. Deliberately
 # rare — this is not a polling replacement, only a periodic correctness check
 # while SSE itself is working.
@@ -705,7 +704,7 @@ REALTIME_LIVE_SYNC_SECONDS = env_number(
 # **Rotation is single-process.** `RotatingFileHandler` is safe for the
 # one-worker pilot. Several Uvicorn workers rotating one shared file would
 # interleave and lose records — with more than one worker, use console output
-# plus OS-level collection/rotation instead. See docs/operational_logging.md.
+# plus OS-level collection/rotation instead. See docs/operations.md.
 # --------------------------------------------------------------------------
 
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').strip().upper() or 'INFO'

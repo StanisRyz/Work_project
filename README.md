@@ -1,1135 +1,161 @@
 # Единая цифровая экосистема управления качеством
 
-## Purpose
-
-Internal web application foundation for the future quality management ecosystem.
-The first product direction is a quality ecosystem. Digital OTK and micro-MES
-are planned as future stages, not part of the current implementation.
-
-## Current Stage
-
-Internal notifications and a prepared asynchronous email-delivery channel are complete. Repository configuration is available for minute-by-minute processing through Linux systemd or Windows Task Scheduler; it must still be installed and activated on the deployment server. Celery and Redis are not used. The full-width act-card redesign is deferred; the current act page and its permission model remain unchanged by this stage.
-
-The `notifications` app stores durable in-app notifications separately from delivery attempts. The top bar shows an unread counter and up to five recent unread events; `/notifications/` provides paginated `Все` and `Непрочитанные` views plus protected POST actions for marking one or all items read. Opening the bell menu marks the unread notifications currently shown in it as read, via an authenticated, CSRF-protected, owner-scoped POST that updates the counter and menu in place without a page reload: the marked items are removed from the menu (not just unhighlighted), and `Новых уведомлений нет.` is shown once none remain. This never marks the rest of the recipient's notification history, which stays a separate `Отметить все прочитанными` action. Every query and update is scoped to the authenticated recipient. Related-act links still pass through the normal act visibility checks.
-
-`Notification` stores recipient, actor, event type, safe event text, related act, deduplication key, creation time, and independent read state. `NotificationDelivery` stores the email channel state (`pending`, `processing`, `sent`, `failed`, or `skipped`), attempts, timestamps, retry availability, and a sanitized error. Event and recipient uniqueness prevents duplicate notification fan-out.
-
-### Notification routing
-
-| Event | Recipients | Email eligible |
-| --- | --- | --- |
-| OTK sends to KO | All active users with the KO role | Yes |
-| KO sends to TO | All active users with the TO role | Yes |
-| TO sends to OTK verification | The act author | Yes |
-| Return to OTK / KO / TO | Act author / all active KO users / all active TO users | Yes |
-| Corrective action assignment | Only its active assignees; duplicates are removed | Yes |
-| Act approval | Active act participants except the actor | No, in-app only |
-| Normal comment | Relevant participants who can currently view the act, except the author | No, in-app only |
-
-Return comments do not create a second comment notification: the recipient receives the more specific return event. A queue actor is excluded from their own event where applicable; a self-assigned employee still receives the individual assignment notification. Notification creation and workflow data share one database transaction. Email is processed later by a separate server task, so SMTP downtime cannot roll back an act transition, comment, assignment, or its internal notification. SMTP is never called from the user HTTP request.
-
-### Email delivery configuration
-
-Email is disabled by default. Eligible notifications created while it is disabled receive a `skipped` delivery and are never released as an old backlog after SMTP is enabled. With email enabled, recipients without an address are also recorded as `skipped`. Messages contain only the event, act number, required action, actor, date, and protected act URL—never defect data, attachments, or comment text.
-
-Environment variables:
-
-- `EMAIL_NOTIFICATIONS_ENABLED` — `false` by default.
-- `EMAIL_BACKEND` — defaults to `django.core.mail.backends.console.EmailBackend`; use the locmem backend in tests.
-- `APP_BASE_URL`, `DEFAULT_FROM_EMAIL` — public application root and approved sender.
-- `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS`, `EMAIL_USE_SSL` — SMTP endpoint and transport security.
-- `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` — credentials supplied only through the deployment environment.
-- `EMAIL_TIMEOUT` — SMTP timeout in seconds.
-- `EMAIL_NOTIFICATION_MAX_ATTEMPTS`, `EMAIL_NOTIFICATION_RETRY_DELAY_SECONDS` — retry policy.
-- `EMAIL_NOTIFICATION_BATCH_SIZE`, `EMAIL_NOTIFICATION_PROCESSING_TIMEOUT_SECONDS` — worker batch and interrupted-processing recovery limits.
-
-One invocation processes one batch and exits normally. The default batch size is 100:
-
-```powershell
-python manage.py process_notification_deliveries --batch-size 100
-```
-
-Overlapping workers use an atomic `pending -> processing` claim, so only one may send a given delivery. Successfully sent and skipped deliveries are not selected again; interrupted `processing` deliveries and retryable failures retain the existing recovery policy. The provided systemd timer and Windows scheduled task run every minute and also suppress a second active instance.
-
-Installation, activation, status checks, logs, manual testing, SMTP-change procedure, and safe removal are documented in [Automatic email queue processing](docs/email_queue_automation.md). The repository only provides configuration and instructions: email processing is not active on a production server until an administrator installs the appropriate scheduler configuration, supplies an external environment, and enables it.
-
-Before enabling corporate delivery, IT must provide the SMTP/Exchange host, port, TLS or SSL mode, supported authentication method, service username/password if SMTP AUTH is allowed, approved `DEFAULT_FROM_EMAIL`, relay/IP allow-list requirements, CA certificate requirements, and outbound firewall permission. Set `APP_BASE_URL` to the external HTTPS origin, apply migrations, test with one newly created delivery and one mailbox, install the scheduler, and only then set `EMAIL_NOTIFICATIONS_ENABLED=true`. Deliveries created while disabled remain `skipped` and are deliberately not sent later. Exchange OAuth-only delivery would require a compatible custom email backend and remains a deployment integration step.
-
-D28 — mandatory defect workshop/supplier selection.
-
-D28 adds a required `Цех/поставщик` choice to every act defect: `Цех МП` or `Цех трансформаторов`. `ActDefect.workshop` remains optional at the database level so existing defects are never assigned an invented value; `ActDefectForm` requires a real selection for every new or edited defect. In the create and edit act forms, each defect row shows only its `Цех/поставщик` dropdown, positioned above `Номер ЗНП`; the remaining defect fields (`Номер ЗНП`, `Номер партии`, `Вид дефекта`, `Операция`, `Тип МП`, `Дата обнаружения`, `Проверено`, `С отклонением`, `Описание дефекта`) stay hidden until a value is chosen, then appear immediately without a page reload and without losing already-entered data. This applies independently to the first defect row, rows added with `Добавить ещё дефект`, existing rows when editing, and rows redisplayed after a validation error. Hidden fields use the HTML `hidden` attribute so the browser never blocks submission on a field the user cannot see; server-side validation remains the authoritative check. Both workshop choices currently share identical fields, validation, and workflow; no workshop-specific business logic exists yet. The saved value is shown on the act detail defects table and the print view; legacy defects saved before this field existed display a placeholder instead of an invented value.
-
-D27 — compact acts registry.
-
-D27 simplifies `/acts/` without changing workflow or access rules. The topbar title is `Акты`; the introductory, duplicate role/access, and administrator-mode notices are removed. The compact filter panel keeps search, current workflow statuses, act type, and a due-date filter. Act types are `Операционный контроль` and the prepared future `Входной контроль`; existing acts default to operational control. `Просроченные` means a deadline strictly before the current local date; today and future dates are `Не просроченные`. The fixed-height, scrollable registry table shows only number, creation date, type, status, and due date; on the `Архив` tab the creation-date column is replaced by the archiving date. The number remains a protected detail link. Archived acts appear only on the `Архив` tab, including for full-access users. Permitted `Создать АКТ` plus the dedicated administrator-only cleanup action are below it. The operation filter is removed from the registry only; operation data remains in act creation and details.
-
-At `На рассмотрении КО`, each defect uses the same ordered decision list: prohibit use; allow use with a deviation and no rework; allow use with a deviation and rework; allow use without a deviation and rework. Each valid choice keeps the existing transition to TO analysis.
-
-In TO analysis, an employee selector is disabled until the department selector in the same assignee row is filled. It then offers only active employees from that department. Every additional assignee has an independent department and employee selector; server validation enforces the same department match. A selected employee is unavailable in the other assignee rows of the same corrective action, while remaining available in other actions.
-
-D26 — task execution card and mandatory result.
-
-D26 turns task details into a compact card with registry-style metadata, vertical assignees, root cause, and task text. An assigned executor or administrator must enter a non-empty execution result to complete a shared task. Completion saves the result, executor, and timestamp atomically; the task becomes visible only in `Архив` and redirects there filtered by its number. Managers remain view-only unless assigned.
-
-D25 — working task registry.
-
-D25 adds `Мои задачи`, `Все задачи`, and `Архив` tabs to `/tasks/`. Filters for task number, source act, registry status, and due-date state, plus due-date sorting, are kept in the URL and combine with AND logic. `Сбросить` retains the selected tab. Active tasks keep overdue-first default ordering; explicit sorting overrides it, while completed archive tasks are never marked overdue. Existing task visibility remains authoritative for every tab.
-
-D24 — compact task registry and cross-department assignees.
-
-D24 keeps the corrective action department as the department responsible for the action, while its active assignees may belong to different departments. The TO form selects employees directly and shows each employee's actual department; no temporary per-assignee department data is used, so assignments are preserved when OTK returns an act to TO.
-
-The `/tasks/` registry now has only `№ задачи`, `Статус`, `Источник`, and `Срок`. The task primary key is the clickable number, the registry status is always `По акту`, and the source act is linked. Overdue tasks remain first and visibly marked; technical `IN_PROGRESS` and `COMPLETED` statuses remain in task execution and detail pages.
-
-D23 — shared corrective-action tasks with multiple assignees.
-
-D23 replaces the single responsible employee with `ActCorrectiveActionAssignee` and `TaskAssignee`. Every corrective action has one or more unique active employees, including employees from other departments. OTK approval creates exactly one shared `Task` per action and creates all its assignee records in the same transaction as approval and archival. Existing single responsible users are copied into the new relations by migrations.
-
-An ordinary employee can view and complete a task only when assigned to it; managers and administrators retain full visibility. Completion changes the single shared task to `COMPLETED` (`Выполнено`) atomically, records who completed it and when, and is immediately visible to every assignee. A completed task cannot be completed again. Archived acts remain read-only and show assignees, linked tasks, and completion metadata.
-
-D22 — tasks from approved corrective actions.
-
-D22 introduced one executable task for every corrective action during the atomic OTK approval transaction. D23 later made these tasks shared by multiple assignees.
-
-D21 — OTK review, approval, and registry scopes.
-
-D21 lets the authorized OTK reviewer return an `OTK_REVIEW` act to TO with a mandatory comment or approve it to terminal `ARCHIVED`, recording the approver and date. D22 extends approval by creating linked executable tasks. The registry has `Мои акты`, `Все акты`, and `Архив` scopes that preserve server-side visibility rules.
-
-D20 — TO analysis is routed to OTK review.
-
-D20 adds the `OTK_REVIEW` (`Проверка ОТК`) stage. From `TO_ANALYSIS`, an authorized user may return the act to KO with a mandatory comment, or submit a fully validated structured analysis for OTK review. The initial analysis structure does not render delete controls; add controls are green and delete controls are red.
-
-D19 — structured TO analysis is embedded on the act detail page.
-
-D19 replaces the separate TO analysis page with a `Корневая проработка` form on `Проработка`. Each root cause contains one or more corrective actions with department, assignees, and due date. The subsequent D20 workflow sends successful analysis to `OTK_REVIEW`; legacy summaries remain compatible and the submitted structure is read-only outside TO correction. Outside `TO_ANALYSIS` (OTK review, archived acts, and any other read-only view of the same table), every assignee is listed as plain text — never the editable department/assignee selects — with a `—` placeholder when an action has none.
-
-D18 — comments moved to the attachments tab and KO return-to-OTK rationale is required.
-
-D18 renames the detail tab to `Вложения и комментарии`, placing attachments first and normal comments below them. KO users must provide a non-empty return comment in the return dialog; the comment, its history event, and the transition from `KO_REVIEW` to `CREATED_OTK` are saved atomically.
-
-D17 — corrected visual layout of the `CREATED_OTK` act detail page.
-
-D17 removes duplicate top-level detection-date metadata and uses responsive party-data and defect-card grids without changing act behavior.
-
-D16 — improved CREATED_OTK act detail page and controlled editing before transfer to KO.
-
-D16 moves the act number to the top header, keeps work data in the prescribed sequence, and allows authorized users to edit party data and defects only while an act remains in `CREATED_OTK`.
-
-D15 — validation for product fields and detected dates in the act creation form.
-
-D15 preserves the existing act creation workflow and adds the following protections:
-
-- `Наименование продукции` accepts Russian letters, digits, spaces, dots, and hyphens; `Обозначение по КД` accepts the same characters except spaces. Django server-side validation remains authoritative.
-- Every defect row initially uses the current local date, with that date also set as the latest selectable date.
-- Future defect detection dates are rejected by the server.
-
-D14 — структура проработки акта, вкладка вложений и обновлённые решения КО.
-
-D14 обновляет представление и схему решений КО:
-
-- Детальная страница имеет вкладки `Проработка`, `История акта` и `Вложения`.
-- Вкладка `Проработка` содержит последовательность данных партии, дефектов, решения КО, анализа ТО и комментариев.
-- Вложения отображаются только на одноимённой вкладке.
-- Для каждого дефекта требуется отдельное новое решение КО; после заполнения всех решений акт передаётся из `KO_REVIEW` в `TO_ANALYSIS`.
-- Старые значения решений КО и исторические события сохранены без преобразования и продолжают отображаться.
-
-D11A makes administrator access explicit and reliable throughout the acts module:
-
-- `admin_user` / `demo12345` is seeded as an `ADMIN` user in `Руководство`, with Django `is_staff=True` and `is_superuser=True`.
-- An `ADMIN` profile, or a Django superuser without a usable profile, has full visibility of all acts at every workflow stage.
-- Administrators can use every action valid for the act's current stage, including comments, protected attachments, and the print view.
-- Administrator access never bypasses invalid status transitions; for example, a KO decision remains unavailable until an act is in `KO_REVIEW`.
-- OTK, KO, and TO visibility remains restricted to their normal workflow scope.
-
-D11 keeps the existing `/acts/create/` server-rendered route and reshapes act creation around the production OTK form:
-
-- `Act` remains the MVP model for acts of operational control.
-- `Act` now stores optional party/order fields: `customer`, `order_number`, and `znp_number`.
-- Existing `Act.defect_type`, `Act.description`, and `Act.due_date` remain summary compatibility fields.
-- `ActDefect` stores one or more defect rows for an act: defect type, description, and detected date.
-- When a new act is created, the first `ActDefect` row is copied into the summary fields on `Act`.
-- The create form has a `Данные партии` block with two-column rows:
-  - `Заказчик` + `Номер заказа`
-  - `Номер ЗНП` + `Номер партии`
-  - `Номенклатура` + `Операция`
-- The `Вид дефекта` block supports one or more defect rows using a Django formset.
-- The create form operation dropdown is limited to `Операционный контроль` and `Выпускной контроль`.
-- The create form defect dropdown is limited to the D11 production defect list.
-- `order_number`, `znp_number`, and `party_number` accept only digits, hyphen, and slash.
-- `ActHistoryEvent` stores append-only history events for act creation, workflow transitions, comments, attachments, and `ACT_CLOSED`.
-- `ActComment` stores manual user notes on an act.
-- `ActAttachment` stores protected files uploaded to acts under `MEDIA_ROOT/acts/attachments/<act_id>/`.
-- Attachment downloads go through access-checked Django views, not direct media links.
-- Role and action checks are centralized in `acts/permissions.py`.
-- Workflow transitions and closing logic are centralized in `acts/services.py`.
-- Workflow logic uses `ActStatus.code`, not Russian status names.
-
-## Manual Validation Checklist
-
-### D28
-
-- Open `/acts/create/` and verify each defect row shows only the `Цех/поставщик` dropdown, positioned above `Номер ЗНП`, with the remaining defect fields hidden.
-- Select `Цех МП` and verify the rest of the fields appear immediately without a page reload; switch to `Цех трансформаторов` and verify already-entered values are preserved. Verify the same behavior for a row added with `Добавить ещё дефект`.
-- Submit the form with no `Цех/поставщик` selected and verify a server-side validation error; verify the browser does not block submission due to a hidden required field.
-- Create an act with two defects using different workshop values and verify both are saved independently.
-- Edit an existing `CREATED_OTK` act and verify its saved `Цех/поставщик` value is preselected, the other fields are visible, and changing the value saves correctly; verify existing quantity validation still rejects an invalid edit.
-- Open an act with a legacy defect saved before this field existed and verify it displays a placeholder instead of an error or an invented value, on both the detail page and the print view.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D22
-
-- Approve an `OTK_REVIEW` act with one or more valid corrective actions and verify one `Новая` task per action, then verify the archived-act task links.
-- Try approval with an inactive assignee, blank action text, or a past due date; verify a clear error, no tasks, and unchanged `OTK_REVIEW` status.
-- Open `/tasks/` as an assigned employee, another employee, manager, and administrator; verify protected visibility, overdue highlighting, sort order, and read-only details.
-- Verify an approved/archived act cannot create duplicate tasks.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D23
-
-- In TO analysis select two active employees, including employees from different departments; verify both stay selected after returning the act from OTK to TO. Try no employee or a duplicate employee; saving must be rejected.
-- Approve the act and verify one task—not two—with both employees shown in the task list, detail page, and archived act.
-- Open the shared task as each assigned employee, an unrelated employee, manager, and administrator; only assignees and full-access roles may view it.
-- Complete it as one assignee. Verify `Выполнено`, the completing employee and date for both assignees and in the archived act; verify a second completion is unavailable/rejected.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D24
-
-- Add employees from different departments to one corrective action, return the act from OTK to TO, and verify the employees and their displayed departments are preserved.
-- Open `/tasks/` and verify exactly `№ задачи`, `Статус`, `Источник`, and `Срок`; task text and assignees must be absent from the table.
-- Verify each task number and source act number are protected links; an unrelated employee must receive 404 at a direct task-detail URL.
-- Verify `По акту`, overdue highlighting, and overdue-first/nearest-due-date ordering. Complete a shared task and confirm its technical status remains visible in details for all assignees.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D25
-
-- Open `/tasks/` as an assignee, manager, and administrator. Verify `Мои задачи`, `Все задачи`, and `Архив` preserve backend visibility.
-- Combine task number, source, `По акту`, and due-date filters; verify the URL retains all state and `Сбросить` retains the selected tab.
-- Verify default active-task ordering is overdue first, then nearest date; check both explicit sorting options and no overdue highlight in `Архив`.
-- Verify task numbers and source acts are linked and an unrelated employee cannot open a task by a direct URL.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D26
-
-- Open a task from a filtered registry and verify the return button preserves the selected list URL.
-- Verify status, source act, due date, assignees with departments, root cause, and task text on the card.
-- Submit an empty or whitespace-only execution result and verify it is rejected without completing the task.
-- Complete a shared task as one assignee; verify its result, executor/date, redirect to filtered `Архив`, and absence from active tabs. Verify an unassigned manager cannot complete it.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D27
-
-- Open `/acts/` as OTK, KO, manager, and the dedicated administrator. Verify the topbar title `Акты`, the three registry tabs, KPI cards, and that introductory/role/administrator-mode text is absent.
-- Verify search, status, act-type, and due-date filters combine correctly; `Сбросить` retains the selected tab. Confirm that only dates before today are overdue, while today and future dates are not overdue. Confirm there is no operation filter, while operation remains visible in the registry table and act forms/details.
-- Verify `Создать АКТ` is visible only to roles already allowed to create acts. Verify `Очистить акты` appears only for `admin_user` and still requires confirmation; direct access remains denied for other users.
-- Verify archived acts, direct act links, and OTK/KO/TO visibility remain unchanged.
-- At `На анализе ТО`, the initial root analysis and corrective action never have delete buttons. After adding entries, only the last added root analysis and the last added corrective action have red `×` delete buttons beside their respective cause/action fields; adding another item moves the corresponding delete button to that new last item.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D21
-
-- Open an `OTK_REVIEW` act as its OTK author and verify `Вернуть ТО` and `Утвердить` appear in the bottom action panel; verify they are unavailable to unauthorized users.
-- Return the act with an empty and then valid comment; verify server rejection, comment/history, transition to `TO_ANALYSIS`, and prefilled TO structure.
-- Approve an `OTK_REVIEW` act; verify `ARCHIVED`, approver/date, approval history, read-only workflow actions, and print/detail fields.
-- Check `Мои акты`, `Все акты`, and `Архив` for OTK, TO, KO, manager, and administrator accounts; verify scopes do not reveal inaccessible acts.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D20
-
-- Open a `TO_ANALYSIS` act: verify the initial root cause and action do not show delete buttons; add and remove items to verify buttons appear only when removable.
-- Verify green add buttons and red delete buttons, including hover and keyboard-focus states.
-- Return to KO with an empty or whitespace-only comment and verify rejection; submit a valid comment and verify the act moves to `KO_REVIEW` with comment and two history events.
-- Submit an invalid analysis for OTK review and verify errors, unchanged status, and no saved partial structure.
-- Submit a valid analysis with `На проверку ОТК`; verify `OTK_REVIEW`, saved data, legacy summaries, and the TO history event.
-- Log in as the OTK author and verify the `OTK_REVIEW` act is visible in the OTK queue.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D19
-
-- Open a `TO_ANALYSIS` act as a TO user and verify the editable `Анализ ТО` form appears directly on `Проработка`.
-- Add and remove root analyses and corrective actions; verify the last root analysis and last action cannot be removed.
-- Verify employee choices are filtered after selecting a department and submit mismatched department/user, blank text, and past-date values to confirm server-side errors and data preservation.
-- Submit valid data with multiple roots/actions; verify the status becomes `OTK_REVIEW`, the first root/action populate legacy summaries, and the saved structure is read-only outside TO correction.
-- Open an old act with only legacy TO values and verify its fallback display.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, `python manage.py test`, and `python manage.py check`.
-
-### D18
-
-- Open an act and verify comments are absent from `Проработка` and appear below attachments on `Вложения и комментарии`.
-- Add a normal comment and verify the response redirects to `?tab=attachments`.
-- As KO, attempt `Вернуть ОТК` with an empty or whitespace-only comment and verify the dialog shows an error without changing the act.
-- Return the act with a valid comment; verify the comment, comment-added history event, return-to-OTK history event, and status change to `CREATED_OTK`.
-- Log in as the OTK author and verify the returned act appears in the OTK queue.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, and `python manage.py check`.
-
-### D17
-
-- Open a `CREATED_OTK` act on a desktop viewport: verify no top-level `Дата обнаружения`, party-data labels remain on one line, and Defects/KO remain side by side.
-- Verify each defect card has the approved five rows, with full-width defect type and description.
-- Resize to a narrow viewport and verify the outer sections and defect-card fields stack without clipping.
-- Verify an act without `ActDefect` rows still renders its legacy defect fallback.
-- Run `python manage.py check`.
-
-### D16
-
-- Open a `CREATED_OTK` act and verify its number is in the top header and the work-tab order is party data, defects/KO decision, TO analysis, comments, then actions.
-- Verify every defect card, including the legacy no-defect fallback, shows the required fields in order.
-- Edit party data and defects; add and delete a defect, and verify D15 product, KD, quantity, and detected-date validation remains active.
-- Verify only the OTK author, manager, or administrator can edit a `CREATED_OTK` act; verify later statuses cannot be edited.
-- Transfer an edited act to KO and verify the edit action is unavailable.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, and `python manage.py check`.
-
-### D15
-
-- Open `/acts/create/` and submit valid Russian-only product and KD values, for example `Катушка-1` and `КД-12.3`.
-- Verify today is prefilled for the initial defect date and for every row added with `Добавить дефект`; verify a past date can be selected.
-- Verify future dates cannot be selected in the browser calendar and are rejected by a direct POST request.
-- Verify `Product-1`, `КД/12`, and `Катушка А` show validation errors for the product/KD fields.
-- Run `python manage.py check`.
-
-- Log in as `ko_user` / `demo12345` and verify `Проработка`, `История акта`, and `Вложения`; verify invalid or missing `tab` opens `Проработка`.
-- On `Вложения`, upload a permitted file, download it, and delete it only with an allowed user; submit an invalid file and verify the tab remains active.
-- Submit each new KO decision on a separate `KO_REVIEW` act and verify every act moves to `TO_ANALYSIS`, leaves the KO queue, appears in the TO queue, and has KO and TO-transfer history events.
-- Log in as `to_user` and verify each transferred act is available for the existing TO analysis workflow.
-- Open an existing act with a legacy KO decision and verify its stored label still displays correctly.
-- Run `python manage.py makemigrations`, `python manage.py migrate`, and `python manage.py check`.
-
-- Log in as `ko_user` / `demo12345` and open an act in `KO_REVIEW`.
-- Verify that `Проработка` opens by default, both tabs switch with `tab=work` and `tab=history`, and an invalid tab value opens `Проработка`.
-- Verify the comments sidebar is visible beside both tabs and becomes a lower block on a narrow screen.
-- On `Проработка`, verify the embedded KO form and its explanation of all three outcomes.
-- Submit `Вернуть ОТК на уточнение`, `Пропустить`, and `Не пропускать` on separate acts; verify the resulting queue visibility and history event for each option.
-- Submit an invalid KO form and verify validation errors remain in the embedded form.
-- Open `/acts/<id>/ko-decision/` with GET and verify redirect to `?tab=work`; verify POST still saves the decision.
-- Verify OTK, KO, TO, manager, and administrator visibility restrictions remain unchanged.
-- Run `python manage.py check`.
-
-- Log in as `otk_user` / `demo12345` and open an act in `CREATED_OTK` created by this user.
-- Verify that customer, order number, ZNP number, party number, nomenclature, and operation are shown in `Данные партии`.
-- Verify that the legacy summary defect fields are not duplicated in `Основные данные`.
-- Verify every defect is shown with its type, description, and detection date; create an act with multiple defects and verify their numbering.
-- Open an old act without `ActDefect` records and verify that its compatible defect fields are shown without an error.
-- Verify `Передать в КО` is the primary OTK action, contains the queue warning, and the browser asks for confirmation.
-- Cancel the confirmation and verify the act remains in `CREATED_OTK`.
-- Confirm the transfer; verify the success message, redirect to `/acts/`, and absence of the act from the OTK queue.
-- Log in as `ko_user` and verify the transferred act is visible in the KO queue.
-- Run `python manage.py check`.
-
-- Run `python manage.py seed_demo_accounts`.
-- Log in as `admin_user` / `demo12345`.
-- Verify `/acts/` shows all acts and the administrator-mode notice.
-- Verify the administrator can open acts in `CREATED_OTK`, `KO_REVIEW`, `TO_ANALYSIS`, `ACTIONS_ASSIGNED`, and `CLOSED`.
-- Verify current-stage action buttons are shown for the administrator.
-- Verify the administrator can process `CREATED_OTK` to `KO_REVIEW`.
-- Verify the administrator can process `KO_REVIEW` to `TO_ANALYSIS` or return it to `CREATED_OTK`.
-- Verify the administrator can process `TO_ANALYSIS` to `ACTIONS_ASSIGNED`.
-- Verify the administrator can close an `ACTIONS_ASSIGNED` act.
-- Verify the administrator can download and delete attachments, and open the print view for any act.
-- Verify normal OTK, KO, and TO users still have strict visibility.
-- Open `/acts/create/`.
-- Verify the `Данные партии` block layout.
-- Verify `Заказчик` + `Номер заказа` are on one row.
-- Verify `Номер ЗНП` + `Номер партии` are on one row.
-- Verify `Номенклатура` + `Операция` are on one row.
-- Verify the operation dropdown contains only `Операционный контроль` and `Выпускной контроль`.
-- Verify the defect dropdown contains the required D11 defect list.
-- Verify invalid order number characters are rejected.
-- Verify invalid ZNP number characters are rejected.
-- Verify invalid party number characters are rejected.
-- Create an act with one defect.
-- Create an act with two or more defects using `Добавить дефект`.
-- Verify the created act opens correctly.
-- Verify all defects appear on the detail page.
-- Verify old act records still display without errors.
-
-## Deployment Preparation
-
-The codebase is prepared for a pilot deployment on a clean PostgreSQL with
-Redis and ASGI. **The deployment itself is a separate, not-yet-performed
-stage**: this repository configures and validates the application, but it does
-not install PostgreSQL or Redis, create database roles, configure a reverse
-proxy, HTTPS or certificates, register OS services, or deploy anything.
-
-### `APP_ENV` and the main production variables
-
-`APP_ENV` is the single explicit switch: `development` (default), `test` or
-`production`. An unknown value is refused at startup.
-
-`APP_ENV=production` refuses to start at all — not on the first request — when
-`DEBUG` is true, the backend is not PostgreSQL, `SECRET_KEY` is missing, too
-short, an obvious placeholder or the published development key, `ALLOWED_HOSTS`
-is empty or contains `*`, `APP_BASE_URL` is not `https://`, or
-`CSRF_TRUSTED_ORIGINS` is missing or not `https://`. No error message ever
-echoes the offending secret.
-
-| Variable | Purpose |
+Веб-система для работы с актами о качестве (АОК) на производстве: акт проходит
+маршрут ОТК → КО → ТО → ОТК, а утверждённые корректирующие мероприятия
+превращаются в задачи с исполнителями и сроками. Роль пользователя определяет,
+какие акты он видит и какие действия ему доступны.
+
+## Что уже работает
+
+**Акты.** Создание акта с данными партии и произвольным числом дефектов;
+автоматическая нумерация `АОК-YYYY-NNN`; редактирование до передачи в КО;
+маршрут `CREATED_OTK → KO_REVIEW → TO_ANALYSIS → OTK_REVIEW → ARCHIVED` с
+возвратами на каждом этапе и обязательным комментарием возврата.
+
+**Решения и анализ.** Решение КО по каждому дефекту; структурированный анализ
+ТО: корневые причины, корректирующие мероприятия, подразделения, сроки и
+активные исполнители.
+
+**Задачи.** При утверждении акта для каждого корректирующего мероприятия
+атомарно создаётся общая задача. Любой из назначенных исполнителей завершает
+её один раз, обязательно указав результат выполнения.
+
+**Права и видимость.** Роли ОТК, КО, ТО, руководителя и администратора.
+Видимость проверяется на бэкенде: шаблоны используют готовый набор доступных
+действий и никогда не решают вопрос доступа сами.
+
+**Уведомления.** Внутренние уведомления с дедупликацией создаются в одной
+транзакции с бизнес-событием; колокольчик в шапке показывает непрочитанные.
+Email — отдельный канал: доставки складываются в очередь в базе и
+отправляются отдельной командой, поэтому недоступный SMTP не мешает работе.
+
+**Real-time.** Redis Pub/Sub и Server-Sent Events обновляют колокольчик,
+реестры и открытый акт без перезагрузки. Событие сообщает только *что*
+изменилось; содержимое всегда перезапрашивается обычным авторизованным
+запросом. Пропущенные обновления досчитывает сверка ревизий `/realtime/sync/`,
+есть fallback polling и одно соединение на пользователя вместо одного на
+вкладку.
+
+**Вложения.** Файлы актов лежат в protected media и выдаются только через
+Django-вьюху с проверкой прав на каждый запрос.
+
+**Готовность к эксплуатации.** Явный режим `APP_ENV`, проверки конфигурации
+при старте, health и readiness endpoints, операционный журнал с `request_id`,
+read-only команды проверки готовности.
+
+## Стек
+
+| Слой | Технология |
 | --- | --- |
-| `APP_ENV` | `development` / `test` / `production` |
-| `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `APP_BASE_URL` | core Django settings, environment-driven |
-| `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SESSION_COOKIE_HTTPONLY`, `*_SAMESITE`, `SECURE_SSL_REDIRECT`, `SECURE_CONTENT_TYPE_NOSNIFF`, `X_FRAME_OPTIONS` | secure by default in production |
-| `SECURE_HSTS_SECONDS`, `SECURE_HSTS_INCLUDE_SUBDOMAINS`, `SECURE_HSTS_PRELOAD` | HSTS is **never** enabled implicitly |
-| `TRUST_X_FORWARDED_PROTO`, `USE_X_FORWARDED_HOST` | only behind a proxy that overwrites the header |
-| `DB_SSLMODE`, `DB_APPLICATION_NAME`, `DB_STATEMENT_TIMEOUT_MS`, `DB_LOCK_TIMEOUT_MS`, `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` | PostgreSQL runtime options |
-| `STATIC_ROOT_PATH`, `MEDIA_ROOT_PATH` | public static vs. protected media |
-| `ENABLE_DEMO_RESET` | `false` by default, forced off in production |
-| `BACKUP_POLICY_ACKNOWLEDGED` | administrative acknowledgement, not evidence |
-| `LOG_LEVEL`, `REALTIME_LOG_LEVEL`, `LOG_TO_FILE`, `LOG_TO_CONSOLE`, `LOG_FILE_PATH`, `LOG_FILE_MAX_BYTES`, `LOG_FILE_BACKUP_COUNT`, `LOG_SLOW_REQUEST_MS`, `LOG_MUTATING_REQUESTS`, `LOG_HEALTH_REQUESTS`, `APP_RELEASE` | file-first logging with console alongside |
+| Интерфейс | Django Templates + vanilla JavaScript, без сборщика и фреймворков |
+| Приложение | Django, ASGI (Uvicorn) |
+| База данных | PostgreSQL в production, SQLite в разработке |
+| Real-time | Redis Pub/Sub → Server-Sent Events |
+| Почта | корпоративный SMTP relay, отправка management-командой |
 
-See `.env.example` for the full annotated list with safe placeholder values.
+Точные версии — в `requirements.txt`. Полный список переменных окружения — в
+`.env.example`. Celery, WebSocket/Channels, React и npm не используются.
 
-### Fresh PostgreSQL bootstrap
-
-The first production start is a **clean install on an empty database** — not a
-migration of the development SQLite, and not a demo dataset. The empty database
-and its roles are created outside Django beforehand.
-
-```powershell
-python manage.py check
-python manage.py migrate
-python manage.py seed_references
-python manage.py createsuperuser
-python manage.py collectstatic --noinput
-python manage.py check_fresh_bootstrap
-python manage.py check_production_readiness
-```
-
-`check_fresh_bootstrap` verifies the backend, connection, applied migrations,
-required reference data, `ActNumberSequence`, the absence of demo and
-`PERF-SYNTHETIC` data, the absence of a demo administrator, a disabled demo
-reset, `MEDIA_ROOT`, `STATIC_ROOT`, and consistent real-time/email settings.
-Real working data is *not* an error — the command stays re-runnable after
-go-live and reports it as a warning.
-
-The `ActNumberSequence` check compares `last_value` against the highest
-`АОК-YYYY-NNN` suffix actually issued for each year (one projection query,
-regardless of how many acts or years exist — never one query per act). A
-missing counter row for a year that has acts, or a `last_value` that has
-fallen behind the real maximum, blocks readiness; an empty installation and a
-counter with headroom both pass. Historical numbers in any other shape are
-never counted. The check never writes: no missing row is created and no
-counter is raised automatically, and a reported gap names only the year and
-aggregated counts, never a specific act number — see
-[Первый запуск на чистой PostgreSQL](docs/fresh_postgresql_bootstrap.md) for
-the manual fix.
-
-Required reference data now includes the full act status set the workflow
-uses — `CREATED_OTK`, `KO_REVIEW`, `TO_ANALYSIS`, `OTK_REVIEW`,
-`ACTIONS_ASSIGNED`, `ARCHIVED`, `CLOSED`, `CANCELLED` — plus `IN_PROGRESS` and
-`COMPLETED` task statuses; `seed_references` creates exactly this set and its
-summary always reports what it actually created.
-
-With email notifications enabled, `EMAIL_HOST`, an `EMAIL_PORT` in
-`1-65535`, `DEFAULT_FROM_EMAIL`, and positive queue timing settings are all
-required, and `EMAIL_USE_TLS`/`EMAIL_USE_SSL` cannot both be on — checked
-without ever opening an SMTP connection. `EMAIL_HOST_USER`/
-`EMAIL_HOST_PASSWORD` stay optional throughout: a corporate relay reachable
-only by an IP allow-list needs no application-level credentials.
-
-`check_production_readiness` consolidates everything into a `PASS` / `WARNING`
-/ `BLOCKING` report (`--json-report` for a safe JSON copy) and exits non-zero
-on any `BLOCKING`. It reuses the fresh-bootstrap core for backend, connection,
-migrations, reference data and `ActNumberSequence`, then reports real-time,
-static/media, demo reset and email itself — each with a deeper, live check
-(an actual Redis PING, for example) — so every logical section appears
-exactly once in the report. Both commands are read-only, and neither prints a
-username or any object content.
-
-### Логирование пилота
-
-**Основной диагностический носитель — ротируемый текстовый файл UTF-8.**
-Консольный вывод сохраняется рядом: его собирает process manager, и через него
-позже можно подключить централизованный сбор, не меняя бизнес-код. Используется
-только стандартный `logging`; ELK, Loki, Sentry и Graylog не добавляются.
-
-Формат строки:
+## Архитектура
 
 ```
-[timestamp] LEVEL logger request=<request_id> user=<user_id>: event key=value ...
+        браузер (Django Templates + vanilla JS)
+          │ HTTP: страницы и фрагменты      │ EventSource: /realtime/events/
+          ▼                                 ▼
+   ┌────────────────────────────────────────────┐
+   │            ASGI (Uvicorn) + Django         │
+   │   views → permissions → services → models  │
+   └──────┬──────────────┬──────────────┬───────┘
+          │              │              │
+     PostgreSQL        Redis        MEDIA_ROOT
+   источник истины    Pub/Sub    protected media
+                     best-effort
 ```
 
-| Переменная | По умолчанию | Назначение |
-| --- | --- | --- |
-| `LOG_LEVEL` | `INFO` | общий уровень |
-| `REALTIME_LOG_LEVEL` | как `LOG_LEVEL` | уровень logger'а `realtime` |
-| `LOG_TO_FILE` | `true` в production | файловый журнал |
-| `LOG_TO_CONSOLE` | `true` везде | stdout для process manager |
-| `LOG_FILE_PATH` | `BASE_DIR/logs/application.log` | путь; в production абсолютный и **вне репозитория** |
-| `LOG_FILE_MAX_BYTES` | `20971520` | размер одного файла |
-| `LOG_FILE_BACKUP_COUNT` | `10` | число архивных копий |
-| `LOG_SLOW_REQUEST_MS` | `2000` | порог медленного запроса |
-| `LOG_MUTATING_REQUESTS` | `true` | писать POST/PUT/PATCH/DELETE |
-| `LOG_HEALTH_REQUESTS` | `false` | писать health-пробы |
-| `APP_RELEASE` | пусто | безопасная метка версии или commit SHA |
+Приложения: `acts` (акты и workflow), `tasks` (задачи), `notifications`
+(уведомления и очередь писем), `realtime` (события, SSE, сверка),
+`references` (справочники), `accounts` (роли и подразделения),
+`maintenance` (технические команды), `ecosystem` (настройки, health,
+логирование). Подробнее — в [docs/architecture.md](docs/architecture.md).
 
-Пример production-конфигурации с файлом и консолью одновременно:
-
-```
-LOG_TO_FILE=true
-LOG_TO_CONSOLE=true
-LOG_FILE_PATH=/var/log/quality/application.log
-LOG_FILE_MAX_BYTES=20971520
-LOG_FILE_BACKUP_COUNT=12
-```
-
-Хотя бы один обработчик обязан быть включён — при обоих выключенных процесс не
-стартует. Файл журнала не должен лежать внутри `STATIC_ROOT` (раздаётся
-публично) или `MEDIA_ROOT` (вложения актов).
-
-```powershell
-python manage.py check_logging                 # только чтение
-python manage.py check_logging --write-probe   # одна строка logging.probe в файл
-```
-
-`--write-probe` записывает обычную INFO-строку и проверяет, что файл изменился;
-искусственный `ERROR` он не создаёт и базу не трогает. Полный путь печатается
-локальному оператору, но в JSON-отчёт не попадает.
-
-**Поиск по `request_id`.** Каждый запрос получает новый идентификатор, который
-возвращается в заголовке ответа `X-Request-ID` и проставляется во все строки
-журнала, записанные во время этого запроса — включая строки из сервисов актов,
-задач и почты. Входящий `X-Request-ID` от клиента не принимается.
-
-```bash
-grep -h "request=8f3c1d" /var/log/quality/application.log*
-```
-
-Записываются идентификаторы, коды статусов, счётчики, `duration_ms` и
-`outcome`. Никогда не записываются тексты пользователей (описания дефектов,
-комментарии, корневые причины, тексты задач), имена и email, имена вложений,
-секреты, cookie и токены — на каждый обработчик дополнительно навешен фильтр
-редактирования. `История акта` остаётся бизнес-аудитом, журнал — диагностикой.
-
-Ротация: `LOG_FILE_MAX_BYTES` × `LOG_FILE_BACKUP_COUNT` — верхняя граница
-занимаемого места (при значениях по умолчанию ≈ 220 МБ). За свободным местом
-приложение не следит: разместите журнал на разделе, где его рост не вытеснит
-базу или `MEDIA_ROOT`, и включите мониторинг средствами ИТ-службы.
-
-> **Несколько Uvicorn workers.** `RotatingFileHandler` корректен только в
-> однопроцессном пилоте. Несколько процессов, независимо ротирующих один общий
-> файл, перемешают записи и потеряют часть строк. При более чем одном worker'е
-> оставьте только консоль и поручите сбор и ротацию системе, либо выдайте
-> каждому процессу свой `LOG_FILE_PATH`, либо ротируйте внешним механизмом.
-
-Подробно: [Операционное логирование](docs/operational_logging.md).
-
-### Health endpoints
-
-| Endpoint | Meaning |
-| --- | --- |
-| `GET /health/live/` | the process is alive; touches no database, Redis, SMTP or disk |
-| `GET /health/ready/` | ready to serve: `SELECT 1`, no pending migrations, Redis PING (only when real-time uses Redis), `MEDIA_ROOT`, `STATIC_ROOT` |
-
-Both are unauthenticated, `GET`/`HEAD` only (405 otherwise) and `no-store`.
-Readiness answers `{"status": "ready"}` or `503 {"status": "unavailable"}` and
-nothing else — no SQL, exception text, path, host, username or credential;
-detail goes to the `deployment` log. Readiness changes nothing.
-
-### Static, protected media and the demo reset flag
-
-`collectstatic` gathers CSS/JS/images into `STATIC_ROOT`, which is **public**.
-`MEDIA_ROOT` holds act attachments and stays **protected**: files are served
-only through the permission-checked download view and must never be published
-by the web server directly. The two must be different directories.
-
-`ENABLE_DEMO_RESET=false` by default. With the flag off, the destructive
-`/acts/clear-all/` route is not registered at all — a direct request is an
-ordinary 404 and no button is rendered. Production forces it off and reports
-any attempt to enable it. Where it is on, the administrator role, POST-only and
-CSRF protection all still apply.
-
-### Deployment documents
-
-- [Подготовка к развёртыванию](docs/deployment_preparation.md) — variables, checks, health, logging
-- [Первый запуск на чистой PostgreSQL](docs/fresh_postgresql_bootstrap.md)
-- [PostgreSQL в production](docs/postgresql_production.md) — roles and privileges
-- [Резервное копирование и восстановление](docs/backup_restore.md)
-- [Операционное логирование](docs/operational_logging.md) — формат, request_id, ротация
-- [Развёртывание real-time](docs/realtime_production.md) — ASGI, proxy, Redis
-
-## Create and Activate a Virtual Environment
+## Быстрый локальный запуск
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-If script execution is restricted in PowerShell, use:
-
-```powershell
-.\.venv\Scripts\python.exe --version
-```
-
-## Install Dependencies
-
-```powershell
 python -m pip install -r requirements.txt
-```
 
-## Database Configuration
-
-SQLite remains the default backend and needs no environment variables; local
-setup and testing are unchanged. `DATABASE_ENGINE` switches to PostgreSQL
-(`ENGINE = django.db.backends.postgresql`, driver: `psycopg[binary]`) when
-set to `postgresql`. Required in that mode: `DB_NAME`, `DB_USER`,
-`DB_PASSWORD`. Optional, with defaults: `DB_HOST` (`127.0.0.1`), `DB_PORT`
-(`5432`), `DB_CONN_MAX_AGE` (`0`), `DB_CONN_HEALTH_CHECKS` (`false`). A
-missing required variable or an unsupported `DATABASE_ENGINE` value fails
-`manage.py check`/startup with a clear `ImproperlyConfigured` error and never
-falls back to SQLite silently. The PostgreSQL server, database, and role are
-installed and created separately; this project does not provision them, and
-existing SQLite data is not migrated by this configuration. See
-[Preparing for PostgreSQL](docs/postgresql_preparation.md) for variables,
-error behavior, and a PowerShell example. A template without real secrets is
-in `.env.example`.
-
-Two optional path overrides exist for transfer work only, and both keep their
-current defaults when unset: `SQLITE_DB_PATH` points the SQLite backend at a
-specific file (a stopped copy), and `MEDIA_ROOT_PATH` points `MEDIA_ROOT` at a
-specific directory (a rehearsal target). Relative values resolve against
-`BASE_DIR`.
-
-## Data Transfer Tooling
-
-The `maintenance` app provides the management commands that *prepare* a
-SQLite → PostgreSQL transfer. They never move the live working database on
-their own.
-
-- `check_migration_source [--source-media-root <dir>] [--allow-default-database]`
-  — read-only source preflight on SQLite: database file, separate copy (not the
-  live `db.sqlite3`), backend, pending migrations, `PRAGMA integrity_check`,
-  relational invariants, act-number uniqueness, lagging `ActNumberSequence`,
-  attachment path safety, presence of every attachment file in the chosen
-  source media, declared `file_size` vs. the real file, and the model / row /
-  attachment inventory. Running it on the working `db.sqlite3` requires the
-  explicit `--allow-default-database`.
-- `export_migration_bundle --output <dir> [--source-media-root <dir>]` — builds
-  a migration bundle (`manifest.json`, `data.json`, `media/`) with SHA-256
-  checksums and per-model counts, max PKs and deterministic hashes. Run it
-  against a **stopped copy** of `db.sqlite3` and a **copy of media**: point
-  `SQLITE_DB_PATH` at the database copy and `--source-media-root` at the media
-  copy. It refuses a non-empty output directory, a missing attachment file
-  (unless `--allow-missing-media`) and any path escaping the chosen media root,
-  and publishes the directory only after full success.
-- `verify_migration_bundle --input <dir> --validate-only` — re-validates the
-  bundle on its own: `source_vendor`, exact `model_order`, and per-model counts,
-  max PKs and hashes **recomputed from `data.json`**, so the manifest can never
-  vouch for itself.
-- `prepare_empty_migration_target [--execute --confirm "<phrase>"]` — narrow,
-  PostgreSQL-only cleanup of the rows the data migrations seed in
-  `references.ActStatus` / `references.TaskStatus`. Dry-run by default, refuses
-  outright if any user data is present, never uses `flush`.
-- `check_migration_target [--previous-report <path>]` — target preflight:
-  PostgreSQL backend, applied migrations, email disabled, empty transferable
-  tables, empty `MEDIA_ROOT`, read/write access proved in a rolled-back
-  transaction, required privileges, server version, and no unfinished previous
-  import according to the rehearsal report.
-- `import_migration_bundle --input <dir> [--dry-run] [--accept-missing-media]` —
-  loads a bundle into an **empty** PostgreSQL database. Fixture load, sequence
-  reset and `ActNumberSequence` sync run inside one `transaction.atomic()`, so a
-  failure in any of them rolls every loaded row back; media is activated only
-  after the commit. A partial media activation is reported as `partial` with an
-  exact recovery procedure — never as an ordinary success. It never flushes and
-  never deletes existing rows.
-- `run_postgresql_smoke_checks [--read-only]` — post-import smoke checks on
-  PostgreSQL: read-only traversal of the migrated data through the same
-  querysets and permission helpers the views use, plus a full write round trip
-  inside a transaction that is always rolled back. No email is sent.
-- `verify_migration_bundle --input <dir> [--report <path>]` — compares row
-  counts, max PKs and data hashes per model, checks every media file by path,
-  size and SHA-256, validates `ActNumberSequence` and the key relational
-  invariants, and exits non-zero on any difference.
-
-A bundle whose `missing_media` is not empty is **incomplete**: an ordinary
-import refuses it, `--accept-missing-media` additionally requires a typed
-confirmation and prints the full list, and verification always counts it as a
-difference unless the special `--allow-missing-media` mode is used.
-
-Full step-by-step procedure, including how to prepare the target database and
-what to do on failure: [Перенос данных из SQLite в PostgreSQL](docs/postgresql_migration.md).
-A migration bundle contains real production data and is excluded from Git.
-
-## PostgreSQL Rehearsal
-
-`scripts/run_postgresql_rehearsal.py` runs the whole rehearsal locally, on
-copies. Every stage is a separate `manage.py` subprocess, because SQLite and
-PostgreSQL are selected by environment variables Django reads once at startup —
-one process cannot legitimately be both.
-
-Stages, strictly sequential; the first failure stops everything:
-
-1. source preflight → 2. `export_migration_bundle` → 3. bundle re-validation →
-4. target preflight → 5. `import_migration_bundle --dry-run` →
-6. `import_migration_bundle` → 7. `verify_migration_bundle` →
-8. `run_postgresql_smoke_checks` → 9. the final report.
-
-A **separate copy** of `db.sqlite3` and a **separate copy** of `media` are
-mandatory: stop the application, copy both, and rehearse against the copies.
-PostgreSQL credentials are read **only** from the environment — the password is
-never passed as a command-line argument and never written to a report.
-
-```powershell
-$env:DB_NAME = "quality_rehearsal"
-$env:DB_USER = "quality_rehearsal"
-$env:DB_PASSWORD = "<пароль из окружения>"
-
-python scripts\run_postgresql_rehearsal.py `
-  --source-db transfer\db-copy.sqlite3 `
-  --source-media transfer\media-copy `
-  --bundle transfer\bundle `
-  --target-media transfer\target-media `
-  --json-report transfer\rehearsal-report.json `
-  --markdown-report transfer\rehearsal-report.md
-```
-
-Both reports are written on success *and* on failure. They carry the run time,
-Git commit, OS, Python/Django/Psycopg/SQLite/PostgreSQL versions, source sizes,
-model/row/attachment counts, per-stage durations, final hashes and counts, the
-sequence-reset and `ActNumberSequence` results, relational verification, read
-and write smoke results, missing media, warnings, the overall status, a minimum
-downtime-window estimate and the issues blocking a production move. They never
-contain passwords, `SECRET_KEY`, record contents, password hashes, attachment
-contents or absolute server paths.
-
-See [Репетиция переноса SQLite → PostgreSQL](docs/postgresql_rehearsal.md) for
-the preparation steps, the manual checklist, the downtime estimate, the
-rollback plan and the production-readiness criteria.
-
-**The working system has not been switched to PostgreSQL.** It still runs on
-SQLite; the production move is a separate, not-yet-performed stage.
-
-## Real-time Event Foundation
-
-The `realtime` app is the transport-independent foundation for future live UI
-updates. It holds only the event contract, targets, the publisher abstraction
-and its backends — no models, no migrations, no URLs, views or templates.
-
-Business services in `acts`, `tasks` and `notifications` publish uniform events
-explicitly, after their transaction commits, without knowing anything about
-Redis, SSE or WebSocket. The initial event types are:
-
-- `notification.created`, `notification.read`;
-- `task.created`, `task.updated`, `task.completed`;
-- `act.updated`, `act.status_changed`;
-- `comment.created`.
-
-An event carries only identifiers and safe technical metadata — never comment
-text, defect descriptions, email addresses, file names or whole models.
-PostgreSQL and the ordinary endpoints remain the source of truth; a client that
-receives an event refetches through the normal, permission-checked views.
-
-**Real-time is disabled by default.** `REALTIME_ENABLED` is `false` and
-`REALTIME_PUBLISHER_BACKEND` points at `NoopRealtimePublisher`, which accepts
-everything and sends nothing, so the project behaves exactly as it did before.
-With real-time disabled the emitters return before resolving any recipient, so
-no extra query runs, no commit callback is registered, and **no Redis server is
-needed** — `manage.py check`, `runserver` and the test suite all work without
-one. Publication is always registered through `transaction.on_commit()`, so a
-rolled-back transaction never produces an event; a backend failure is logged to
-the `realtime` logger and never breaks the already saved operation
-(`REALTIME_FAIL_SILENTLY`).
-
-### Transport: Redis publisher and personal SSE stream
-
-`RedisRealtimePublisher` serializes an event once and writes the same payload
-into every subscribable channel — named `<prefix>:<target.key>`, for example
-`quality-ecosystem:realtime:user:7` — in a single `pipeline(transaction=False)`
-round trip. Only targets a client can actually subscribe to are published:
-today that means `user:<id>` alone. `act:<id>` remains a routing hint in the
-event contract but is never written to Redis while the browser is not allowed
-to subscribe to an act room. Redis is a short-lived transport only: events are
-never stored, replayed or acknowledged, and having no subscriber is a normal
-state rather than an error.
-
-`GET /realtime/events/` is an async Server-Sent Events endpoint. The user is
-taken **only** from the Django session: an anonymous request gets 401, a
-disabled configuration gets 204 without touching Redis, an unreachable Redis
-gets 503, and a successful request streams `text/event-stream`. A user is
-subscribed to `user:<request.user.pk>` and nothing else — query string, path
-and body cannot change that, and act channels are not subscribable in this
-stage.
-
-New environment variables:
-
-- `REALTIME_REDIS_URL` — `redis://127.0.0.1:6379/0` by default;
-- `REALTIME_CHANNEL_PREFIX` — `quality-ecosystem:realtime`;
-- `REALTIME_REDIS_CONNECT_TIMEOUT_SECONDS`, `REALTIME_REDIS_SOCKET_TIMEOUT_SECONDS` — `1` each: publication runs inside the user's own request, so an unreachable Redis must cost that request about a second, not five;
-- `REALTIME_REDIS_SLOW_PUBLISH_MS` — `250`; a slower pipelined publish is logged with the event type, channel count and duration only;
-- `REALTIME_HEARTBEAT_SECONDS` — `25`, the silence after which the stream emits a keep-alive comment;
-- `REALTIME_RECONNECT_DELAY_MS` — `3000`, advertised to the client in the initial `retry:` frame;
-- `REALTIME_MAX_EVENT_BYTES` — `16384`, enforced before publishing and again before writing to the stream.
-
-Running it locally requires a Redis server and an ASGI server:
-
-```powershell
-# 1. Redis (any local instance; a container is the simplest option)
-docker run --rm -p 6379:6379 redis:7
-
-# 2. Point the project at the Redis publisher
-$env:REALTIME_ENABLED = "true"
-$env:REALTIME_PUBLISHER_BACKEND = "realtime.backends.RedisRealtimePublisher"
-$env:REALTIME_REDIS_URL = "redis://127.0.0.1:6379/0"
-
-# 3. Verify the transport before anything else
-python manage.py check_realtime_transport
-
-# 4. Serve the async endpoint under ASGI (runserver is WSGI and cannot stream)
-python -m uvicorn ecosystem.asgi:application --host 127.0.0.1 --port 8000
-```
-
-All three are required together: without a running Redis, `REALTIME_ENABLED=true`
-*and* `REALTIME_PUBLISHER_BACKEND` pointing at `RedisRealtimePublisher`, the
-bell simply keeps its previous behaviour and the page works exactly as before.
-
-To check the live scenario locally: open the site in two browsers as two
-different users, have the first user perform an action that notifies the second
-(for example transfer an act to KO), and watch the second user's bell counter,
-menu and toast update without a reload. Opening the bell marks the shown items
-read, and a second tab of the same user updates on its own.
-
-`check_realtime_transport` validates the settings, runs a Redis `PING`,
-publishes a random token into a unique throwaway diagnostic channel, reads it
-back, reports the round-trip time and releases every resource. It creates no
-business objects, never touches a user channel and never prints credentials.
-
-### Live bell and toasts
-
-With real-time enabled, a new internal notification reaches the recipient
-without a page reload: the bell counter updates, the notification appears in
-the bell menu, and a single toast is shown in the bottom-right corner with the
-notification's title, message and an `Открыть` link. Reading notifications
-synchronises the counter and the menu across all of that user's open tabs.
-
-The SSE event is only a *signal*. Every visible string and link is fetched
-afterwards from `GET /notifications/header-fragment/`, an authenticated Django
-endpoint that renders the same partial the full page uses — so permissions are
-re-checked server-side and no event payload is ever inserted into the page. The
-client refreshes on every connect and reconnect, so a dropped connection or a
-Redis restart cannot leave a stale counter behind.
-
-Toasts auto-dismiss after 8 seconds, pause while hovered or focused, close with
-the button or `Escape`, cap at three visible at once, and respect
-`prefers-reduced-motion`. The region is `aria-live="polite"`.
-
-`static/js/realtime.js` is loaded only for an authenticated user and only while
-`REALTIME_ENABLED=true`; with real-time off no configuration and no client
-script are rendered, and no `EventSource` is created.
-
-### Live tasks, registry and open act
-
-The same single stream also keeps the working pages current, without a reload:
-
-| Page | Updated live |
-| --- | --- |
-| `/tasks/` | the results table — a new task appears, a completed one leaves the active tabs and shows up in `Архив` |
-| `/acts/` | the KPI cards and the results table — a status change moves an act between scopes |
-| `/acts/<id>/` | the number, status badge and route; the history feed; the comment list; the related activities table |
-
-Every update is a refetch of a server-rendered fragment through an ordinary
-authenticated endpoint, so tab, filters, search, sorting and permissions are
-re-evaluated by Django — the browser decides nothing. Scroll position and focus
-in the filter form are preserved, because the tabs and the filter panel are
-never replaced.
-
-**Unsaved input is never touched.** The KO decision form, the TO analysis form
-with its dynamic rows, the new-comment textarea, the return dialogs and the
-attachment form all sit outside the replaceable blocks. If somebody else
-changes the act while your form has unsaved edits, a banner appears —
-*«Акт изменён другим пользователем»* — with a reload button; your text stays
-exactly where it is so you can copy it. On a status change the workflow submit
-buttons are disabled as well, since they would act on a status that no longer
-exists; ordinary fields stay editable. If the act becomes invisible to you, the
-page stops updating and offers a link back to the registry.
-
-Only new notifications produce a toast. Task and act updates are silent — you
-already get a toast through the matching notification when the workflow defines
-one.
-
-Local check with two users: run Redis and uvicorn as above, open `/tasks/` as a
-TO user in one browser, and from another account approve an act with corrective
-actions. The task appears without F5; completing it moves it to `Архив`. Then
-open an act in one browser, change its status from the other, and watch the
-badge and route update while any text you have typed survives.
-
-### Recovery, fallback polling and multiple tabs
-
-SSE is best-effort, so the UI never depends on it alone. `GET /realtime/sync/`
-returns short opaque revision tokens for notifications, tasks, acts,
-comments/history and activities, plus the unread counter. The client compares
-them with its last snapshot and refreshes only the blocks whose token moved —
-identical tokens cost nothing at all. Sync runs on **every** connect and
-reconnect, so a dropped connection, a Redis restart or an hour offline cannot
-leave a stale counter behind. A token is a hash of aggregates over rows the
-user may already see: it can never reveal that somebody else's object exists.
-
-If the stream cannot connect (no `EventSource` support, or nothing arrives
-within `REALTIME_DEGRADED_AFTER_SECONDS`), the client switches to **degraded**
-and polls `/realtime/sync/` — about every 30 s in a visible tab, 90 s in a
-hidden one, with jitter, never while the browser is offline, and never more
-than one request at a time. Polling stops the instant SSE recovers. An
-unobtrusive notice — *«Обновления могут приходить с задержкой»* — appears only
-after a real degradation, not during a short reconnect.
-
-With `BroadcastChannel` available, **all tabs of one user share a single SSE
-connection**: a leader tab holds the stream and forwards events and sync
-snapshots to the others over a local channel. The lease lives in
-`localStorage`; if the leader closes, another tab takes over. Without those
-APIs each tab simply runs on its own — nothing breaks.
-
-The stream also closes itself after `REALTIME_MAX_CONNECTION_SECONDS` (15
-minutes by default) so every reconnect re-authenticates and re-checks
-permissions from scratch.
-
-On the open act page a **clean** «Проработка» form is now replaced with fresh
-server markup after a status change, including the actions the new status
-allows, and the dynamic analysis formsets are re-initialised by the same
-functions that run on first load. A form with unsaved input is still never
-touched.
-
-New environment variables: `REALTIME_DEGRADED_AFTER_SECONDS` (20),
-`REALTIME_SYNC_POLL_SECONDS` (30), `REALTIME_SYNC_HIDDEN_POLL_SECONDS` (90),
-`REALTIME_MAX_CONNECTION_SECONDS` (900), `REALTIME_LEADER_LEASE_SECONDS` (12),
-`REALTIME_LEADER_HEARTBEAT_SECONDS` (4), `REALTIME_LIVE_SYNC_SECONDS` (300,
-allowed range 60–1800 — see "Live safety-sync" below).
-
-### Expired-session protection
-
-Every technical JSON and fragment endpoint (`/realtime/sync/`, the
-notification/task/act fragment endpoints) answers an anonymous or
-expired-session request with a compact `{"error": "authentication_required"}`
-JSON `401` and `Cache-Control: no-store, private` — never an HTML login
-redirect a `fetch()`-based client would otherwise have to parse. The browser
-client checks `response.redirected`, the HTTP status and the `Content-Type`
-header, in that order, before ever calling `.json()`; a stray redirect or an
-unexpected `Content-Type` is treated the same as lost authentication and never
-reaches the JSON parser or the DOM. Losing authentication stops the whole
-client cleanly: the `EventSource` closes, fallback polling stops, the live
-safety-sync timer clears, any pending follower handshake clears, and no
-client-built reconnect loop or repeated technical error is shown to the user.
-A per-act fragment `404` (the act became inaccessible) only stops updates for
-that one act — the bell and every other open block keep working.
-
-### Live safety-sync
-
-While the stream stays `live`, a Redis event can still be published and never
-delivered (a restart between publish and subscribe, for example) — nothing
-about `live` guarantees every event arrives. The leader tab (or a standalone
-tab holding its own `EventSource`) therefore also runs an occasional
-`/realtime/sync/` call — `REALTIME_LIVE_SYNC_SECONDS`, 300 s by default —
-reusing the same revision-token comparison as every other sync: identical
-tokens cost nothing, and only a moved block is refetched. This is
-deliberately **not** a polling replacement: it is mutually exclusive with
-fallback polling (`degraded` keeps polling; `live` keeps the safety timer),
-never runs in parallel with another sync, and never fires more often than the
-configured interval. It also runs once right after a tab is promoted to
-leader and once after the page returns from hidden to visible, but only if the
-previous successful sync has actually gone stale — a quick tab switch never
-triggers an extra request.
-
-### Follower initial sync
-
-A new follower tab does not wait for the next SSE event or periodic sync to
-learn current state. On start it sends a `sync.request` to the leader over
-`BroadcastChannel`; the leader answers with `sync.response`, carrying its last
-valid `/realtime/sync/` snapshot (the same opaque tokens the server would hand
-that user directly — no user id, no Redis channel name, no HTML). The
-follower applies it through the same revision-comparison path as a normal
-sync, so identical tokens still touch nothing and dirty forms are still never
-replaced. If the leader does not answer within about a second and a half, the
-follower performs exactly one `/realtime/sync/` request of its own as its
-initial sync — it never opens a second `EventSource` and never starts
-persistent polling while a leader is still assumed active. A `leader.state`
-broadcast also lets a follower show or hide the degraded indicator correctly
-without ever opening a stream of its own.
-
-Local check for multiple tabs and an expired session: open two tabs of the
-same logged-in user and confirm only one holds the `EventSource` (check the
-browser's network panel); open a third tab and confirm it renders current
-counts immediately rather than waiting for the next event. Then end the
-session (log out in another tab, or expire it server-side) and confirm every
-tab's background requests stop — no repeating 401s in the network panel — and
-that logging back in and reloading initializes normally. Finally, complete a
-task while the stream stays connected and confirm `Task.updated_at` and the
-task list both change without a reload.
-
-**Recovery has one owner per user.** Fallback polling and the live safety-sync
-run only on the tab that actually holds the `EventSource` — the leader when
-tabs are coordinated, or every tab when `BroadcastChannel`/`localStorage` are
-unavailable and each tab streams for itself. A follower mirrors the leader's
-state so its "updates may be delayed" indicator stays correct, but never turns
-that into its own polling loop; N open tabs therefore cost one recovery
-stream, not N.
-
-### Performance tooling
-
-`/realtime/sync/` costs a fixed **9 SQL queries** regardless of how much data
-the user can see — no revision query loads rows or materialises identifiers in
-Python. The budget is pinned by tests for every role.
-
-```powershell
-# Profile the sync endpoint and the live list endpoints (read-only)
-python manage.py profile_realtime_sync --user 1 --repeat 10
-python manage.py profile_realtime_sync --user 1 --repeat 10 --json-report perf.json
-python manage.py profile_realtime_sync --user 1 --explain          # PostgreSQL only
-python manage.py profile_realtime_sync --user 1 --explain-analyze  # separate explicit flag
-```
-
-A local performance dataset, into a **separate throwaway database** so the
-working `db.sqlite3` is never touched:
-
-```powershell
-$env:SQLITE_DB_PATH = "transfer\perf.sqlite3"
 python manage.py migrate
 python manage.py seed_references
-# dry-run by default; --execute is required to write anything
-python manage.py seed_performance_dataset --users 50 --acts 5000 --tasks 10000 `
-    --comments 20000 --history 20000 --notifications-per-user 20 --execute
-```
-
-It refuses to run with `DEBUG=False` unless explicitly overridden, marks every
-generated row `PERF-SYNTHETIC`, and gives its accounts an unusable password.
-Production data is never used.
-
-Whether a long-lived SSE stream pins a PostgreSQL connection is measured, not
-assumed:
-
-```powershell
-python manage.py check_sse_db_connections --label before --json-report before.json
-# run the load smoke below in another terminal, then --label during, then --label after
-```
-
-It reads `pg_stat_activity` only, reports `active` / `idle` /
-`idle in transaction` separately, and refuses to run on a non-PostgreSQL
-backend rather than produce a meaningless number.
-
-**Performance claims need a real environment.** The numbers in
-[Производительность real-time](docs/realtime_performance.md) were measured on
-SQLite; PostgreSQL execution plans, `EXPLAIN ANALYZE`, Redis publish latency
-and the SSE connection behaviour all require an actual PostgreSQL, Redis and
-ASGI stack and are listed there as *not yet performed*.
-
-Diagnostics:
-
-```powershell
-python manage.py check                     # includes the real-time system checks
-python manage.py check_realtime_transport  # PING + a real publish round trip
-
-$env:REALTIME_SMOKE_PASSWORD = "<пароль тестовой учётной записи>"
-python scripts\realtime_load_smoke.py --base-url http://127.0.0.1:8000 `
-    --username smoke_user --connections 20 --seconds 120 `
-    --json-report transfer\smoke.json
-```
-
-The load script refuses any non-local address without an explicit override and
-never stores a password or reads browser cookies. Its JSON report holds the
-host, counts and timings — never a session cookie.
-
-**Still not implemented:** WebSocket, act-channel subscriptions, event replay
-or storage, guaranteed delivery, and production deployment. History, comments
-and activities refresh only while their tab is open — switching tabs is an
-ordinary server render and therefore already current. Environment requirements
-for a pilot are in
-[Развёртывание real-time](docs/realtime_production.md); **the production move
-itself is a separate, not-yet-performed stage.**
-
-See [Real-time события](docs/realtime.md) for the contract, targets, channel
-namespace, SSE frame format, heartbeat, cleanup rules, size limits and the RT-3
-plan.
-
-## Concurrent Work and Act Numbering
-
-Act numbers are issued from `ActNumberSequence`, a technical table holding one
-counter row per year. `Act.save()` opens a transaction, locks that row with
-`select_for_update()`, increments it, and inserts the act — so two simultaneous
-creations cannot receive the same `АОК-YYYY-NNN` value. An explicitly supplied
-number is always kept as-is, the public number format is unchanged, and the
-unique constraint on `Act.number` remains the final safety net. Only the
-administrator full cleanup resets the counters; deleting one act never rewinds
-them.
-
-Every critical workflow transition — transfer to KO, KO decision, all three
-returns, TO analysis, approval, and closing — plus the POST branch of act
-editing re-loads and row-locks the act inside one transaction and re-checks the
-user's permission and the act's current status before writing. A second,
-parallel or outdated request is refused with a controlled error instead of
-duplicating history events, return comments, tasks, assignees, or
-notifications.
-
-SQLite remains the default backend for local development, but it does **not**
-implement `select_for_update()`, so genuine row-level locking is provided only
-by PostgreSQL. The dedicated concurrency tests are therefore skipped on SQLite
-and run for real in the PostgreSQL CI job. Migrating existing working data to
-PostgreSQL and production deployment are still not done.
-
-## Setup Local Data
-
-```powershell
-python manage.py migrate
-python manage.py seed_demo_accounts
-python manage.py seed_references
-python manage.py seed_demo_acts
-```
-
-Demo accounts for local development only:
-
-- `otk_user` / `demo12345`
-- `ko_user` / `demo12345`
-- `to_user` / `demo12345`
-- `manager_user` / `demo12345`
-- `admin_user` / `demo12345`
-
-These demo passwords must not be used for production or shared environments.
-
-## Validation
-
-```powershell
-python manage.py check
-python manage.py test notifications
-python manage.py test
-```
-
-## Continuous Integration
-
-`.github/workflows/database-compatibility.yml` runs on every push to `main`
-and every pull request, with two independent jobs on `ubuntu-latest` /
-Python 3.13:
-
-- **SQLite** — no PostgreSQL variables; `check`, `makemigrations --check
-  --dry-run`, `migrate --noinput`, then the full test suite.
-- **PostgreSQL** — a disposable PostgreSQL 17 service container
-  (`quality_ecosystem_ci` / `quality_ci`, CI-only demo password), gated on a
-  `pg_isready` health check; the job first confirms Django actually connected
-  with the `postgresql` backend, then runs the same `check` /
-  `makemigrations --check` / `migrate` / test sequence, plus
-  `showmigrations`.
-
-This CI PostgreSQL container is not a production deployment and does not
-migrate or persist any real data — it exists only for the duration of the
-workflow run. See [Preparing for PostgreSQL](docs/postgresql_preparation.md)
-for details and how to reproduce the PostgreSQL check locally.
-
-## Start the Local Server
-
-```powershell
+python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Open http://127.0.0.1:8000/ in a browser.
+По умолчанию используется SQLite; PostgreSQL, Redis и SMTP для локального
+запуска не нужны.
 
-## Intentionally Not Implemented Yet
+Демонстрационные роли для разработки (в рабочей установке запрещены):
 
-- Further full-width act-card redesign and acceptance work (deferred).
-- Protocols.
-- Nonconformities.
-- Reports.
-- Word/PDF export.
-- PostgreSQL production deployment and migrating existing SQLite data to it (switchable configuration, transfer tooling and a full local rehearsal are prepared; see [Preparing for PostgreSQL](docs/postgresql_preparation.md) and [Репетиция переноса](docs/postgresql_rehearsal.md)).
-- Reverse migration PostgreSQL → SQLite, delta synchronisation, and any transfer that does not stop writes.
-- Changing the working application address, reverse proxy, HTTPS, production WSGI/ASGI, and permanent backups.
-- REST API.
-- Live updating of tasks, acts, history and comments; act-channel subscriptions; fallback polling; `BroadcastChannel` and leader-tab election; WebSocket/Django Channels; React; event replay or storage; a production ASGI deployment with reverse proxy and HTTPS. Live notifications (bell and toasts) are implemented — see [Real-time события](docs/realtime.md).
-- Frontend frameworks.
-- Celery, Redis, APScheduler, or an in-process WSGI/ASGI scheduler.
+```powershell
+python manage.py seed_demo_accounts
+python manage.py seed_demo_acts
+```
 
-## Next Planned Stage
+Чтобы попробовать real-time, нужен ASGI-сервер и Redis — `runserver` работает
+через WSGI и не удерживает SSE-поток:
 
-- Obtain SMTP parameters, select Linux or Windows Server, install the prepared scheduler configuration, and validate the email channel against the corporate SMTP/Exchange service.
-- Resume the deferred full-width act-card redesign only after a separate approved specification.
+```powershell
+$env:REALTIME_ENABLED = "true"
+$env:REALTIME_PUBLISHER_BACKEND = "realtime.backends.RedisRealtimePublisher"
+python manage.py check_realtime_transport
+python -m uvicorn ecosystem.asgi:application --reload --port 8000
+```
+
+Подробности, переменные и типовые локальные проблемы — в
+[docs/development.md](docs/development.md).
+
+## Проверки
+
+```powershell
+python manage.py check
+python manage.py makemigrations --check --dry-run
+python manage.py test
+python manage.py check_documentation
+```
+
+Дополнительно, только чтение: `check_logging`, `check_realtime_transport`,
+`check_fresh_bootstrap`, `check_production_readiness`.
+
+Тесты конкурентности пропускаются на SQLite, потому что `select_for_update()`
+там ничего не делает; проверять блокировки нужно на PostgreSQL. Совместимость
+с обоими бэкендами проверяет workflow `database-compatibility`.
+
+## Документация
+
+| Документ | О чём |
+| --- | --- |
+| [docs/index.md](docs/index.md) | карта документации: что читать перед каким изменением |
+| [docs/architecture.md](docs/architecture.md) | слои, приложения, зависимости, источники истины |
+| [docs/domain.md](docs/domain.md) | роли, видимость, статусы и переходы, задачи, уведомления |
+| [docs/development.md](docs/development.md) | окружение, база, запуск, тесты, диагностика |
+| [docs/realtime.md](docs/realtime.md) | контракт событий, Redis Pub/Sub, SSE, сверка, вкладки |
+| [docs/deployment.md](docs/deployment.md) | production, чистый bootstrap PostgreSQL, proxy, Redis, SMTP |
+| [docs/operations.md](docs/operations.md) | журнал, `request_id`, инциденты, health, email worker |
+| [docs/backup_restore.md](docs/backup_restore.md) | состав копии и чек-лист восстановления |
+| [AGENTS.md](AGENTS.md) | правила внесения изменений в код |
+
+Исторические материалы — в [docs/archive/](docs/archive/README.md); они могут
+не соответствовать текущему коду.
+
+## Направления развития
+
+- разделение ролей PostgreSQL и переход из пилота в постоянную эксплуатацию;
+- нагрузочная проверка real-time на реальном сервере и решение о persistent
+  connections или пуле соединений по её результатам;
+- цифровой ОТК и микро-MES как следующие предметные области — отдельными
+  Django-приложениями;
+- экспорт актов в PDF/Word (сейчас доступна только печать средствами браузера);
+- «Входной контроль» как полноценный тип акта со своим набором правил.
+
+Крупные компоненты — React, WebSocket/Channels, Celery, внешние платформы
+логирования — добавляются только по отдельному архитектурному решению.

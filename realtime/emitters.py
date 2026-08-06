@@ -5,8 +5,7 @@ it builds the payload from a factory, resolves the audience from the existing
 routing rules and registers publication for after the commit.
 
 Every emitter returns early when real-time is disabled — *before* resolving
-recipients — so the default configuration performs no extra queries and the
-project behaves exactly as it did before this app existed.
+recipients — so the default configuration performs no extra queries.
 
 These are called explicitly from services, never from `post_save` signals, so
 loading a fixture, a technical `save()` or a half-built object graph can never

@@ -1,6 +1,6 @@
 """Run the browser-client smoke test as part of `manage.py test`.
 
-RT-3 adds no npm, Jest, React or other JavaScript toolchain: the client is
+The project adds no npm, Jest, React or other JavaScript toolchain: the client is
 exercised by a hand-rolled DOM/EventSource harness on plain Node. When Node is
 not installed the test skips rather than failing, and the server-side suite
 still covers everything Django owns.

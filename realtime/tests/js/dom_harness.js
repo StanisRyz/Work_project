@@ -3,7 +3,7 @@
 /**
  * A minimal DOM / timer / EventSource / fetch harness.
  *
- * Deliberately hand-rolled: RT-3 adds no npm, no Jest, no jsdom and no build
+ * Deliberately hand-rolled: the project adds no npm, no Jest, no jsdom and no build
  * step, so the browser client is exercised against the smallest possible stub
  * that still behaves like the parts of the platform it actually uses.
  */
