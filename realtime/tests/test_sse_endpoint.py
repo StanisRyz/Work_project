@@ -103,6 +103,35 @@ class EndpointAccessTests(TestCase):
         self.assertNotIn('Connection', response)
         self.assertNotIn('Upgrade', response)
 
+    @override_settings(REALTIME_ENABLED=True)
+    def test_database_connections_are_closed_before_the_stream_starts(self):
+        self.client.force_login(self.user)
+        sequence = []
+
+        def close_connections():
+            sequence.append('database_closed')
+
+        async def probe():
+            sequence.append('redis_probe')
+            return True, ''
+
+        async def stream(user_id):
+            sequence.append(('stream', user_id))
+            yield 'retry: 3000\n\n'
+
+        with (
+            mock.patch.object(views, '_close_sse_database_connections', close_connections),
+            mock.patch.object(views, 'redis_is_reachable', probe),
+            mock.patch.object(views, 'event_stream', stream),
+        ):
+            response = self.client.get(reverse('realtime:events'))
+            drain(response, limit=1)
+
+        self.assertEqual(
+            sequence,
+            ['database_closed', 'redis_probe', ('stream', self.user.pk)],
+        )
+
 
 @override_settings(REALTIME_ENABLED=True, REALTIME_CHANNEL_PREFIX='demo:realtime')
 class SubscriptionTargetTests(TestCase):

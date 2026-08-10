@@ -345,6 +345,21 @@ SECURE_CONTENT_TYPE_NOSNIFF = env_bool('SECURE_CONTENT_TYPE_NOSNIFF', True)
 X_FRAME_OPTIONS = os.getenv('X_FRAME_OPTIONS', 'DENY').strip().upper() or 'DENY'
 USE_X_FORWARDED_HOST = env_bool('USE_X_FORWARDED_HOST', False)
 
+if IS_PRODUCTION:
+    _disabled_security_settings = [
+        name
+        for name, enabled in (
+            ('SESSION_COOKIE_SECURE', SESSION_COOKIE_SECURE),
+            ('CSRF_COOKIE_SECURE', CSRF_COOKIE_SECURE),
+            ('SECURE_SSL_REDIRECT', SECURE_SSL_REDIRECT),
+        )
+        if not enabled
+    ]
+    if _disabled_security_settings:
+        raise ImproperlyConfigured(
+            f'{", ".join(_disabled_security_settings)} must be true when APP_ENV=production.'
+        )
+
 # Trusting `X-Forwarded-Proto` is only safe behind a reverse proxy that
 # *overwrites* it. If any client can reach the application directly, a forged
 # header would make Django believe an ordinary HTTP request was secure — so

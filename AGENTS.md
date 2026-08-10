@@ -101,6 +101,10 @@ tasks never live inside `acts`.
   message, the browser config or a log line.
 - Upload validation checks size and extension; attachment deletion is limited to
   the uploader, a manager or an administrator.
+- An inactive `UserProfile` grants no application role; only Django's genuine
+  `is_superuser` fallback remains independent of the profile.
+- Business models are read-only diagnostics in Django Admin. Workflow state is
+  changed only through application services.
 
 ## Transactions and locking
 
@@ -155,7 +159,10 @@ tasks never live inside `acts`.
 ## Change workflow
 
 - Keep changes small and reversible; do not add backend complexity before it is
-  needed. Seed commands stay idempotent; demo accounts are local-only.
+  needed. Seed commands stay idempotent; demo accounts require
+  `APP_ENV=development` and explicit confirmation.
+- Production startup must pass `manage.py check` and
+  `manage.py check_production_readiness` before Uvicorn starts.
 - **Never edit an existing migration.** Add a new one, applying cleanly from
   zero on both SQLite and PostgreSQL.
 - New reference values go into `seed_references` in the same change, so a fresh

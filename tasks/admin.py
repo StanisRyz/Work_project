@@ -1,10 +1,12 @@
 from django.contrib import admin
 
+from ecosystem.admin import ReadOnlyAdminMixin
+
 from .models import Task, TaskAssignee
 
 
 @admin.register(Task)
-class TaskAdmin(admin.ModelAdmin):
+class TaskAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('id', 'status', 'task_text', 'act', 'department', 'due_date', 'created_at')
     search_fields = ('task_text', 'act__number', 'assignees__user__username')
     list_filter = ('status', 'department', 'due_date', 'created_at')
@@ -12,6 +14,6 @@ class TaskAdmin(admin.ModelAdmin):
 
 
 @admin.register(TaskAssignee)
-class TaskAssigneeAdmin(admin.ModelAdmin):
+class TaskAssigneeAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('task', 'user')
     search_fields = ('task__task_text', 'user__username')

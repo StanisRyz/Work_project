@@ -13,7 +13,8 @@ def get_user_profile(user):
         profile = user.userprofile
     except (AttributeError, UserProfile.DoesNotExist):
         return None
-    if profile.pk is None:
+    # An inactive profile grants no application role; superusers are handled separately.
+    if profile.pk is None or not profile.is_active:
         return None
     return profile
 

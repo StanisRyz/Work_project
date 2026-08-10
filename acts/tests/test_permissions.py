@@ -142,3 +142,27 @@ class ActPermissionTests(TestCase):
             get_visible_acts_queryset(self.superuser_without_profile).count(),
             Act.objects.count(),
         )
+
+    def test_inactive_profiles_grant_no_role_but_superuser_fallback_remains(self):
+        role_users = (
+            self.otk_user,
+            self.ko_user,
+            self.to_user,
+            self.manager_user,
+            self.admin_user,
+        )
+        for user in role_users:
+            user.userprofile.is_active = False
+            user.userprofile.save(update_fields=['is_active'])
+            self.assertIsNone(get_user_profile(user))
+            self.assertEqual(get_user_role(user), '')
+
+        self.assertFalse(can_create_act(self.otk_user))
+        self.assertFalse(can_apply_ko_decision(self.ko_act, self.ko_user))
+        self.assertFalse(can_apply_to_analysis(self.to_act, self.to_user))
+        self.assertFalse(has_full_act_access(self.manager_user))
+        self.assertFalse(is_act_admin(self.admin_user))
+
+        self.admin_user.is_superuser = True
+        self.assertTrue(is_act_admin(self.admin_user))
+        self.assertTrue(has_full_act_access(self.admin_user))

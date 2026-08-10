@@ -1,9 +1,11 @@
 from django.contrib import admin
 
+from ecosystem.admin import ReadOnlyAdminMixin
+
 from .models import Notification, NotificationDelivery
 
 
-class NotificationDeliveryInline(admin.TabularInline):
+class NotificationDeliveryInline(ReadOnlyAdminMixin, admin.TabularInline):
     model = NotificationDelivery
     extra = 0
     readonly_fields = (
@@ -22,7 +24,7 @@ class NotificationDeliveryInline(admin.TabularInline):
 
 
 @admin.register(Notification)
-class NotificationAdmin(admin.ModelAdmin):
+class NotificationAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('title', 'recipient', 'event_type', 'related_act', 'created_at', 'is_read')
     list_filter = ('event_type', 'is_read', 'created_at')
     search_fields = ('title', 'message', 'recipient__username', 'related_act__number')
@@ -32,7 +34,7 @@ class NotificationAdmin(admin.ModelAdmin):
 
 
 @admin.register(NotificationDelivery)
-class NotificationDeliveryAdmin(admin.ModelAdmin):
+class NotificationDeliveryAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('notification', 'channel', 'status', 'attempts', 'last_attempt_at', 'sent_at')
     list_filter = ('channel', 'status')
     search_fields = ('notification__title', 'notification__recipient__username', 'last_error')

@@ -1,5 +1,6 @@
+from django.conf import settings
 from django.contrib.auth.models import User
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import Department, UserProfile
 
@@ -10,7 +11,20 @@ DEMO_PASSWORD = 'demo12345'
 class Command(BaseCommand):
     help = 'Create or update local demo departments and users.'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--confirm-demo',
+            action='store_true',
+            help='Confirm creation of local demo users with known passwords.',
+        )
+
     def handle(self, *args, **options):
+        # Known demo credentials must never be created outside local development.
+        if getattr(settings, 'APP_ENV', '') != 'development':
+            raise CommandError('seed_demo_accounts is available only when APP_ENV=development.')
+        if not options['confirm_demo']:
+            raise CommandError('Pass --confirm-demo to create users with known demo passwords.')
+
         departments = {
             'OTK': 'ОТК',
             'KO': 'КО',

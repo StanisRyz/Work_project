@@ -17,6 +17,7 @@ Three rules shape everything here:
   Only `APP_ENV=production` turns these into errors.
 """
 
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from django.conf import settings
@@ -318,18 +319,34 @@ def _check_static_and_media():
         )
     static_root = getattr(settings, 'STATIC_ROOT', None)
     media_root = getattr(settings, 'MEDIA_ROOT', None)
-    if static_root and media_root and str(static_root) == str(media_root):
+    if static_root and media_root and _paths_overlap(static_root, media_root):
         problems.append(
             Error(
-                'STATIC_ROOT и MEDIA_ROOT указывают на один каталог.',
+                'STATIC_ROOT и MEDIA_ROOT совпадают или вложены друг в друга.',
                 hint=(
                     'Статика раздаётся публично, а вложения актов — только через '
-                    'endpoint с проверкой прав. Их нельзя смешивать.'
+                    'endpoint с проверкой прав. Используйте отдельные каталоги.'
                 ),
                 id='ecosystem.E012',
             )
         )
     return problems
+
+
+def _paths_overlap(first, second):
+    """Compare normalized paths and resolve existing symlinks when possible."""
+    first = _canonical_path(first)
+    second = _canonical_path(second)
+    return first == second or first in second.parents or second in first.parents
+
+
+def _canonical_path(value):
+    path = Path(value).expanduser()
+    try:
+        return path.resolve(strict=False)
+    except (OSError, RuntimeError):
+        # Lexical normalization still detects aliases when a symlink cannot be read.
+        return path.absolute()
 
 
 def _check_demo_reset():

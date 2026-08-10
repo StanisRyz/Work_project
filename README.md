@@ -97,7 +97,7 @@ python manage.py runserver
 Демонстрационные роли для разработки (в рабочей установке запрещены):
 
 ```powershell
-python manage.py seed_demo_accounts
+python manage.py seed_demo_accounts --confirm-demo
 python manage.py seed_demo_acts
 ```
 
@@ -125,6 +125,14 @@ python manage.py check_documentation
 
 Дополнительно, только чтение: `check_logging`, `check_realtime_transport`,
 `check_fresh_bootstrap`, `check_production_readiness`.
+
+Production запускается только после успешных проверок:
+
+```powershell
+python manage.py check
+python manage.py check_production_readiness
+python -m uvicorn ecosystem.asgi:application
+```
 
 Тесты конкурентности пропускаются на SQLite, потому что `select_for_update()`
 там ничего не делает; проверять блокировки нужно на PostgreSQL. Совместимость

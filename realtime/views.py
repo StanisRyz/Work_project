@@ -8,7 +8,9 @@ influence the subscription, so a client cannot ask to listen to somebody else.
 import logging
 import time
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.db import connections
 from django.http import (
     HttpResponse,
     HttpResponseNotAllowed,
@@ -34,6 +36,13 @@ SSE_CONTENT_TYPE = 'text/event-stream'
 SLOW_SYNC_SECONDS = 1.0
 
 
+def _close_sse_database_connections():
+    # Async auth/session ORM uses this request's thread-sensitive executor.
+    for database_connection in connections.all(initialized_only=True):
+        if not database_connection.in_atomic_block:
+            database_connection.close()
+
+
 async def realtime_events(request):
     """`GET /realtime/events/` — the authenticated user's own event stream."""
     if request.method != 'GET':
@@ -44,10 +53,14 @@ async def realtime_events(request):
     user = await request.auser()
     if not user.is_authenticated:
         return HttpResponse(status=401)
+    user_id = int(user.pk)
 
     if not realtime_enabled():
         # Nothing to stream and no reason to touch Redis at all.
         return HttpResponse(status=204)
+
+    # Do this in the same thread-sensitive context that resolved the session.
+    await sync_to_async(_close_sse_database_connections, thread_sensitive=True)()
 
     reachable, reason = await redis_is_reachable()
     if not reachable:
@@ -57,14 +70,14 @@ async def realtime_events(request):
             logger,
             'WARNING',
             'realtime.stream_refused',
-            user_id=user.pk,
+            user_id=user_id,
             detail=reason,
             outcome='redis_unavailable',
         )
         return HttpResponse(status=503)
 
     response = StreamingHttpResponse(
-        event_stream(user.pk),
+        event_stream(user_id),
         content_type=SSE_CONTENT_TYPE,
     )
     return _apply_stream_headers(response)

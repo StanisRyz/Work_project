@@ -1,16 +1,18 @@
 from django.contrib import admin
 
+from ecosystem.admin import ReadOnlyAdminMixin
+
 from .models import Act, ActAttachment, ActComment, ActDefect, ActHistoryEvent
 
 
-class ActDefectInline(admin.TabularInline):
+class ActDefectInline(ReadOnlyAdminMixin, admin.TabularInline):
     model = ActDefect
     extra = 0
     fields = ('workshop', 'znp_number', 'party_number', 'defect_type', 'operation', 'mp_type', 'checked_quantity', 'nonconforming_quantity', 'description', 'detected_at')
 
 
 @admin.register(Act)
-class ActAdmin(admin.ModelAdmin):
+class ActAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     inlines = (ActDefectInline,)
     list_display = (
         'number',
@@ -97,7 +99,7 @@ class ActAdmin(admin.ModelAdmin):
 
 
 @admin.register(ActDefect)
-class ActDefectAdmin(admin.ModelAdmin):
+class ActDefectAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('act', 'workshop', 'znp_number', 'party_number', 'defect_type', 'operation', 'mp_type', 'checked_quantity', 'nonconforming_quantity', 'detected_at', 'created_at')
     search_fields = ('act__number', 'description', 'defect_type__name')
     list_filter = ('workshop', 'defect_type', 'detected_at', 'created_at')
@@ -105,7 +107,7 @@ class ActDefectAdmin(admin.ModelAdmin):
 
 
 @admin.register(ActHistoryEvent)
-class ActHistoryEventAdmin(admin.ModelAdmin):
+class ActHistoryEventAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('act', 'event_type', 'user', 'from_status', 'to_status', 'created_at')
     search_fields = ('act__number', 'message', 'user__username')
     list_filter = ('event_type', 'created_at')
@@ -113,7 +115,7 @@ class ActHistoryEventAdmin(admin.ModelAdmin):
 
 
 @admin.register(ActComment)
-class ActCommentAdmin(admin.ModelAdmin):
+class ActCommentAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('act', 'author', 'short_text', 'created_at', 'updated_at')
     search_fields = ('act__number', 'text', 'author__username')
     list_filter = ('created_at', 'updated_at')
@@ -126,7 +128,7 @@ class ActCommentAdmin(admin.ModelAdmin):
 
 
 @admin.register(ActAttachment)
-class ActAttachmentAdmin(admin.ModelAdmin):
+class ActAttachmentAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = (
         'act',
         'original_name',
