@@ -57,10 +57,13 @@ tasks never live inside `acts`.
 
 ## Domain invariants
 
-- Act visibility: ОТК sees own acts in `CREATED_OTK`/`OTK_REVIEW`, КО sees
-  `KO_REVIEW`, ТО sees `TO_ANALYSIS` (plus `ACTIONS_ASSIGNED` with own analysis);
-  managers, administrators and superusers see everything. Registry scopes never
-  widen visibility, and editing is allowed only in `CREATED_OTK`.
+- Every authenticated user may read every act: `all` contains all non-archived
+  acts, `archive` contains all archived acts, and their detail pages are
+  read-only outside the user's working scope. `my` is the working queue: ОТК
+  gets own `CREATED_OTK`/`OTK_REVIEW` acts, КО gets `KO_REVIEW`, ТО gets
+  `TO_ANALYSIS` plus own `ACTIONS_ASSIGNED`; managers and administrators get
+  all active acts. Global read access never grants comments, uploads, workflow
+  actions or editing; editing remains limited to authorised `CREATED_OTK` acts.
 - Every return transition requires a non-whitespace comment saved atomically
   with it, and must not emit a duplicate ordinary-comment notification. With
   several defects, КО must decide on **every** defect before the act may leave
@@ -75,7 +78,9 @@ tasks never live inside `acts`.
   `tasks.Task` per corrective action.
 - A shared task is completed **once** by any assignee and requires a
   non-whitespace execution result; assignee changes go only through
-  `tasks.services.replace_task_assignees()`.
+  `tasks.services.replace_task_assignees()`. Every authenticated user may read
+  every task through `all`, `archive` and task detail; only active assigned
+  tasks appear in `my`, and read access never grants completion rights.
 - `ActNumberSequence` is the single source of automatic `АОК-YYYY-NNN`
   numbering: one row per year, locked while a number is issued. An explicit
   `Act.number` is preserved; only the administrator full cleanup resets it.
@@ -105,6 +110,8 @@ tasks never live inside `acts`.
   `is_superuser` fallback remains independent of the profile.
 - Business models are read-only diagnostics in Django Admin. Workflow state is
   changed only through application services.
+- Browser tab coordination is isolated by an opaque per-session epoch. That
+  client-visible identifier coordinates tabs only and never authorizes server access.
 
 ## Transactions and locking
 
@@ -124,6 +131,9 @@ tasks never live inside `acts`.
   `save(update_fields=[…])`: Django skips an `auto_now` field that is not listed,
   leaving the sync revision derived from it stale. Fix the explicit call, never
   paper over it with a signal.
+- Attachment rows and history change atomically in act → attachment lock order;
+  duplicate deletion is idempotent, while file cleanup remains explicit and
+  best-effort because storage is not transactional with PostgreSQL.
 
 ## Redis and SSE rules
 
@@ -143,7 +153,7 @@ tasks never live inside `acts`.
   today `user:<id>`; `act:<id>` needs the authorised subscription first.
 - A live refresh never replaces a form holding unsaved input: only read-only
   blocks are swapped, and a dirty form gets the conflict banner with the typed
-  text intact. Recovery has one owner per user — every periodic request is gated
+  text intact. Recovery has one owner per authenticated session — every periodic request is gated
   on the leader tab when tabs are coordinated.
 
 ## Logging

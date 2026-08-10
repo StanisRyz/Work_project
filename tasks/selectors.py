@@ -1,14 +1,14 @@
 """Shared read-side state for the task registry.
 
 The full page and the live fragment must never answer differently, so both go
-through :func:`build_task_list_state`. Visibility is decided by the existing
-`get_visible_tasks_queryset`, never by the browser.
+through :func:`build_task_list_state`. The builder separates the assigned work
+queue from the global authenticated read scope on the server.
 """
 
 from django.db.models import Case, IntegerField, Value, When
 from django.utils import timezone
 
-from .permissions import get_visible_tasks_queryset
+from .permissions import get_readable_tasks_queryset, get_visible_tasks_queryset
 
 
 TABS = ('my', 'all', 'archive')
@@ -38,13 +38,15 @@ def build_task_list_state(user, query_params):
     if selected['sort'] not in SORT_CHOICES:
         selected['sort'] = ''
 
-    tasks = get_visible_tasks_queryset(user)
     if tab == 'my':
+        tasks = get_visible_tasks_queryset(user)
         tasks = tasks.filter(assignees__user=user)
-    elif tab == 'archive':
-        tasks = tasks.filter(status__code='COMPLETED')
     else:
-        tasks = tasks.exclude(status__code='COMPLETED')
+        tasks = get_readable_tasks_queryset(user)
+        if tab == 'archive':
+            tasks = tasks.filter(status__code='COMPLETED')
+        else:
+            tasks = tasks.exclude(status__code='COMPLETED')
     if tab != 'archive':
         tasks = tasks.exclude(status__code='COMPLETED')
 

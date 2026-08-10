@@ -29,8 +29,6 @@ MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024
 NUMBER_PATTERN = re.compile(r'^[0-9/-]+$')
 PRODUCT_FIELD_PATTERN = re.compile(r'^[А-Яа-яЁё0-9.-]+$')
 PRODUCT_FIELD_ERROR = 'Допустимы только русские буквы, цифры, точки и тире.'
-NOMENCLATURE_PATTERN = re.compile(r'^[А-Яа-яЁё0-9. -]+$')
-NOMENCLATURE_ERROR = 'Допустимы только русские буквы, цифры, пробелы, точки и тире.'
 D11_OPERATION_CODES = ('OPERATIONAL_CONTROL', 'FINAL_CONTROL')
 D11_DEFECT_TYPE_CODES = (
     'SIZE_NONCONFORMITY',
@@ -70,7 +68,6 @@ class ActCreateForm(forms.ModelForm):
         for field_name in ('order_number',):
             self.fields[field_name].widget.attrs['pattern'] = r'[0-9/-]+'
 
-        self.fields['nomenclature'].widget.attrs['pattern'] = r'^[А-Яа-яЁё0-9. -]+$'
         self.fields['kd_designation'].widget.attrs['pattern'] = r'^[А-Яа-яЁё0-9.-]+$'
 
     def _clean_number_field(self, field_name):
@@ -86,12 +83,6 @@ class ActCreateForm(forms.ModelForm):
         value = self.cleaned_data.get(field_name, '').strip()
         if value and not PRODUCT_FIELD_PATTERN.match(value):
             raise ValidationError(PRODUCT_FIELD_ERROR)
-        return value
-
-    def clean_nomenclature(self):
-        value = self.cleaned_data.get('nomenclature', '').strip()
-        if value and not NOMENCLATURE_PATTERN.match(value):
-            raise ValidationError(NOMENCLATURE_ERROR)
         return value
 
     def clean_kd_designation(self):

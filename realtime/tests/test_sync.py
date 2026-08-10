@@ -158,19 +158,19 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
         self.assertNotEqual(before['acts'], after['acts'])
         self.assertNotEqual(before['comments'], after['comments'])
 
-    def test_another_users_data_does_not_move_this_users_tokens(self):
+    def test_globally_readable_task_moves_registry_tokens_but_not_notifications(self):
         act = self.make_act(self.status_created)
         before = build_sync_state(self.to_user)['revisions']
 
-        # Everything below belongs to somebody else.
+        # The notification stays private, while the task is globally readable.
         self.make_notification(self.otk_user, act, 'foreign')
         self.make_task(act, self.otk_user, text='Чужое мероприятие')
 
         after = build_sync_state(self.to_user)['revisions']
 
         self.assertEqual(before['notifications'], after['notifications'])
-        self.assertEqual(before['tasks'], after['tasks'])
-        self.assertEqual(before['activities'], after['activities'])
+        self.assertNotEqual(before['tasks'], after['tasks'])
+        self.assertNotEqual(before['activities'], after['activities'])
 
     def test_the_query_count_does_not_grow_with_the_data(self):
         act = self.make_act(self.status_created)
@@ -185,8 +185,7 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
             build_sync_state(self.otk_user)
 
     def test_the_query_budget_holds_for_every_role(self):
-        # Full access takes a different queryset branch than the scoped roles,
-        # so the budget is pinned for both rather than for one lucky path.
+        # The budget is pinned for every role rather than for one lucky path.
         act = self.make_act(self.status_created)
         self.make_notification(self.otk_user, act, 'role-budget')
         self.make_task(act, self.to_user)

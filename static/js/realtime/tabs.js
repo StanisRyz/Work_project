@@ -1,5 +1,5 @@
 /**
- * Multi-tab coordination: one SSE connection per user, not per tab.
+ * Multi-tab coordination: one SSE connection per authenticated session.
  *
  * A leader tab holds the EventSource and the fallback polling; it forwards
  * normalized events and sync snapshots to the other tabs over BroadcastChannel.
@@ -29,8 +29,11 @@
         return;
     }
 
-    const CHANNEL_NAME = 'quality-realtime-v1';
-    const LEASE_KEY = 'quality-realtime-leader-v1';
+    const COORDINATION_SCHEMA_VERSION = 1;
+    const coordinationEpoch = core.config.coordinationEpoch;
+    const namespace = coordinationEpoch ? `quality-realtime-v1:${coordinationEpoch}` : '';
+    const CHANNEL_NAME = namespace || null;
+    const LEASE_KEY = namespace ? `${namespace}:leader` : null;
     const MESSAGE_EVENT = 'event';
     const MESSAGE_SYNC = 'sync';
     const MESSAGE_SYNC_REQUEST = 'sync.request';
@@ -57,7 +60,7 @@
 
     const storage = (() => {
         try {
-            const probe = '__quality_realtime_probe__';
+            const probe = `${namespace || 'quality-realtime-standalone'}:probe:${tabId}`;
             window.localStorage.setItem(probe, '1');
             window.localStorage.removeItem(probe);
             return window.localStorage;
@@ -69,7 +72,7 @@
 
     const channel = (() => {
         try {
-            return typeof window.BroadcastChannel === 'function'
+            return CHANNEL_NAME && typeof window.BroadcastChannel === 'function'
                 ? new window.BroadcastChannel(CHANNEL_NAME)
                 : null;
         } catch (error) {
@@ -78,7 +81,7 @@
     })();
 
     const readLease = () => {
-        if (!storage) {
+        if (!storage || !LEASE_KEY) {
             return null;
         }
         try {
@@ -87,25 +90,45 @@
                 return null;
             }
             const lease = JSON.parse(raw);
-            return lease && typeof lease === 'object' ? lease : null;
+            if (!lease || typeof lease !== 'object' || Array.isArray(lease)) {
+                return null;
+            }
+            if (
+                lease.schema_version !== COORDINATION_SCHEMA_VERSION
+                || lease.coordination_epoch !== coordinationEpoch
+                || typeof lease.tab_id !== 'string'
+                || !lease.tab_id
+                || typeof lease.expires_at !== 'number'
+                || !Number.isFinite(lease.expires_at)
+            ) {
+                return null;
+            }
+            return lease;
         } catch (error) {
             return null;
         }
     };
 
     const writeLease = (lease) => {
-        if (!storage) {
+        if (!storage || !LEASE_KEY) {
             return;
         }
         try {
-            storage.setItem(LEASE_KEY, JSON.stringify(lease));
+            storage.setItem(
+                LEASE_KEY,
+                JSON.stringify({
+                    ...lease,
+                    schema_version: COORDINATION_SCHEMA_VERSION,
+                    coordination_epoch: coordinationEpoch,
+                }),
+            );
         } catch (error) {
             // A failed write only means this tab may lose the election.
         }
     };
 
     const clearLease = () => {
-        if (!storage) {
+        if (!storage || !LEASE_KEY) {
             return;
         }
         try {
@@ -278,7 +301,11 @@
             return;
         }
         try {
-            channel.postMessage(message);
+            channel.postMessage({
+                ...message,
+                schema_version: COORDINATION_SCHEMA_VERSION,
+                coordination_epoch: coordinationEpoch,
+            });
         } catch (error) {
             // A closed channel just means nobody is listening any more.
         }
@@ -303,7 +330,14 @@
     if (channel) {
         messageListener = (message) => {
             const data = message && message.data;
-            if (!data || typeof data !== 'object' || channelClosed) {
+            if (
+                !data
+                || typeof data !== 'object'
+                || Array.isArray(data)
+                || channelClosed
+                || data.schema_version !== COORDINATION_SCHEMA_VERSION
+                || data.coordination_epoch !== coordinationEpoch
+            ) {
                 return;
             }
             if (data.kind === MESSAGE_EVENT) {
@@ -370,7 +404,7 @@
             }
             // No coordination available: this tab runs standalone, which is a
             // fully supported mode — just one stream per tab instead of one
-            // per user.
+            // per authenticated session.
             isLeader = true;
             core.openStream();
         },

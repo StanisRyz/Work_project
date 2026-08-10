@@ -106,9 +106,9 @@ def _status_counts(queryset):
 
 
 def _tasks_revision(user):
-    from tasks.permissions import get_visible_tasks_queryset
+    from tasks.permissions import get_readable_tasks_queryset
 
-    visible = get_visible_tasks_queryset(user)
+    visible = get_readable_tasks_queryset(user)
     aggregate = visible.aggregate(
         total=Count('pk', distinct=True),
         last_created=Max('created_at'),
@@ -142,9 +142,9 @@ ARCHIVED = Q(status__code='ARCHIVED')
 
 
 def _visible_acts(user):
-    """Every act the user may see, active and archived, as one queryset.
+    """Every globally readable act, active and archived, as one queryset.
 
-    Deliberately the shared permission-aware queryset rather than two separate
+    Deliberately the shared readable queryset rather than two separate
     ones: it is used both for aggregates here and as a *subquery* for comments
     and history, so no act identifier is ever loaded into Python.
     """
@@ -203,9 +203,9 @@ def _comments_revision(user):
 
 def _activities_revision(user):
     """Tasks linked to acts, as the act detail «связанные мероприятия» shows them."""
-    from tasks.permissions import get_visible_tasks_queryset
+    from tasks.permissions import get_readable_tasks_queryset
 
-    linked = get_visible_tasks_queryset(user).filter(act__isnull=False)
+    linked = get_readable_tasks_queryset(user).filter(act__isnull=False)
     aggregate = linked.aggregate(
         total=Count('pk', distinct=True),
         last_updated=Max('updated_at'),

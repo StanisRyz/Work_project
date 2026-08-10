@@ -416,6 +416,7 @@ function createEnvironment({
     storage: storageOption = new FakeStorage(),
     broadcast = true,
     resetSources = true,
+    coordinationEpoch = 'test-session-epoch-000000000001',
 } = {}) {
     const clock = new Clock();
     const storage = storageOption;
@@ -428,6 +429,7 @@ function createEnvironment({
     const config = new Element('div');
     config.setAttribute('data-realtime-config', '');
     config.setAttribute('data-realtime-enabled', realtimeEnabled ? 'true' : 'false');
+    config.setAttribute('data-coordination-epoch', coordinationEpoch);
     config.setAttribute('data-events-url', '/realtime/events/');
     config.setAttribute('data-notification-fragment-url', '/notifications/header-fragment/');
     config.setAttribute('data-notifications-url', '/notifications/');

@@ -8,7 +8,7 @@ from django.views.decorators.http import require_GET
 
 from realtime.auth import realtime_login_required
 
-from .permissions import can_complete_task, get_visible_tasks_queryset
+from .permissions import can_complete_task, get_readable_tasks_queryset, get_visible_tasks_queryset
 from .selectors import build_task_list_state
 from .services import TaskWorkflowError, complete_task
 
@@ -50,7 +50,7 @@ def task_list_fragment(request):
 
 @login_required
 def task_detail(request, pk):
-    task = get_object_or_404(get_visible_tasks_queryset(request.user), pk=pk)
+    task = get_object_or_404(get_readable_tasks_queryset(request.user), pk=pk)
     context = _task_detail_context(task, request.user, request.GET.urlencode())
     context['header_title'] = f'Задача {task.pk}'
     return render(request, 'tasks/detail.html', context)

@@ -1,14 +1,17 @@
 from datetime import timedelta
+from tempfile import TemporaryDirectory
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Department, UserProfile
-from acts.models import Act, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActDefect, ActHistoryEvent, ActRootAnalysis
+from acts.models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActDefect, ActHistoryEvent, ActRootAnalysis
+from acts.services import add_act_attachment, delete_act_attachment
 from ecosystem.testing import demo_reset_enabled
 from references.models import ActStatus, DefectType, Operation, Priority, TaskStatus
 from tasks.models import Task, TaskAssignee
@@ -64,13 +67,14 @@ class ActViewTests(TestCase):
 
     def test_otk_can_create_act_from_view(self):
         self.client.force_login(self.otk_user)
+        nomenclature = '<Pump_№42> / "Насос" + 5% & Co.: [A|B]?'
 
         response = self.client.post(
             reverse('acts:create'),
             {
                 'customer': 'Заказчик',
                 'order_number': '100-1',
-                'nomenclature': 'Катушка-А',
+                'nomenclature': nomenclature,
                 'kd_designation': 'КД-100',
                 'defects-TOTAL_FORMS': '1',
                 'defects-INITIAL_FORMS': '0',
@@ -93,6 +97,7 @@ class ActViewTests(TestCase):
         act = Act.objects.get(party_number='100-100')
         self.assertEqual(act.created_by, self.otk_user)
         self.assertEqual(act.status.code, 'CREATED_OTK')
+        self.assertEqual(act.nomenclature, nomenclature)
         self.assertEqual(ActDefect.objects.filter(act=act).count(), 1)
         self.assertEqual(act.defects.get().workshop, ActDefect.Workshop.MP_SHOP)
 
@@ -102,6 +107,8 @@ class ActViewTests(TestCase):
         response = self.client.get(reverse('acts:create'))
 
         self.assertEqual(response.status_code, 200)
+        self.assertNotIn('pattern', response.context['form'].fields['nomenclature'].widget.attrs)
+        self.assertContains(response, 'js/act_create.js?v=20260810-1')
         self.assertContains(response, 'Создание акта')
         self.assertContains(response, 'Операционный контроль')
         self.assertContains(response, 'class="act-form-section act-defect-section"', html=False)
@@ -370,10 +377,14 @@ class ActViewTests(TestCase):
         self.client.force_login(self.otk_user)
 
         response = self.client.get(reverse('acts:list'))
+        all_response = self.client.get(reverse('acts:list'), {'scope': 'all'})
 
         self.assertContains(response, visible.number)
         self.assertNotContains(response, hidden_other.number)
         self.assertNotContains(response, hidden_stage.number)
+        self.assertContains(all_response, visible.number)
+        self.assertContains(all_response, hidden_other.number)
+        self.assertContains(all_response, hidden_stage.number)
 
     def test_registry_filters_by_status_act_type_and_search_without_operation_filter(self):
         matching = self._create_act(self.status_created, party_number='P-MATCH')
@@ -542,7 +553,7 @@ class ActViewTests(TestCase):
         act.refresh_from_db()
         self.assertEqual(act.status.code, 'CREATED_OTK')
 
-    def test_otk_does_not_see_own_act_after_sending_to_ko(self):
+    def test_otk_act_leaves_my_scope_but_remains_readable_after_sending_to_ko(self):
         act = self._create_act(self.status_created)
         self.client.force_login(self.otk_user)
 
@@ -551,7 +562,7 @@ class ActViewTests(TestCase):
         self.assertRedirects(response, reverse('acts:list'))
         act.refresh_from_db()
         self.assertEqual(act.status.code, 'KO_REVIEW')
-        self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 200)
 
     def test_ko_sees_only_ko_review_acts(self):
         visible = self._create_act(self.status_ko, party_number='P-KO')
@@ -565,7 +576,7 @@ class ActViewTests(TestCase):
         self.assertNotContains(response, hidden_created.number)
         self.assertNotContains(response, hidden_to.number)
 
-    def test_ko_does_not_see_act_after_new_decision(self):
+    def test_ko_act_leaves_my_scope_but_remains_readable_after_new_decision(self):
         for decision in Act.KoDecision.new_values():
             act = self._create_act(self.status_ko)
             self.client.force_login(self.ko_user)
@@ -578,7 +589,7 @@ class ActViewTests(TestCase):
             self.assertRedirects(response, reverse('acts:list'))
             act.refresh_from_db()
             self.assertEqual(act.status.code, 'TO_ANALYSIS')
-            self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 404)
+            self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 200)
 
     def test_ko_decision_form_has_required_choices_in_order(self):
         act = self._create_act(self.status_ko)
@@ -617,7 +628,7 @@ class ActViewTests(TestCase):
         self.assertNotContains(response, hidden_ko.number)
         self.assertNotContains(response, hidden_actions.number)
 
-    def test_to_does_not_see_act_after_analysis(self):
+    def test_to_act_leaves_my_scope_but_remains_readable_after_analysis(self):
         act = self._create_act(self.status_to)
         self.client.force_login(self.to_user)
 
@@ -638,7 +649,7 @@ class ActViewTests(TestCase):
         self.assertRedirects(response, reverse('acts:list'))
         act.refresh_from_db()
         self.assertEqual(act.status.code, 'OTK_REVIEW')
-        self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('acts:detail', args=[act.pk])).status_code, 200)
 
     def test_to_analysis_form_is_embedded_on_work_tab(self):
         act = self._create_act(self.status_to)
@@ -676,9 +687,12 @@ class ActViewTests(TestCase):
         self.assertContains(response, 'Вернуть ТО')
         self.assertContains(response, 'Утвердить')
 
-    def test_registry_scopes_keep_archived_act_permission_safe(self):
+    def test_registry_scopes_keep_my_work_separate_from_the_global_archive(self):
         active_act = self._create_act(self.status_created, created_by=self.otk_user, party_number='P-ACTIVE')
         archived_act = self._create_act(self.status_otk_review, created_by=self.otk_user, party_number='P-ARCHIVE')
+        foreign_archived_act = self._create_act(
+            self.status_archived, created_by=self.other_otk_user, party_number='P-FOREIGN-ARCHIVE'
+        )
         archived_act.status = self.status_archived
         archived_act.approved_by = self.otk_user
         archived_act.save(update_fields=['status', 'approved_by', 'updated_at'])
@@ -690,7 +704,13 @@ class ActViewTests(TestCase):
         self.assertContains(my_response, active_act.number)
         self.assertNotContains(my_response, archived_act.number)
         self.assertContains(archive_response, archived_act.number)
+        self.assertContains(archive_response, foreign_archived_act.number)
         self.assertNotContains(archive_response, active_act.number)
+        archived_detail = self.client.get(
+            reverse('acts:detail', args=[archived_act.pk]) + '?tab=attachments'
+        )
+        self.assertNotContains(archived_detail, 'class="comment-form"', html=False)
+        self.assertNotContains(archived_detail, 'class="attachment-form"', html=False)
 
     def test_full_access_user_sees_archived_acts_only_on_archive_tab(self):
         active_act = self._create_act(self.status_created, party_number='P-ADMIN-ACTIVE')
@@ -780,22 +800,37 @@ class ActViewTests(TestCase):
         self.assertContains(response, third_act.number)
         self.assertNotContains(response, 'Режим администратора: полный доступ к актам.')
 
-    def test_user_without_profile_sees_no_acts(self):
+    def test_user_without_profile_has_no_work_queue_but_can_use_the_global_registry(self):
         act = self._create_act(self.status_created)
         self.client.force_login(self.no_profile_user)
 
         response = self.client.get(reverse('acts:list'))
+        all_response = self.client.get(reverse('acts:list'), {'scope': 'all'})
 
         self.assertEqual(response.context['kpis']['total'], 0)
         self.assertNotContains(response, act.number)
+        self.assertContains(all_response, act.number)
 
-    def test_direct_detail_url_for_hidden_act_is_not_accessible(self):
+    def test_foreign_act_detail_is_readonly(self):
         hidden_act = self._create_act(self.status_ko)
         self.client.force_login(self.otk_user)
 
-        response = self.client.get(reverse('acts:detail', args=[hidden_act.pk]))
+        response = self.client.get(reverse('acts:detail', args=[hidden_act.pk]) + '?tab=attachments')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'class="comment-form"', html=False)
+        self.assertNotContains(response, 'class="attachment-form"', html=False)
+        self.assertNotContains(response, reverse('acts:edit', args=[hidden_act.pk]))
+        self.assertEqual(self.client.get(reverse('acts:edit', args=[hidden_act.pk])).status_code, 404)
+        comment_response = self.client.post(
+            reverse('acts:add_comment', args=[hidden_act.pk]), {'text': 'Не должно сохраниться'}
+        )
+        self.assertEqual(comment_response.status_code, 404)
+        self.assertEqual(
+            self.client.post(reverse('acts:add_attachment', args=[hidden_act.pk])).status_code,
+            404,
+        )
+        self.assertFalse(ActComment.objects.filter(act=hidden_act).exists())
 
     def test_list_kpi_counters_use_only_visible_acts(self):
         today = timezone.localdate()
@@ -844,6 +879,36 @@ class ActViewTests(TestCase):
         self.assertContains(response, 'data-attachment-file-trigger')
         self.assertContains(response, 'comment-card__avatar')
 
+    def test_stale_duplicate_attachment_delete_has_one_history_event_and_file_cleanup(self):
+        act = self._create_act(self.status_created)
+        uploaded_file = SimpleUploadedFile('evidence.txt', b'evidence', 'text/plain')
+
+        with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            attachment = add_act_attachment(act, self.otk_user, uploaded_file)
+            stored_name = attachment.file.name
+            storage = attachment.file.storage
+            stale_attachment = ActAttachment.objects.select_related(
+                'act', 'act__status', 'act__created_by', 'uploaded_by'
+            ).get(pk=attachment.pk)
+
+            with self.captureOnCommitCallbacks(execute=True) as first_callbacks:
+                first_deleted = delete_act_attachment(stale_attachment, self.otk_user)
+            with self.captureOnCommitCallbacks(execute=True) as duplicate_callbacks:
+                duplicate_deleted = delete_act_attachment(stale_attachment, self.otk_user)
+
+            self.assertTrue(first_deleted)
+            self.assertFalse(duplicate_deleted)
+            self.assertEqual(len(first_callbacks), 1)
+            self.assertEqual(duplicate_callbacks, [])
+            self.assertFalse(storage.exists(stored_name))
+            self.assertEqual(
+                ActHistoryEvent.objects.filter(
+                    act=act,
+                    event_type=ActHistoryEvent.EventType.ATTACHMENT_DELETED,
+                ).count(),
+                1,
+            )
+
     def test_detail_defects_table_is_compact_and_ko_is_read_only_after_transfer(self):
         act = self._create_act(self.status_to)
         defect = ActDefect.objects.create(
@@ -884,7 +949,7 @@ class ActViewTests(TestCase):
 
         self.assertContains(response, 'form="ko-decision-form"', html=False)
 
-    def test_related_activities_only_include_tasks_visible_to_user(self):
+    def test_related_activities_are_readable_to_every_authenticated_user(self):
         act = self._create_act(self.status_archived)
         root = ActRootAnalysis.objects.create(act=act, root_cause='Причина')
         action = ActCorrectiveAction.objects.create(
@@ -911,7 +976,7 @@ class ActViewTests(TestCase):
 
         self.client.force_login(self.otk_user)
         response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=activities')
-        self.assertNotContains(response, 'Видимое мероприятие')
+        self.assertContains(response, 'Видимое мероприятие')
 
     def test_detail_uses_corporate_header_and_compact_route(self):
         act = self._create_act(self.status_created)
@@ -920,10 +985,34 @@ class ActViewTests(TestCase):
         response = self.client.get(reverse('acts:detail', args=[act.pk]))
 
         self.assertContains(response, 'Экосистема качества')
-        self.assertContains(response, 'Пользователи и роли')
+        self.assertNotContains(response, 'Пользователи и роли')
         self.assertContains(response, f'Акт {act.number}')
         self.assertContains(response, 'Текущий этап')
         self.assertContains(response, 'Ожидает')
+
+    def test_non_admin_navigation_only_shows_acts_and_tasks(self):
+        for user in (self.otk_user, self.ko_user, self.to_user, self.manager_user, self.no_profile_user):
+            with self.subTest(user=user.username):
+                self.client.force_login(user)
+
+                response = self.client.get(reverse('acts:list'))
+
+                self.assertContains(response, '>Акты</a>', html=False)
+                self.assertContains(response, '>Задачи</a>', html=False)
+                self.assertNotContains(response, '>Главная</a>', html=False)
+                self.assertNotContains(response, '>Справочники</a>', html=False)
+                self.assertNotContains(response, '>Пользователи и роли</a>', html=False)
+
+    def test_admin_navigation_keeps_all_sections_and_profile_link(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse('acts:list'))
+
+        self.assertContains(response, '>Главная</a>', html=False)
+        self.assertContains(response, '>Акты</a>', html=False)
+        self.assertContains(response, '>Задачи</a>', html=False)
+        self.assertContains(response, '>Справочники</a>', html=False)
+        self.assertContains(response, '>Пользователи и роли</a>', count=2, html=False)
 
     def test_readonly_to_analysis_compacts_columns_and_lists_multiple_assignees(self):
         act = self._create_act(self.status_otk_review)

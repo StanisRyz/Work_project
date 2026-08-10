@@ -79,11 +79,20 @@ class TaskViewsTests(TestCase):
         self.assertNotContains(response, 'Исполнители</th>')
         self.assertContains(response, '№ задачи</th><th>Статус</th><th>Источник</th><th>Срок <a class="task-sort-link"')
 
-    def test_manager_can_open_every_task_and_employee_cannot_open_other_task(self):
+    def test_every_employee_can_read_other_tasks_but_cannot_complete_them(self):
         own_task = self._task(self.employee, timezone.localdate())
         other_task = self._task(self.other_employee, timezone.localdate())
         self.client.force_login(self.employee)
-        self.assertEqual(self.client.get(reverse('tasks:detail', args=[other_task.pk])).status_code, 404)
+        response = self.client.get(reverse('tasks:detail', args=[other_task.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('tasks:complete', args=[other_task.pk]))
+        self.assertEqual(
+            self.client.post(
+                reverse('tasks:complete', args=[other_task.pk]),
+                {'execution_comment': 'Не должно сохраниться.'},
+            ).status_code,
+            404,
+        )
 
         self.client.force_login(self.manager)
         response = self.client.get(reverse('tasks:detail', args=[own_task.pk]))
@@ -100,13 +109,13 @@ class TaskViewsTests(TestCase):
         self.assertContains(response, reverse('tasks:detail', args=[first_task.pk]))
         self.assertContains(response, reverse('tasks:detail', args=[second_task.pk]))
 
-    def test_each_assignee_can_view_shared_task_and_unrelated_employee_cannot(self):
+    def test_each_authenticated_user_can_read_shared_task(self):
         task = self._task(self.employee, timezone.localdate(), [self.other_employee])
         self.client.force_login(self.other_employee)
         self.assertEqual(self.client.get(reverse('tasks:detail', args=[task.pk])).status_code, 200)
         unrelated = self._user('unrelated', UserProfile.Role.TO, self.department)
         self.client.force_login(unrelated)
-        self.assertEqual(self.client.get(reverse('tasks:detail', args=[task.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('tasks:detail', args=[task.pk])).status_code, 200)
 
     def test_assignee_completes_shared_task_once(self):
         task = self._task(self.employee, timezone.localdate(), [self.other_employee])
@@ -195,7 +204,9 @@ class TaskViewsTests(TestCase):
         own = self._task(self.employee, timezone.localdate())
         other = self._task(self.other_employee, timezone.localdate())
         completed = self._task(self.employee, timezone.localdate() - timedelta(days=3))
+        other_completed = self._task(self.other_employee, timezone.localdate() - timedelta(days=2))
         complete_task(completed, self.employee, 'Выполнено.')
+        complete_task(other_completed, self.other_employee, 'Выполнено другим сотрудником.')
 
         self.client.force_login(self.employee)
         my_response = self.client.get(reverse('tasks:list'))
@@ -204,9 +215,10 @@ class TaskViewsTests(TestCase):
         self.assertNotContains(my_response, reverse('tasks:detail', args=[completed.pk]))
         employee_all_response = self.client.get(reverse('tasks:list'), {'tab': 'all'})
         self.assertContains(employee_all_response, reverse('tasks:detail', args=[own.pk]))
-        self.assertNotContains(employee_all_response, reverse('tasks:detail', args=[other.pk]))
+        self.assertContains(employee_all_response, reverse('tasks:detail', args=[other.pk]))
         archive_response = self.client.get(reverse('tasks:list'), {'tab': 'archive'})
         self.assertContains(archive_response, reverse('tasks:detail', args=[completed.pk]))
+        self.assertContains(archive_response, reverse('tasks:detail', args=[other_completed.pk]))
         self.assertNotContains(archive_response, 'task-row--overdue')
 
         self.client.force_login(self.manager)

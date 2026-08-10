@@ -87,17 +87,22 @@ def can_clear_all_acts(user):
 
 
 def can_view_act(act, user):
+    return bool(getattr(user, 'is_authenticated', False))
+
+
+def can_contribute_to_act(act, user):
+    """Return whether the act belongs to the user's current working scope."""
+    if _status_code(act) == 'ARCHIVED':
+        return False
     if has_full_act_access(user):
         return True
     if is_otk(user):
-        return act.created_by_id == user.id and _status_code(act) in {'CREATED_OTK', 'OTK_REVIEW', 'ARCHIVED'}
+        return act.created_by_id == user.id and _status_code(act) in {'CREATED_OTK', 'OTK_REVIEW'}
     if is_ko(user):
-        return _status_code(act) == 'KO_REVIEW' or (
-            _status_code(act) == 'ARCHIVED' and act.ko_decision_by_id == user.id
-        )
+        return _status_code(act) == 'KO_REVIEW'
     if is_to(user):
         return _status_code(act) == 'TO_ANALYSIS' or (
-            _status_code(act) in {'ACTIONS_ASSIGNED', 'ARCHIVED'} and act.to_analysis_by_id == user.id
+            _status_code(act) == 'ACTIONS_ASSIGNED' and act.to_analysis_by_id == user.id
         )
     return False
 
@@ -157,7 +162,7 @@ def can_close_act(act, user):
 
 
 def can_add_attachment(act, user):
-    return can_view_act(act, user)
+    return can_contribute_to_act(act, user)
 
 
 def can_download_attachment(attachment, user):
@@ -165,6 +170,8 @@ def can_download_attachment(attachment, user):
 
 
 def can_delete_attachment(attachment, user):
+    if not can_contribute_to_act(attachment.act, user):
+        return False
     if has_full_act_access(user):
         return True
     return (
@@ -175,6 +182,7 @@ def can_delete_attachment(attachment, user):
 
 
 def get_visible_acts_queryset(user):
+    """Acts in the user's working queue; used by the ``my`` scope and mutations."""
     queryset = Act.objects.select_related(
         'created_by',
         'operation',
@@ -198,48 +206,26 @@ def get_visible_acts_queryset(user):
 
 def get_archived_acts_queryset(user):
     queryset = Act.objects.select_related('created_by', 'operation', 'defect_type', 'priority', 'status')
-    if has_full_act_access(user):
+    if getattr(user, 'is_authenticated', False):
         return queryset.filter(status__code='ARCHIVED')
-    if is_otk(user):
-        return queryset.filter(status__code='ARCHIVED', created_by=user)
-    if is_ko(user):
-        return queryset.filter(status__code='ARCHIVED', ko_decision_by=user)
-    if is_to(user):
-        return queryset.filter(status__code='ARCHIVED', to_analysis_by=user)
     return queryset.none()
 
 
 def get_visible_acts_filter(user):
-    """Return a `Q` matching exactly the acts `can_view_act` would allow.
-
-    Deliberately mirrors `can_view_act` clause for clause — active *and*
-    archived — so the two can never drift apart. Returns `None` when the user
-    may see nothing at all, which callers turn into an empty queryset; an empty
-    `Q()` would mean "everything" and is reserved for full access.
-    """
-    if has_full_act_access(user):
+    """Return a `Q` matching every act an authenticated user may read."""
+    if getattr(user, 'is_authenticated', False):
         return Q()
-    if is_otk(user):
-        return Q(created_by=user, status__code__in=['CREATED_OTK', 'OTK_REVIEW', 'ARCHIVED'])
-    if is_ko(user):
-        return Q(status__code='KO_REVIEW') | Q(status__code='ARCHIVED', ko_decision_by=user)
-    if is_to(user):
-        return (
-            Q(status__code='TO_ANALYSIS')
-            | Q(status__code='ACTIONS_ASSIGNED', to_analysis_by=user)
-            | Q(status__code='ARCHIVED', to_analysis_by=user)
-        )
     return None
 
 
 def get_all_visible_acts_queryset(user):
-    """Every act this user may see — active and archived — as one queryset.
+    """Every act an authenticated user may read — active and archived.
 
-    The single permission-aware queryset the real-time revision service builds
+    The single readable queryset the real-time revision service builds
     its aggregates on. It carries no `select_related`, because its only job is
     to be counted and aggregated (or used as a subquery), never rendered — and
-    it never materialises identifiers in Python, so a user who can see ten
-    thousand acts costs the same number of queries as one who can see none.
+    it never materialises identifiers in Python, so a large registry costs the
+    same number of queries as a small one.
     """
     condition = get_visible_acts_filter(user)
     if condition is None:
@@ -248,7 +234,7 @@ def get_all_visible_acts_queryset(user):
 
 
 def get_full_act_access_users_queryset():
-    """Active users who may already see any act, resolved by the database.
+    """Active users with full workflow access to acts, resolved by the database.
 
     `has_full_act_access` in Python would need every user loaded; this is the
     same rule (administrator role, superuser fallback, or manager) expressed as

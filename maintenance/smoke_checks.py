@@ -249,6 +249,7 @@ def _check_permissions():
         act_permissions.can_create_act(user)
         act_permissions.has_full_act_access(user)
         task_permissions.get_visible_tasks_queryset(user).count()
+        task_permissions.get_readable_tasks_queryset(user).count()
         for act in acts:
             act_permissions.can_view_act(act, user)
             act_permissions.can_send_to_ko(act, user)

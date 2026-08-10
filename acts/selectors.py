@@ -14,8 +14,8 @@ from .models import Act
 from .permissions import (
     can_clear_all_acts,
     can_create_act,
+    get_all_visible_acts_queryset,
     get_archived_acts_queryset,
-    has_full_act_access,
 )
 from .services import get_visible_acts_for_user
 
@@ -55,8 +55,8 @@ def build_act_list_state(user, query_params):
     active_acts = get_visible_acts_for_user(user)
     if scope == 'archive':
         visible_acts = get_archived_acts_queryset(user)
-    elif scope == 'all' and has_full_act_access(user):
-        visible_acts = Act.objects.select_related(
+    elif scope == 'all':
+        visible_acts = get_all_visible_acts_queryset(user).select_related(
             'created_by', 'operation', 'defect_type', 'priority', 'status'
         ).exclude(status__code='ARCHIVED')
     else:
@@ -167,11 +167,11 @@ def get_act_comments(act):
 
 
 def get_related_tasks(act, user):
-    """Tasks of this act the user may actually see."""
-    from tasks.permissions import get_visible_tasks_queryset
+    """Tasks of this act available through authenticated read-only access."""
+    from tasks.permissions import get_readable_tasks_queryset
 
     return (
-        get_visible_tasks_queryset(user)
+        get_readable_tasks_queryset(user)
         .filter(act=act)
         .select_related('department', 'status', 'root_analysis', 'completed_by')
         .prefetch_related('assignees__user__userprofile')

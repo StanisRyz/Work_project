@@ -37,12 +37,13 @@
     <script src="{% static 'js/app.js' %}?v=20260804-1"></script>
     {% if realtime_client.enabled %}
     {% comment %}
-    Server-side configuration only: no user id, no channel name, no Redis URL.
+    Server-side configuration only: no user id, session key, channel name or Redis URL.
     Rendered for authenticated users and only while real-time is enabled, so a
     disabled deployment never loads the client or opens an EventSource.
     {% endcomment %}
     <div hidden data-realtime-config
          data-realtime-enabled="true"
+         data-coordination-epoch="{{ realtime_client.coordination_epoch }}"
          data-events-url="{{ realtime_client.events_url }}"
          data-sync-url="{{ realtime_client.sync_url }}"
          data-notification-fragment-url="{{ realtime_client.notification_fragment_url }}"
@@ -64,8 +65,8 @@
     Physically separate modules, loaded deferred in a fixed order: the core
     first, then the feature modules that register on its bus.
     {% endcomment %}
-    <script src="{% static 'js/realtime/core.js' %}?v=20260805-1" defer></script>
-    <script src="{% static 'js/realtime/tabs.js' %}?v=20260805-1" defer></script>
+    <script src="{% static 'js/realtime/core.js' %}?v=20260810-1" defer></script>
+    <script src="{% static 'js/realtime/tabs.js' %}?v=20260810-1" defer></script>
     <script src="{% static 'js/realtime/sync.js' %}?v=20260805-1" defer></script>
     <script src="{% static 'js/realtime/notifications.js' %}?v=20260805-1" defer></script>
     <script src="{% static 'js/realtime/tasks.js' %}?v=20260805-1" defer></script>

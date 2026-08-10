@@ -103,7 +103,7 @@ class ActPermissionTests(TestCase):
         self.assertIn(self.created_act, queryset)
         self.assertNotIn(self.other_otk_created_act, queryset)
         self.assertNotIn(self.ko_act, queryset)
-        self.assertFalse(can_view_act(self.ko_act, self.otk_user))
+        self.assertTrue(can_view_act(self.ko_act, self.otk_user))
 
     def test_ko_sees_only_ko_review_acts(self):
         queryset = get_visible_acts_queryset(self.ko_user)
@@ -119,11 +119,11 @@ class ActPermissionTests(TestCase):
         self.assertNotIn(self.ko_act, queryset)
         self.assertNotIn(self.actions_act, queryset)
 
-    def test_actions_closed_and_cancelled_are_manager_admin_only(self):
+    def test_all_authenticated_roles_can_read_non_working_acts(self):
         for act in (self.actions_act, self.closed_act, self.cancelled_act):
-            self.assertFalse(can_view_act(act, self.otk_user))
-            self.assertFalse(can_view_act(act, self.ko_user))
-            self.assertFalse(can_view_act(act, self.to_user))
+            self.assertTrue(can_view_act(act, self.otk_user))
+            self.assertTrue(can_view_act(act, self.ko_user))
+            self.assertTrue(can_view_act(act, self.to_user))
             self.assertTrue(can_view_act(act, self.manager_user))
             self.assertTrue(can_view_act(act, self.admin_user))
 

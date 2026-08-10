@@ -208,12 +208,12 @@ class Command(BaseCommand):
             return None
 
         from acts.permissions import get_all_visible_acts_queryset
-        from tasks.permissions import get_visible_tasks_queryset
+        from tasks.permissions import get_readable_tasks_queryset
 
         plans = {}
         targets = {
             'visible_acts': get_all_visible_acts_queryset(user),
-            'visible_tasks': get_visible_tasks_queryset(user),
+            'visible_tasks': get_readable_tasks_queryset(user),
         }
         options = {'ANALYZE': True, 'BUFFERS': True} if analyze else {}
         label = 'EXPLAIN (ANALYZE, BUFFERS)' if analyze else 'EXPLAIN'

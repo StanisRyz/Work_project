@@ -152,14 +152,13 @@ class TaskListFragmentTests(TaskLiveMixin, TestCase):
         self.assertEqual(payload['tab'], 'all')
         self.assertIn('task-sort-link--active', payload['results_html'])
 
-    def test_another_users_task_is_absent_from_the_html(self):
+    def test_another_users_task_is_present_in_the_all_tab(self):
         theirs = self.make_task(self.other, text='Чужое мероприятие')
 
         payload = self.client.get(self.url, {'tab': 'all'}).json()
 
-        self.assertNotIn(f'data-task-row="{theirs.pk}"', payload['results_html'])
-        self.assertNotIn('Чужое мероприятие', payload['results_html'])
-        self.assertNotIn(theirs.pk, payload['task_ids'])
+        self.assertIn(f'data-task-row="{theirs.pk}"', payload['results_html'])
+        self.assertIn(theirs.pk, payload['task_ids'])
 
     def test_a_new_task_appears_in_the_my_tab(self):
         before = self.client.get(self.url, {'tab': 'my'}).json()

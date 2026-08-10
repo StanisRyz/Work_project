@@ -113,8 +113,8 @@ class ActCreatedEventTests(RealtimeFixtureMixin, TestCase):
                     emit_act_created(act)
 
         keys = target_keys(publisher.published[0][1])
-        # They cannot open the act at CREATED_OTK, so telling them it exists
-        # would leak it.
+        # Global read access does not turn unrelated users into event recipients;
+        # the periodic revision sync still refreshes their global registry.
         self.assertNotIn(f'user:{self.ko_user.pk}', keys)
         self.assertNotIn(f'user:{self.to_user.pk}', keys)
         self.assertNotIn(f'user:{self.outsider.pk}', keys)

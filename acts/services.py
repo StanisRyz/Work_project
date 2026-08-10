@@ -1,6 +1,7 @@
 import logging
 import time
 from contextlib import contextmanager
+from functools import partial
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -26,6 +27,7 @@ from .permissions import (
     can_return_to_ko,
     can_return_to_to,
     can_approve_act,
+    can_add_attachment,
     can_send_to_ko,
     can_view_act,
     is_act_admin,
@@ -615,38 +617,76 @@ def add_act_comment(act, user, text, notify=True):
     return comment
 
 
-def add_act_attachment(act, user, uploaded_file, description=''):
+def _delete_attachment_file(
+    storage,
+    file_name,
+    *,
+    attachment_id,
+    act_id,
+    user_id,
+    operation,
+    failure_outcome,
+):
+    if not file_name:
+        return
     try:
-        attachment = ActAttachment.objects.create(
-            act=act,
-            uploaded_by=user if getattr(user, 'is_authenticated', False) else None,
-            file=uploaded_file,
-            original_name=uploaded_file.name,
-            description=description,
-            file_size=getattr(uploaded_file, 'size', 0) or 0,
-            content_type=getattr(uploaded_file, 'content_type', '') or '',
-        )
-    except OSError as exc:
-        # A full disk or an unwritable MEDIA_ROOT. The file name is the user's
-        # own text and the storage path is infrastructure, so neither is logged.
+        storage.delete(file_name)
+    except Exception as exc:  # noqa: BLE001 - storage cleanup is best-effort
         log_event(
             attachment_logger,
-            'ERROR',
+            'WARNING',
             'attachment.storage_failed',
-            act_id=_pk_of(act),
-            user_id=_pk_of(user),
-            operation='upload',
+            attachment_id=attachment_id,
+            act_id=act_id,
+            user_id=user_id,
+            operation=operation,
             error_type=type(exc).__name__,
-            outcome='failed',
-            exc_info=True,
+            outcome=failure_outcome,
         )
-        raise
-    add_act_history_event(
-        act,
-        user,
-        ActHistoryEvent.EventType.ATTACHMENT_ADDED,
-        f'Вложение добавлено: {attachment.original_name}.',
+
+
+def add_act_attachment(act, user, uploaded_file, description=''):
+    if not can_add_attachment(act, user):
+        raise ActWorkflowError('Добавление вложения недоступно для вашей роли.')
+
+    attachment = ActAttachment(
+        act=act,
+        uploaded_by=user if getattr(user, 'is_authenticated', False) else None,
+        original_name=uploaded_file.name,
+        description=description,
+        file_size=getattr(uploaded_file, 'size', 0) or 0,
+        content_type=getattr(uploaded_file, 'content_type', '') or '',
     )
+    file_written = False
+    try:
+        # Storage is not transactional; write first, then clean it if DB work fails.
+        attachment.file.save(uploaded_file.name, uploaded_file, save=False)
+        file_written = True
+        with transaction.atomic():
+            locked_act = Act.objects.select_for_update().get(pk=act.pk)
+            if not can_add_attachment(locked_act, user):
+                raise ActWorkflowError('Добавление вложения недоступно для вашей роли.')
+            attachment.act = locked_act
+            attachment.save()
+            add_act_history_event(
+                locked_act,
+                user,
+                ActHistoryEvent.EventType.ATTACHMENT_ADDED,
+                f'Вложение добавлено: {attachment.original_name}.',
+            )
+    except Exception:
+        if file_written:
+            _delete_attachment_file(
+                attachment.file.storage,
+                attachment.file.name,
+                attachment_id=getattr(attachment, 'pk', None),
+                act_id=_pk_of(act),
+                user_id=_pk_of(user),
+                operation='upload_rollback',
+                failure_outcome='orphan_cleanup_failed',
+            )
+        raise
+
     log_event(
         attachment_logger,
         'INFO',
@@ -662,7 +702,7 @@ def add_act_attachment(act, user, uploaded_file, description=''):
 
 
 def delete_act_attachment(attachment, user):
-    if not can_delete_attachment(attachment, user):
+    if not can_view_act(attachment.act, user) or not can_delete_attachment(attachment, user):
         log_event(
             attachment_logger,
             'WARNING',
@@ -675,44 +715,60 @@ def delete_act_attachment(attachment, user):
         )
         raise ActWorkflowError('Удаление вложения недоступно для вашей роли.')
 
-    act = attachment.act
+    act_id = attachment.act_id
     attachment_id = attachment.pk
-    original_name = attachment.original_name
-    file_field = attachment.file
-    attachment.delete()
-    if file_field:
-        try:
-            file_field.delete(save=False)
-        except OSError as exc:
-            # The row is already gone; a leftover file is an operational
-            # cleanup task, not a user-visible failure.
-            log_event(
-                attachment_logger,
-                'WARNING',
-                'attachment.storage_failed',
+    with transaction.atomic():
+        # Fixed lock order: act first, then its attachment.
+        locked_act = Act.objects.select_for_update().filter(pk=act_id).first()
+        if locked_act is None:
+            return False
+        if not can_view_act(locked_act, user):
+            raise ActWorkflowError('Удаление вложения недоступно для вашей роли.')
+
+        locked_attachment = (
+            ActAttachment.objects.select_for_update()
+            .filter(pk=attachment_id, act_id=act_id)
+            .first()
+        )
+        if locked_attachment is None:
+            return False
+        if not can_delete_attachment(locked_attachment, user):
+            raise ActWorkflowError('Удаление вложения недоступно для вашей роли.')
+
+        original_name = locked_attachment.original_name
+        file_name = locked_attachment.file.name
+        storage = locked_attachment.file.storage
+        locked_attachment.delete()
+        add_act_history_event(
+            locked_act,
+            user,
+            ActHistoryEvent.EventType.ATTACHMENT_DELETED,
+            f'Вложение удалено: {original_name}.',
+        )
+        transaction.on_commit(
+            partial(
+                _delete_attachment_file,
+                storage,
+                file_name,
                 attachment_id=attachment_id,
-                act_id=_pk_of(act),
+                act_id=act_id,
                 user_id=_pk_of(user),
                 operation='delete_file',
-                error_type=type(exc).__name__,
-                outcome='orphaned_file',
+                failure_outcome='orphaned_file',
             )
-    add_act_history_event(
-        act,
-        user,
-        ActHistoryEvent.EventType.ATTACHMENT_DELETED,
-        f'Вложение удалено: {original_name}.',
-    )
+        )
+
     log_event(
         attachment_logger,
         'INFO',
         'attachment.deleted',
         attachment_id=attachment_id,
-        act_id=_pk_of(act),
+        act_id=act_id,
         user_id=_pk_of(user),
         operation='delete',
         outcome='ok',
     )
+    return True
 
 
 def clear_all_acts():

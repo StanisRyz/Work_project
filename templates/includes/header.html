@@ -1,6 +1,6 @@
 {% load static %}
 <header class="topbar">
-    <a class="topbar__brand" href="{% url 'dashboard:home' %}" aria-label="Экосистема качества, главная">
+    <a class="topbar__brand" href="{% if user.is_superuser or user.userprofile.role == 'admin' %}{% url 'dashboard:home' %}{% else %}{% url 'acts:list' %}{% endif %}" aria-label="Экосистема качества{% if user.is_superuser or user.userprofile.role == 'admin' %}, главная{% else %}, акты{% endif %}">
         <img class="topbar__logo" src="{% static 'images/quality-ecosystem-logo.png' %}" alt="">
         <span>Экосистема качества</span>
     </a>
@@ -36,7 +36,9 @@
                 <span class="profile-menu__chevron" aria-hidden="true">⌄</span>
             </summary>
             <div class="profile-menu__popup">
+                {% if user.is_superuser or user.userprofile.role == 'admin' %}
                 <a href="{% url 'accounts:placeholder' %}">Пользователи и роли</a>
+                {% endif %}
                 <form method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}<button type="submit">Выйти</button></form>
             </div>
         </details>

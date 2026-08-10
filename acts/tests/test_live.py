@@ -230,30 +230,27 @@ class ActDetailFragmentTests(ActLiveMixin, TestCase):
                 self.assertNotIn('Location', response)
                 self.assertEqual(response.json(), {'error': 'authentication_required'})
 
-    def test_every_fragment_checks_can_view_act(self):
-        # A KO user cannot see an act still sitting at CREATED_OTK.
+    def test_every_fragment_allows_authenticated_readonly_access(self):
         self.client.force_login(self.ko)
 
         for name, url in self.urls.items():
             with self.subTest(fragment=name):
                 response = self.client.get(url)
-                self.assertEqual(response.status_code, 404)
-                self.assertNotIn(self.act.number, response.content.decode())
+                self.assertEqual(response.status_code, 200)
 
     def test_only_get_is_allowed(self):
         for name, url in self.urls.items():
             with self.subTest(fragment=name):
                 self.assertEqual(self.client.post(url).status_code, 405)
 
-    def test_losing_access_returns_a_safe_404_without_act_data(self):
+    def test_leaving_the_work_scope_keeps_readonly_fragment_access(self):
         self.act.status = self.statuses['KO_REVIEW']
         self.act.save(update_fields=['status'])
 
         response = self.client.get(self.urls['summary'])
 
-        self.assertEqual(response.status_code, 404)
-        self.assertNotIn(self.act.number, response.content.decode())
-        self.assertNotIn('Катушка', response.content.decode())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.act.number, response.json()['html'])
 
     def test_the_summary_shows_the_current_status_and_route(self):
         payload = self.client.get(self.urls['summary']).json()
@@ -311,7 +308,7 @@ class ActDetailFragmentTests(ActLiveMixin, TestCase):
         self.assertIn('В работе', before['html'])
         self.assertIn('Выполнено', after['html'])
 
-    def test_related_tasks_are_filtered_by_permissions(self):
+    def test_related_tasks_are_readable_to_non_assignees(self):
         task = self._make_task(self.other_otk)
         self.client.force_login(self.manager)
         manager_payload = self.client.get(self.urls['activities']).json()
@@ -320,9 +317,7 @@ class ActDetailFragmentTests(ActLiveMixin, TestCase):
         author_payload = self.client.get(self.urls['activities']).json()
 
         self.assertIn(f'data-related-task="{task.pk}"', manager_payload['html'])
-        # The act's OTK author is not an assignee, so the task stays hidden.
-        self.assertNotIn(f'data-related-task="{task.pk}"', author_payload['html'])
-        self.assertIn('недоступны', author_payload['html'])
+        self.assertIn(f'data-related-task="{task.pk}"', author_payload['html'])
 
     def test_fragments_are_not_cacheable(self):
         for name, url in self.urls.items():
@@ -399,13 +394,12 @@ class ActWorkFragmentTests(ActLiveMixin, TestCase):
     def test_only_get_is_allowed(self):
         self.assertEqual(self.client.post(self.url).status_code, 405)
 
-    def test_can_view_act_is_enforced(self):
+    def test_work_fragment_allows_authenticated_readonly_access(self):
         self.client.force_login(self.ko)
 
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, 404)
-        self.assertNotIn(self.act.number, response.content.decode())
+        self.assertEqual(response.status_code, 200)
 
     def test_the_fragment_matches_the_work_tab_of_the_full_page(self):
         page = self.client.get(reverse('acts:detail', args=[self.act.pk]), {'tab': 'work'})

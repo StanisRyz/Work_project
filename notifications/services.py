@@ -258,7 +258,7 @@ def get_act_participants(act):
 
 
 def get_comment_participants(act):
-    from acts.permissions import can_view_act
+    from acts.permissions import can_contribute_to_act
 
     candidates = list(get_act_participants(act))
     status_code = getattr(act.status, 'code', '')
@@ -268,7 +268,7 @@ def get_comment_participants(act):
         candidates.extend(_active_users_for_role(UserProfile.Role.TO))
     elif status_code in {'CREATED_OTK', 'OTK_REVIEW'}:
         candidates.append(act.created_by)
-    return [user for user in candidates if can_view_act(act, user)]
+    return [user for user in candidates if can_contribute_to_act(act, user)]
 
 
 def _event_text(event_type, act):

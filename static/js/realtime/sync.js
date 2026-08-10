@@ -15,7 +15,7 @@
  * safety timer are mutually exclusive, and the safety timer never runs more
  * often than `REALTIME_LIVE_SYNC_SECONDS`.
  *
- * **Recovery has exactly one owner per user.** Every periodic server request
+ * **Recovery has exactly one owner per authenticated session.** Every periodic server request
  * in this module — fallback polling and the safety-sync alike — is gated on
  * `ownsRecovery()`. A follower learns the leader's connection state over
  * BroadcastChannel so its degraded indicator stays correct, but it must never

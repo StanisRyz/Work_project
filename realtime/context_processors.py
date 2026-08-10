@@ -1,12 +1,27 @@
 """Client configuration for the real-time UI.
 
-Only what the browser legitimately needs: whether real-time is on and three
-reversed URLs. Never a Redis URL, a channel name, credentials or a user id —
-the SSE endpoint derives the subscription from the session on its own.
+Only what the browser legitimately needs: whether real-time is on, reversed
+URLs, timing values and an opaque tab-coordination epoch. Never a Redis URL,
+channel name, credential, session key or user id — the SSE endpoint derives
+the subscription from the session on its own.
 """
+
+import secrets
 
 from django.conf import settings
 from django.urls import reverse
+
+
+COORDINATION_EPOCH_SESSION_KEY = '_realtime_coordination_epoch'
+
+
+def _coordination_epoch(request):
+    epoch = request.session.get(COORDINATION_EPOCH_SESSION_KEY)
+    if not isinstance(epoch, str) or len(epoch) < 20:
+        # Browser coordination only: this is random per session, never an auth token.
+        epoch = secrets.token_urlsafe(24)
+        request.session[COORDINATION_EPOCH_SESSION_KEY] = epoch
+    return epoch
 
 
 def realtime_client_config(request):
@@ -19,6 +34,7 @@ def realtime_client_config(request):
     return {
         'realtime_client': {
             'enabled': True,
+            'coordination_epoch': _coordination_epoch(request),
             'events_url': reverse('realtime:events'),
             'sync_url': reverse('realtime:sync'),
             'notification_fragment_url': reverse('notifications:header_fragment'),

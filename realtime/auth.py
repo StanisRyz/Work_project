@@ -8,9 +8,8 @@ parse as JSON, and an expired session would otherwise look like a silent
 failure instead of a clear signal to stop.
 
 This decorator gives every technical endpoint one uniform, unauthenticated-safe
-answer instead. It carries no model or object permission of its own: object
-level access (an act the user cannot see, for example) stays the responsibility
-of each view.
+answer instead. It carries no model or object permission of its own: any
+resource-level access rule stays the responsibility of each view.
 """
 
 import functools

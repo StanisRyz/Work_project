@@ -26,6 +26,18 @@ const CLIENT_DIR = path.join(__dirname, '..', '..', '..', 'static', 'js', 'realt
 // The very order base.html loads them in.
 const MODULES = ['core.js', 'tabs.js', 'sync.js', 'notifications.js', 'tasks.js', 'acts.js', 'start.js'];
 const SOURCES = MODULES.map((name) => [name, fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8')]);
+const DEFAULT_COORDINATION_EPOCH = 'test-session-epoch-000000000001';
+const coordinationChannelName = (epoch = DEFAULT_COORDINATION_EPOCH) =>
+    `quality-realtime-v1:${epoch}`;
+const coordinationLeaseKey = (epoch = DEFAULT_COORDINATION_EPOCH) =>
+    `${coordinationChannelName(epoch)}:leader`;
+const coordinationMessage = (message, epoch = DEFAULT_COORDINATION_EPOCH) => ({
+    ...message,
+    schema_version: 1,
+    coordination_epoch: epoch,
+});
+const coordinationLease = (tabId, expiresAt, epoch = DEFAULT_COORDINATION_EPOCH) =>
+    JSON.stringify(coordinationMessage({ tab_id: tabId, expires_at: expiresAt }, epoch));
 
 function load(options = {}) {
     const env = createEnvironment(options);
@@ -396,6 +408,34 @@ test('only the leader tab opens an EventSource', async () => {
     assert.equal(FakeEventSource.instances.length, 1, 'one stream for both tabs');
 });
 
+test('different session epochs neither share leases nor accept cross-session messages', async () => {
+    FakeBroadcastChannel.bus = new Bus();
+    FakeEventSource.instances = [];
+    const storage = new FakeStorage();
+    const oldEpoch = 'old-session-epoch-00000000000001';
+    const newEpoch = 'new-session-epoch-00000000000002';
+
+    load({ storage, coordinationEpoch: oldEpoch, resetSources: false });
+    storage.setItem(
+        coordinationLeaseKey(newEpoch),
+        coordinationLease('old-session-tab', Date.now() + 60000, oldEpoch),
+    );
+    const newSession = load({ storage, coordinationEpoch: newEpoch, resetSources: false });
+
+    assert.equal(newSession.core.tabs.isLeader, true, 'a foreign-epoch lease is ignored');
+    assert.ok(storage.getItem(coordinationLeaseKey(oldEpoch)));
+    assert.ok(storage.getItem(coordinationLeaseKey(newEpoch)));
+    assert.equal(FakeEventSource.instances.length, 2, 'each authenticated session owns its stream');
+
+    const crossSessionSender = new FakeBroadcastChannel(coordinationChannelName(newEpoch));
+    crossSessionSender.postMessage(
+        coordinationMessage({ kind: 'leader.state', state: 'offline' }, oldEpoch),
+    );
+    await flush();
+
+    assert.notEqual(newSession.core.state, 'offline', 'a cross-session message is rejected');
+});
+
 test('a follower receives events over BroadcastChannel', async () => {
     const [leader, follower] = loadTabs(2, { page: 'tasks' });
     follower.setFetchHandler(() => ({ results_html: '<p data-followed></p>', tab: 'my', task_ids: [] }));
@@ -416,8 +456,8 @@ test('an expired lease lets another tab take over', async () => {
     assert.equal(leader.core.tabs.isLeader, true);
     leader.core.stop();
     follower.window.localStorage.setItem(
-        'quality-realtime-leader-v1',
-        JSON.stringify({ tab_id: 'gone', expires_at: Date.now() - 1000 }),
+        coordinationLeaseKey(),
+        coordinationLease('gone', Date.now() - 1000),
     );
 
     follower.core.tabs.renewOrElect();
@@ -998,8 +1038,8 @@ test('demoting a leader clears its safety timer', async () => {
 
     // Somebody else grabs the lease: the leader steps down on its next tick.
     follower.window.localStorage.setItem(
-        'quality-realtime-leader-v1',
-        JSON.stringify({ tab_id: 'somebody-else', expires_at: Date.now() + 60000 }),
+        coordinationLeaseKey(),
+        coordinationLease('somebody-else', Date.now() + 60000),
     );
     leader.core.tabs.renewOrElect();
     assert.equal(leader.core.tabs.isLeader, false);
@@ -1051,21 +1091,21 @@ test('a mistargeted or malformed sync.response is ignored', async () => {
     const [, follower] = loadTabs(2);
     follower.setFetchHandler(() => snapshot({ notifications: 'own-sync' }));
 
-    const spy = new FakeBroadcastChannel('quality-realtime-v1');
+    const spy = new FakeBroadcastChannel(coordinationChannelName());
     // Wrong target_tab_id.
-    spy.postMessage({
+    spy.postMessage(coordinationMessage({
         kind: 'sync.response',
         request_id: 'does-not-matter',
         target_tab_id: 'somebody-else',
         snapshot: snapshot(),
-    });
+    }));
     // Wrong request_id, and an unknown transport field inside the snapshot.
-    spy.postMessage({
+    spy.postMessage(coordinationMessage({
         kind: 'sync.response',
         request_id: 'wrong-id',
         target_tab_id: follower.core.tabs.tabId,
         snapshot: { ...snapshot(), extra_field: 'nope' },
-    });
+    }));
     await flush();
 
     assert.equal(follower.core.sync.revisions, null, 'neither forged message was applied');
@@ -1111,8 +1151,8 @@ test('a leader closing still lets another tab take over and become live', async 
     leader.core.stop();
 
     follower.window.localStorage.setItem(
-        'quality-realtime-leader-v1',
-        JSON.stringify({ tab_id: 'gone', expires_at: Date.now() - 1000 }),
+        coordinationLeaseKey(),
+        coordinationLease('gone', Date.now() - 1000),
     );
     follower.core.tabs.renewOrElect();
     follower.clock.advance(500);
@@ -1181,8 +1221,8 @@ test('a promoted tab takes over polling from the leader that went away', async (
     // The leader disappears and its lease expires.
     leader.core.stop();
     follower.window.localStorage.setItem(
-        'quality-realtime-leader-v1',
-        JSON.stringify({ tab_id: 'gone', expires_at: Date.now() - 1000 }),
+        coordinationLeaseKey(),
+        coordinationLease('gone', Date.now() - 1000),
     );
     follower.core.tabs.renewOrElect();
     follower.clock.advance(500);
@@ -1209,8 +1249,8 @@ test('a demoted leader stops polling as well as its safety timer', async () => {
     assert.equal(leader.core.sync.isPolling, true);
 
     follower.window.localStorage.setItem(
-        'quality-realtime-leader-v1',
-        JSON.stringify({ tab_id: 'somebody-else', expires_at: Date.now() + 60000 }),
+        coordinationLeaseKey(),
+        coordinationLease('somebody-else', Date.now() + 60000),
     );
     leader.core.tabs.renewOrElect();
 

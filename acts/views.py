@@ -29,7 +29,7 @@ from .forms import (
     ToAnalysisStructureForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
-from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act
+from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_contribute_to_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act
 from .selectors import (
     build_act_list_state,
     build_route_steps,
@@ -361,7 +361,7 @@ def act_add_comment(request, pk):
         ),
         pk=pk,
     )
-    if not can_view_act(act, request.user):
+    if not can_contribute_to_act(act, request.user):
         raise Http404('No Act matches the given query.')
     if request.method != 'POST':
         messages.error(request, 'Комментарий можно добавить только из формы на странице акта.')
@@ -492,11 +492,14 @@ def act_delete_attachment(request, pk, attachment_id):
 
     act_id = attachment.act_id
     try:
-        delete_act_attachment(attachment, request.user)
+        deleted = delete_act_attachment(attachment, request.user)
     except ActWorkflowError as exc:
         messages.error(request, str(exc))
     else:
-        messages.success(request, 'Вложение удалено.')
+        if deleted:
+            messages.success(request, 'Вложение удалено.')
+        else:
+            messages.info(request, 'Вложение уже удалено.')
     return redirect('acts:detail', pk=act_id)
 
 
@@ -564,7 +567,7 @@ def act_send_to_ko(request, pk):
     except ActWorkflowError as exc:
         messages.error(request, str(exc))
     else:
-        if can_view_act(act, request.user):
+        if can_contribute_to_act(act, request.user):
             messages.success(request, 'Акт передан в КО.')
         else:
             messages.success(request, 'Акт передан в КО и больше не отображается в вашей очереди ОТК.')
@@ -721,7 +724,7 @@ def act_approve(request, pk):
 
 
 def _redirect_after_transition(act, user):
-    if can_view_act(act, user):
+    if can_contribute_to_act(act, user):
         return redirect('acts:detail', pk=act.pk)
     return redirect('acts:list')
 
@@ -841,6 +844,7 @@ def _get_act_detail_context(
         'history_events': history_events,
         'history_groups': history_groups,
         'comments': comments,
+        'can_contribute': can_contribute_to_act(act, user),
         'comment_form': comment_form or ActCommentForm(),
         'return_to_otk_form': return_to_otk_form or ReturnToOtkForm(),
         'return_dialog_open': return_dialog_open,

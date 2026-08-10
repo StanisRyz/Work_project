@@ -3,8 +3,8 @@
  *
  * Everything else in `static/js/realtime/` is a feature module that registers
  * on this bus. There is exactly one EventSource per browser tab — and, when
- * BroadcastChannel is available, exactly one per user across all their tabs
- * (see tabs.js).
+ * BroadcastChannel is available, exactly one per authenticated session across
+ * all its tabs (see tabs.js).
  *
  * The SSE stream is best-effort: it says *that* something changed, never what.
  * Recovery from anything missed is `/realtime/sync/` (see sync.js).
@@ -58,7 +58,11 @@
             const value = Number(element.dataset[name]);
             return Number.isFinite(value) && value > 0 ? value : fallback;
         };
+        const coordinationEpoch = element.dataset.coordinationEpoch || '';
         return {
+            coordinationEpoch: /^[A-Za-z0-9_-]{20,128}$/.test(coordinationEpoch)
+                ? coordinationEpoch
+                : '',
             eventsUrl: element.dataset.eventsUrl,
             syncUrl: element.dataset.syncUrl,
             notificationFragmentUrl: element.dataset.notificationFragmentUrl,

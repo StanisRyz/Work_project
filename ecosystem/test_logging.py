@@ -741,7 +741,7 @@ class BusinessEventLoggingTests(TestCase):
         self.assertIn('outcome=rejected', logged)
         self.assertIn('action=approve_act', logged)
 
-    def test_a_denied_attachment_download_is_logged_without_the_file_name(self):
+    def test_a_missing_readable_attachment_is_logged_without_the_file_name(self):
         from acts.models import ActAttachment
 
         other_user = User.objects.create_user('unrelated_probe', password='probe-password-1')
@@ -761,9 +761,10 @@ class BusinessEventLoggingTests(TestCase):
 
         logged = '\n'.join(captured.output)
         self.assertEqual(response.status_code, 404)
-        self.assertIn('attachment.access_denied', logged)
+        self.assertIn('attachment.storage_failed', logged)
         self.assertIn(f'attachment_id={attachment.pk}', logged)
-        self.assertIn('outcome=denied', logged)
+        self.assertIn('operation=download', logged)
+        self.assertIn('outcome=missing_file', logged)
         self.assertNotIn('секретный-документ', logged)
 
     def test_one_request_id_joins_the_http_request_to_its_service_logs(self):

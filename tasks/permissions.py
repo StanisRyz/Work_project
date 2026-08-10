@@ -4,12 +4,19 @@ from .models import Task
 
 
 def can_view_task(task, user):
-    return has_full_act_access(user) or task.assignees.filter(user=user).exists()
+    return bool(getattr(user, 'is_authenticated', False))
 
 
 def get_visible_tasks_queryset(user):
+    """Tasks in the user's working scope."""
     tasks = Task.objects.select_related('status', 'act', 'department', 'root_analysis', 'completed_by').prefetch_related('assignees__user__userprofile')
     return tasks if has_full_act_access(user) else tasks.filter(assignees__user=user).distinct()
+
+
+def get_readable_tasks_queryset(user):
+    """All tasks readable by an authenticated user."""
+    tasks = Task.objects.select_related('status', 'act', 'department', 'root_analysis', 'completed_by').prefetch_related('assignees__user__userprofile')
+    return tasks if getattr(user, 'is_authenticated', False) else tasks.none()
 
 
 def can_complete_task(task, user):
