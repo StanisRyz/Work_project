@@ -11,7 +11,7 @@ from django.core.management import CommandError, call_command
 from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from acts.models import Act, ActNumberSequence
+from acts.models import Act
 from maintenance import database_transfer as dt
 from maintenance import preflight
 
@@ -122,26 +122,6 @@ class SourcePreflightTests(BundleFixtureMixin, TestCase):
 
         self.assertFalse(report['ok'])
         self.assertEqual(check_by_name(report, 'attachment_paths')['status'], preflight.FAILED)
-
-    def test_a_lagging_act_number_sequence_is_detected(self):
-        ActNumberSequence.objects.update_or_create(year=2030, defaults={'last_value': 3})
-        Act.objects.create(
-            number='АОК-2030-050',
-            created_by=self.user,
-            party_number='P-777',
-            nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
-            status=self.status,
-            description='Будущий год',
-        )
-
-        report = self._run()
-
-        self.assertFalse(report['ok'])
-        entry = check_by_name(report, 'act_number_sequence')
-        self.assertEqual(entry['status'], preflight.FAILED)
-        self.assertIn('2030', entry['details'])
 
     def test_a_missing_source_media_directory_is_detected(self):
         missing = self.media_root / 'not-here'

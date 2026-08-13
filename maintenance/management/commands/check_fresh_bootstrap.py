@@ -116,7 +116,6 @@ def run_fresh_bootstrap_checks(
     results.append(_check_connection())
     results.append(_check_migrations())
     results.extend(_check_reference_data())
-    results.append(_check_act_number_sequence())
     results.extend(_check_no_demo_data(allow_demo_admin))
     if include_demo_reset:
         results.append(_check_demo_reset_flag())
@@ -209,87 +208,6 @@ def _check_reference_data():
         else:
             results.append(_result(name, BLOCKING, 'Справочник пуст. Выполните seed_references.'))
     return results
-
-
-def _max_issued_act_numbers_by_year():
-    """`{year: highest canonical suffix actually issued}` in one query.
-
-    Only the `number` column is fetched — never a full `Act` row — and parsed
-    in Python with the existing `ACT_NUMBER_PATTERN`/`ACT_NUMBER_PREFIX`, so a
-    historical or manually entered number in any other shape is silently
-    skipped rather than mistaken for a canonical `АОК-YYYY-NNN` one. One query
-    regardless of how many years or acts exist.
-    """
-    from acts.models import ACT_NUMBER_PATTERN, ACT_NUMBER_PREFIX, Act
-
-    numbers = Act.objects.filter(number__startswith=f'{ACT_NUMBER_PREFIX}-').values_list(
-        'number', flat=True
-    )
-    max_by_year = {}
-    for number in numbers:
-        match = ACT_NUMBER_PATTERN.match(number)
-        if not match:
-            continue
-        year = int(match.group(1))
-        suffix = int(match.group(2))
-        if suffix > max_by_year.get(year, 0):
-            max_by_year[year] = suffix
-    return max_by_year
-
-
-def _check_act_number_sequence():
-    """Compare `ActNumberSequence.last_value` against numbers actually issued.
-
-    Read-only: this never creates a missing row, never raises an existing
-    `last_value`, and never touches `Act` data. A gap is reported for an
-    operator to fix through the manual procedure in
-    docs/deployment.md — only the affected years and their
-    aggregated counters are named, never a specific act number.
-    """
-    from acts.models import ActNumberSequence
-
-    try:
-        max_by_year = _max_issued_act_numbers_by_year()
-        sequence_by_year = dict(ActNumberSequence.objects.values_list('year', 'last_value'))
-    except Exception as exc:  # noqa: BLE001
-        return _result('act_number_sequence', BLOCKING, f'Недоступно ({type(exc).__name__}).')
-
-    years = sorted(set(max_by_year) | set(sequence_by_year))
-    if not years:
-        return _result(
-            'act_number_sequence', PASS, 'Счётчик пуст, актов с каноническим номером нет — ожидаемо.'
-        )
-
-    problems = []
-    for year in years:
-        max_actual = max_by_year.get(year, 0)
-        last_value = sequence_by_year.get(year)
-        if last_value is None:
-            # Only possible when acts exist for `year`: otherwise `year` would
-            # not have entered the union above.
-            problems.append(
-                f'{year}: нет строки счётчика, выдано номеров с максимальным суффиксом {max_actual}'
-            )
-        elif last_value < 0:
-            problems.append(f'{year}: недопустимое отрицательное значение счётчика ({last_value})')
-        elif last_value < max_actual:
-            problems.append(
-                f'{year}: счётчик={last_value}, фактически выдан максимум {max_actual}'
-            )
-
-    if problems:
-        return _result(
-            'act_number_sequence',
-            BLOCKING,
-            'ActNumberSequence отстаёт от выданных номеров: ' + '; '.join(problems) + '. '
-            'Автоматическое исправление не выполняется — требуется ручная проверка '
-            'администратором по процедуре из docs/deployment.md.',
-        )
-    return _result(
-        'act_number_sequence',
-        PASS,
-        f'Согласован по годам: {len(years)}.',
-    )
 
 
 def _check_no_demo_data(allow_demo_admin):

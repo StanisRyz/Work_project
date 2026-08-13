@@ -139,9 +139,8 @@ class Command(BaseCommand):
             )
             for index in range(counts['acts'])
         ]
-        # `Act.save()` issues a locked sequence read per row for numbering, so
-        # bulk_create with an explicit number is the only sane way to build
-        # thousands of rows — and the numbers stay clearly synthetic.
+        # Act numbers are entered by hand in the application, so the synthetic
+        # dataset assigns its own clearly marked ones before the bulk insert.
         for index, act in enumerate(acts):
             act.number = f'{MARKER}-{now.year}-{index:06d}'
         Act.objects.bulk_create(acts, batch_size=BATCH_SIZE)

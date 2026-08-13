@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation, Priority
@@ -41,46 +41,31 @@ def act_attachment_upload_to(instance, filename):
 
 
 ACT_NUMBER_PREFIX = 'АОК'
-# Matches only the canonical АОК-YYYY-NNN form. Historical or manually entered
-# numbers in any other shape are intentionally ignored by the sequence.
-ACT_NUMBER_PATTERN = re.compile(rf'^{ACT_NUMBER_PREFIX}-(\d{{4}})-(\d+)$')
+ACT_NUMBER_SUFFIX_LENGTH = 5
+# Matches the canonical АОК-YYYY-SUFFIX form the server builds. The suffix is
+# whatever the user typed, left-padded with zeros, so it is not restricted to
+# digits. Historical numbers in any other shape simply do not match.
+ACT_NUMBER_PATTERN = re.compile(
+    rf'^{ACT_NUMBER_PREFIX}-(\d{{4}})-(.{{{ACT_NUMBER_SUFFIX_LENGTH}}})$'
+)
 
 
-class ActNumberSequence(models.Model):
-    """Per-year counter backing automatic `АОК-YYYY-NNN` act numbers.
+def format_act_number(suffix, year=None):
+    """Build the public act number from a user-entered suffix.
 
-    This is a technical table only: it never changes the public number format
-    and holds no business data. One row per year, locked with
-    `select_for_update()` while a number is issued, so concurrent act creation
-    on PostgreSQL cannot hand out the same suffix twice.
+    The year always comes from the server clock and the suffix is left-padded
+    with zeros to exactly `ACT_NUMBER_SUFFIX_LENGTH` characters, so the browser
+    can never decide either half of the final number.
     """
+    text = (suffix or '').strip()
+    year = year if year is not None else timezone.localdate().year
+    return f'{ACT_NUMBER_PREFIX}-{year}-{text.rjust(ACT_NUMBER_SUFFIX_LENGTH, "0")}'
 
-    year = models.PositiveIntegerField('Год', unique=True)
-    last_value = models.PositiveIntegerField('Последний выданный номер', default=0)
 
-    class Meta:
-        ordering = ['year']
-        verbose_name = 'Последовательность номеров актов'
-        verbose_name_plural = 'Последовательности номеров актов'
-
-    def __str__(self):
-        return f'{self.year}: {self.last_value}'
-
-    @classmethod
-    def allocate(cls, year):
-        """Reserve and return the next numeric suffix for `year`.
-
-        Must be called inside a transaction. The row lock is held until that
-        transaction ends, so the caller's act INSERT is serialised with it.
-        """
-        # get_or_create wraps its INSERT in a savepoint, so a race to create the
-        # first row of a new year surfaces as IntegrityError, is rolled back to
-        # that savepoint, and resolves to the committed row instead.
-        cls.objects.get_or_create(year=year)
-        sequence = cls.objects.select_for_update().get(year=year)
-        sequence.last_value += 1
-        sequence.save(update_fields=['last_value'])
-        return sequence.last_value
+def act_number_suffix(number):
+    """Return the suffix of a canonical act number, or `None` for legacy ones."""
+    match = ACT_NUMBER_PATTERN.match((number or '').strip())
+    return match.group(2) if match else None
 
 
 class Act(models.Model):
@@ -121,7 +106,10 @@ class Act(models.Model):
         def new_values(cls):
             return {choice for choice, _label in cls.new_choices()}
 
-    number = models.CharField('Номер акта', max_length=32, unique=True, blank=True)
+    # Business identifier entered by the user, not the database identity: two
+    # acts may legitimately carry the same public number, while `Act.pk` stays
+    # the only unique key used by relations, URLs and database records.
+    number = models.CharField('Номер акта', max_length=32, blank=True, db_index=True)
     created_by = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
@@ -131,7 +119,8 @@ class Act(models.Model):
     customer = models.CharField('Заказчик', max_length=160, blank=True)
     order_number = models.CharField('Номер заказа', max_length=80, blank=True)
     znp_number = models.CharField('Номер ЗНП', max_length=80, blank=True)
-    party_number = models.CharField('Номер партии', max_length=120)
+    # Copied from the first defect; the ПиР workshop does not collect it.
+    party_number = models.CharField('Номер партии', max_length=120, blank=True)
     nomenclature = models.CharField('Номенклатура', max_length=240)
     kd_designation = models.CharField('Обозначение по КД', max_length=240, blank=True)
     act_type = models.CharField(
@@ -140,7 +129,13 @@ class Act(models.Model):
         choices=Type.choices,
         default=Type.OPERATIONAL_CONTROL,
     )
-    operation = models.ForeignKey(Operation, on_delete=models.PROTECT, verbose_name='Операция')
+    operation = models.ForeignKey(
+        Operation,
+        on_delete=models.PROTECT,
+        verbose_name='Операция',
+        blank=True,
+        null=True,
+    )
     defect_type = models.ForeignKey(DefectType, on_delete=models.PROTECT, verbose_name='Вид дефекта')
     priority = models.ForeignKey(
         Priority,
@@ -150,7 +145,7 @@ class Act(models.Model):
         null=True,
     )
     status = models.ForeignKey(ActStatus, on_delete=models.PROTECT, verbose_name='Статус')
-    description = models.TextField('Описание')
+    description = models.TextField('Описание', blank=True)
     due_date = models.DateField('Срок рассмотрения', blank=True, null=True)
     ko_decision = models.CharField(
         'Решение КО',
@@ -209,28 +204,11 @@ class Act(models.Model):
     def __str__(self):
         return self.number
 
-    def save(self, *args, **kwargs):
-        # An explicitly supplied number is always preserved as-is.
-        if self.number:
-            return super().save(*args, **kwargs)
-        # Allocate the number and insert the act in one transaction, so a
-        # rolled-back save never consumes a number and a committed act always
-        # owns the value it was issued. `Act.number` stays unique in the
-        # database as the final safety net.
-        with transaction.atomic():
-            year = timezone.localdate().year
-            self.number = self._format_number(year, ActNumberSequence.allocate(year))
-            return super().save(*args, **kwargs)
-
-    @staticmethod
-    def _format_number(year, value):
-        return f'{ACT_NUMBER_PREFIX}-{year}-{value:03d}'
-
 
 class ActDefect(models.Model):
     class Workshop(models.TextChoices):
         MP_SHOP = 'MP_SHOP', 'Цех МП'
-        TRANSFORMERS_SHOP = 'TRANSFORMERS_SHOP', 'Цех трансформаторов'
+        PIR_SHOP = 'PIR_SHOP', 'Цех ПиР'
 
     class MpType(models.TextChoices):
         OL = 'OL', 'ОЛ'
@@ -266,7 +244,8 @@ class ActDefect(models.Model):
     workshop = models.CharField('Цех/поставщик', max_length=32, choices=Workshop.choices, blank=True)
     znp_number = models.CharField('Номер ЗНП', max_length=80, blank=True)
     party_number = models.CharField('Номер партии', max_length=120, blank=True)
-    description = models.TextField('Описание дефекта')
+    # Not collected by the ПиР workshop, so it stays optional at the database level.
+    description = models.TextField('Описание дефекта', blank=True)
     checked_quantity = models.PositiveIntegerField('Проверено продукции', blank=True, null=True)
     nonconforming_quantity = models.PositiveIntegerField('Количество несоответствующей продукции', blank=True, null=True)
     detected_at = models.DateField('Дата обнаружения несоответствия')

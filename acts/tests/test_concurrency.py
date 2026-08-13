@@ -23,7 +23,6 @@ from acts.models import (
     ActCorrectiveAction,
     ActCorrectiveActionAssignee,
     ActHistoryEvent,
-    ActNumberSequence,
     ActRootAnalysis,
 )
 from acts.services import ActWorkflowError, approve_act, send_to_ko
@@ -179,25 +178,6 @@ class ActConcurrencyTests(TransactionTestCase):
             ).count(),
             1,
         )
-
-    def test_simultaneous_act_creation_issues_unique_numbers(self):
-        worker_count = 5
-
-        def attempt():
-            with transaction.atomic():
-                return self._create_act(self.status_created).number
-
-        results = run_in_parallel([attempt] * worker_count)
-
-        self.assertEqual(outcomes(results), ['ok'] * worker_count)
-        numbers = [payload for _kind, payload in results]
-        self.assertEqual(len(set(numbers)), worker_count)
-        year = timezone.localdate().year
-        self.assertEqual(
-            sorted(numbers),
-            [f'АОК-{year}-{index:03d}' for index in range(1, worker_count + 1)],
-        )
-        self.assertEqual(ActNumberSequence.objects.get(year=year).last_value, worker_count)
 
     def test_two_simultaneous_completions_finish_one_task_once(self):
         act = self._create_act(self.status_archived, to_analysis_by=self.to_user)

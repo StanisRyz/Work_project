@@ -291,16 +291,17 @@
 .act-defects-table th { background: #fbfcff; color: #1d2d5e; text-align: center; white-space: normal; }
 .act-defects-table td { color: #223764; text-align: center; }
 .act-defects-table__number { width: 2.3%; }
-.act-defects-table__workshop { width: 9%; }
-.act-defects-table__party { width: 5.9%; }
-.act-defects-table__type { width: 10.5%; }
-.act-defects-table__mp { width: 5.9%; }
-.act-defects-table__date { width: 7.3%; }
-.act-defects-table__checked { width: 6.4%; }
-.act-defects-table__nonconforming { width: 7.3%; }
-.act-defects-table__description { width: 16.4%; }
-.act-defects-table__decision { width: 14.6%; }
-.act-defects-table__comment { width: 14.6%; }
+.act-defects-table__workshop { width: 8.4%; }
+.act-defects-table__znp { width: 5.9%; }
+.act-defects-table__party { width: 5.6%; }
+.act-defects-table__type { width: 9.8%; }
+.act-defects-table__mp { width: 5.4%; }
+.act-defects-table__date { width: 7%; }
+.act-defects-table__checked { width: 6.1%; }
+.act-defects-table__nonconforming { width: 6.9%; }
+.act-defects-table__description { width: 14.6%; }
+.act-defects-table__decision { width: 14%; }
+.act-defects-table__comment { width: 14%; }
 .act-defects-table select, .act-defects-table textarea {
     width: 100%;
     min-width: 0;
@@ -733,8 +734,9 @@
 
 .act-primary-actions .link-button { margin-top: 0; }
 
+/* Данные акта: номер акта is deliberately narrower than the four text fields. */
 .act-party-data {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    grid-template-columns: minmax(0, 0.6fr) repeat(4, minmax(0, 1fr)) !important;
     gap: 3px 24px !important;
 }
 
@@ -752,6 +754,7 @@
 .act-party-data dt:nth-of-type(2), .act-party-data dt:nth-of-type(2) + dd { grid-column: 2; }
 .act-party-data dt:nth-of-type(3), .act-party-data dt:nth-of-type(3) + dd { grid-column: 3; }
 .act-party-data dt:nth-of-type(4), .act-party-data dt:nth-of-type(4) + dd { grid-column: 4; }
+.act-party-data dt:nth-of-type(5), .act-party-data dt:nth-of-type(5) + dd { grid-column: 5; }
 
 .act-defect-card__grid {
     display: grid;
@@ -904,8 +907,13 @@
     align-items: start;
 }
 
-.act-form-row--party {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+/* Данные акта: five fields, with a compact номер акта ahead of the text ones. */
+.act-form-row--act {
+    grid-template-columns: minmax(0, 0.55fr) repeat(4, minmax(0, 1fr));
+}
+
+.act-form-field--number input {
+    text-align: center;
 }
 
 .act-defect-section {
@@ -1129,6 +1137,12 @@
     min-height: 20px;
     color: #b91c1c;
     font-size: 13px;
+}
+
+.field-hint {
+    display: block;
+    color: #7281a5;
+    font-size: 12px;
 }
 
 .act-defect-count {
@@ -1653,7 +1667,7 @@
         grid-template-columns: 1fr;
     }
 
-    .act-form-row--party,
+    .act-form-row--act,
     .defect-form-block__groups {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -1676,8 +1690,10 @@
     .act-party-data dt:nth-of-type(2), .act-party-data dt:nth-of-type(2) + dd { grid-column: 2; grid-row: 1; }
     .act-party-data dt:nth-of-type(3), .act-party-data dt:nth-of-type(3) + dd { grid-column: 1; grid-row: 3; }
     .act-party-data dt:nth-of-type(4), .act-party-data dt:nth-of-type(4) + dd { grid-column: 2; grid-row: 3; }
+    .act-party-data dt:nth-of-type(5), .act-party-data dt:nth-of-type(5) + dd { grid-column: 1; grid-row: 5; }
     .act-party-data dd:nth-of-type(1), .act-party-data dd:nth-of-type(2) { grid-row: 2; }
     .act-party-data dd:nth-of-type(3), .act-party-data dd:nth-of-type(4) { grid-row: 4; }
+    .act-party-data dd:nth-of-type(5) { grid-row: 6; }
 
     .act-primary-actions {
         align-items: stretch;
@@ -1702,7 +1718,7 @@
     .act-form-page { padding-bottom: 74px; }
     .act-form-page__header { align-items: flex-start; }
     .act-form-page__header h1 { font-size: 22px; }
-    .act-form-row--party,
+    .act-form-row--act,
     .defect-form-block__groups,
     .defect-field-group:last-child { grid-template-columns: 1fr; }
     .defect-field-group:last-child { grid-column: auto; }
@@ -1729,8 +1745,8 @@
         grid-column: 1;
     }
 
-    .act-party-data dt:nth-of-type(1), .act-party-data dt:nth-of-type(2), .act-party-data dt:nth-of-type(3), .act-party-data dt:nth-of-type(4) { grid-row: auto; }
-    .act-party-data dd:nth-of-type(1), .act-party-data dd:nth-of-type(2), .act-party-data dd:nth-of-type(3), .act-party-data dd:nth-of-type(4) { grid-row: auto; }
+    .act-party-data dt:nth-of-type(1), .act-party-data dt:nth-of-type(2), .act-party-data dt:nth-of-type(3), .act-party-data dt:nth-of-type(4), .act-party-data dt:nth-of-type(5) { grid-row: auto; }
+    .act-party-data dd:nth-of-type(1), .act-party-data dd:nth-of-type(2), .act-party-data dd:nth-of-type(3), .act-party-data dd:nth-of-type(4), .act-party-data dd:nth-of-type(5) { grid-row: auto; }
 
     .act-defect-card__grid .act-defect-card__third,
     .act-defect-card__grid .act-defect-card__half {

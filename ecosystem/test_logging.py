@@ -693,6 +693,7 @@ class BusinessEventLoggingTests(TestCase):
             defaults={'role': 'otk', 'department': self.department, 'is_active': True},
         )
         self.act = Act.objects.create(
+            number='АОК-2026-00001',
             created_by=self.otk_user,
             party_number='P-1',
             nomenclature='Изделие',

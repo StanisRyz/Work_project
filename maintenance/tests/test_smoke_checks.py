@@ -12,7 +12,6 @@ from acts.models import (
     ActCorrectiveAction,
     ActDefect,
     ActHistoryEvent,
-    ActNumberSequence,
     ActRootAnalysis,
 )
 from maintenance import database_transfer as dt
@@ -122,7 +121,6 @@ class WriteSmokeCheckTests(SmokeCheckDataMixin, TestCase):
     def test_write_checks_pass_and_leave_no_data_behind(self):
         acts_before = Act.objects.count()
         users_before = User.objects.count()
-        counters_before = dict(ActNumberSequence.objects.values_list('year', 'last_value'))
 
         report = smoke_checks.run_write_checks()
 
@@ -132,7 +130,6 @@ class WriteSmokeCheckTests(SmokeCheckDataMixin, TestCase):
             'create_user',
             'user_profile_created',
             'create_act',
-            'next_act_number',
             'create_defect',
             'add_comment',
             'create_history',
@@ -148,9 +145,6 @@ class WriteSmokeCheckTests(SmokeCheckDataMixin, TestCase):
 
         self.assertEqual(Act.objects.count(), acts_before)
         self.assertEqual(User.objects.count(), users_before)
-        self.assertEqual(
-            dict(ActNumberSequence.objects.values_list('year', 'last_value')), counters_before
-        )
         self.assertFalse(User.objects.filter(username=smoke_checks.SMOKE_USERNAME).exists())
         self.assertFalse(
             UserProfile.objects.filter(user__username=smoke_checks.SMOKE_USERNAME).exists()

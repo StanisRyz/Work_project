@@ -22,20 +22,72 @@
         </header>
 
         <section class="print-section">
-            <h2>Основные данные</h2>
+            <h2>Данные акта</h2>
             <table>
+                <tr><th>Номер акта</th><td>{{ act.number|default:'—' }}</td></tr>
                 <tr><th>Создан</th><td>{{ act.created_at|date:'d.m.Y H:i' }}</td></tr>
                 <tr><th>Создал</th><td>{{ act.created_by.get_full_name|default:act.created_by.username }}</td></tr>
-                <tr><th>Партия</th><td>{{ act.party_number }}</td></tr>
-                <tr><th>Номенклатура</th><td>{{ act.nomenclature }}</td></tr>
-                <tr><th>Операция</th><td>{{ act.operation }}</td></tr>
-                <tr><th>Вид дефекта</th><td>{{ act.defect_type }}</td></tr>
-                <tr><th>Цех/поставщик</th><td>{{ first_defect_workshop_display|default:'-' }}</td></tr>
-                <tr><th>Приоритет</th><td>{{ act.priority|default:'-' }}</td></tr>
-                <tr><th>Описание</th><td>{{ act.description }}</td></tr>
+                <tr><th>Заказчик</th><td>{{ act.customer|default:'—' }}</td></tr>
+                <tr><th>Заказ покупателя</th><td>{{ act.order_number|default:'—' }}</td></tr>
+                <tr><th>Наименование продукции</th><td>{{ act.nomenclature|default:'—' }}</td></tr>
+                <tr><th>Обозначение по КД</th><td>{{ act.kd_designation|default:'—' }}</td></tr>
+                <tr><th>Приоритет</th><td>{{ act.priority|default:'—' }}</td></tr>
                 <tr><th>Статус</th><td>{{ act.status }}</td></tr>
-                <tr><th>Срок</th><td>{{ act.due_date|date:'d.m.Y'|default:'-' }}</td></tr>
+                <tr><th>Срок</th><td>{{ act.due_date|date:'d.m.Y'|default:'—' }}</td></tr>
             </table>
+        </section>
+
+        {% comment %}
+        Per-defect data: a ПиР defect carries no party number, operation, МП
+        type or description, so those cells stay «—» instead of being filled
+        with the act summary of another workshop.
+        {% endcomment %}
+        <section class="print-section">
+            <h2>Дефекты</h2>
+            {% if defects %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>№</th>
+                            <th>Цех/поставщик</th>
+                            <th>Номер ЗНП</th>
+                            <th>Номер партии</th>
+                            <th>Вид дефекта</th>
+                            <th>Операция</th>
+                            <th>Тип МП</th>
+                            <th>Дата обнаружения</th>
+                            <th>Проверено</th>
+                            <th>С отклонением</th>
+                            <th>Описание</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for defect in defects %}
+                            <tr>
+                                <td>{{ forloop.counter }}</td>
+                                <td>{{ defect.get_workshop_display|default:'—' }}</td>
+                                <td>{{ defect.znp_number|default:'—' }}</td>
+                                <td>{{ defect.party_number|default:'—' }}</td>
+                                <td>{{ defect.defect_type|default:'—' }}</td>
+                                <td>{{ defect.operation|default:'—' }}</td>
+                                <td>{{ defect.get_mp_type_display|default:'—' }}</td>
+                                <td>{{ defect.detected_at|date:'d.m.Y'|default:'—' }}</td>
+                                <td>{{ defect.checked_quantity|default_if_none:'—' }}</td>
+                                <td>{{ defect.nonconforming_quantity|default_if_none:'—' }}</td>
+                                <td>{{ defect.description|default:'—' }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <table>
+                    <tr><th>Номер ЗНП</th><td>{{ act.znp_number|default:'—' }}</td></tr>
+                    <tr><th>Номер партии</th><td>{{ act.party_number|default:'—' }}</td></tr>
+                    <tr><th>Вид дефекта</th><td>{{ act.defect_type|default:'—' }}</td></tr>
+                    <tr><th>Операция</th><td>{{ act.operation|default:'—' }}</td></tr>
+                    <tr><th>Описание</th><td>{{ act.description|default:'—' }}</td></tr>
+                </table>
+            {% endif %}
         </section>
 
         <section class="print-section">

@@ -69,15 +69,72 @@ const initialiseActDefectFormset = (root) => {
 
     const getWorkshopSelect = (block) => block?.querySelector('select[name$="-workshop"]') || null;
 
+    // Presentation only: the backend decides on its own which fields a
+    // workshop requires and which defect types it accepts.
+    const PIR_WORKSHOP = 'PIR_SHOP';
+
+    const syncDefectTypeOptions = (block, isPir) => {
+        const select = block.querySelector('select[name$="-defect_type"]');
+        if (!select) {
+            return;
+        }
+        let selectedIsHidden = false;
+        [...select.options].forEach((option) => {
+            const allowed = !isPir || !option.value || option.dataset.workshopPir === '1';
+            option.hidden = !allowed;
+            option.disabled = !allowed && Boolean(option.value);
+            if (!allowed && option.selected) {
+                selectedIsHidden = true;
+            }
+        });
+        if (selectedIsHidden) {
+            select.value = '';
+        }
+    };
+
+    const syncDetectedAtPlacement = (block, isPir) => {
+        const detectedAt = block.querySelector('[data-defect-field="detected_at"]');
+        const target = block.querySelector(
+            `[data-defect-group="${isPir ? 'control' : 'result'}"]`,
+        );
+        if (!detectedAt || !target || detectedAt.parentElement === target) {
+            return;
+        }
+        target.append(detectedAt);
+    };
+
     const syncWorkshopVisibility = (block) => {
         const select = getWorkshopSelect(block);
         if (!block || !select) {
             return;
         }
         const isChosen = Boolean(select.value);
+        const isPir = select.value === PIR_WORKSHOP;
         block.querySelectorAll('[data-defect-collapsible]').forEach((element) => {
             element.hidden = !isChosen;
         });
+        block.querySelectorAll('[data-mp-only]').forEach((field) => {
+            const label = field.closest('label');
+            if (label) {
+                label.hidden = !isChosen || isPir;
+            }
+            field.required = isChosen && !isPir;
+            if (isPir && field.value) {
+                field.value = '';
+                setFieldError(field, '');
+            }
+        });
+        const legend = block.querySelector('[data-defect-legend]');
+        if (legend) {
+            if (!legend.dataset.legendDefault) {
+                legend.dataset.legendDefault = legend.textContent;
+            }
+            legend.textContent = isPir
+                ? legend.dataset.legendPir || legend.dataset.legendDefault
+                : legend.dataset.legendDefault;
+        }
+        syncDetectedAtPlacement(block, isPir);
+        syncDefectTypeOptions(block, isPir);
     };
 
     const syncAllWorkshopVisibility = () => {

@@ -30,7 +30,6 @@ from acts.models import (
     ActCorrectiveActionAssignee,
     ActDefect,
     ActHistoryEvent,
-    ActNumberSequence,
     ActRootAnalysis,
 )
 from notifications.models import Notification, NotificationDelivery
@@ -311,8 +310,7 @@ def _check_view_queries():
     DefectType.objects.filter(is_active=True).count()
     Priority.objects.count()
     Department.objects.filter(is_active=True).count()
-    counters = list(ActNumberSequence.objects.order_by('year').values_list('year', 'last_value'))
-    return f'Типовые запросы выполнены, счётчики номеров — {counters}.'
+    return 'Типовые запросы выполнены.'
 
 
 # --------------------------------------------------------------------------
@@ -344,7 +342,6 @@ def _write_scenario(collector, state):
     collector.run_isolated('create_user', lambda: _create_user(state))
     collector.run_isolated('user_profile_created', lambda: _check_created_profile(state))
     collector.run_isolated('create_act', lambda: _create_act(state))
-    collector.run_isolated('next_act_number', lambda: _next_act_number(state))
     collector.run_isolated('create_defect', lambda: _create_defect(state))
     collector.run_isolated('add_comment', lambda: _add_comment(state))
     collector.run_isolated('create_history', lambda: _create_history(state))
@@ -388,6 +385,7 @@ def _create_act(state):
         ActStatus, 'ActStatus'
     )
     act = Act.objects.create(
+        number='АОК-СМОУК-000',
         created_by=state['user'],
         party_number='SMOKE-000',
         nomenclature=SMOKE_MARKER,
@@ -397,30 +395,7 @@ def _create_act(state):
         description=SMOKE_MARKER,
     )
     state['act'] = act
-    return f'Акт создан с автоматическим номером {act.number}.'
-
-
-def _next_act_number(state):
-    year = timezone.localdate().year
-    counter = ActNumberSequence.objects.get(year=year)
-    expected = Act._format_number(year, counter.last_value)
-    if state['act'].number != expected:
-        raise AssertionError(
-            f'Номер акта {state["act"].number} не совпадает со счётчиком {expected}.'
-        )
-    following = Act.objects.create(
-        created_by=state['user'],
-        party_number='SMOKE-001',
-        nomenclature=SMOKE_MARKER,
-        operation=_reference(Operation, 'Operation'),
-        defect_type=_reference(DefectType, 'DefectType'),
-        status=state['act'].status,
-        description=SMOKE_MARKER,
-    )
-    state['second_act'] = following
-    if following.number == state['act'].number:
-        raise AssertionError('Второй акт получил тот же номер.')
-    return f'Следующий автоматический номер выдан корректно: {following.number}.'
+    return f'Акт создан с номером {act.number}.'
 
 
 def _create_defect(state):
@@ -560,22 +535,6 @@ def _check_constraints(state):
         else:
             raise AssertionError('Дубликат уведомления не был отклонён.')
 
-        try:
-            with transaction.atomic():
-                Act.objects.create(
-                    number=state['act'].number,
-                    created_by=state['user'],
-                    party_number='SMOKE-DUP',
-                    nomenclature=SMOKE_MARKER,
-                    operation=_reference(Operation, 'Operation'),
-                    defect_type=_reference(DefectType, 'DefectType'),
-                    status=state['act'].status,
-                    description=SMOKE_MARKER,
-                )
-        except IntegrityError:
-            checked.append('unique_act_number')
-        else:
-            raise AssertionError('Дубликат номера акта не был отклонён.')
     return 'Ограничения сработали: ' + ', '.join(checked) + '.'
 
 

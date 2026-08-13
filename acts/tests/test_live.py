@@ -408,7 +408,7 @@ class ActWorkFragmentTests(ActLiveMixin, TestCase):
         self.assertTemplateUsed(page, 'acts/includes/work_content.html')
         self.assertEqual(payload['status_code'], 'CREATED_OTK')
         # Party data and the defect card come from the same partial.
-        self.assertIn('Данные партии', payload['html'])
+        self.assertIn('Данные акта', payload['html'])
         self.assertIn(self.act.nomenclature, payload['html'])
 
     def test_the_fragment_carries_the_actions_the_status_allows(self):

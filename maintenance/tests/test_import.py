@@ -10,7 +10,7 @@ from django.db import connection
 from django.test import TestCase, TransactionTestCase, override_settings
 
 from accounts.models import UserProfile
-from acts.models import Act, ActNumberSequence
+from acts.models import Act
 from maintenance import database_transfer as dt
 from references.models import ActStatus, DefectType, Operation
 
@@ -96,78 +96,6 @@ class RawFixtureSignalTests(TestCase):
     def test_normal_user_creation_still_creates_a_profile(self):
         user = User.objects.create_user(username='normal_user', password='demo12345')
         self.assertTrue(UserProfile.objects.filter(user=user).exists())
-
-
-class ActNumberSequenceSyncTests(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.status, _ = ActStatus.objects.get_or_create(
-            code='CREATED_OTK', defaults={'name': 'Создан ОТК'}
-        )
-        cls.operation = Operation.objects.create(code='SYNC_OP', name='Операция')
-        cls.defect_type = DefectType.objects.create(code='SYNC_DEFECT', name='Дефект')
-        cls.user = User.objects.create_user(username='sync_user', password='demo12345')
-
-    def _act(self, number):
-        return Act.objects.create(
-            number=number,
-            created_by=self.user,
-            party_number='P-001',
-            nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
-            status=self.status,
-            description='Описание',
-        )
-
-    def test_missing_counters_are_created_from_actual_numbers(self):
-        self._act('АОК-2025-003')
-        self._act('АОК-2025-011')
-        self._act('АОК-2026-002')
-
-        result = dt.sync_act_number_sequences()
-
-        self.assertEqual(sorted(result['created']), [2025, 2026])
-        self.assertEqual(ActNumberSequence.objects.get(year=2025).last_value, 11)
-        self.assertEqual(ActNumberSequence.objects.get(year=2026).last_value, 2)
-
-    def test_a_lagging_counter_is_raised(self):
-        ActNumberSequence.objects.create(year=2025, last_value=4)
-        self._act('АОК-2025-009')
-
-        result = dt.sync_act_number_sequences()
-
-        self.assertEqual(result['raised'], [2025])
-        self.assertEqual(ActNumberSequence.objects.get(year=2025).last_value, 9)
-
-    def test_an_ahead_counter_is_never_lowered(self):
-        ActNumberSequence.objects.create(year=2025, last_value=50)
-        self._act('АОК-2025-009')
-
-        result = dt.sync_act_number_sequences()
-
-        self.assertEqual(result['unchanged'], [2025])
-        self.assertEqual(ActNumberSequence.objects.get(year=2025).last_value, 50)
-
-    def test_repeated_sync_does_not_change_correct_values(self):
-        self._act('АОК-2025-007')
-        dt.sync_act_number_sequences()
-
-        second = dt.sync_act_number_sequences()
-
-        self.assertEqual(second['created'], [])
-        self.assertEqual(second['raised'], [])
-        self.assertEqual(second['unchanged'], [2025])
-        self.assertEqual(ActNumberSequence.objects.get(year=2025).last_value, 7)
-
-    def test_non_standard_numbers_are_ignored(self):
-        self._act('АОК-DEMO-001')
-        self._act('ACT/2025/99')
-
-        result = dt.sync_act_number_sequences()
-
-        self.assertEqual(result, {'created': [], 'raised': [], 'unchanged': []})
-        self.assertFalse(ActNumberSequence.objects.exists())
 
 
 class SequenceResetTests(TestCase):

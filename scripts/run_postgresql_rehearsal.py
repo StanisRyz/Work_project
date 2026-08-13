@@ -573,7 +573,6 @@ class Rehearsal:
                 'status': import_report.get('status'),
                 'loaded': import_report.get('loaded'),
                 'sequence_reset': import_report.get('sequences'),
-                'act_number_sequences': import_report.get('act_number_sequences'),
                 'media_copied': import_report.get('media_copied'),
                 'recovery': import_report.get('recovery') or [],
             },
@@ -757,11 +756,6 @@ def render_markdown(report):
     add(
         f'- Сброс последовательностей: моделей — {len(sequences.get("models") or [])}, '
         f'инструкций — {sequences.get("statements")}'
-    )
-    numbers = imported['act_number_sequences'] or {}
-    add(
-        f'- ActNumberSequence: создано — {numbers.get("created")}, '
-        f'поднято — {numbers.get("raised")}, без изменений — {numbers.get("unchanged")}'
     )
     for step in imported['recovery']:
         add(f'- Восстановление: {step}')

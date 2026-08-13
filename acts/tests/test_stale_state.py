@@ -231,6 +231,7 @@ class StaleActStateTests(TestCase):
 
     def _edit_payload(self, defect):
         return {
+            'number_suffix': '34',
             'customer': 'Заказчик',
             'order_number': '100-3',
             'nomenclature': 'Катушка-А',

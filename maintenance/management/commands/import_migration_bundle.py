@@ -85,17 +85,11 @@ class Command(BaseCommand):
         except TransferError as exc:
             raise CommandError(str(exc)) from exc
 
-        numbers = result['act_number_sequences']
         self.stdout.write(f'Загружено записей: {result["loaded"]}')
         self.stdout.write(
             'Последовательности восстановлены для моделей: '
             f'{len(result["sequences"]["models"])} '
             f'(выполнено инструкций — {result["sequences"]["statements"]}).'
-        )
-        self.stdout.write(
-            'ActNumberSequence синхронизирована до commit: создано — '
-            f'{len(numbers["created"])}, поднято — {len(numbers["raised"])}, '
-            f'без изменений — {len(numbers["unchanged"])}.'
         )
         self.stdout.write(f'Скопировано файлов media: {len(result["media"]["copied"])}')
         for warning in result['validation']['warnings']:
@@ -109,7 +103,6 @@ class Command(BaseCommand):
                 'status': result['status'],
                 'loaded': result['loaded'],
                 'sequences': result['sequences'],
-                'act_number_sequences': numbers,
                 'media_copied': len(result['media']['copied']),
                 'media_error': result['media']['error'],
                 'complete_bundle': result['complete_bundle'],

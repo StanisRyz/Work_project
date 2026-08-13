@@ -544,47 +544,6 @@ class VerificationTests(BundleFixtureMixin, TestCase):
 
         self.assertTrue(any('tasks.Task' in problem for problem in problems), problems)
 
-    def test_invariants_detect_a_lagging_act_number_sequence(self):
-        Act.objects.create(
-            number='АОК-2030-050',
-            created_by=self.user,
-            party_number='P-777',
-            nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
-            status=self.status,
-            description='Будущий год',
-        )
-
-        problems = dt.check_relational_invariants()['problems']
-
-        self.assertTrue(
-            any('ActNumberSequence' in problem and '2030' in problem for problem in problems),
-            problems,
-        )
-
-    def test_verification_reports_relation_problems(self):
-        bundle = self._export()
-        Act.objects.create(
-            number='АОК-2031-077',
-            created_by=self.user,
-            party_number='P-778',
-            nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
-            status=self.status,
-            description='Без счётчика',
-        )
-
-        with override_settings(MEDIA_ROOT=self.media_root):
-            report = dt.verify_against_bundle(bundle)
-
-        self.assertFalse(report['ok'])
-        self.assertTrue(
-            any('ActNumberSequence' in item for item in report['differences']),
-            report['differences'],
-        )
-
 
 @mock.patch.object(connection, 'vendor', 'sqlite')
 class SourceMediaRootTests(BundleFixtureMixin, TestCase):

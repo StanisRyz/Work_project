@@ -31,6 +31,7 @@ class ActCreatedEventTests(RealtimeFixtureMixin, TestCase):
 
     def _create_act(self):
         return Act.objects.create(
+            number='АОК-2026-00007',
             created_by=self.otk_user,
             party_number='P-RT5',
             nomenclature='Катушка',
@@ -165,6 +166,7 @@ class ActCreatedEventTests(RealtimeFixtureMixin, TestCase):
     def test_creating_an_act_through_the_view_publishes_the_event(self):
         self.client.force_login(self.otk_user)
         payload = {
+            'number_suffix': '34',
             'customer': 'Заказчик',
             'order_number': '100-1',
             'nomenclature': 'Катушка-А',

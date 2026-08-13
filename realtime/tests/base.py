@@ -67,6 +67,7 @@ class RealtimeFixtureMixin:
 
     def make_act(self, status=None, created_by=None):
         return Act.objects.create(
+            number='АОК-2026-00001',
             created_by=created_by or self.otk_user,
             party_number='P-001',
             nomenclature='Катушка',

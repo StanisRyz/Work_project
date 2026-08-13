@@ -227,12 +227,14 @@ def act_create(request):
                 for defect_form in defect_formset.forms
                 if defect_form.cleaned_data and not defect_form.cleaned_data.get('DELETE', False)
             ]
+            # Summary copy of the first defect. Fields the ПиР workshop does
+            # not collect stay empty instead of being filled with placeholders.
             first_defect = defect_forms[0].cleaned_data
-            act.operation = first_defect['operation']
-            act.znp_number = first_defect['znp_number']
-            act.party_number = first_defect['party_number']
+            act.operation = first_defect.get('operation')
+            act.znp_number = first_defect.get('znp_number', '')
+            act.party_number = first_defect.get('party_number') or ''
             act.defect_type = first_defect['defect_type']
-            act.description = first_defect['description']
+            act.description = first_defect.get('description') or ''
             act.due_date = first_defect['detected_at']
             try:
                 with transaction.atomic():
@@ -316,6 +318,8 @@ def act_edit(request, pk):
                     act.defect_type = first_defect.defect_type
                     act.description = first_defect.description
                     act.due_date = first_defect.detected_at
+                    # `form.save(commit=False)` already resolved the business
+                    # number, including keeping a legacy one untouched.
                     act.save()
                     add_act_history_event(
                         act,
@@ -542,14 +546,16 @@ def act_print(request, pk):
     if not can_view_act(act, request.user):
         raise Http404('No Act matches the given query.')
 
-    first_defect = act.defects.order_by('created_at', 'pk').first()
+    defects = list(
+        act.defects.select_related('defect_type', 'operation').order_by('created_at', 'pk')
+    )
 
     return render(
         request,
         'acts/print.html',
         {
             'act': act,
-            'first_defect_workshop_display': first_defect.get_workshop_display() if first_defect and first_defect.workshop else '',
+            'defects': defects,
             'attachments': act.attachments.select_related('uploaded_by'),
             'history_events': act.history_events.select_related('user', 'from_status', 'to_status')[:20],
         },

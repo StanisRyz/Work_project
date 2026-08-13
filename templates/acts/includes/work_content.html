@@ -8,8 +8,9 @@ user has no unsaved input; a dirty form is never touched.
 {% endcomment %}
 <section class="act-work-sequence">
     <article class="detail-section">
-        <h2>Данные партии</h2>
+        <h2>Данные акта</h2>
         <dl class="act-party-data">
+            <dt>Номер акта</dt><dd>{{ act.number|default:'—' }}</dd>
             <dt>Заказчик</dt><dd>{{ act.customer|default:'Не указан' }}</dd>
             <dt>Заказ покупателя</dt><dd>{{ act.order_number|default:'Не указан' }}</dd>
             <dt>Наименование продукции</dt><dd>{{ act.nomenclature|default:'Не указано' }}</dd>
@@ -19,9 +20,9 @@ user has no unsaved input; a dirty form is never touched.
 
     <article class="detail-section">
         <h2>Дефекты и решение КО</h2>
-        <div class="act-defects-table-wrap"><table class="data-table act-defects-table"><colgroup><col class="act-defects-table__number"><col class="act-defects-table__workshop"><col class="act-defects-table__party"><col class="act-defects-table__type"><col class="act-defects-table__mp"><col class="act-defects-table__date"><col class="act-defects-table__checked"><col class="act-defects-table__nonconforming"><col class="act-defects-table__description"><col class="act-defects-table__decision"><col class="act-defects-table__comment"></colgroup><thead><tr><th>№</th><th>Цех/<br>поставщик</th><th>Номер<br>партии</th><th>Вид дефекта</th><th>Тип МП</th><th>Дата<br>обнаружения</th><th>Всего<br>проверено</th><th>С<br>отклонением</th><th>Описание</th><th>Решение КО</th><th>Комментарий КО</th></tr></thead><tbody>
+        <div class="act-defects-table-wrap"><table class="data-table act-defects-table"><colgroup><col class="act-defects-table__number"><col class="act-defects-table__workshop"><col class="act-defects-table__znp"><col class="act-defects-table__party"><col class="act-defects-table__type"><col class="act-defects-table__mp"><col class="act-defects-table__date"><col class="act-defects-table__checked"><col class="act-defects-table__nonconforming"><col class="act-defects-table__description"><col class="act-defects-table__decision"><col class="act-defects-table__comment"></colgroup><thead><tr><th>№</th><th>Цех/<br>поставщик</th><th>Номер<br>ЗНП</th><th>Номер<br>партии</th><th>Вид дефекта</th><th>Тип МП</th><th>Дата<br>обнаружения</th><th>Всего<br>проверено</th><th>С<br>отклонением</th><th>Описание</th><th>Решение КО</th><th>Комментарий КО</th></tr></thead><tbody>
         {% for row in defect_decision_rows %}<tr>
-            <td>{{ forloop.counter }}</td><td>{{ row.defect.get_workshop_display|default:'—' }}</td><td>{{ row.defect.party_number|default:'—' }}</td><td>{{ row.defect.defect_type|default:'Не указан' }}</td><td>{{ row.defect.get_mp_type_display|default:'—' }}</td><td>{{ row.defect.detected_at|date:'d.m.Y'|default:'—' }}</td><td>{{ row.defect.checked_quantity|default_if_none:'—' }}</td><td>{{ row.defect.nonconforming_quantity|default_if_none:'—' }}</td><td>{{ row.defect.description|default:'—' }}</td>
+            <td>{{ forloop.counter }}</td><td>{{ row.defect.get_workshop_display|default:'—' }}</td><td>{{ row.defect.znp_number|default:'—' }}</td><td>{{ row.defect.party_number|default:'—' }}</td><td>{{ row.defect.defect_type|default:'Не указан' }}</td><td>{{ row.defect.get_mp_type_display|default:'—' }}</td><td>{{ row.defect.detected_at|date:'d.m.Y'|default:'—' }}</td><td>{{ row.defect.checked_quantity|default_if_none:'—' }}</td><td>{{ row.defect.nonconforming_quantity|default_if_none:'—' }}</td><td>{{ row.defect.description|default:'—' }}</td>
             <td>{% if available_actions.ko_decision %}{% if row.ko_form %}{{ row.ko_form.id }}{{ row.ko_form.ko_decision }}{{ row.ko_form.ko_decision.errors }}{% else %}{{ ko_decision_form.ko_decision }}{{ ko_decision_form.ko_decision.errors }}{% endif %}{% elif row.defect.ko_decision %}<span class="act-badge act-badge--status">{{ row.defect.get_ko_decision_display }}</span>{% elif act.ko_decision and not has_defect_records %}<span class="act-badge act-badge--status">{{ act.get_ko_decision_display }}</span>{% else %}—{% endif %}</td>
             <td>{% if available_actions.ko_decision %}{% if row.ko_form %}{{ row.ko_form.ko_comment }}{{ row.ko_form.ko_comment.errors }}{% else %}{{ ko_decision_form.ko_comment }}{{ ko_decision_form.ko_comment.errors }}{% endif %}{% elif row.defect.ko_decision %}{{ row.defect.ko_comment|default:'—' }}{% elif act.ko_decision and not has_defect_records %}{{ act.ko_comment|default:'—' }}{% else %}—{% endif %}</td>
         </tr>{% endfor %}</tbody></table></div>

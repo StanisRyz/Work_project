@@ -16,7 +16,7 @@ from realtime.emitters import (
     emit_task_created,
 )
 
-from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActHistoryEvent, ActNumberSequence, ActRootAnalysis, get_act_status
+from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActHistoryEvent, ActRootAnalysis, get_act_status
 from .permissions import (
     can_apply_ko_decision,
     can_apply_to_analysis,
@@ -783,9 +783,6 @@ def clear_all_acts():
 
         Task.objects.filter(act__isnull=False).delete()
         Act.objects.all().delete()
-        # The administrator cleanup is an explicit full reset, so numbering
-        # restarts too. Deleting a single act never touches the sequence.
-        ActNumberSequence.objects.all().delete()
     for attachment in attachments:
         try:
             attachment.file.delete(save=False)

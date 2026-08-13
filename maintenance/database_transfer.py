@@ -50,7 +50,6 @@ TRANSFERABLE_MODELS = (
     'references.ActStatus',
     'references.TaskStatus',
     'references.Priority',
-    'acts.ActNumberSequence',
     'acts.Act',
     'acts.ActDefect',
     'acts.ActRootAnalysis',
@@ -90,8 +89,6 @@ MIGRATION_SEEDED_ROWS = {
     # references.0002 / references.0003 create these two task statuses.
     'references.TaskStatus': ('COMPLETED', 'IN_PROGRESS'),
 }
-
-ACT_NUMBER_PATTERN = re.compile(r'^АОК-(\d{4})-(\d+)$')
 
 SHA256_PATTERN = re.compile(r'^[0-9a-f]{64}$')
 
@@ -810,7 +807,6 @@ def plan_import(bundle_dir, accept_missing_media=False):
         count = manifest['models'][label]['count']
         actions.append(f'  {label}: {count} записей.')
     actions.append('Восстановить последовательности PostgreSQL для моделей с AutoField.')
-    actions.append('Синхронизировать ActNumberSequence по фактическим номерам актов (до commit).')
     actions.append(
         f'После фиксации транзакции скопировать {validation["media_count"]} файлов в '
         f'{safe_path_label(settings.MEDIA_ROOT)}.'
@@ -825,11 +821,11 @@ def plan_import(bundle_dir, accept_missing_media=False):
 def import_bundle(bundle_dir, accept_missing_media=False):
     """Import a validated bundle into an empty PostgreSQL database.
 
-    Loading the fixture, resetting PostgreSQL sequences and synchronising
-    `ActNumberSequence` all happen inside one `transaction.atomic()`: if any of
-    them fails, every loaded row is rolled back. Media is activated only after
-    that transaction is committed; a failure there yields a structured
-    partial-success result instead of a bare success.
+    Loading the fixture and resetting PostgreSQL sequences both happen inside
+    one `transaction.atomic()`: if either fails, every loaded row is rolled
+    back. Media is activated only after that transaction is committed; a
+    failure there yields a structured partial-success result instead of a bare
+    success.
     """
     validation = check_import_preconditions(bundle_dir, accept_missing_media=accept_missing_media)
     bundle_path = Path(bundle_dir)
@@ -856,7 +852,6 @@ def import_bundle(bundle_dir, accept_missing_media=False):
                 deserialized.save()
                 loaded += 1
             sequence_result = reset_database_sequences()
-            number_sequence_result = sync_act_number_sequences()
         # The transaction is committed from here on: media is activated last.
         media_result = _activate_media(staging_media, media_root)
     except Exception:
@@ -870,7 +865,6 @@ def import_bundle(bundle_dir, accept_missing_media=False):
         'loaded': loaded,
         'sequences': sequence_result,
         'media': media_result,
-        'act_number_sequences': number_sequence_result,
         'validation': validation,
         'complete_bundle': validation['complete'],
         'missing_media': validation['missing_media'],
@@ -936,47 +930,6 @@ def reset_database_sequences():
         'models': [model._meta.label for model in models_with_auto_pk],
         'statements': len(statements),
     }
-
-
-def sync_act_number_sequences():
-    """Raise every yearly act counter to the highest real number in that year.
-
-    Idempotent: an already-correct counter is left alone and a counter is never
-    lowered. Non-standard historical numbers are ignored. Called inside the
-    import transaction, so a failure rolls the whole import back.
-    """
-    Act = apps.get_model('acts.Act')
-    ActNumberSequence = apps.get_model('acts.ActNumberSequence')
-
-    highest = {}
-    for number in Act._default_manager.values_list('number', flat=True).iterator():
-        match = ACT_NUMBER_PATTERN.match((number or '').strip())
-        if not match:
-            continue
-        year = int(match.group(1))
-        value = int(match.group(2))
-        if value > highest.get(year, 0):
-            highest[year] = value
-
-    created = []
-    raised = []
-    unchanged = []
-    for year, value in sorted(highest.items()):
-        with transaction.atomic():
-            sequence, was_created = ActNumberSequence.objects.get_or_create(
-                year=year, defaults={'last_value': value}
-            )
-            if was_created:
-                created.append(year)
-                continue
-            locked = ActNumberSequence.objects.select_for_update().get(pk=sequence.pk)
-            if locked.last_value < value:
-                locked.last_value = value
-                locked.save(update_fields=['last_value'])
-                raised.append(year)
-            else:
-                unchanged.append(year)
-    return {'created': created, 'raised': raised, 'unchanged': unchanged}
 
 
 # --------------------------------------------------------------------------
@@ -1083,41 +1036,6 @@ def _verify_media(manifest):
     }
 
 
-def check_act_number_uniqueness():
-    """Return the standard act numbers that occur more than once."""
-    Act = apps.get_model('acts.Act')
-    seen = set()
-    duplicates = set()
-    for number in Act._default_manager.values_list('number', flat=True):
-        text = (number or '').strip()
-        if not ACT_NUMBER_PATTERN.match(text):
-            continue
-        if text in seen:
-            duplicates.add(text)
-        seen.add(text)
-    return sorted(duplicates)
-
-
-def find_lagging_act_number_sequences():
-    """Return {year: {counter, highest}} for counters below the real numbers."""
-    Act = apps.get_model('acts.Act')
-    ActNumberSequence = apps.get_model('acts.ActNumberSequence')
-    counters = dict(ActNumberSequence._default_manager.values_list('year', 'last_value'))
-    highest = {}
-    for number in Act._default_manager.values_list('number', flat=True):
-        match = ACT_NUMBER_PATTERN.match((number or '').strip())
-        if not match:
-            continue
-        year, value = int(match.group(1)), int(match.group(2))
-        highest[year] = max(highest.get(year, 0), value)
-    lagging = {
-        year: {'counter': counters.get(year, 0), 'highest': value}
-        for year, value in sorted(highest.items())
-        if counters.get(year, 0) < value
-    }
-    return lagging, highest
-
-
 def check_relational_invariants():
     """Check the minimum set of cross-model invariants after an import."""
     problems = []
@@ -1175,15 +1093,4 @@ def check_relational_invariants():
             f'tasks.Task: несогласованные act/root_analysis/source_action для {sorted(inconsistent)[:10]}.'
         )
 
-    duplicates = check_act_number_uniqueness()
-    if duplicates:
-        problems.append('acts.Act: повторяющиеся стандартные номера — ' + ', '.join(duplicates) + '.')
-
-    lagging, highest = find_lagging_act_number_sequences()
-    if lagging:
-        problems.append(
-            'acts.ActNumberSequence: счётчики отстают от фактических номеров за годы '
-            + ', '.join(str(year) for year in sorted(lagging)) + '.'
-        )
-
-    return {'problems': problems, 'act_number_years': sorted(highest)}
+    return {'problems': problems}

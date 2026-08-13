@@ -13,9 +13,10 @@
     <h2>Контекст акта</h2>
     <dl>
         <dt>Номер</dt><dd>{{ act.number }}</dd>
-        <dt>Партия</dt><dd>{{ act.party_number }}</dd>
+        <dt>Номер ЗНП</dt><dd>{{ act.znp_number|default:'—' }}</dd>
+        <dt>Партия</dt><dd>{{ act.party_number|default:'—' }}</dd>
         <dt>Номенклатура</dt><dd>{{ act.nomenclature }}</dd>
-        <dt>Операция</dt><dd>{{ act.operation }}</dd>
+        <dt>Операция</dt><dd>{{ act.operation|default:'—' }}</dd>
         <dt>Вид дефекта</dt><dd>{{ act.defect_type }}</dd>
         <dt>Статус</dt><dd>{% include 'acts/includes/status_badge.html' with status=act.status %}</dd>
         <dt>Решение КО</dt><dd>{{ act.get_ko_decision_display|default:'-' }}</dd>

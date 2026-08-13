@@ -24,11 +24,9 @@ from .database_transfer import (
     TRANSFERABLE_MODELS,
     TransferError,
     UnsafePathError,
-    check_act_number_uniqueness,
     check_relational_invariants,
     describe_directory,
     directory_is_empty,
-    find_lagging_act_number_sequences,
     get_applied_migration_state,
     normalize_relative_path,
     resolve_inside,
@@ -161,8 +159,6 @@ def run_source_preflight(source_media_root=None, allow_default_database=False):
     _guarded(report, 'migrations', lambda: _check_migrations(report))
     _guarded(report, 'integrity_check', lambda: _check_integrity(report))
     _guarded(report, 'relations', lambda: _check_relations(report))
-    _guarded(report, 'act_numbers_unique', lambda: _check_act_numbers(report))
-    _guarded(report, 'act_number_sequence', lambda: _check_act_number_sequence(report))
     _guarded(report, 'attachments', lambda: _check_source_attachments(report, source_media_root))
     _guarded(report, 'inventory', lambda: _check_inventory(report))
 
@@ -211,32 +207,6 @@ def _check_relations(report):
         )
     else:
         report.ok('relations', 'Ключевые реляционные инварианты соблюдены.')
-
-
-def _check_act_numbers(report):
-    duplicates = check_act_number_uniqueness()
-    if duplicates:
-        report.fail(
-            'act_numbers_unique',
-            'Повторяющиеся стандартные номера актов: ' + ', '.join(duplicates) + '.',
-        )
-    else:
-        report.ok('act_numbers_unique', 'Стандартные номера актов уникальны.')
-
-
-def _check_act_number_sequence(report):
-    lagging, highest = find_lagging_act_number_sequences()
-    if lagging:
-        details = ', '.join(
-            f'{year}: счётчик {values["counter"]} < факт {values["highest"]}'
-            for year, values in sorted(lagging.items())
-        )
-        report.fail('act_number_sequence', 'Отстают счётчики ActNumberSequence — ' + details + '.')
-    else:
-        report.ok(
-            'act_number_sequence',
-            f'ActNumberSequence не отстаёт (лет с актами — {len(highest)}).',
-        )
 
 
 def _check_inventory(report):

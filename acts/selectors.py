@@ -83,11 +83,15 @@ def build_act_list_state(user, query_params):
     elif due == 'not_overdue':
         acts = acts.filter(due_date__gte=today)
     if search:
+        # ЗНП is the primary production reference of a ПиР act, so the registry
+        # matches it both on the act summary and on any of its defects.
         acts = acts.filter(
             Q(number__icontains=search)
             | Q(party_number__icontains=search)
             | Q(nomenclature__icontains=search)
-        )
+            | Q(znp_number__icontains=search)
+            | Q(defects__znp_number__icontains=search)
+        ).distinct()
     has_filters = bool(status or act_type or due or search)
     kpis = {
         'total': acts.count(),
@@ -98,7 +102,9 @@ def build_act_list_state(user, query_params):
     }
 
     return {
-        'acts': acts.annotate(defects_total=Count('defects')),
+        # `distinct=True`: the ЗНП search joins the defects table, which would
+        # otherwise multiply the count.
+        'acts': acts.annotate(defects_total=Count('defects', distinct=True)),
         'kpis': kpis,
         'today': today,
         'has_visible_acts': has_visible_acts,

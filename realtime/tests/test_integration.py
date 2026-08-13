@@ -325,6 +325,7 @@ class ActEventTests(RealtimeFixtureMixin, TestCase):
     def _edit_payload(self, act):
         defect = act.defects.first()
         return {
+            'number_suffix': '34',
             'customer': 'Заказчик',
             'order_number': '100-3',
             'nomenclature': 'Катушка-А',
@@ -334,7 +335,7 @@ class ActEventTests(RealtimeFixtureMixin, TestCase):
             'defects-MIN_NUM_FORMS': '1',
             'defects-MAX_NUM_FORMS': '1000',
             'defects-0-id': defect.pk,
-            'defects-0-workshop': ActDefect.Workshop.TRANSFORMERS_SHOP,
+            'defects-0-workshop': ActDefect.Workshop.PIR_SHOP,
             'defects-0-defect_type': self.defect_type.pk,
             'defects-0-operation': self.operation.pk,
             'defects-0-mp_type': 'OL',

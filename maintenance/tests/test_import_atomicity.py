@@ -9,7 +9,7 @@ from django.core.management import CommandError, call_command
 from django.db import connection
 from django.test import TestCase, override_settings
 
-from acts.models import Act, ActNumberSequence
+from acts.models import Act
 from maintenance import database_transfer as dt
 
 from .test_bundle import BundleFixtureMixin
@@ -60,13 +60,13 @@ class ImportTargetMixin(BundleFixtureMixin):
 
 
 class ImportAtomicityTests(ImportTargetMixin, TestCase):
-    """Fixture load, sequence reset and ActNumberSequence sync share one
-    transaction, so a failure in any of them leaves the target untouched."""
+    """Fixture load and sequence reset share one transaction, so a failure in
+    either of them leaves the target untouched."""
 
     def setUp(self):
         self.setUpImportTarget()
 
-    def test_a_successful_import_loads_data_media_and_counters(self):
+    def test_a_successful_import_loads_data_and_media(self):
         result = self.import_bundle()
 
         self.assertEqual(result['status'], 'ok')
@@ -75,18 +75,6 @@ class ImportAtomicityTests(ImportTargetMixin, TestCase):
         self.assertTrue(result['complete_bundle'])
         self.assertEqual(Act.objects.count(), 1)
         self.assertTrue((self.target_media / 'acts/attachments/1/sample.txt').is_file())
-
-    def test_a_failing_act_number_sync_rolls_the_whole_import_back(self):
-        with mock.patch.object(
-            dt, 'sync_act_number_sequences', side_effect=dt.TransferError('сбой синхронизации')
-        ):
-            with self.assertRaisesMessage(dt.TransferError, 'сбой синхронизации'):
-                self.import_bundle()
-
-        self.assertEqual(Act.objects.count(), 0)
-        self.assertEqual(User.objects.count(), 0)
-        self.assertEqual(ActNumberSequence.objects.count(), 0)
-        self.assertFalse([entry for entry in self.target_media.rglob('*') if entry.is_file()])
 
     def test_a_failing_sequence_reset_rolls_the_whole_import_back(self):
         with mock.patch.object(
@@ -98,19 +86,6 @@ class ImportAtomicityTests(ImportTargetMixin, TestCase):
         self.assertEqual(Act.objects.count(), 0)
         self.assertEqual(User.objects.count(), 0)
         self.assertFalse([entry for entry in self.target_media.rglob('*') if entry.is_file()])
-
-    def test_act_number_sequences_are_synchronised_before_commit(self):
-        observed = {}
-        original = dt.sync_act_number_sequences
-
-        def spy():
-            observed['in_atomic_block'] = connection.in_atomic_block
-            return original()
-
-        with mock.patch.object(dt, 'sync_act_number_sequences', side_effect=spy):
-            self.import_bundle()
-
-        self.assertTrue(observed['in_atomic_block'])
 
     def test_a_media_activation_failure_yields_a_partial_result(self):
         with mock.patch.object(

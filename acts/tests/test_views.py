@@ -53,6 +53,7 @@ class ActViewTests(TestCase):
 
     def _create_act(self, status, created_by=None, **kwargs):
         return Act.objects.create(
+            number=kwargs.get('number', f'АОК-2026-{Act.objects.count() + 1:05d}'),
             created_by=created_by or self.otk_user,
             party_number=kwargs.get('party_number', 'P-001'),
             nomenclature=kwargs.get('nomenclature', 'Катушка'),
@@ -72,6 +73,7 @@ class ActViewTests(TestCase):
         response = self.client.post(
             reverse('acts:create'),
             {
+                'number_suffix': '34',
                 'customer': 'Заказчик',
                 'order_number': '100-1',
                 'nomenclature': nomenclature,
@@ -108,14 +110,14 @@ class ActViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('pattern', response.context['form'].fields['nomenclature'].widget.attrs)
-        self.assertContains(response, 'js/act_create.js?v=20260810-1')
+        self.assertContains(response, 'js/act_create.js?v=20260813-1')
         self.assertContains(response, 'Создание акта')
         self.assertContains(response, 'Операционный контроль')
         self.assertContains(response, 'class="act-form-section act-defect-section"', html=False)
         self.assertContains(response, 'class="act-form-page__back"', html=False)
         self.assertContains(response, 'data-defect-count')
         for group in ('Партия', 'Контроль', 'Результат контроля'):
-            self.assertContains(response, f'<legend>{group}</legend>', html=False)
+            self.assertContains(response, f'>{group}</legend>', html=False)
         self.assertContains(response, 'Добавить ещё дефект')
 
     def test_create_form_hides_defect_fields_until_workshop_chosen(self):
@@ -127,7 +129,7 @@ class ActViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Цех/поставщик')
         self.assertContains(response, 'Цех МП')
-        self.assertContains(response, 'Цех трансформаторов')
+        self.assertContains(response, 'Цех ПиР')
         self.assertContains(response, 'data-defect-collapsible', html=False)
 
         workshop_select_index = content.index('name="defects-0-workshop"')
@@ -176,6 +178,7 @@ class ActViewTests(TestCase):
         response = self.client.post(
             reverse('acts:create'),
             {
+                'number_suffix': '34',
                 'customer': 'Заказчик',
                 'order_number': '100-2',
                 'nomenclature': 'Катушка-А',
@@ -225,6 +228,7 @@ class ActViewTests(TestCase):
             response = self.client.post(
                 reverse('acts:create'),
                 {
+                    'number_suffix': '34',
                     'customer': 'Заказчик',
                     'order_number': order_number,
                     'nomenclature': 'Катушка-А',
@@ -247,6 +251,7 @@ class ActViewTests(TestCase):
         response = self.client.post(
             reverse('acts:create'),
             {
+                'number_suffix': '34',
                 'customer': 'Заказчик',
                 'order_number': '300-9',
                 'nomenclature': 'Катушка-А',
@@ -269,6 +274,7 @@ class ActViewTests(TestCase):
         response = self.client.post(
             reverse('acts:create'),
             {
+                'number_suffix': '34',
                 'customer': 'Заказчик',
                 'order_number': '300-10',
                 'nomenclature': 'Катушка-А',
@@ -278,14 +284,14 @@ class ActViewTests(TestCase):
                 'defects-MIN_NUM_FORMS': '1',
                 'defects-MAX_NUM_FORMS': '1000',
                 **self._defect_post_fields(0, ActDefect.Workshop.MP_SHOP),
-                **self._defect_post_fields(1, ActDefect.Workshop.TRANSFORMERS_SHOP),
+                **self._defect_post_fields(1, ActDefect.Workshop.PIR_SHOP),
             },
         )
 
         self.assertEqual(response.status_code, 302)
         act = Act.objects.get(order_number='300-10')
         workshops = set(act.defects.values_list('workshop', flat=True))
-        self.assertEqual(workshops, {ActDefect.Workshop.MP_SHOP, ActDefect.Workshop.TRANSFORMERS_SHOP})
+        self.assertEqual(workshops, {ActDefect.Workshop.MP_SHOP, ActDefect.Workshop.PIR_SHOP})
 
     def test_edit_updates_defect_workshop_and_preserves_other_validation(self):
         act = self._create_act(self.status_created, created_by=self.otk_user)
@@ -300,6 +306,7 @@ class ActViewTests(TestCase):
         response = self.client.post(
             reverse('acts:edit', args=[act.pk]),
             {
+                'number_suffix': '34',
                 'customer': 'Заказчик',
                 'order_number': '100-3',
                 'nomenclature': 'Катушка-А',
@@ -309,7 +316,7 @@ class ActViewTests(TestCase):
                 'defects-MIN_NUM_FORMS': '1',
                 'defects-MAX_NUM_FORMS': '1000',
                 'defects-0-id': defect.id,
-                'defects-0-workshop': ActDefect.Workshop.TRANSFORMERS_SHOP,
+                'defects-0-workshop': ActDefect.Workshop.MP_SHOP,
                 'defects-0-defect_type': self.defect_type.id,
                 'defects-0-operation': self.operation.id,
                 'defects-0-mp_type': 'OL',
@@ -324,13 +331,14 @@ class ActViewTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         defect.refresh_from_db()
-        self.assertEqual(defect.workshop, ActDefect.Workshop.TRANSFORMERS_SHOP)
+        self.assertEqual(defect.workshop, ActDefect.Workshop.MP_SHOP)
         self.assertEqual(defect.description, 'Обновлённое описание')
 
         # Existing quantity validation must still reject an invalid edit.
         response = self.client.post(
             reverse('acts:edit', args=[act.pk]),
             {
+                'number_suffix': '34',
                 'customer': 'Заказчик',
                 'order_number': '100-3',
                 'nomenclature': 'Катушка-А',
@@ -340,7 +348,7 @@ class ActViewTests(TestCase):
                 'defects-MIN_NUM_FORMS': '1',
                 'defects-MAX_NUM_FORMS': '1000',
                 'defects-0-id': defect.id,
-                'defects-0-workshop': ActDefect.Workshop.TRANSFORMERS_SHOP,
+                'defects-0-workshop': ActDefect.Workshop.MP_SHOP,
                 'defects-0-defect_type': self.defect_type.id,
                 'defects-0-operation': self.operation.id,
                 'defects-0-mp_type': 'OL',

@@ -85,6 +85,17 @@ tasks never live inside `acts`.
 - Every defect requires a workshop/supplier choice on the form, while the model
   field stays `blank=True` so existing rows keep no invented value. Revealing
   the remaining fields must never clear already-entered values.
+- The defect form is workshop-specific and `acts/forms.py` is the authority.
+  `MP_SHOP` keeps its full field set and `MP_DEFECT_TYPE_CODES`. `PIR_SHOP`
+  («Цех ПиР») collects only workshop, ЗНП, defect type, detected date and the
+  two quantities: `MP_ONLY_DEFECT_FIELDS` are cleared in `clean()` whatever the
+  POST carried, and only `PIR_DEFECT_TYPE_CODES` are accepted.
+  `static/js/act_create.js` filters the dropdown and the required flags for UX
+  only — never as the validation.
+- `Act.operation`, `Act.party_number`, `Act.description` and
+  `ActDefect.description` are optional so a ПиР act stores nothing invented.
+  Never write a placeholder such as `"-"` in place of missing business data;
+  read-only views render the neutral `—`.
 - Structured TO analysis is atomic and read-only after submission; each
   corrective action needs text, a department, a due date and at least one active
   assignee. Approval revalidates it all under lock and creates exactly one
@@ -94,9 +105,15 @@ tasks never live inside `acts`.
   `tasks.services.replace_task_assignees()`. Every authenticated user may read
   every task through `all`, `archive` and task detail; only active assigned
   tasks appear in `my`, and read access never grants completion rights.
-- `ActNumberSequence` is the single source of automatic `АОК-YYYY-NNN`
-  numbering: one row per year, locked while a number is issued. An explicit
-  `Act.number` is preserved; only the administrator full cleanup resets it.
+- `Act.number` is a **business identifier, never the identity**. The user types
+  a suffix of up to `ACT_NUMBER_SUFFIX_LENGTH` (5) arbitrary characters and
+  `acts.models.format_act_number()` builds `АОК-{year}-{zero-padded suffix}` on
+  the server from `timezone.localdate().year`. It has no uniqueness constraint:
+  two acts may share a number, and `Act.pk` stays the only unique key for
+  relations, URLs and rows. There is no automatic numbering and no counter
+  table — do not reintroduce either. Editing keeps the existing number
+  (including a legacy one) unless the user changes the field, and no migration
+  rewrites historical numbers.
 - `ActHistoryEvent` is the business audit trail, append-only from the normal UI.
   Comments are manual notes and never replace history. Do not add an `AuditLog`
   model — logs are diagnostics and may be rotated away.
