@@ -29,7 +29,7 @@ filters and search survive.
 </section>
 
 {% if can_clear_all_acts %}
-    <form id="act-clear-form" class="act-clear-form" method="post" action="{% url 'acts:clear_all' %}" onsubmit="return confirm('Удалить все акты, их историю, комментарии и вложения? Это действие нельзя отменить.');">
+    <form id="act-clear-form" class="act-clear-form" method="post" action="{% url 'acts:clear_all' %}">
         {% csrf_token %}
     </form>
 {% endif %}
@@ -81,7 +81,13 @@ filters and search survive.
             <a class="link-button" href="{% url 'acts:create' %}">Создать АКТ</a>
         {% endif %}
         {% if can_clear_all_acts %}
-            <button class="link-button link-button--danger" type="submit" form="act-clear-form">Очистить акты</button>
+            <button class="link-button link-button--danger" type="button"
+                data-confirm
+                data-confirm-form="act-clear-form"
+                data-confirm-title="Очистить все акты"
+                data-confirm-text="Все акты, их история, комментарии и вложения будут удалены. Это действие нельзя отменить."
+                data-confirm-label="Удалить всё"
+                data-confirm-variant="danger">Очистить акты</button>
         {% endif %}
     </section>
 {% endif %}

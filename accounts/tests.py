@@ -1,8 +1,10 @@
+from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
-from accounts.models import Department
+from accounts.models import Department, UserProfile
 
 
 class DemoAccountCommandTests(TestCase):
@@ -13,3 +15,36 @@ class DemoAccountCommandTests(TestCase):
                     call_command('seed_demo_accounts', confirm_demo=True)
 
         self.assertFalse(Department.objects.exists())
+
+
+class LandingRedirectTests(TestCase):
+    """`/acts/` is the working page; only administrators land on the dashboard."""
+
+    def _create_user(self, username, role):
+        user = User.objects.create_user(username=username, password='demo12345')
+        profile = user.userprofile
+        profile.role = role
+        profile.save()
+        return user
+
+    def test_login_and_root_send_a_normal_user_to_the_acts_registry(self):
+        self._create_user('otk_landing', UserProfile.Role.OTK)
+
+        response = self.client.post(
+            reverse('accounts:login'),
+            {'username': 'otk_landing', 'password': 'demo12345'},
+        )
+
+        self.assertRedirects(response, reverse('acts:list'))
+        self.assertRedirects(self.client.get(reverse('dashboard:home')), reverse('acts:list'))
+
+    def test_an_administrator_keeps_the_dashboard_landing_page(self):
+        self._create_user('admin_landing', UserProfile.Role.ADMIN)
+
+        response = self.client.post(
+            reverse('accounts:login'),
+            {'username': 'admin_landing', 'password': 'demo12345'},
+        )
+
+        self.assertRedirects(response, reverse('dashboard:home'))
+        self.assertEqual(self.client.get(reverse('dashboard:home')).status_code, 200)

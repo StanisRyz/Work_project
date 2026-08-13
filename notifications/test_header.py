@@ -224,7 +224,7 @@ class RealtimeTemplateWiringTests(HeaderStateMixin, TestCase):
         notification = self.make_notification(self.otk, 'partial')
         self.client.force_login(self.otk)
 
-        response = self.client.get(reverse('dashboard:home'))
+        response = self.client.get(reverse('acts:list'))
 
         self.assertTemplateUsed(response, 'notifications/includes/header_items.html')
         content = response.content.decode()
@@ -236,7 +236,7 @@ class RealtimeTemplateWiringTests(HeaderStateMixin, TestCase):
     def test_the_realtime_config_is_rendered_for_an_authenticated_user(self):
         self.client.force_login(self.otk)
 
-        content = self.client.get(reverse('dashboard:home')).content.decode()
+        content = self.client.get(reverse('acts:list')).content.decode()
 
         self.assertIn('data-realtime-config', content)
         self.assertIn('data-realtime-enabled="true"', content)
@@ -251,7 +251,7 @@ class RealtimeTemplateWiringTests(HeaderStateMixin, TestCase):
     def test_the_config_never_leaks_transport_details(self):
         self.client.force_login(self.otk)
 
-        content = self.client.get(reverse('dashboard:home')).content.decode()
+        content = self.client.get(reverse('acts:list')).content.decode()
 
         self.assertNotIn('redis://', content)
         self.assertNotIn('quality-ecosystem:realtime', content)
@@ -262,7 +262,7 @@ class RealtimeTemplateWiringTests(HeaderStateMixin, TestCase):
     def test_a_disabled_configuration_renders_no_client(self):
         self.client.force_login(self.otk)
 
-        content = self.client.get(reverse('dashboard:home')).content.decode()
+        content = self.client.get(reverse('acts:list')).content.decode()
 
         self.assertNotIn('data-realtime-config', content)
         self.assertNotIn('js/realtime/core.js', content)
@@ -278,7 +278,7 @@ class RealtimeTemplateWiringTests(HeaderStateMixin, TestCase):
     def test_the_toast_region_is_accessible(self):
         self.client.force_login(self.otk)
 
-        content = self.client.get(reverse('dashboard:home')).content.decode()
+        content = self.client.get(reverse('acts:list')).content.decode()
 
         self.assertIn('data-toast-region', content)
         self.assertIn('aria-live="polite"', content)
@@ -288,7 +288,7 @@ class RealtimeTemplateWiringTests(HeaderStateMixin, TestCase):
         # The region is inert markup: it must not depend on the feature flag.
         with override_settings(REALTIME_ENABLED=False):
             self.client.force_login(self.otk)
-            content = self.client.get(reverse('dashboard:home')).content.decode()
+            content = self.client.get(reverse('acts:list')).content.decode()
 
         self.assertIn('data-toast-region', content)
 

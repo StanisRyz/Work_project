@@ -117,18 +117,18 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Only the container's contents are ever swapped, never the container or the
-    // <details> itself, so this single toggle handler keeps finding freshly
-    // rendered items and is never re-registered after a fragment refresh.
+    // <details> itself, so the handlers below keep finding freshly rendered
+    // items and are never re-registered after a fragment refresh.
     const replaceItems = (html) => {
         itemsContainer.innerHTML = html;
         showEmptyStateIfNeeded();
     };
 
-    menu.addEventListener('toggle', () => {
-        if (!menu.open) {
-            return;
-        }
-
+    // Opening the bell must not empty it: the user has to be able to read what
+    // arrived. What was on screen is marked read only once the menu is
+    // dismissed — by closing it, or by following one of its links away from the
+    // page — so nothing disappears while it is being read.
+    const markVisibleAsRead = ({ keepalive = false } = {}) => {
         const unreadItems = [...itemsContainer.querySelectorAll('[data-notification-unread="true"]')];
         if (!unreadItems.length) {
             return;
@@ -142,6 +142,8 @@ document.addEventListener('DOMContentLoaded', () => {
             credentials: 'same-origin',
             headers: { 'X-CSRFToken': getCsrfToken() },
             body: formData,
+            // A click on an item navigates away: the request must outlive the page.
+            keepalive,
         })
             .then((response) => {
                 if (!response.ok) {
@@ -150,6 +152,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 return response.json();
             })
             .then((data) => {
+                // Only what was actually marked: an item that arrived after the
+                // request left is still unread and stays in the menu.
                 unreadItems.forEach((item) => item.remove());
                 showEmptyStateIfNeeded();
                 updateCounter(data.unread_count);
@@ -157,6 +161,19 @@ document.addEventListener('DOMContentLoaded', () => {
             .catch(() => {
                 // Leave the menu and counter untouched on failure; server state is unchanged.
             });
+    };
+
+    menu.addEventListener('toggle', () => {
+        if (menu.open) {
+            return;
+        }
+        markVisibleAsRead();
+    });
+
+    itemsContainer.addEventListener('click', (event) => {
+        if (event.target.closest && event.target.closest('[data-notification-id]')) {
+            markVisibleAsRead({ keepalive: true });
+        }
     });
 
     // The narrow contract the real-time client uses, so the bell's DOM rules

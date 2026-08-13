@@ -616,29 +616,38 @@ def act_ko_decision(request, pk):
     return render(request, 'acts/detail.html', context)
 
 
-@login_required
-def act_return_to_otk(request, pk):
+def _handle_return_transition(request, pk, apply_return, success_message):
+    """Shared POST flow of the three return transitions.
+
+    The confirmation modal is generic and holds no server state, so a rejected
+    return reports through `messages` and sends the user back to the work tab
+    instead of re-rendering a per-action dialog. Role, status and the mandatory
+    comment stay enforced by the form and the service under lock.
+    """
     act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
     if request.method != 'POST':
         return _redirect_to_detail_tab(act, 'work')
-    form = ReturnToOtkForm(request.POST)
-    if form.is_valid():
-        try:
-            act = return_to_otk(act, request.user, form.cleaned_data['comment'])
-        except ActWorkflowError as exc:
-            form.add_error(None, str(exc))
-        else:
-            messages.success(request, 'Акт возвращён в ОТК на доработку.')
-            return _redirect_after_transition(act, request.user)
 
-    context = _get_act_detail_context(
-        act,
-        request.user,
-        detail_tab='work',
-        return_to_otk_form=form,
-        return_dialog_open=True,
+    form = ReturnToOtkForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Укажите комментарий к возврату.')
+        return _redirect_to_detail_tab(act, 'work')
+
+    try:
+        act = apply_return(act, request.user, form.cleaned_data['comment'])
+    except ActWorkflowError as exc:
+        messages.error(request, str(exc))
+        return _redirect_to_detail_tab(act, 'work')
+
+    messages.success(request, success_message)
+    return _redirect_after_transition(act, request.user)
+
+
+@login_required
+def act_return_to_otk(request, pk):
+    return _handle_return_transition(
+        request, pk, return_to_otk, 'Акт возвращён в ОТК на доработку.'
     )
-    return render(request, 'acts/detail.html', context)
 
 
 @login_required
@@ -665,48 +674,16 @@ def act_to_analysis(request, pk):
 
 @login_required
 def act_return_to_ko(request, pk):
-    act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
-    if request.method != 'POST':
-        return _redirect_to_detail_tab(act, 'work')
-
-    form = ReturnToOtkForm(request.POST)
-    if form.is_valid():
-        try:
-            act = return_to_ko(act, request.user, form.cleaned_data['comment'])
-        except ActWorkflowError as exc:
-            form.add_error(None, str(exc))
-        else:
-            messages.success(request, 'Акт возвращён в КО на доработку.')
-            return _redirect_after_transition(act, request.user)
-
-    context = _get_act_detail_context(
-        act,
-        request.user,
-        detail_tab='work',
-        return_to_ko_form=form,
-        return_to_ko_dialog_open=True,
+    return _handle_return_transition(
+        request, pk, return_to_ko, 'Акт возвращён в КО на доработку.'
     )
-    return render(request, 'acts/detail.html', context)
 
 
 @login_required
 def act_return_to_to(request, pk):
-    act = get_object_or_404(get_visible_acts_for_user(request.user), pk=pk)
-    if request.method != 'POST':
-        return _redirect_to_detail_tab(act, 'work')
-    form = ReturnToOtkForm(request.POST)
-    if form.is_valid():
-        try:
-            act = return_to_to(act, request.user, form.cleaned_data['comment'])
-        except ActWorkflowError as exc:
-            form.add_error(None, str(exc))
-        else:
-            messages.success(request, 'Акт возвращён в ТО на доработку.')
-            return _redirect_after_transition(act, request.user)
-    context = _get_act_detail_context(
-        act, request.user, detail_tab='work', return_to_to_form=form, return_to_to_dialog_open=True
+    return _handle_return_transition(
+        request, pk, return_to_to, 'Акт возвращён в ТО на доработку.'
     )
-    return render(request, 'acts/detail.html', context)
 
 
 @login_required
@@ -761,13 +738,7 @@ def _get_act_detail_context(
     ko_decision_form=None,
     ko_decision_formset=None,
     detail_tab='work',
-    return_to_otk_form=None,
-    return_dialog_open=False,
     to_analysis_form=None,
-    return_to_ko_form=None,
-    return_to_ko_dialog_open=False,
-    return_to_to_form=None,
-    return_to_to_dialog_open=False,
 ):
     # Shared with the live fragments, so a refreshed block and a reload can
     # never disagree.
@@ -846,12 +817,6 @@ def _get_act_detail_context(
         'comments': comments,
         'can_contribute': can_contribute_to_act(act, user),
         'comment_form': comment_form or ActCommentForm(),
-        'return_to_otk_form': return_to_otk_form or ReturnToOtkForm(),
-        'return_dialog_open': return_dialog_open,
-        'return_to_ko_form': return_to_ko_form or ReturnToOtkForm(),
-        'return_to_ko_dialog_open': return_to_ko_dialog_open,
-        'return_to_to_form': return_to_to_form or ReturnToOtkForm(),
-        'return_to_to_dialog_open': return_to_to_dialog_open,
         'to_analysis_form': to_analysis_form or ToAnalysisStructureForm(root_analyses=root_analyses),
         'root_analyses': root_analyses,
         'analysis_departments': Department.objects.filter(is_active=True),

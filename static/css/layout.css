@@ -99,7 +99,8 @@
 .profile-menu__avatar { display: inline-grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: #edf3ff; color: var(--color-primary); font-size: 12px; font-weight: 700; }
 .profile-menu__identity { display: grid; gap: 1px; font-size: 12px; line-height: 1.25; }
 .profile-menu__identity small { color: var(--color-muted); font-size: 11px; }
-.profile-menu__chevron { color: #3c5488; font-size: 17px; }
+.profile-menu__chevron { width: 16px; height: 16px; color: #3c5488; transition: transform .15s ease; }
+.profile-menu[open] .profile-menu__chevron { transform: rotate(180deg); }
 .profile-menu__popup { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; display: grid; min-width: 210px; padding: 6px; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); box-shadow: 0 12px 28px rgb(15 23 42 / 14%); }
 .profile-menu__popup a, .profile-menu__popup button { padding: 9px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--color-text); font: inherit; text-align: left; cursor: pointer; }
 .profile-menu__popup a:hover, .profile-menu__popup button:hover { background: #f4f7fc; }

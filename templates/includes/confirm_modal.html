@@ -1,0 +1,24 @@
+{% comment %}
+The one application confirmation modal, rendered once per page.
+
+Nothing here is action-specific: `static/js/confirm_modal.js` fills the title,
+description, comment field and confirm label from the data attributes of the
+button that was clicked. The CSRF token is server-rendered, so a standalone
+confirmation POSTs through the ordinary protected flow.
+{% endcomment %}
+<dialog class="app-modal" data-confirm-modal aria-labelledby="confirm-modal-title">
+    <form class="app-modal__form" method="post" data-confirm-modal-form>
+        {% csrf_token %}
+        <h2 id="confirm-modal-title" data-confirm-modal-title></h2>
+        <p data-confirm-modal-text></p>
+        <label class="app-modal__comment" data-confirm-modal-comment hidden>
+            <span data-confirm-modal-comment-label>Комментарий</span>
+            <textarea rows="4" data-confirm-modal-comment-input></textarea>
+        </label>
+        <p class="app-modal__error" data-confirm-modal-error hidden></p>
+        <div class="app-modal__actions">
+            <button class="link-button link-button--secondary" type="button" data-confirm-modal-cancel>Отмена</button>
+            <button class="link-button" type="submit" data-confirm-modal-accept>Подтвердить</button>
+        </div>
+    </form>
+</dialog>

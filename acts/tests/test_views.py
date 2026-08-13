@@ -1161,3 +1161,45 @@ class ActViewTests(TestCase):
         self.assertNotContains(response, '<dt>Утвердил</dt>', html=False)
         self.assertNotContains(response, '<dt>Дата утверждения</dt>', html=False)
         self.assertEqual(response.context['route_steps'][-1]['state'], 'completed')
+
+    def test_return_to_ko_post_changes_status_and_stores_the_required_comment(self):
+        act = self._create_act(self.status_to)
+        self.client.force_login(self.to_user)
+
+        response = self.client.post(
+            reverse('acts:return_to_ko', args=[act.pk]),
+            {'comment': 'Уточните решение КО по второму дефекту.'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'KO_REVIEW')
+        self.assertEqual(
+            list(act.comments.values_list('text', flat=True)),
+            ['Уточните решение КО по второму дефекту.'],
+        )
+        self.assertTrue(
+            act.history_events.filter(
+                event_type=ActHistoryEvent.EventType.RETURNED_TO_KO
+            ).exists()
+        )
+
+    def test_a_return_without_role_or_comment_leaves_the_act_untouched(self):
+        act = self._create_act(self.status_to)
+
+        # Wrong role for this transition: rejected before anything is written.
+        self.client.force_login(self.otk_user)
+        self.assertEqual(
+            self.client.post(
+                reverse('acts:return_to_ko', args=[act.pk]), {'comment': 'Верните.'}
+            ).status_code,
+            404,
+        )
+
+        # Right role, missing mandatory comment: still no transition.
+        self.client.force_login(self.to_user)
+        self.client.post(reverse('acts:return_to_ko', args=[act.pk]), {'comment': '   '})
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'TO_ANALYSIS')
+        self.assertFalse(act.comments.exists())

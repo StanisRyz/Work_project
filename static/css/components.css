@@ -297,23 +297,56 @@
     font-weight: 700;
 }
 
+/* Shared button system.
+   Every clickable action — <a>, <button> or <input type="submit"> — uses
+   `.link-button` plus at most one semantic modifier. The base rule fixes font,
+   size, height, padding, radius and alignment so buttons standing next to each
+   other match whatever element they are built from; a modifier only ever
+   changes colour. Do not restate these properties per page. */
+
 .link-button {
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
     width: fit-content;
+    min-height: 38px;
     margin-top: 14px;
-    padding: 8px 12px;
+    padding: 8px 14px;
+    /* A transparent border on the filled variants: an outlined neighbour is
+       then exactly the same height. */
+    border: 1px solid transparent;
     border-radius: var(--radius);
     background: var(--color-primary);
     color: #ffffff;
+    font-family: inherit;
+    font-size: 14px;
     font-weight: 700;
+    line-height: 1.2;
+    text-align: center;
+    vertical-align: middle;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
 
 .link-button:hover {
     background: var(--color-primary-dark);
 }
 
+.link-button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+.link-button:disabled,
+.link-button[aria-disabled='true'] {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
 .link-button--secondary {
-    border: 1px solid var(--color-border);
+    border-color: var(--color-border);
     background: var(--color-surface);
     color: var(--color-text);
 }
@@ -322,12 +355,45 @@
     background: var(--color-bg);
 }
 
+/* The one dense size, for buttons sitting inside a card's own toolbar. */
+.link-button--compact {
+    min-height: 34px;
+    margin-top: 0;
+    padding: 7px 11px;
+    font-size: 13px;
+}
+
+.link-button--compact .ui-icon {
+    width: 15px;
+    height: 15px;
+}
+
+.link-button--warning {
+    border-color: #fcd9a4;
+    background: #fff7ed;
+    color: #92400e;
+}
+
+.link-button--warning:hover {
+    background: #fdebd0;
+}
+
+.auth-layout {
+    display: grid;
+    place-items: center;
+    /* Balanced rather than dead-centred: the topbar already sits above. */
+    min-height: min(72vh, 620px);
+    padding: 24px 0;
+}
+
 .auth-panel {
-    width: min(440px, 100%);
-    padding: 24px;
+    width: min(420px, 100%);
+    margin: 0 auto;
+    padding: 28px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
+    box-shadow: 0 12px 32px rgb(15 23 42 / 8%);
 }
 
 .auth-panel h1 {
@@ -359,6 +425,20 @@
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+}
+
+.auth-form .link-button {
+    width: 100%;
+    margin-top: 4px;
+}
+
+/* Login errors stay inside the card, above the field they belong to. */
+.auth-form .errorlist {
+    margin: 0;
+    padding: 0;
+    color: #991b1b;
+    font-size: 13px;
+    list-style: none;
 }
 
 .form-error {
@@ -564,6 +644,85 @@
     .topbar__identity {
         text-align: left;
     }
+}
+
+/* The single application confirmation modal (`includes/confirm_modal.html`).
+   Every workflow confirmation reuses it; there is no per-action dialog and no
+   browser confirm() anywhere in the workflow. */
+
+.app-modal {
+    width: min(520px, calc(100% - 32px));
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: 0 24px 48px rgb(15 23 42 / 22%);
+}
+
+.app-modal::backdrop {
+    background: rgb(15 23 42 / 45%);
+}
+
+.app-modal__form {
+    display: grid;
+    gap: 14px;
+    padding: 24px;
+}
+
+.app-modal__form h2,
+.app-modal__form > p {
+    margin: 0;
+}
+
+.app-modal__form h2 {
+    font-size: 20px;
+}
+
+.app-modal__form > p {
+    color: var(--color-muted);
+}
+
+.app-modal__form > p:empty {
+    display: none;
+}
+
+.app-modal__comment {
+    display: grid;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.app-modal__comment textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+    resize: vertical;
+}
+
+.app-modal__error {
+    margin: 0;
+    color: #991b1b;
+    font-size: 13px;
+}
+
+.app-modal__error[hidden] {
+    display: none;
+}
+
+.app-modal__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.app-modal__actions .link-button {
+    margin-top: 0;
 }
 
 /* Real-time toasts (RT-3). Bottom-right, so the topbar bell, profile menu and

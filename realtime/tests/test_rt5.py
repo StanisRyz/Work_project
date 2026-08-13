@@ -459,7 +459,7 @@ class RealtimeSettingsTests(TestCase):
         self.client.force_login(user)
 
         with override_settings(REALTIME_ENABLED=True):
-            content = self.client.get(reverse('dashboard:home')).content.decode()
+            content = self.client.get(reverse('acts:list')).content.decode()
 
         self.assertIn('data-sync-url="/realtime/sync/"', content)
         self.assertIn('data-degraded-after-seconds=', content)

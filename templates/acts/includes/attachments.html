@@ -8,7 +8,7 @@
             {{ attachment_form.file }}
             <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>
             <span data-attachment-file-name>Выберите файл для загрузки</span>
-            <button class="link-button link-button--secondary" type="button" data-attachment-file-trigger>Выбрать файл</button>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-attachment-file-trigger>Выбрать файл</button>
         </div>
         {{ attachment_form.file.errors }}
         <div class="attachment-description">
@@ -16,7 +16,7 @@
             {{ attachment_form.description }}
             {{ attachment_form.description.errors }}
         </div>
-        <button class="link-button" type="submit"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Добавить вложение</button>
+        <button class="link-button link-button--compact" type="submit"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Добавить вложение</button>
     </form>
     {% endif %}
 

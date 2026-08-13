@@ -19,14 +19,14 @@ model without explicit approval.
 | App | Owns |
 | --- | --- |
 | `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware. No models |
-| `accounts` | `Department`, `UserProfile` (role, department), login |
+| `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`) |
 | `references` | operations, defect types, act/task statuses, priorities; `seed_references` |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
 | `tasks` | tasks created on approval, their assignees and completion |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
-| `dashboard` | landing page |
+| `dashboard` | administrator landing page; redirects everyone else to `/acts/` |
 
 Reference data belongs in `references`, never as free text on a business model;
 tasks never live inside `acts`.
@@ -54,6 +54,19 @@ tasks never live inside `acts`.
   `MEDIA_ROOT` is never published by the web server and is a different
   directory from `STATIC_ROOT`.
 - Django Templates and vanilla JavaScript only: no framework, bundler or npm.
+- **A live-replaced fragment never owns a listener bound at page load.**
+  `[data-live-act-work]` is swapped wholesale, so its markup is wired by a
+  delegated `document` listener or a `window.qualityFragments` initialiser; a
+  one-shot `querySelector(…).addEventListener` dies on the first refresh.
+- One confirmation modal, no browser dialogs: `includes/confirm_modal.html` with
+  `static/js/confirm_modal.js`, driven by `data-confirm-*` on the trigger —
+  `-url` posts the modal's own CSRF-protected form, `-form` submits an existing
+  page form, `-comment="required"` adds the mandatory comment.
+- One button system: `.link-button` fixes font, size, height, padding, radius and
+  states; a modifier (`--secondary`, `--warning`, `--danger`, `--success`,
+  `--compact`) changes only colour or density.
+- `accounts.navigation.get_default_landing_url()` is the one answer to where a
+  user belongs: dashboard for an administrator, `/acts/` for everyone else.
 
 ## Domain invariants
 

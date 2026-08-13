@@ -575,7 +575,10 @@ def _resolve_media_root():
 MEDIA_ROOT = _resolve_media_root()
 
 LOGIN_URL = 'accounts:login'
-LOGIN_REDIRECT_URL = 'dashboard:home'
+# The acts registry is the working page. `accounts.views.AppLoginView` sends an
+# administrator to the dashboard instead; this is the fallback everything else
+# in Django (including `redirect_to_login`) uses.
+LOGIN_REDIRECT_URL = 'acts:list'
 LOGOUT_REDIRECT_URL = 'accounts:login'
 
 

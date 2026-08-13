@@ -660,6 +660,10 @@
     gap: 10px;
 }
 
+/* `#ko-decision-form` holds only hidden fields — its visible controls live in
+   the defects table and are linked by their `form` attribute — so it must not
+   claim a grid row of its own. */
+.act-work-sequence > #ko-decision-form { display: none; }
 .act-work-sequence > .detail-section { padding: 10px 12px; }
 .act-work-sequence > .detail-section > h2 { margin-bottom: 10px; color: #162852; font-size: 17px; }
 
@@ -1008,8 +1012,7 @@
 .act-form label,
 .to-analysis-form label,
 .comment-form label,
-.attachment-form label,
-.act-return-dialog__form label {
+.attachment-form label {
     pointer-events: none;
 }
 
@@ -1024,10 +1027,7 @@
 .comment-form label textarea,
 .attachment-form label input,
 .attachment-form label select,
-.attachment-form label textarea,
-.act-return-dialog__form label input,
-.act-return-dialog__form label select,
-.act-return-dialog__form label textarea {
+.attachment-form label textarea {
     pointer-events: auto;
 }
 
@@ -1186,7 +1186,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
-    align-items: end;
+    align-items: center;
 }
 
 .act-inline-actions .link-button {
@@ -1268,14 +1268,9 @@
 .attachment-picker > .ui-icon { width: 18px; height: 18px; color: #2563eb; }
 .attachment-picker [data-attachment-file-name] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-picker--selected { border-style: solid; border-color: #86efac; background: #f3fdf7; color: #166534; }
-.attachment-picker .link-button { margin: 0; padding: 7px 10px; font-size: 13px; }
 .attachment-description { display: grid; gap: 5px; color: var(--color-muted); font-size: 13px; }
 .attachment-description textarea,
 .comment-form textarea { box-sizing: border-box; width: 100%; min-height: 58px; padding: 9px 10px; border: 1px solid var(--color-border); border-radius: 6px; font: inherit; resize: vertical; }
-.attachment-form > .link-button,
-.comment-form > .link-button { display: inline-flex; align-items: center; gap: 7px; width: fit-content; margin: 0; padding: 8px 11px; font-size: 13px; }
-.attachment-form > .link-button .ui-icon,
-.comment-form > .link-button .ui-icon { width: 15px; height: 15px; }
 .attachment-list,
 .comment-list { gap: 0; }
 .attachment-card { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
@@ -1350,57 +1345,6 @@
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
-}
-
-.act-return-dialog {
-    width: min(560px, calc(100% - 32px));
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    padding: 0;
-    color: var(--color-text);
-    background: var(--color-surface);
-}
-
-.act-return-dialog::backdrop {
-    background: rgb(15 23 42 / 45%);
-}
-
-.act-return-dialog__form {
-    display: grid;
-    gap: 14px;
-    padding: 24px;
-}
-
-.act-return-dialog__form h2,
-.act-return-dialog__form p {
-    margin: 0;
-}
-
-.act-return-dialog__form > p {
-    color: var(--color-muted);
-}
-
-.act-return-dialog__form label {
-    display: grid;
-    gap: 6px;
-    color: var(--color-muted);
-    font-size: 14px;
-}
-
-.act-return-dialog__form textarea {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    color: var(--color-text);
-    font: inherit;
-}
-
-.act-return-dialog__actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    flex-wrap: wrap;
 }
 
 .to-analysis-form,
@@ -1640,10 +1584,6 @@
    presentation without affecting these components in other contexts. */
 .act-collaboration-layout .attachment-form,
 .act-collaboration-layout .comment-form { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
-.act-collaboration-layout .attachment-form > .link-button,
-.act-collaboration-layout .comment-form > .link-button { display: inline-flex; align-items: center; gap: 7px; width: fit-content; margin: 0; padding: 8px 11px; font-size: 13px; }
-.act-collaboration-layout .attachment-form > .link-button .ui-icon,
-.act-collaboration-layout .comment-form > .link-button .ui-icon { width: 15px; height: 15px; }
 .act-collaboration-layout .attachment-list,
 .act-collaboration-layout .comment-list { display: grid; gap: 0; }
 .act-collaboration-layout .attachment-card { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }

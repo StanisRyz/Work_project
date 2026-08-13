@@ -14,7 +14,7 @@ class RealtimeCoordinationEpochTests(TestCase):
 
         for client in clients:
             client.force_login(user)
-            response = client.get(reverse('dashboard:home'))
+            response = client.get(reverse('acts:list'))
             epoch = response.context['realtime_client']['coordination_epoch']
             session_key = client.session.session_key
 

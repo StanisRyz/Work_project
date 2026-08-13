@@ -283,7 +283,7 @@ class NotificationViewTests(NotificationTestMixin, TestCase):
         read = self.create_notification(self.otk, 'bell-already-read', is_read=True)
         self.client.force_login(self.otk)
 
-        response = self.client.get(reverse('dashboard:home'))
+        response = self.client.get(reverse('acts:list'))
 
         self.assertNotIn(read, response.context['recent_notifications'])
         self.assertContains(response, 'Новых уведомлений нет.')
@@ -411,7 +411,7 @@ class NotificationViewTests(NotificationTestMixin, TestCase):
         older_unread = self.create_notification(self.otk, 'bell-older')
         recent = [self.create_notification(self.otk, f'bell-recent-{i}') for i in range(5)]
 
-        response = self.client.get(reverse('dashboard:home'))
+        response = self.client.get(reverse('acts:list'))
         self.assertContains(response, 'data-notification-menu')
         self.assertContains(response, 'data-notification-unread="true"')
         shown_ids = [

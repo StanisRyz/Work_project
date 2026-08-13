@@ -30,8 +30,10 @@ user has no unsaved input; a dirty form is never touched.
     <article class="detail-section to-analysis-section">
         <h2>Анализ ТО</h2>
         {% if available_actions.to_analysis %}
-            <form id="to-analysis-form" method="post" action="{% url 'acts:to_analysis' act.pk %}" class="to-analysis-form" onsubmit="return confirm('Передать анализ на проверку ОТК?');">
+            <form id="to-analysis-form" method="post" action="{% url 'acts:to_analysis' act.pk %}" class="to-analysis-form">
                 {% csrf_token %}
+                {# Submitted through the confirmation modal, which has no submitter button of its own. #}
+                <input type="hidden" name="action" value="send_to_otk">
                 {% if to_analysis_form.non_field_errors %}<ul class="errorlist">{% for error in to_analysis_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
                 <div data-root-analysis-list>
                     {% for root in to_analysis_form.root_rows %}
@@ -93,20 +95,80 @@ user has no unsaved input; a dirty form is never touched.
         {% if available_actions.close_act %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a></div>{% endif %}
     </article>
 
+    {% comment %}
+    The КО decision fields live in the defects table above and are attached to
+    this form by their `form` attribute, so it carries no visible controls of
+    its own and stays outside the button row.
+    {% endcomment %}
+    {% if available_actions.ko_decision %}<form id="ko-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}">{% csrf_token %}{% if ko_decision_formset %}{{ ko_decision_formset.management_form }}{% endif %}</form>{% endif %}
+
     <div class="act-primary-actions">
         <div class="act-inline-actions">
             {% if available_actions.print_act %}<a class="link-button link-button--secondary" href="{% url 'acts:print' act.pk %}">Печатная форма</a>{% endif %}
             <a class="link-button link-button--secondary" href="{% url 'acts:list' %}">К списку</a>
         </div>
+        {% comment %}
+        Every workflow action is a plain button carrying its own confirmation
+        data. `static/js/confirm_modal.js` binds them through one delegated
+        listener, so the buttons keep working after this fragment is replaced
+        live — and each one still POSTs to its real, permission-checked view.
+        {% endcomment %}
         <div class="act-inline-actions">
             {% if available_actions.edit_act %}<a class="link-button link-button--secondary" href="{% url 'acts:edit' act.pk %}">Редактировать</a>{% endif %}
-            {% if available_actions.return_to_otk %}<button class="link-button link-button--secondary" type="button" data-return-to-otk-open>Вернуть ОТК</button>{% endif %}
-            {% if available_actions.return_to_ko %}<button class="link-button link-button--secondary" type="button" data-return-to-ko-open>Вернуть КО</button>{% endif %}
-            {% if available_actions.to_analysis %}<button class="link-button" type="submit" form="to-analysis-form" name="action" value="send_to_otk" data-workflow-submit>На проверку ОТК</button>{% endif %}
-            {% if available_actions.return_to_to %}<button class="link-button link-button--secondary" type="button" data-return-to-to-open>Вернуть ТО</button>{% endif %}
-            {% if available_actions.approve_act %}<form method="post" action="{% url 'acts:approve' act.pk %}" onsubmit="return confirm('Утвердить акт и переместить его в архив?');">{% csrf_token %}<button class="link-button" type="submit" data-workflow-submit>Утвердить</button></form>{% endif %}
-            {% if available_actions.ko_decision %}<form id="ko-decision-form" method="post" action="{% url 'acts:ko_decision' act.pk %}" onsubmit="return confirm('Сохранить решения КО и передать акт в ТО?');">{% csrf_token %}{% if ko_decision_formset %}{{ ko_decision_formset.management_form }}{% endif %}<button class="link-button" type="submit" data-workflow-submit>Передать в ТО</button></form>{% endif %}
-            {% if available_actions.send_to_ko %}<form method="post" action="{% url 'acts:send_to_ko' act.pk %}" onsubmit="return confirm('Передать акт в КО? После подтверждения он исчезнет из вашей очереди ОТК.');">{% csrf_token %}<button class="link-button" type="submit" data-workflow-submit>Передать в КО</button></form>{% endif %}
+            {% if available_actions.return_to_otk %}<button class="link-button link-button--warning" type="button" data-workflow-submit
+                data-confirm
+                data-confirm-url="{% url 'acts:return_to_otk' act.pk %}"
+                data-confirm-title="Вернуть акт в ОТК на доработку"
+                data-confirm-text="Укажите, какие данные необходимо уточнить или исправить."
+                data-confirm-label="Вернуть на доработку"
+                data-confirm-variant="warning"
+                data-confirm-comment="required"
+                data-confirm-comment-label="Комментарий к возврату"
+                data-confirm-comment-error="Укажите комментарий к возврату.">Вернуть ОТК</button>{% endif %}
+            {% if available_actions.return_to_ko %}<button class="link-button link-button--warning" type="button" data-workflow-submit
+                data-confirm
+                data-confirm-url="{% url 'acts:return_to_ko' act.pk %}"
+                data-confirm-title="Вернуть акт в КО на доработку"
+                data-confirm-text="Укажите, какое решение КО необходимо уточнить или исправить."
+                data-confirm-label="Вернуть на доработку"
+                data-confirm-variant="warning"
+                data-confirm-comment="required"
+                data-confirm-comment-label="Комментарий к возврату"
+                data-confirm-comment-error="Укажите комментарий к возврату.">Вернуть КО</button>{% endif %}
+            {% if available_actions.to_analysis %}<button class="link-button" type="button" data-workflow-submit
+                data-confirm
+                data-confirm-form="to-analysis-form"
+                data-confirm-title="Передать анализ на проверку ОТК"
+                data-confirm-text="Анализ ТО будет сохранён и станет доступен ОТК только для чтения."
+                data-confirm-label="Передать">На проверку ОТК</button>{% endif %}
+            {% if available_actions.return_to_to %}<button class="link-button link-button--warning" type="button" data-workflow-submit
+                data-confirm
+                data-confirm-url="{% url 'acts:return_to_to' act.pk %}"
+                data-confirm-title="Вернуть акт в ТО на доработку"
+                data-confirm-text="Укажите, что необходимо уточнить в анализе ТО."
+                data-confirm-label="Вернуть на доработку"
+                data-confirm-variant="warning"
+                data-confirm-comment="required"
+                data-confirm-comment-label="Комментарий к возврату"
+                data-confirm-comment-error="Укажите комментарий к возврату.">Вернуть ТО</button>{% endif %}
+            {% if available_actions.approve_act %}<button class="link-button" type="button" data-workflow-submit
+                data-confirm
+                data-confirm-url="{% url 'acts:approve' act.pk %}"
+                data-confirm-title="Утвердить акт"
+                data-confirm-text="Акт будет утверждён и перемещён в архив, по каждому мероприятию появится задача."
+                data-confirm-label="Утвердить">Утвердить</button>{% endif %}
+            {% if available_actions.ko_decision %}<button class="link-button" type="button" data-workflow-submit
+                data-confirm
+                data-confirm-form="ko-decision-form"
+                data-confirm-title="Передать акт в ТО"
+                data-confirm-text="Решения КО по всем дефектам будут сохранены, акт перейдёт на анализ ТО."
+                data-confirm-label="Передать в ТО">Передать в ТО</button>{% endif %}
+            {% if available_actions.send_to_ko %}<button class="link-button" type="button" data-workflow-submit
+                data-confirm
+                data-confirm-url="{% url 'acts:send_to_ko' act.pk %}"
+                data-confirm-title="Передать акт в КО"
+                data-confirm-text="После подтверждения акт исчезнет из вашей очереди ОТК и станет доступен только для чтения."
+                data-confirm-label="Передать в КО">Передать в КО</button>{% endif %}
         </div>
     </div>
 </section>
