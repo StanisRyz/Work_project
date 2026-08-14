@@ -23,13 +23,15 @@ model without explicit approval.
 | `references` | operations, defect types, act/task statuses, priorities; `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
 | `tasks` | tasks created on approval, their assignees and completion |
+| `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculator/`, the `.xlsx` export and `import_calculator_json` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
 
-The only user-facing sections are Акты (`/acts/`) and Задачи (`/tasks/`); `/`
-redirects to `/acts/` and so does the login fallback, for every role including
-superusers. Django Admin (`/admin/`) is reached directly, not from the sidebar.
+The user-facing sections are Акты (`/acts/`), Задачи (`/tasks/`) and
+Калькулятор (`/calculator/`); `/` redirects to `/acts/` and so does the login
+fallback, for every role including superusers. Django Admin (`/admin/`) is
+reached directly, not from the sidebar.
 
 Reference data belongs in `references`, never as free text on a business model;
 tasks never live inside `acts`.
@@ -124,6 +126,28 @@ tasks never live inside `acts`.
 - Notifications are created in the same transaction as their business event,
   deduplicated per recipient by a stable source key, and routed in one place:
   `notifications/services.py`.
+- **The calculator was integrated from `StanisRyz/calculate` at commit
+  `d32eae0e5d7b66bdd41214cc7ba9601534c4f254`** and this repository is now the
+  source of truth for it. `static/js/calculator/rules.js` and
+  `calculation.js` are the ported formulas: coefficients, caps, the 0,25
+  rounding step, the calibration branch and the hoop-geometry rules must not
+  be changed as a side effect of any other work. A deliberate formula change
+  bumps `CALCULATION_VERSION` in `calculator/models.py`, which is stamped on
+  every new entry so historical rows stay distinguishable.
+- Calculator entries live in the ordinary `default` database — no second
+  database, no separate connection, no JSON file, no File System Access API.
+  «Проработка» is one shared journal for every authenticated user;
+  `created_by`/`updated_by` are auditing only and grant nothing.
+- `case_key` is always derived on the server by
+  `calculator.models.build_case_key()` (whitespace removed, lowercased) and is
+  unique in the database, so concurrent identical calculations converge on one
+  logical row; a browser-supplied key is never stored. An existing case is a
+  normal answer, not an error.
+- `actual_unit_time_hours` is server-derived as
+  `actual_batch_time_hours / batch_quantity` in `calculator/services.py`.
+  A browser-supplied value is ignored, and the `.xlsx` export is built from
+  confirmed database rows by `calculator/export.py`, never from the tab's
+  local state.
 
 ## Security and permissions
 

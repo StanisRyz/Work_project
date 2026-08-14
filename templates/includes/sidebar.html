@@ -9,6 +9,7 @@
     <nav class="sidebar__nav">
         <a class="sidebar__link{% if active_page == 'acts' %} sidebar__link--active{% endif %}" href="{% url 'acts:list' %}">Акты</a>
         <a class="sidebar__link{% if active_page == 'tasks' %} sidebar__link--active{% endif %}" href="{% url 'tasks:list' %}">Задачи</a>
+        <a class="sidebar__link{% if active_page == 'calculator' %} sidebar__link--active{% endif %}" href="{% url 'calculator:page' %}">Калькулятор</a>
     </nav>
     <div class="sidebar__account">
         {% if user.is_authenticated %}

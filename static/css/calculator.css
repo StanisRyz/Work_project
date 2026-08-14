@@ -1,0 +1,292 @@
+/*
+ * Calculator module styles.
+ *
+ * Every selector is nested under `.calculator-module`, so nothing here can
+ * reach Акты or Задачи even though the sheet is loaded into the shared
+ * layout. Colours, radius, typography and spacing come from the project's
+ * own tokens in `base.css`; the source repository's palette is not carried
+ * over. Buttons reuse `.link-button` and its modifiers — this file never
+ * restyles them.
+ */
+
+.calculator-module {
+    display: grid;
+    gap: 16px;
+}
+
+.calc-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.calc-heading h1 {
+    margin: 0 0 4px;
+    font-size: 28px;
+    line-height: 1.15;
+}
+
+.calc-heading p {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+/* Internal Калькулятор / Проработка switch. Same visual idiom as the act
+   registry tabs, but a local one: these are buttons, not navigation. */
+.calculator-module .calc-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.calculator-module .calc-tab {
+    padding: 10px 14px;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    background: none;
+    color: var(--color-muted);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.calculator-module .calc-tab:hover {
+    color: var(--color-primary-dark);
+}
+
+.calculator-module .calc-tab--active {
+    border-bottom-color: var(--color-primary);
+    color: var(--color-primary-dark);
+}
+
+.calculator-module .calc-panel[hidden] {
+    display: none;
+}
+
+.calc-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, .9fr) minmax(360px, 1.1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.calculator-module .calc-card {
+    padding: 20px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+.calculator-module .calc-card h2 {
+    margin: 0 0 16px;
+    font-size: 19px;
+}
+
+.calculator-module .calc-card h3 {
+    margin: 0 0 10px;
+    font-size: 15px;
+}
+
+.calc-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.calculator-module label,
+.calc-readonly-field {
+    display: grid;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.calculator-module input,
+.calculator-module select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.calc-readonly-field output {
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    color: var(--color-text);
+}
+
+.calc-readonly-field small,
+.calculator-module .calc-placeholder {
+    color: var(--color-muted);
+}
+
+.calculator-module .calc-errors {
+    color: #b42318;
+    font-size: 14px;
+}
+
+.calculator-module .calc-errors p {
+    margin: 10px 0 0;
+}
+
+.calc-time {
+    margin-bottom: 16px;
+    color: var(--color-primary-dark);
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.calc-time small {
+    color: var(--color-muted);
+    font-size: 15px;
+    font-weight: 400;
+}
+
+.calc-developer-details {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--color-border);
+}
+
+.calc-developer-details h3 {
+    color: var(--color-muted);
+}
+
+.calculator-module dl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin: 0;
+    border-top: 1px solid var(--color-border);
+}
+
+.calculator-module dl div {
+    padding: 9px 4px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.calculator-module dt {
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.calculator-module dd {
+    margin: 2px 0 0;
+    font-weight: 700;
+}
+
+.calc-journal-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.calc-journal-heading h2 {
+    margin-bottom: 4px;
+}
+
+.calc-journal-heading p {
+    margin: 0;
+}
+
+.calc-journal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* One quiet line for "loaded / saving / failed". It replaces the source's
+   database bar, which only ever described the JSON file. */
+.calculator-module .calc-status {
+    min-height: 20px;
+    margin: 14px 0 0;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.calculator-module .calc-status--busy {
+    color: var(--color-primary-dark);
+}
+
+.calculator-module .calc-status--error {
+    color: #b42318;
+    font-weight: 700;
+}
+
+.calc-journal-filters {
+    display: grid;
+    grid-template-columns: 2fr repeat(3, minmax(110px, 1fr));
+    gap: 12px;
+    margin: 14px 0 18px;
+}
+
+.calc-table-wrap {
+    overflow-x: auto;
+}
+
+.calculator-module .calc-table {
+    min-width: 1080px;
+}
+
+.calculator-module .calc-table th,
+.calculator-module .calc-table td {
+    padding: 10px 8px;
+    text-align: center;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.calculator-module .calc-production-input {
+    min-width: 120px;
+    padding: 7px 9px;
+}
+
+.calculator-module .calc-production-input:disabled {
+    background: var(--color-bg);
+    color: var(--color-muted);
+    cursor: not-allowed;
+}
+
+.calculator-module .calc-unit-time {
+    font-weight: 700;
+}
+
+.calculator-module .calc-production-status,
+.calculator-module .calc-production-error {
+    display: block;
+    max-width: 180px;
+    margin-top: 3px;
+    white-space: normal;
+    color: var(--color-muted);
+}
+
+.calculator-module .calc-production-error {
+    color: #b42318;
+}
+
+@media (max-width: 900px) {
+    .calc-layout,
+    .calc-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .calc-journal-heading {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+@media (max-width: 560px) {
+    .calc-journal-filters {
+        grid-template-columns: 1fr;
+    }
+}

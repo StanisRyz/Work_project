@@ -28,6 +28,7 @@ urlpatterns = [
     path('', RedirectView.as_view(pattern_name='acts:list', permanent=False)),
     path('acts/', include('acts.urls')),
     path('tasks/', include('tasks.urls')),
+    path('calculator/', include('calculator.urls')),
     path('notifications/', include('notifications.urls')),
     path('accounts/', include('accounts.urls')),
     path('realtime/', include('realtime.urls')),

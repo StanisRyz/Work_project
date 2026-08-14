@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Калькулятор - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% comment %}
+The standalone `index.html` of StanisRyz/calculate, adapted to this layout.
+The file-selection shell and the database bar are gone: the journal is in the
+application's database, so the calculator is usable the moment the page opens.
+Every class is namespaced under `.calculator-module` so nothing here can reach
+Акты or Задачи.
+{% endcomment %}
+
+{% block content %}
+<div class="calculator-module" data-calculator
+     data-entries-url="{% url 'calculator:entry_list' %}"
+     data-export-url="{% url 'calculator:export' %}">
+
+    <header class="calc-heading">
+        <div>
+            <h1>Калькулятор</h1>
+            <p>Время навивки и дополнительных операций по согласованным формулам.</p>
+        </div>
+    </header>
+
+    <nav class="calc-tabs" aria-label="Разделы калькулятора">
+        <button class="calc-tab calc-tab--active" type="button" data-tab="calculator" aria-selected="true">Калькулятор</button>
+        <button class="calc-tab" type="button" data-tab="journal" aria-selected="false">Проработка</button>
+    </nav>
+
+    <section id="calc-tab-calculator" class="calc-panel">
+        <div class="calc-layout">
+            <section class="calc-card">
+                <h2>Параметры изделия</h2>
+                <form id="calc-form" novalidate>
+                    <div class="calc-fields">
+                        <label><span>d, мм</span><input name="d" type="number" min="0" step="0.01" value="100" required></label>
+                        <label><span>D, мм</span><input name="D" type="number" min="0" step="0.01" value="130" required></label>
+                        <label><span>b, мм</span><input name="b" type="number" min="0" step="0.01" value="40" required></label>
+                        <div class="calc-readonly-field">
+                            <span>Высота навивки, мм</span>
+                            <output id="calc-height-display">15,00 мм</output>
+                            <small id="calc-height-formula">(130,00 − 100,00) / 2</small>
+                        </div>
+                        <label><span>Толщина ленты, мм</span><input name="tapeThicknessMm" type="number" min="0" step="any" value="0.3" required></label>
+                        <label><span>Калибровка</span><select name="calibration" required><option>Нет</option><option>Да</option></select></label>
+                        <label id="calc-calibration-diameter-field" hidden><span>Радиус калибровки, мм</span><input name="calibrationDiameterMm" type="number" min="0" step="0.01"></label>
+                    </div>
+                    <div id="calc-form-errors" class="calc-errors" aria-live="polite"></div>
+                    <button class="link-button" type="submit">Рассчитать</button>
+                </form>
+            </section>
+            <section class="calc-card calc-result" id="calc-result" aria-live="polite">
+                <h2>Результат</h2>
+                <p class="calc-placeholder">Заполните параметры и нажмите «Рассчитать».</p>
+            </section>
+        </div>
+    </section>
+
+    <section id="calc-tab-journal" class="calc-panel" hidden>
+        <section class="calc-card">
+            <div class="calc-journal-heading">
+                <div>
+                    <h2>Проработка</h2>
+                    <p class="calc-placeholder">Общий журнал рассчитанных магнитопроводов и фактического времени производства.</p>
+                </div>
+                <div class="calc-journal-actions">
+                    <button id="calc-reload" class="link-button link-button--secondary link-button--compact" type="button">Обновить журнал</button>
+                    <button id="calc-export" class="link-button link-button--compact" type="button">Выгрузить в Excel</button>
+                </div>
+            </div>
+
+            <p id="calc-journal-status" class="calc-status" role="status" aria-live="polite"></p>
+
+            <div class="calc-journal-filters" aria-label="Поиск по журналу">
+                <label><span>Имя d/D-b</span><input id="calc-name-filter" type="search" placeholder="Например, 100/130-40"></label>
+                <label><span>d, мм</span><input id="calc-d-filter" type="number" min="0" step="any"></label>
+                <label><span>D, мм</span><input id="calc-D-filter" type="number" min="0" step="any"></label>
+                <label><span>b, мм</span><input id="calc-b-filter" type="number" min="0" step="any"></label>
+            </div>
+
+            <div class="calc-table-wrap">
+                <table class="data-table calc-table">
+                    <thead>
+                        <tr>
+                            <th>d, мм</th><th>D, мм</th><th>b, мм</th><th>Высота, мм</th>
+                            <th>Навивка, сек/мм</th><th>КС</th><th>Расчётное время, ч</th>
+                            <th>Единиц в партии</th><th>Фактическое время партии, ч</th>
+                            <th>Фактическое время единицы, ч</th><th>Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="calc-journal-body"></tbody>
+                </table>
+            </div>
+            <p id="calc-journal-empty" class="calc-placeholder">Записей пока нет. Выполните расчёт, чтобы добавить магнитопровод в журнал.</p>
+        </section>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/calculator.css' %}?v=20260814-1">
+{% endblock %}
+
+{% block scripts %}
+{% comment %}
+Fixed order: rules, then the pure helpers, then the formulas, then the
+persistence layer, and the controller last.
+{% endcomment %}
+<script src="{% static 'js/calculator/rules.js' %}?v=20260814-1"></script>
+<script src="{% static 'js/calculator/formatters.js' %}?v=20260814-1"></script>
+<script src="{% static 'js/calculator/validation.js' %}?v=20260814-1"></script>
+<script src="{% static 'js/calculator/calculation.js' %}?v=20260814-1"></script>
+<script src="{% static 'js/calculator/journal.js' %}?v=20260814-1"></script>
+<script src="{% static 'js/calculator/api.js' %}?v=20260814-1"></script>
+<script src="{% static 'js/calculator/app.js' %}?v=20260814-1"></script>
+{% endblock %}
