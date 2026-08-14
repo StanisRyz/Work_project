@@ -1,21 +1,14 @@
 <aside class="sidebar" aria-label="Основная навигация">
     <div class="sidebar__top">
-    <a class="sidebar__brand" href="{% if user.is_superuser or user.userprofile.role == 'admin' %}{% url 'dashboard:home' %}{% else %}{% url 'acts:list' %}{% endif %}">
+    <a class="sidebar__brand" href="{% url 'acts:list' %}">
         <span class="sidebar__mark">К</span>
         <span>Экосистема качества</span>
     </a>
     <button class="sidebar__close" type="button" aria-label="Закрыть меню" data-sidebar-close>×</button>
     </div>
     <nav class="sidebar__nav">
-        {% if user.is_superuser or user.userprofile.role == 'admin' %}
-        <a class="sidebar__link{% if active_page == 'dashboard' %} sidebar__link--active{% endif %}" href="{% url 'dashboard:home' %}">Главная</a>
-        {% endif %}
         <a class="sidebar__link{% if active_page == 'acts' %} sidebar__link--active{% endif %}" href="{% url 'acts:list' %}">Акты</a>
         <a class="sidebar__link{% if active_page == 'tasks' %} sidebar__link--active{% endif %}" href="{% url 'tasks:list' %}">Задачи</a>
-        {% if user.is_superuser or user.userprofile.role == 'admin' %}
-        <a class="sidebar__link{% if active_page == 'references' %} sidebar__link--active{% endif %}" href="{% url 'references:index' %}">Справочники</a>
-        <a class="sidebar__link{% if active_page == 'accounts' %} sidebar__link--active{% endif %}" href="{% url 'accounts:placeholder' %}">Пользователи и роли</a>
-        {% endif %}
     </nav>
     <div class="sidebar__account">
         {% if user.is_authenticated %}

@@ -298,7 +298,7 @@ class RequestLoggingMiddlewareTests(TestCase):
         self.client.force_login(self.user)
 
         with self.assertNoLogs('ecosystem.request', level=logging.INFO):
-            self.client.get(reverse('dashboard:home'))
+            self.client.get(reverse('acts:list'))
 
     def test_a_slow_get_is_logged_as_a_warning(self):
         self.client.force_login(self.user)
@@ -306,7 +306,7 @@ class RequestLoggingMiddlewareTests(TestCase):
         # Any request is "slow" against a zero threshold.
         with override_settings(LOG_SLOW_REQUEST_MS=0):
             with self.assertLogs('ecosystem.request', level=logging.WARNING) as captured:
-                self.client.get(reverse('dashboard:home'))
+                self.client.get(reverse('acts:list'))
 
         self.assertIn('outcome=slow', '\n'.join(captured.output))
 

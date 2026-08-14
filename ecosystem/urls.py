@@ -16,6 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic.base import RedirectView
 
 from . import health
 
@@ -24,11 +25,10 @@ urlpatterns = [
     # able to probe these. Neither reveals anything about the infrastructure.
     path('health/live/', health.health_live, name='health_live'),
     path('health/ready/', health.health_ready, name='health_ready'),
-    path('', include('dashboard.urls')),
+    path('', RedirectView.as_view(pattern_name='acts:list', permanent=False)),
     path('acts/', include('acts.urls')),
     path('tasks/', include('tasks.urls')),
     path('notifications/', include('notifications.urls')),
-    path('references/', include('references.urls')),
     path('accounts/', include('accounts.urls')),
     path('realtime/', include('realtime.urls')),
     path('admin/', admin.site.urls),

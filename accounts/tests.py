@@ -18,7 +18,7 @@ class DemoAccountCommandTests(TestCase):
 
 
 class LandingRedirectTests(TestCase):
-    """`/acts/` is the working page; only administrators land on the dashboard."""
+    """`/acts/` is the working page for every authenticated user, including administrators."""
 
     def _create_user(self, username, role):
         user = User.objects.create_user(username=username, password='demo12345')
@@ -36,9 +36,9 @@ class LandingRedirectTests(TestCase):
         )
 
         self.assertRedirects(response, reverse('acts:list'))
-        self.assertRedirects(self.client.get(reverse('dashboard:home')), reverse('acts:list'))
+        self.assertRedirects(self.client.get('/'), reverse('acts:list'))
 
-    def test_an_administrator_keeps_the_dashboard_landing_page(self):
+    def test_an_administrator_also_lands_on_the_acts_registry(self):
         self._create_user('admin_landing', UserProfile.Role.ADMIN)
 
         response = self.client.post(
@@ -46,5 +46,15 @@ class LandingRedirectTests(TestCase):
             {'username': 'admin_landing', 'password': 'demo12345'},
         )
 
-        self.assertRedirects(response, reverse('dashboard:home'))
-        self.assertEqual(self.client.get(reverse('dashboard:home')).status_code, 200)
+        self.assertRedirects(response, reverse('acts:list'))
+
+    def test_login_still_honours_next_for_a_protected_page(self):
+        self._create_user('otk_next', UserProfile.Role.OTK)
+        target = reverse('tasks:list')
+
+        response = self.client.post(
+            f"{reverse('accounts:login')}?next={target}",
+            {'username': 'otk_next', 'password': 'demo12345'},
+        )
+
+        self.assertRedirects(response, target)

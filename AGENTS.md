@@ -19,14 +19,17 @@ model without explicit approval.
 | App | Owns |
 | --- | --- |
 | `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware. No models |
-| `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`) |
-| `references` | operations, defect types, act/task statuses, priorities; `seed_references` |
+| `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`). No user-facing pages beyond login/logout — user/department management is Django Admin only |
+| `references` | operations, defect types, act/task statuses, priorities; `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
 | `tasks` | tasks created on approval, their assignees and completion |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
-| `dashboard` | administrator landing page; redirects everyone else to `/acts/` |
+
+The only user-facing sections are Акты (`/acts/`) and Задачи (`/tasks/`); `/`
+redirects to `/acts/` and so does the login fallback, for every role including
+superusers. Django Admin (`/admin/`) is reached directly, not from the sidebar.
 
 Reference data belongs in `references`, never as free text on a business model;
 tasks never live inside `acts`.
@@ -66,7 +69,8 @@ tasks never live inside `acts`.
   states; a modifier (`--secondary`, `--warning`, `--danger`, `--success`,
   `--compact`) changes only colour or density.
 - `accounts.navigation.get_default_landing_url()` is the one answer to where a
-  user belongs: dashboard for an administrator, `/acts/` for everyone else.
+  user belongs: `/acts/` for everyone, including administrators and
+  superusers.
 
 ## Domain invariants
 
