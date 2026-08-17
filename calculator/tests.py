@@ -1,15 +1,18 @@
-"""The three integration checks that carry the most risk in this module.
+"""The integration checks that carry the most risk in this module.
 
 The formulas themselves are not retested here: they were ported unchanged
 from the source repository and are covered separately.
 """
+import io
 import json
+import zipfile
 
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import WindingEntry
+from .expressions import OneCExpressionError, evaluate_one_c
+from .models import EntrySource, WindingEntry
 
 ENTRY = {
     'name': '100/130-40',
@@ -30,13 +33,16 @@ class CalculatorTests(TestCase):
         cls.user = User.objects.create_user(username='calc', password='demo12345')
         cls.other = User.objects.create_user(username='calc2', password='demo12345')
 
-    def _create(self, user='calc', **overrides):
+    def _post(self, url_name, user='calc', **overrides):
         self.client.force_login(User.objects.get(username=user))
         return self.client.post(
-            reverse('calculator:entry_create'),
+            reverse(url_name),
             data=json.dumps({**ENTRY, **overrides}),
             content_type='application/json',
         )
+
+    def _create(self, user='calc', **overrides):
+        return self._post('calculator:entry_create', user=user, **overrides)
 
     def test_page_requires_authentication_and_is_reachable(self):
         response = self.client.get(reverse('calculator:page'))
@@ -48,34 +54,56 @@ class CalculatorTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'calculator/page.html')
 
-    def test_creating_an_entry_persists_it_and_case_key_stays_unique(self):
-        response = self._create()
-        self.assertEqual(response.status_code, 201)
-        self.assertTrue(response.json()['created'])
+    def test_calculator_deduplicates_whole_cases_while_manual_rows_repeat(self):
+        first = self._create()
+        self.assertEqual(first.status_code, 201)
         entry = WindingEntry.objects.get()
-        self.assertEqual(entry.case_key, '100/130-40')
-        self.assertEqual(entry.created_by, self.user)
+        self.assertEqual(entry.source, EntrySource.CALCULATOR)
         # The 0,25 step is applied on the server, not taken from the browser.
         self.assertEqual(entry.complexity_coefficient, 3.0)
 
-        # Another user, the same case written differently: one logical row.
-        duplicate = self._create(user='calc2', name=' 100/130-40 ')
-        self.assertEqual(duplicate.status_code, 200)
-        self.assertFalse(duplicate.json()['created'])
-        self.assertEqual(duplicate.json()['entry']['id'], entry.pk)
-        self.assertEqual(WindingEntry.objects.count(), 1)
+        # The very same calculation, from another user and written with
+        # stray whitespace: still one logical row.
+        repeated = self._create(user='calc2', name=' 100/130-40 ')
+        self.assertEqual(repeated.status_code, 200)
+        self.assertFalse(repeated.json()['created'])
+        self.assertEqual(repeated.json()['entry']['id'], entry.pk)
 
-        # The journal is shared: the second user sees the first user's row.
-        listed = self.client.get(reverse('calculator:entry_list')).json()['entries']
-        self.assertEqual([item['name'] for item in listed], ['100/130-40'])
+        # The same core with another tape, and with calibration: new cases.
+        self.assertTrue(self._create(tapeThicknessMm=0.23).json()['created'])
+        self.assertTrue(self._create(
+            calibrationEnabled=True, calibrationDiameterMm=15,
+        ).json()['created'])
+        self.assertEqual(WindingEntry.objects.count(), 3)
 
-    def test_confirming_production_derives_unit_time_on_the_server(self):
+        # Added by hand, twice, with parameters that already exist: two more
+        # rows, told apart by their primary keys alone.
+        manual_ids = set()
+        for _ in range(2):
+            response = self._post('calculator:entry_manual_create')
+            self.assertEqual(response.status_code, 201)
+            manual_ids.add(response.json()['entry']['id'])
+        self.assertEqual(len(manual_ids), 2)
+        self.assertNotIn(entry.pk, manual_ids)
+        self.assertEqual(WindingEntry.objects.filter(source=EntrySource.MANUAL).count(), 2)
+        self.assertEqual(WindingEntry.objects.count(), 5)
+
+    def test_one_c_expressions_are_evaluated_safely_and_stored_with_the_result(self):
+        self.assertEqual(evaluate_one_c('2,5*30'), ('2,5*30', 75))
+        self.assertEqual(evaluate_one_c('(2+3)*10')[1], 50)
+        self.assertEqual(evaluate_one_c('100/4')[1], 25)
+        self.assertEqual(evaluate_one_c('  '), ('', None))
+        for bad in ('100/0', '__import__("os")', '2**8', '2 3', '(1+2', '5;9'):
+            with self.assertRaises(OneCExpressionError):
+                evaluate_one_c(bad)
+
         entry_id = self._create().json()['entry']['id']
         response = self.client.post(
             reverse('calculator:entry_production', args=[entry_id]),
             # A browser-supplied per-unit time must be ignored entirely.
             data=json.dumps({
                 'batchQuantity': 8, 'actualBatchTimeHours': 6, 'actualUnitTimeHours': 999,
+                'oneCExpression': '2,5*30', 'employeeName': 'Иванов',
             }),
             content_type='application/json',
         )
@@ -83,12 +111,40 @@ class CalculatorTests(TestCase):
         entry = WindingEntry.objects.get(pk=entry_id)
         self.assertTrue(entry.production_confirmed)
         self.assertEqual(entry.actual_unit_time_hours, 0.75)
-        self.assertEqual(entry.updated_by, self.user)
+        self.assertEqual((entry.one_c_expression, entry.one_c_hours), ('2,5*30', 75))
+        self.assertEqual(entry.employee_name, 'Иванов')
 
-        invalid = self.client.post(
+        rejected = self.client.post(
             reverse('calculator:entry_production', args=[entry_id]),
-            data=json.dumps({'batchQuantity': 0, 'actualBatchTimeHours': 6}),
+            data=json.dumps({
+                'batchQuantity': 8, 'actualBatchTimeHours': 6, 'oneCExpression': 'os.system("x")',
+            }),
             content_type='application/json',
         )
-        self.assertEqual(invalid.status_code, 400)
-        self.assertIn('batchQuantity', invalid.json()['errors'])
+        self.assertEqual(rejected.status_code, 400)
+        self.assertIn('oneCExpression', rejected.json()['errors'])
+
+    def test_export_covers_unconfirmed_rows_and_an_empty_journal(self):
+        self.client.force_login(self.user)
+
+        def sheet():
+            response = self.client.get(reverse('calculator:export'))
+            self.assertEqual(response.status_code, 200)
+            with zipfile.ZipFile(io.BytesIO(response.content)) as workbook:
+                return workbook.read('xl/worksheets/sheet1.xml').decode('utf-8')
+
+        # No rows at all: a valid workbook carrying only the header.
+        empty = sheet()
+        self.assertIn('<t>δ, мм</t>', empty)
+        self.assertIn('<t>Сотрудник</t>', empty)
+        self.assertEqual(empty.count('<row '), 1)
+
+        # An unconfirmed row with no production data still exports, and its
+        # missing numbers stay genuinely empty cells.
+        self._create()
+        exported = sheet()
+        self.assertEqual(exported.count('<row '), 2)
+        self.assertIn('<t>Нет</t>', exported)
+        self.assertIn('<c r="I2"/>', exported)
+        self.assertIn('<c r="M2"/>', exported)
+        self.assertNotIn('None', exported)

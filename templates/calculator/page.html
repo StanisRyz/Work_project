@@ -72,21 +72,33 @@ Every class is namespaced under `.calculator-module` so nothing here can reach
 
             <p id="calc-journal-status" class="calc-status" role="status" aria-live="polite"></p>
 
+            {% comment %}
+            Two rows: adding a line by hand, then searching. The manual row
+            uses the same calculation engine as the Калькулятор tab — only the
+            parameters are typed here instead of on the other tab.
+            {% endcomment %}
+            <form id="calc-manual-form" class="calc-manual-row" novalidate aria-label="Добавить строку вручную">
+                <label><span>d, мм</span><input name="d" type="number" min="0" step="any" inputmode="decimal"></label>
+                <label><span>D, мм</span><input name="D" type="number" min="0" step="any" inputmode="decimal"></label>
+                <label><span>b, мм</span><input name="b" type="number" min="0" step="any" inputmode="decimal"></label>
+                <label><span>δ, мм</span><input name="tapeThicknessMm" type="number" min="0" step="any" inputmode="decimal"></label>
+                <label><span>Калибровка, мм</span><input name="calibrationDiameterMm" type="number" min="0" step="any" inputmode="decimal" placeholder="0 — нет"></label>
+                <button id="calc-manual-add" class="link-button link-button--compact" type="submit" title="Добавить строку" aria-label="Добавить строку в проработку">+</button>
+            </form>
+            <p id="calc-manual-errors" class="calc-errors" aria-live="polite"></p>
+
             <div class="calc-journal-filters" aria-label="Поиск по журналу">
                 <label><span>Имя d/D-b</span><input id="calc-name-filter" type="search" placeholder="Например, 100/130-40"></label>
-                <label><span>d, мм</span><input id="calc-d-filter" type="number" min="0" step="any"></label>
-                <label><span>D, мм</span><input id="calc-D-filter" type="number" min="0" step="any"></label>
-                <label><span>b, мм</span><input id="calc-b-filter" type="number" min="0" step="any"></label>
             </div>
 
             <div class="calc-table-wrap">
                 <table class="data-table calc-table">
                     <thead>
                         <tr>
-                            <th>d, мм</th><th>D, мм</th><th>b, мм</th><th>Высота, мм</th>
-                            <th>Навивка, сек/мм</th><th>КС</th><th>Расчётное время, ч</th>
-                            <th>Единиц в партии</th><th>Фактическое время партии, ч</th>
-                            <th>Фактическое время единицы, ч</th><th>Действие</th>
+                            <th>d, мм</th><th>D, мм</th><th>b, мм</th><th>h, мм</th>
+                            <th>δ, мм</th><th>Калибровка, мм</th><th>КС</th><th>Р.В., ч</th>
+                            <th>Ед.В.П.</th><th>Ф.В.П., ч</th><th>Ф.В.Ед, ч</th>
+                            <th>1С, ч</th><th>Сотрудник</th><th>Действие</th>
                         </tr>
                     </thead>
                     <tbody id="calc-journal-body"></tbody>
@@ -99,7 +111,7 @@ Every class is namespaced under `.calculator-module` so nothing here can reach
 {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/calculator.css' %}?v=20260814-1">
+<link rel="stylesheet" href="{% static 'css/calculator.css' %}?v=20260817-1">
 {% endblock %}
 
 {% block scripts %}
@@ -111,7 +123,8 @@ persistence layer, and the controller last.
 <script src="{% static 'js/calculator/formatters.js' %}?v=20260814-1"></script>
 <script src="{% static 'js/calculator/validation.js' %}?v=20260814-1"></script>
 <script src="{% static 'js/calculator/calculation.js' %}?v=20260814-1"></script>
-<script src="{% static 'js/calculator/journal.js' %}?v=20260814-1"></script>
-<script src="{% static 'js/calculator/api.js' %}?v=20260814-1"></script>
-<script src="{% static 'js/calculator/app.js' %}?v=20260814-1"></script>
+<script src="{% static 'js/calculator/oneC.js' %}?v=20260817-1"></script>
+<script src="{% static 'js/calculator/journal.js' %}?v=20260817-1"></script>
+<script src="{% static 'js/calculator/api.js' %}?v=20260817-1"></script>
+<script src="{% static 'js/calculator/app.js' %}?v=20260817-1"></script>
 {% endblock %}

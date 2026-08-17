@@ -9,7 +9,7 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
-from calculator.models import WindingEntry
+from calculator.models import EntrySource, WindingEntry
 from calculator.services import CalculatorValidationError, clean_entry
 
 
@@ -45,12 +45,18 @@ class Command(BaseCommand):
                 invalid += 1
                 self.stderr.write(f'Пропущено: {raw.get("name") or "(без имени)"} — {error}')
                 continue
-            case_key = values.pop('case_key')
-            if WindingEntry.objects.filter(case_key=case_key).exists():
+            # A legacy file may hold the same calculation case twice; the
+            # journal keeps one row for it, as the file-based journal did.
+            if WindingEntry.objects.filter(
+                calculation_signature=values['calculation_signature'],
+            ).exists():
                 duplicates += 1
                 continue
+            # `CALCULATOR`, not `IMPORT`: an imported case must own its
+            # signature, or the first recalculation of that core in the tab
+            # would add a second row for a case already worked out.
             WindingEntry.objects.create(
-                case_key=case_key, **values, **self._production(raw),
+                **values, source=EntrySource.CALCULATOR, **self._production(raw),
             )
             imported += 1
 

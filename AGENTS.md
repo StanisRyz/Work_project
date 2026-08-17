@@ -138,16 +138,37 @@ tasks never live inside `acts`.
   database, no separate connection, no JSON file, no File System Access API.
   «Проработка» is one shared journal for every authenticated user;
   `created_by`/`updated_by` are auditing only and grant nothing.
-- `case_key` is always derived on the server by
-  `calculator.models.build_case_key()` (whitespace removed, lowercased) and is
-  unique in the database, so concurrent identical calculations converge on one
-  logical row; a browser-supplied key is never stored. An existing case is a
-  normal answer, not an error.
+- **A journal row's identity is its Django primary key; a *calculation case's*
+  identity is `calculation_signature`.** They are not the same thing and no
+  UUID is wanted. The signature is `d | D | b | δ | normalized calibration`,
+  built only by `calculator.models.build_calculation_signature()` from
+  validated numbers — never from the visible `d/D-b` name, never from anything
+  the browser sends as a key. Calibration off, missing and `0` are one
+  non-calibrated state. `case_key` is now just the normalized name, is not
+  unique, and exists for search and legacy data.
+- `source` decides whether the signature binds. `CALCULATOR` rows are unique
+  per signature through a **partial** unique constraint
+  (`calculator_unique_calculator_case`), so concurrent identical calculations
+  converge on one row and an existing case is a normal answer, not an error;
+  `MANUAL` rows are exempt on purpose and may repeat without limit. Never
+  promote that constraint to an unconditional one. `create_entry()` and
+  `create_manual_entry()` in `calculator/services.py` are the two doors, and
+  manual rows reuse the same ported calculation engine — there is no second
+  formula for the journal.
+- The «1С, ч» field accepts a number or a small arithmetic expression and is
+  parsed by the hand-written evaluator in `calculator/expressions.py` (mirrored
+  for preview in `static/js/calculator/oneC.js`). `eval()`, `exec()` and
+  `new Function()` are never acceptable here. The expression and the evaluated
+  number are stored separately, and the stored number is always the server's.
+  `employee_name` is typed text, unrelated to `User`; `created_by`/`updated_by`
+  stay auditing only.
 - `actual_unit_time_hours` is server-derived as
   `actual_batch_time_hours / batch_quantity` in `calculator/services.py`.
-  A browser-supplied value is ignored, and the `.xlsx` export is built from
-  confirmed database rows by `calculator/export.py`, never from the tab's
-  local state.
+  A browser-supplied value is ignored. The `.xlsx` export is built by
+  `calculator/export.py` from **every** database row, confirmed or not, never
+  from the tab's local state: confirmation is a production state, not an
+  export gate. A missing value is written as an empty cell — never `None`,
+  `null`, a stand-in `0` or an empty `<v>`.
 
 ## Security and permissions
 

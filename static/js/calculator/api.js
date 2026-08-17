@@ -52,11 +52,9 @@
       async load() { return (await request(entriesUrl, { method: 'GET' })).entries; },
       /** Create the case, or receive the one another user already created. */
       create(payload) { return post(entriesUrl + 'create/', payload); },
-      confirmProduction(id, batchQuantity, actualBatchTimeHours) {
-        return post(entryUrl(id, '/production/'), {
-          batchQuantity: batchQuantity, actualBatchTimeHours: actualBatchTimeHours
-        });
-      },
+      /** Add a row by hand: always a new row, duplicates included. */
+      createManual(payload) { return post(entriesUrl + 'manual/', payload); },
+      confirmProduction(id, production) { return post(entryUrl(id, '/production/'), production); },
       unlockProduction(id) { return post(entryUrl(id, '/production/unlock/'), {}); }
     };
   };

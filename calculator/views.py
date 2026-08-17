@@ -18,8 +18,9 @@ from .models import WindingEntry
 from .services import (
     CalculatorValidationError,
     confirm_production,
-    confirmed_entries,
     create_entry,
+    create_manual_entry,
+    journal_entries,
     unlock_production,
 )
 
@@ -74,13 +75,21 @@ def entry_create(request):
 
 @login_required
 @require_POST
+def entry_manual_create(request):
+    """Add a row by hand from «Проработка»; a duplicate is a valid request."""
+    try:
+        entry = create_manual_entry(request.user, _payload(request))
+    except CalculatorValidationError as error:
+        return _validation_response(error)
+    return JsonResponse({'entry': entry.to_payload(), 'created': True}, status=201)
+
+
+@login_required
+@require_POST
 def entry_confirm_production(request, pk):
     entry = get_object_or_404(WindingEntry, pk=pk)
     try:
-        data = _payload(request)
-        entry = confirm_production(
-            request.user, entry, data.get('batchQuantity'), data.get('actualBatchTimeHours'),
-        )
+        entry = confirm_production(request.user, entry, _payload(request))
     except CalculatorValidationError as error:
         return _validation_response(error)
     return JsonResponse({'entry': entry.to_payload()})
@@ -96,10 +105,12 @@ def entry_unlock_production(request, pk):
 @login_required
 @require_GET
 def export_journal(request):
-    """The authoritative export: built from the database, not from the tab."""
-    entries = list(confirmed_entries())
-    if not entries:
-        return JsonResponse({'detail': 'Нет подтверждённых строк для выгрузки.'}, status=400)
+    """The authoritative export: built from the database, not from the tab.
+
+    Always available — every row goes in, confirmed or not, and an empty
+    journal still yields a workbook with the header row.
+    """
+    entries = list(journal_entries())
     response = HttpResponse(
         build_journal_xlsx(entries),
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

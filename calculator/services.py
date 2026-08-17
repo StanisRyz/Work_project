@@ -1,17 +1,29 @@
 """Backend validation and the only place journal rows are written.
 
 The browser validates the same things for immediate feedback, but nothing
-here trusts it: every number is re-checked, `case_key` is re-derived and the
-per-unit production time is recomputed from the confirmed batch data. The
-numeric checks and their wording follow the calculator's own server
-prototype (`server.py` in the source repository) so the rules did not change
-on the way into Django.
+here trusts it: every number is re-checked, the keys are re-derived, the 1С
+expression is parsed again and the per-unit production time is recomputed
+from the confirmed batch data. The numeric checks and their wording follow
+the calculator's own server prototype (`server.py` in the source repository)
+so the rules did not change on the way into Django.
+
+Row creation comes in two flavours and they are not interchangeable:
+`create_entry()` is the Calculator tab writing a calculation case, which
+converges on one row per signature, and `create_manual_entry()` is a person
+adding a line to «Проработка» by hand, which always produces a new row.
 """
 import math
 
 from django.db import transaction
 
-from .models import CALCULATION_VERSION, WindingEntry, build_case_key
+from .expressions import OneCExpressionError, evaluate_one_c
+from .models import (
+    CALCULATION_VERSION,
+    EntrySource,
+    WindingEntry,
+    build_calculation_signature,
+    build_case_key,
+)
 
 
 class CalculatorValidationError(Exception):
@@ -61,6 +73,22 @@ def _non_negative(errors, data, key, label):
         errors[key] = f'{label}: значение не может быть отрицательным.'
         return None
     return number
+
+
+def _employee_name(value):
+    """The responsible employee: optional free text, length-capped."""
+    name = str(value or '').strip()
+    if len(name) > 120:
+        raise CalculatorValidationError({'employeeName': 'Сотрудник: не более 120 символов.'})
+    return name
+
+
+def _one_c(value):
+    """The «1С, ч» field, evaluated here even when the browser previewed it."""
+    try:
+        return evaluate_one_c(value)
+    except OneCExpressionError as error:
+        raise CalculatorValidationError({'oneCExpression': str(error)})
 
 
 def _batch_quantity(value):
@@ -129,6 +157,11 @@ def clean_entry(data):
     return {
         'name': name,
         'case_key': build_case_key(name),
+        # Derived from the validated numbers, never from the visible name and
+        # never from anything the request could set directly.
+        'calculation_signature': build_calculation_signature(
+            inner, outer, width, thickness, calibration_enabled, calibration_diameter,
+        ),
         'd': inner,
         'outer_diameter': outer,
         'b': width,
@@ -147,26 +180,53 @@ def clean_entry(data):
 
 
 def create_entry(user, data):
-    """Store a calculated case; return `(entry, created)`.
+    """Store a case calculated in the Calculator tab; return `(entry, created)`.
 
-    An existing normalized case is *not* an error: the caller gets the row
-    that is already there, so two users calculating the same magnetic core
-    concurrently still see exactly one logical journal entry.
+    Deduplication is on the *whole* calculation signature, so `100/130-40`
+    with a 0,23 tape and `100/130-40` with a 0,30 tape are two rows while the
+    very same calculation repeated is one. An existing case is not an error:
+    the caller gets the row that is already there, which is also how two users
+    calculating concurrently converge — `get_or_create()` retries the lookup
+    when the partial unique constraint rejects the loser's insert.
     """
     values = clean_entry(data)
-    case_key = values.pop('case_key')
+    signature = values.pop('calculation_signature')
     with transaction.atomic():
         entry, created = WindingEntry.objects.get_or_create(
-            case_key=case_key,
+            calculation_signature=signature,
+            source=EntrySource.CALCULATOR,
             defaults={**values, 'created_by': user, 'updated_by': user},
         )
     return entry, created
 
 
-def confirm_production(user, entry, batch_quantity, actual_batch_time_hours):
-    """Confirm production data, deriving the per-unit time on the server."""
-    quantity = _batch_quantity(batch_quantity)
-    batch_hours = _batch_time_hours(actual_batch_time_hours)
+def create_manual_entry(user, data):
+    """Add a row typed into «Проработка» by hand; always a new row.
+
+    Identical dimensions, tape and calibration may repeat as often as the shop
+    needs — each line is told apart by its primary key, which is why the
+    signature constraint deliberately does not cover manual rows. The numbers
+    still come from the one calculation engine: the tab computes them exactly
+    as it does for its own calculations, and they are validated here.
+    """
+    values = clean_entry(data)
+    with transaction.atomic():
+        return WindingEntry.objects.create(
+            **values, source=EntrySource.MANUAL, created_by=user, updated_by=user,
+        )
+
+
+def confirm_production(user, entry, data):
+    """Confirm production data, deriving the per-unit time on the server.
+
+    «1С» and «Сотрудник» ride along with the confirmation because they are
+    edited in the same row, but they are optional: an empty one clears the
+    stored value and never blocks the confirmation itself.
+    """
+    quantity = _batch_quantity(data.get('batchQuantity'))
+    batch_hours = _batch_time_hours(data.get('actualBatchTimeHours'))
+    one_c_expression, one_c_hours = _one_c(data.get('oneCExpression'))
+    employee_name = _employee_name(data.get('employeeName'))
     with transaction.atomic():
         locked = WindingEntry.objects.select_for_update().get(pk=entry.pk)
         locked.batch_quantity = quantity
@@ -174,10 +234,15 @@ def confirm_production(user, entry, batch_quantity, actual_batch_time_hours):
         # Never taken from the request: the browser may show it, the server
         # decides it.
         locked.actual_unit_time_hours = batch_hours / quantity
+        locked.one_c_expression = one_c_expression
+        # Likewise: the tab previews the arithmetic, the parser here decides.
+        locked.one_c_hours = one_c_hours
+        locked.employee_name = employee_name
         locked.production_confirmed = True
         locked.updated_by = user
         locked.save(update_fields=[
             'batch_quantity', 'actual_batch_time_hours', 'actual_unit_time_hours',
+            'one_c_expression', 'one_c_hours', 'employee_name',
             'production_confirmed', 'updated_by', 'updated_at',
         ])
     return locked
@@ -197,11 +262,11 @@ def unlock_production(user, entry):
     return locked
 
 
-def confirmed_entries():
-    """Rows the export may contain: confirmed *and* numerically complete."""
-    return WindingEntry.objects.filter(
-        production_confirmed=True,
-        batch_quantity__gt=0,
-        actual_batch_time_hours__gt=0,
-        actual_unit_time_hours__gt=0,
-    )
+def journal_entries():
+    """Everything «Проработка» shows — which is everything the export gets.
+
+    Confirmation is a production-floor state, not an export gate: an
+    unconfirmed or half-filled row is still a worked-out magnetic core, and
+    the missing numbers simply arrive in the workbook as empty cells.
+    """
+    return WindingEntry.objects.all()
