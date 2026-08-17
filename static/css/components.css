@@ -694,6 +694,13 @@
     font-size: 14px;
 }
 
+/* An author `display` beats the user-agent rule behind `[hidden]`, so the
+   attribute the JS toggles has to be honoured explicitly: forward workflow
+   confirmations («Передать в КО», «Утвердить») carry no comment field. */
+.app-modal__comment[hidden] {
+    display: none;
+}
+
 .app-modal__comment textarea {
     width: 100%;
     padding: 10px 12px;

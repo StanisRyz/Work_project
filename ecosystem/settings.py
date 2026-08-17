@@ -512,20 +512,16 @@ else:
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
+# Deliberately empty: this is an internal system whose accounts are created by
+# an administrator in Django Admin, and the agreed policy is that a password
+# may be as simple as the surname it belongs to («Иванов» / «Иванов»). Emptying
+# the list here — instead of patching one Admin form — keeps every flow that
+# runs `validate_password()` consistent, Django Admin included.
+#
+# Only *strength* validation is disabled. Hashing, `set_password()`, the
+# authentication backend, session and CSRF protection are untouched: passwords
+# are still stored as ordinary Django hashes and never in plain text.
+AUTH_PASSWORD_VALIDATORS = []
 
 
 # Internationalization

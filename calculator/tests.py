@@ -11,10 +11,11 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
-from accounts.models import UserProfile
+from accounts.models import Department, UserProfile
 
 from .expressions import OneCExpressionError, evaluate_one_c
 from .models import EntrySource, WindingEntry
+from .permissions import can_manage_workup
 
 ENTRY = {
     'name': '100/130-40',
@@ -37,6 +38,9 @@ def make_user(username, role=UserProfile.Role.PDO):
     """
     user = User.objects.create_user(username=username, password='demo12345')
     UserProfile.objects.filter(user=user).update(role=role, is_active=True)
+    # The signal left the freshly created profile cached on the instance; drop
+    # it so a direct permission call reads the role that was just written.
+    user.refresh_from_db()
     return user
 
 
@@ -172,22 +176,63 @@ class CalculatorTests(TestCase):
 
 
 class WorkupOwnershipTests(TestCase):
-    """«Проработка» is read by everyone and changed only by ПДО."""
+    """«Проработка» is read by everyone and changed by ПДО, admin or superuser."""
 
     @classmethod
     def setUpTestData(cls):
         cls.pdo = make_user('pdo_user')
-        # An ordinary role, and a superuser without the role: neither owns the
-        # journal. `is_superuser` alone is deliberately not enough.
-        cls.otk = make_user('otk_user', role=UserProfile.Role.OTK)
+        cls.admin = make_user('admin_user', role=UserProfile.Role.ADMIN)
+        # The administrative fallback: a genuine superuser, without the role.
         cls.root = make_user('root_user', role=UserProfile.Role.OTK)
         User.objects.filter(pk=cls.root.pk).update(is_superuser=True, is_staff=True)
+        cls.root.refresh_from_db()
+        # The read-only roles: none of them owns the journal.
+        cls.otk = make_user('otk_user', role=UserProfile.Role.OTK)
+        cls.ko = make_user('ko_user', role=UserProfile.Role.KO)
+        cls.to = make_user('to_user', role=UserProfile.Role.TO)
+        cls.manager = make_user('manager_user', role=UserProfile.Role.MANAGER)
 
     def _json(self, url, user, payload=None):
         self.client.force_login(user)
         return self.client.post(
             url, data=json.dumps(payload or {}), content_type='application/json',
         )
+
+    def test_can_manage_workup_is_pdo_admin_or_superuser_only(self):
+        for user in (self.pdo, self.admin, self.root):
+            self.assertTrue(can_manage_workup(user), user.username)
+        for user in (self.otk, self.ko, self.to, self.manager):
+            self.assertFalse(can_manage_workup(user), user.username)
+
+        # A ПДО *department* is organisational and still grants nothing, and an
+        # inactive profile keeps granting no role.
+        department = Department.objects.get_or_create(
+            code='PDO', defaults={'name': 'Планово-диспетчерская служба'},
+        )[0]
+        UserProfile.objects.filter(user=self.otk).update(department=department)
+        self.otk.refresh_from_db()
+        self.assertFalse(can_manage_workup(self.otk))
+
+        UserProfile.objects.filter(user__in=[self.pdo.pk, self.admin.pk]).update(is_active=False)
+        for user in (self.pdo, self.admin):
+            user.refresh_from_db()
+            self.assertFalse(can_manage_workup(user), user.username)
+
+    def test_admin_role_runs_the_same_mutation_paths_as_pdo(self):
+        created = self._json(reverse('calculator:entry_create'), self.admin, ENTRY)
+        self.assertEqual(created.status_code, 201)
+        entry_id = created.json()['entry']['id']
+
+        confirmed = self._json(
+            reverse('calculator:entry_production', args=[entry_id]), self.admin,
+            {'batchQuantity': 4, 'actualBatchTimeHours': 2},
+        )
+        self.assertEqual(confirmed.status_code, 200)
+        self.assertEqual(
+            self._json(reverse('calculator:entry_delete', args=[entry_id]), self.admin).status_code,
+            200,
+        )
+        self.assertEqual(WindingEntry.objects.count(), 0)
 
     def test_mutations_require_pdo_while_reading_stays_open_to_everyone(self):
         created = self._json(reverse('calculator:entry_create'), self.pdo, ENTRY)
@@ -209,7 +254,7 @@ class WorkupOwnershipTests(TestCase):
             (reverse('calculator:entry_production_unlock', args=[entry_id]), {}),
             (reverse('calculator:entry_delete', args=[entry_id]), {}),
         )
-        for user in (self.otk, self.root):
+        for user in (self.otk, self.ko, self.to, self.manager):
             for url, payload in mutations:
                 response = self._json(url, user, payload)
                 self.assertEqual(response.status_code, 403, url)

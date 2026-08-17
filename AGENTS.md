@@ -73,7 +73,15 @@ tasks never live inside `acts`.
 - One confirmation modal, no browser dialogs: `includes/confirm_modal.html` with
   `static/js/confirm_modal.js`, driven by `data-confirm-*` on the trigger —
   `-url` posts the modal's own CSRF-protected form, `-form` submits an existing
-  page form, `-comment="required"` adds the mandatory comment.
+  page form, `-comment="required"` adds the mandatory comment. That attribute is
+  the only switch: a **return** («Вернуть ОТК/КО/ТО») confirms with the required
+  «Комментарий к возврату», a **forward** action («Передать в КО/ТО», the ТО
+  analysis submission, «Утвердить») confirms with title and text only. Hiding
+  needs `.app-modal__comment[hidden] { display: none; }` in `components.css` —
+  the author `display: grid` otherwise beats the user-agent `[hidden]` rule and
+  the textarea stays visible on forward actions. Never branch on an action name
+  in JavaScript, and never treat the hidden field as validation: the server
+  still rejects an empty return comment.
 - One button system: `.link-button` fixes font, size, height, padding, radius and
   states; a modifier (`--secondary`, `--warning`, `--danger`, `--success`,
   `--compact`) changes only colour or density.
@@ -167,14 +175,18 @@ tasks never live inside `acts`.
   «Проработка» is one shared journal for every authenticated user;
   `created_by`/`updated_by` are auditing only and grant nothing.
 - **`UserProfile.Role.PDO` («ПДО») is a first-class role**, selectable in Admin
-  beside ОТК, КО, ТО, Руководитель and Администратор, and it owns «Проработка».
+  beside ОТК, КО, ТО, Руководитель and Администратор, and it owns «Проработка»
+  together with Администратор.
   `calculator/permissions.py::can_manage_workup()` is the **single** authority
-  on journal mutation — an authenticated user with an active profile whose
-  `role` is `PDO` — and every mutation path reuses it: the JSON endpoints
-  (`entry_create`, `entry_manual_create`, production confirm/unlock,
-  `entry_delete`, all through `@workup_manager_required` → JSON 403) and
-  `WindingEntryAdmin.has_add/change/delete_permission`. It never keys on
-  `department.code`, a username, `is_staff` or `is_superuser` alone. The
+  on journal mutation — **`PDO` OR `ADMIN` on an active profile, OR a genuine
+  `is_superuser` fallback**, the same administrative fallback
+  `acts.permissions.is_act_admin()` already applies — and every mutation path
+  reuses it: the JSON endpoints (`entry_create`, `entry_manual_create`,
+  production confirm/unlock, `entry_delete`, all through
+  `@workup_manager_required` → JSON 403) and
+  `WindingEntryAdmin.has_add/change/delete_permission`. ОТК, КО, ТО and
+  Руководитель stay read-only, and no view, template or script restates the
+  rule. It never keys on `department.code`, a username or `is_staff`. The
   department «Планово-диспетчерская служба» (`PDO`, seeded idempotently by
   `accounts.0003`) is organisational only and grants nothing; it is also listed
   in `MIGRATION_SEEDED_ROWS` so a fresh transfer target is still «empty».
@@ -183,8 +195,9 @@ tasks never live inside `acts`.
   `.xlsx` export. The template's `can_manage_workup` flag is presentation
   metadata deciding which controls exist — the manual-add row, the production
   inputs, `✓`, `✎`, the trash — and never a permission; the JS must not restate
-  the rule. A non-ПДО calculation renders its result normally and **never**
-  posts to the create endpoint, so it persists nothing and reports no error.
+  the rule. A read-only user's calculation renders its result normally and
+  **never** posts to the create endpoint, so it persists nothing and reports
+  no error.
 - `ВН, с/мм` in the journal and in the export is the stored
   `WindingEntry.standard_coefficient`, displayed; there is no new field and no
   recalculation. Deletion is a hard delete of one primary key
@@ -245,6 +258,12 @@ tasks never live inside `acts`.
   the uploader, a manager or an administrator.
 - An inactive `UserProfile` grants no application role; only Django's genuine
   `is_superuser` fallback remains independent of the profile.
+- `AUTH_PASSWORD_VALIDATORS` is intentionally empty: this is an internal system
+  whose accounts an administrator creates in Django Admin, and a password may
+  equal the surname it belongs to. Only *strength* validation is off — hashing,
+  `set_password()`, the authentication backend, sessions and CSRF are unchanged,
+  passwords are still stored hashed and never logged. Do not re-add a validator
+  or work around the policy inside a single Admin form.
 - Business models are read-only diagnostics in Django Admin. Workflow state is
   changed only through application services.
 - Browser tab coordination is isolated by an opaque per-session epoch. That

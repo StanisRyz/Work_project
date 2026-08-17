@@ -6,7 +6,13 @@ from acts.models import Act
 from acts.permissions import (
     can_apply_ko_decision,
     can_apply_to_analysis,
+    can_approve_act,
+    can_close_act,
     can_create_act,
+    can_edit_act,
+    can_return_to_ko,
+    can_return_to_otk,
+    can_return_to_to,
     can_send_to_ko,
     can_view_act,
     get_user_profile,
@@ -22,6 +28,9 @@ class ActPermissionTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.status_created = ActStatus.objects.create(code='CREATED_OTK', name='Создан ОТК')
+        cls.status_otk_review = ActStatus.objects.get_or_create(
+            code='OTK_REVIEW', defaults={'name': 'На проверке ОТК'},
+        )[0]
         cls.status_ko = ActStatus.objects.create(code='KO_REVIEW', name='На рассмотрении КО')
         cls.status_to = ActStatus.objects.create(code='TO_ANALYSIS', name='На анализе ТО')
         cls.status_actions = ActStatus.objects.create(code='ACTIONS_ASSIGNED', name='Мероприятия назначены')
@@ -36,6 +45,7 @@ class ActPermissionTests(TestCase):
         cls.to_user = cls._create_user('to', UserProfile.Role.TO)
         cls.manager_user = cls._create_user('manager', UserProfile.Role.MANAGER)
         cls.admin_user = cls._create_user('admin', UserProfile.Role.ADMIN)
+        cls.pdo_user = cls._create_user('pdo', UserProfile.Role.PDO)
         cls.no_profile_user = User.objects.create_user(username='no_profile', password='demo12345')
         cls.no_profile_user.userprofile.delete()
         cls.no_profile_user._state.fields_cache.pop('userprofile', None)
@@ -48,6 +58,7 @@ class ActPermissionTests(TestCase):
 
         cls.created_act = cls._create_act(cls.status_created)
         cls.other_otk_created_act = cls._create_act(cls.status_created, created_by=cls.other_otk_user)
+        cls.otk_review_act = cls._create_act(cls.status_otk_review)
         cls.ko_act = cls._create_act(cls.status_ko)
         cls.to_act = cls._create_act(cls.status_to)
         cls.actions_act = cls._create_act(cls.status_actions)
@@ -162,3 +173,55 @@ class ActPermissionTests(TestCase):
         self.admin_user.is_superuser = True
         self.assertTrue(is_act_admin(self.admin_user))
         self.assertTrue(has_full_act_access(self.admin_user))
+
+    def test_workflow_matrix_is_unchanged_and_pdo_gets_no_act_rights(self):
+        """ОТК → КО → ТО → ОТК, exactly as before, and ПДО outside all of it."""
+        self.actions_act.to_analysis_by = self.to_user
+        self.actions_act.save(update_fields=['to_analysis_by'])
+
+        # role, act, allowed checks, refused checks
+        matrix = (
+            (self.otk_user, self.created_act, (can_edit_act, can_send_to_ko), ()),
+            (self.other_otk_user, self.created_act, (), (can_edit_act, can_send_to_ko)),
+            (self.otk_user, self.otk_review_act, (can_return_to_to, can_approve_act), ()),
+            (self.ko_user, self.ko_act, (can_apply_ko_decision, can_return_to_otk), ()),
+            (self.ko_user, self.created_act, (), (can_send_to_ko, can_edit_act)),
+            (self.to_user, self.to_act, (can_apply_to_analysis, can_return_to_ko), ()),
+            (self.to_user, self.ko_act, (), (can_apply_ko_decision, can_return_to_otk)),
+            (self.to_user, self.actions_act, (can_close_act,), ()),
+            (self.manager_user, self.ko_act, (can_apply_ko_decision, can_return_to_otk), ()),
+            (self.admin_user, self.otk_review_act, (can_approve_act, can_return_to_to), ()),
+        )
+        for user, act, allowed, refused in matrix:
+            for check in allowed:
+                with self.subTest(user=user.username, act=act.status.code, check=check.__name__):
+                    self.assertTrue(check(act, user))
+            for check in refused:
+                with self.subTest(user=user.username, act=act.status.code, check=check.__name__):
+                    self.assertFalse(check(act, user))
+
+        # ПДО owns «Проработка» only: no act creation and no transition anywhere.
+        self.assertFalse(can_create_act(self.pdo_user))
+        for act in (
+            self.created_act,
+            self.otk_review_act,
+            self.ko_act,
+            self.to_act,
+            self.actions_act,
+        ):
+            for check in (
+                can_edit_act,
+                can_send_to_ko,
+                can_apply_ko_decision,
+                can_return_to_otk,
+                can_apply_to_analysis,
+                can_return_to_ko,
+                can_return_to_to,
+                can_approve_act,
+                can_close_act,
+            ):
+                with self.subTest(act=act.status.code, check=check.__name__):
+                    self.assertFalse(check(act, self.pdo_user))
+        # Reading every act stays open to ПДО, as it is to every role.
+        self.assertTrue(can_view_act(self.ko_act, self.pdo_user))
+        self.assertEqual(get_visible_acts_queryset(self.pdo_user).count(), 0)
