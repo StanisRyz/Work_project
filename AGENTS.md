@@ -98,19 +98,34 @@ tasks never live inside `acts`.
 - Every defect requires a workshop/supplier choice on the form, while the model
   field stays `blank=True` so existing rows keep no invented value. Revealing
   the remaining fields must never clear already-entered values.
-- The defect form is workshop-specific and `acts/forms.py` is the authority.
-  `MP_SHOP` keeps its full field set and `MP_DEFECT_TYPE_CODES`. `PIR_SHOP`
-  («Цех ПиР») collects only workshop, ЗНП, defect type, detected date and the
-  two quantities: `MP_ONLY_DEFECT_FIELDS` are cleared in `clean()` whatever the
-  POST carried, and only `PIR_DEFECT_TYPE_CODES` are accepted.
-  `static/js/act_create.js` filters the dropdown, the required flags and the
-  visibility of the МП-only fields (Операция and Тип МП leave the «Контроль»
-  group under ПиР) for UX only — never as the validation. Hiding needs the
+- **`Act` owns document and workflow data; `ActDefect` is the canonical source
+  of defect data.** The act keeps its number, creator, customer, order,
+  nomenclature, КД designation, type, status/priority, the КО/ТО/approval/
+  closing workflow and the timestamps. Workshop, ЗНП, party, defect type,
+  operation, МП type, description, detected date, quantities and the per-defect
+  КО decision belong to the defect. Never assume the first defect represents the
+  act: an act may mix workshops, and reordering its defects changes nothing.
+- **`acts/workshops.py` owns the workshop rules** — which fields apply, which
+  are required, what is cleared when not applicable, the allowed defect type
+  codes and the presentation metadata. `ActDefectForm` validates against the
+  profile and is the authority; adding a workshop means a new `Workshop` choice
+  plus one profile, not new `if workshop == …` branches. `MP_SHOP` keeps its
+  full field set; `PIR_SHOP` («Цех ПиР») collects only workshop, ЗНП, defect
+  type, detected date and the two quantities, and two `ActDefect` check
+  constraints guard the quantities and the absence of МП-only data on a ПиР row.
+- **Frontend workshop behaviour is presentation only.** `static/js/act_create.js`
+  reads the one `client_config()` JSON the form renders and never restates a
+  rule; it shows/hides fields, sets `required`, filters the dropdown and moves
+  the detected date between groups for UX. Hiding needs the
   `display: none !important` rules in `acts.css`: an author `display` on a
   label beats the user-agent `[hidden]`, so the attribute alone is not enough.
-- `Act.operation`, `Act.party_number`, `Act.description` and
-  `ActDefect.description` are optional so a ПиР act stores nothing invented.
-  Never write a placeholder such as `"-"` in place of missing business data;
+- `Act.znp_number`, `Act.party_number`, `Act.operation`, `Act.defect_type` and
+  `Act.description` are **legacy summaries of the first defect, kept only for
+  rollback and historical rows**. Create and edit no longer write them, and new
+  logic must neither read nor populate them; their removal is a separate phase.
+  `Act.due_date` keeps its current derivation from the first detected date on
+  purpose — its semantics are decided separately.
+- Never write a placeholder such as `"-"` in place of missing business data;
   read-only views render the neutral `—`.
 - Structured TO analysis is atomic and read-only after submission; each
   corrective action needs text, a department, a due date and at least one active

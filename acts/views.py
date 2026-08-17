@@ -59,6 +59,7 @@ from .services import (
     approve_act,
     send_to_ko,
 )
+from .workshops import client_config as workshop_client_config
 
 
 @login_required
@@ -232,15 +233,10 @@ def act_create(request):
                 for defect_form in defect_formset.forms
                 if defect_form.cleaned_data and not defect_form.cleaned_data.get('DELETE', False)
             ]
-            # Summary copy of the first defect. Fields the ПиР workshop does
-            # not collect stay empty instead of being filled with placeholders.
-            first_defect = defect_forms[0].cleaned_data
-            act.operation = first_defect.get('operation')
-            act.znp_number = first_defect.get('znp_number', '')
-            act.party_number = first_defect.get('party_number') or ''
-            act.defect_type = first_defect['defect_type']
-            act.description = first_defect.get('description') or ''
-            act.due_date = first_defect['detected_at']
+            # Defect data belongs to `ActDefect` and is no longer copied onto
+            # the act. `due_date` keeps its current derivation on purpose — its
+            # semantics are decided separately.
+            act.due_date = defect_forms[0].cleaned_data['detected_at']
             try:
                 with transaction.atomic():
                     act.status = get_act_status('CREATED_OTK')
@@ -276,6 +272,7 @@ def act_create(request):
             'header_title': 'Создание акта',
             'form': form,
             'defect_formset': defect_formset,
+            'workshop_profiles': workshop_client_config(),
         },
     )
 
@@ -314,14 +311,9 @@ def act_edit(request, pk):
                     act = form.save(commit=False)
                     act.status = locked_act.status
                     defect_formset.save()
-                    first_defect = act.defects.select_related(
-                        'defect_type', 'operation'
-                    ).order_by('created_at', 'pk').first()
-                    act.operation = first_defect.operation
-                    act.znp_number = first_defect.znp_number
-                    act.party_number = first_defect.party_number
-                    act.defect_type = first_defect.defect_type
-                    act.description = first_defect.description
+                    # Defect data stays in `ActDefect`; only `due_date` keeps
+                    # its current derivation, unchanged in this phase.
+                    first_defect = act.defects.order_by('created_at', 'pk').first()
                     act.due_date = first_defect.detected_at
                     # `form.save(commit=False)` already resolved the business
                     # number, including keeping a legacy one untouched.
@@ -350,6 +342,7 @@ def act_edit(request, pk):
             'header_title': f'Редактирование акта {act.number}',
             'form': form,
             'defect_formset': defect_formset,
+            'workshop_profiles': workshop_client_config(),
             'act': act,
             'is_edit': True,
         },
@@ -540,6 +533,11 @@ def act_close(request, pk):
         {
             'active_page': 'acts',
             'act': act,
+            # Defect context comes from the defects themselves, so an act with
+            # several workshops shows each of them instead of the first one.
+            'defects': list(
+                act.defects.select_related('defect_type', 'operation').order_by('created_at', 'pk')
+            ),
             'form': form,
         },
     )
@@ -729,8 +727,6 @@ def _get_act_for_detail(pk):
     return get_object_or_404(
         Act.objects.select_related(
             'created_by',
-            'operation',
-            'defect_type',
             'priority',
             'status',
             'ko_decision_by',
@@ -759,6 +755,8 @@ def _get_act_detail_context(
     defect_rows = list(act.defects.select_related('defect_type', 'operation'))
     has_defect_records = bool(defect_rows)
     if not defect_rows:
+        # Historical acts only: rows created before `ActDefect` existed have no
+        # defect of their own, so their legacy summary is all there is to show.
         defect_rows = [
             {
                 'defect_type': act.defect_type,

@@ -5,10 +5,13 @@ from uuid import uuid4
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import F, Q
 from django.utils import timezone
 
 from references.models import ActStatus, DefectType, Operation, Priority
 from accounts.models import Department
+
+from .workshops import PIR_SHOP
 
 
 ACT_STATUS_CODES = {
@@ -69,6 +72,20 @@ def act_number_suffix(number):
 
 
 class Act(models.Model):
+    """Document- and workflow-level data of an act.
+
+    The act owns its public number, creator, customer, order, nomenclature, КД
+    designation, type, status/priority, the КО/ТО/approval/closing workflow and
+    the timestamps. Defect data — workshop, ЗНП, party, defect type, operation,
+    МП type, description, detected date, quantities and the per-defect КО
+    decision — belongs to `ActDefect`.
+
+    `znp_number`, `party_number`, `operation`, `defect_type` and `description`
+    are legacy summaries of the first defect. They are no longer written and no
+    new logic may read them; they stay only so historical rows keep their values
+    and Phase 1 can be rolled back.
+    """
+
     class Type(models.TextChoices):
         OPERATIONAL_CONTROL = 'OPERATIONAL_CONTROL', 'Операционный контроль'
         INCOMING_CONTROL = 'INCOMING_CONTROL', 'Входной контроль'
@@ -118,8 +135,9 @@ class Act(models.Model):
     )
     customer = models.CharField('Заказчик', max_length=160, blank=True)
     order_number = models.CharField('Номер заказа', max_length=80, blank=True)
+    # Legacy defect summary. `ActDefect` owns this data now; the columns are
+    # kept for rollback and historical rows only — see the class docstring.
     znp_number = models.CharField('Номер ЗНП', max_length=80, blank=True)
-    # Copied from the first defect; the ПиР workshop does not collect it.
     party_number = models.CharField('Номер партии', max_length=120, blank=True)
     nomenclature = models.CharField('Номенклатура', max_length=240)
     kd_designation = models.CharField('Обозначение по КД', max_length=240, blank=True)
@@ -136,7 +154,13 @@ class Act(models.Model):
         blank=True,
         null=True,
     )
-    defect_type = models.ForeignKey(DefectType, on_delete=models.PROTECT, verbose_name='Вид дефекта')
+    defect_type = models.ForeignKey(
+        DefectType,
+        on_delete=models.PROTECT,
+        verbose_name='Вид дефекта',
+        blank=True,
+        null=True,
+    )
     priority = models.ForeignKey(
         Priority,
         on_delete=models.PROTECT,
@@ -206,6 +230,13 @@ class Act(models.Model):
 
 
 class ActDefect(models.Model):
+    """The canonical record of one defect, including its workshop-specific data.
+
+    Which fields apply, which are required and which are cleared is decided by
+    the workshop profile in `acts/workshops.py`; the constraints below only
+    guard the two rules that are already stable.
+    """
+
     class Workshop(models.TextChoices):
         MP_SHOP = 'MP_SHOP', 'Цех МП'
         PIR_SHOP = 'PIR_SHOP', 'Цех ПиР'
@@ -267,6 +298,31 @@ class ActDefect(models.Model):
         ordering = ['created_at']
         verbose_name = 'Дефект акта'
         verbose_name_plural = 'Дефекты актов'
+        constraints = [
+            # Only when both are known: either quantity may still be unset.
+            models.CheckConstraint(
+                condition=(
+                    Q(checked_quantity__isnull=True)
+                    | Q(nonconforming_quantity__isnull=True)
+                    | Q(nonconforming_quantity__lte=F('checked_quantity'))
+                ),
+                name='act_defect_nonconforming_within_checked',
+            ),
+            # A ПиР defect never carries МП-only data, whatever a crafted POST
+            # or an older row may have contained.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(workshop=PIR_SHOP)
+                    | Q(
+                        operation__isnull=True,
+                        mp_type='',
+                        party_number='',
+                        description='',
+                    )
+                ),
+                name='act_defect_pir_without_mp_only_data',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.act.number}: {self.defect_type}'

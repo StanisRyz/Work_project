@@ -96,12 +96,17 @@ class ActViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        act = Act.objects.get(party_number='100-100')
+        act = Act.objects.get(order_number='100-1')
         self.assertEqual(act.created_by, self.otk_user)
         self.assertEqual(act.status.code, 'CREATED_OTK')
         self.assertEqual(act.nomenclature, nomenclature)
         self.assertEqual(ActDefect.objects.filter(act=act).count(), 1)
-        self.assertEqual(act.defects.get().workshop, ActDefect.Workshop.MP_SHOP)
+        defect = act.defects.get()
+        self.assertEqual(defect.workshop, ActDefect.Workshop.MP_SHOP)
+        # Defect data belongs to the defect; the legacy act summary is not written.
+        self.assertEqual(defect.party_number, '100-100')
+        self.assertEqual(act.party_number, '')
+        self.assertIsNone(act.defect_type)
 
     def test_act_form_uses_compact_defect_groups(self):
         self.client.force_login(self.otk_user)
@@ -110,12 +115,15 @@ class ActViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('pattern', response.context['form'].fields['nomenclature'].widget.attrs)
-        self.assertContains(response, 'js/act_create.js?v=20260817-1')
+        self.assertContains(response, 'js/act_create.js?v=20260817-2')
         self.assertContains(response, 'Создание акта')
         self.assertContains(response, 'Операционный контроль')
         self.assertContains(response, 'class="act-form-section act-defect-section"', html=False)
         self.assertContains(response, 'class="act-form-page__back"', html=False)
         self.assertContains(response, 'data-defect-count')
+        # The browser gets its workshop rules from the backend, never its own copy.
+        self.assertContains(response, 'id="defect-workshop-profiles"', html=False)
+        self.assertContains(response, 'data-defect-code="SIZE_NONCONFORMITY"', html=False)
         for group in ('Партия', 'Контроль', 'Результат контроля'):
             self.assertContains(response, f'>{group}</legend>', html=False)
         self.assertContains(response, 'Добавить ещё дефект')
@@ -395,11 +403,19 @@ class ActViewTests(TestCase):
         self.assertContains(all_response, hidden_stage.number)
 
     def test_registry_filters_by_status_act_type_and_search_without_operation_filter(self):
-        matching = self._create_act(self.status_created, party_number='P-MATCH')
+        matching = self._create_act(self.status_created)
         incoming = self._create_act(
             self.status_created,
-            party_number='P-OTHER',
             act_type=Act.Type.INCOMING_CONTROL,
+        )
+        # The party number the registry searches belongs to the defect.
+        ActDefect.objects.create(
+            act=matching, defect_type=self.defect_type, workshop=ActDefect.Workshop.MP_SHOP,
+            party_number='P-MATCH', detected_at=timezone.localdate(),
+        )
+        ActDefect.objects.create(
+            act=incoming, defect_type=self.defect_type, workshop=ActDefect.Workshop.MP_SHOP,
+            party_number='P-OTHER', detected_at=timezone.localdate(),
         )
         self.client.force_login(self.otk_user)
 

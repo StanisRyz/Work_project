@@ -57,7 +57,7 @@ def build_act_list_state(user, query_params):
         visible_acts = get_archived_acts_queryset(user)
     elif scope == 'all':
         visible_acts = get_all_visible_acts_queryset(user).select_related(
-            'created_by', 'operation', 'defect_type', 'priority', 'status'
+            'created_by', 'priority', 'status'
         ).exclude(status__code='ARCHIVED')
     else:
         visible_acts = active_acts.exclude(status__code='ARCHIVED')
@@ -83,14 +83,14 @@ def build_act_list_state(user, query_params):
     elif due == 'not_overdue':
         acts = acts.filter(due_date__gte=today)
     if search:
-        # ЗНП is the primary production reference of a ПиР act, so the registry
-        # matches it both on the act summary and on any of its defects.
+        # Canonical ownership: the number and the nomenclature belong to the
+        # act, ЗНП and the party number to its defects. Every defect matches,
+        # not just the first one, so `distinct()` collapses the join.
         acts = acts.filter(
             Q(number__icontains=search)
-            | Q(party_number__icontains=search)
             | Q(nomenclature__icontains=search)
-            | Q(znp_number__icontains=search)
             | Q(defects__znp_number__icontains=search)
+            | Q(defects__party_number__icontains=search)
         ).distinct()
     has_filters = bool(status or act_type or due or search)
     kpis = {

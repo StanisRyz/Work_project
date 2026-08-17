@@ -183,10 +183,10 @@ def can_delete_attachment(attachment, user):
 
 def get_visible_acts_queryset(user):
     """Acts in the user's working queue; used by the ``my`` scope and mutations."""
+    # No `operation`/`defect_type`: those legacy summary columns are not read
+    # any more — defect data comes from the related `ActDefect` rows.
     queryset = Act.objects.select_related(
         'created_by',
-        'operation',
-        'defect_type',
         'priority',
         'status',
     )
@@ -205,7 +205,7 @@ def get_visible_acts_queryset(user):
 
 
 def get_archived_acts_queryset(user):
-    queryset = Act.objects.select_related('created_by', 'operation', 'defect_type', 'priority', 'status')
+    queryset = Act.objects.select_related('created_by', 'priority', 'status')
     if getattr(user, 'is_authenticated', False):
         return queryset.filter(status__code='ARCHIVED')
     return queryset.none()

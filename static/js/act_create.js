@@ -69,18 +69,30 @@ const initialiseActDefectFormset = (root) => {
 
     const getWorkshopSelect = (block) => block?.querySelector('select[name$="-workshop"]') || null;
 
-    // Presentation only: the backend decides on its own which fields a
-    // workshop requires and which defect types it accepts.
-    const PIR_WORKSHOP = 'PIR_SHOP';
+    // Presentation only. The whole workshop rule set — which fields apply, which
+    // are required, which defect types are accepted — is built by
+    // `acts/workshops.py` and read from here; the backend validates it again and
+    // is the only authority. Never restate a rule in this file.
+    const workshopProfiles = (() => {
+        const config = formset.querySelector('#defect-workshop-profiles');
+        try {
+            return config ? JSON.parse(config.textContent) : {};
+        } catch (error) {
+            return {};
+        }
+    })();
 
-    const syncDefectTypeOptions = (block, isPir) => {
+    const syncDefectTypeOptions = (block, profile) => {
         const select = block.querySelector('select[name$="-defect_type"]');
         if (!select) {
             return;
         }
+        const allowedCodes = profile ? profile.defect_types : null;
         let selectedIsHidden = false;
         [...select.options].forEach((option) => {
-            const allowed = !isPir || !option.value || option.dataset.workshopPir === '1';
+            const allowed = !option.value
+                || !allowedCodes
+                || allowedCodes.includes(option.dataset.defectCode);
             option.hidden = !allowed;
             option.disabled = !allowed && Boolean(option.value);
             if (!allowed && option.selected) {
@@ -92,21 +104,28 @@ const initialiseActDefectFormset = (root) => {
         }
     };
 
-    const syncDetectedAtPlacement = (block, isPir) => {
+    // The date of detection sits in the group the profile names, ordered the way
+    // the profile lists its fields: under МП first in «Результат контроля»,
+    // before the two quantities; under ПиР after the defect type in «Контроль».
+    const syncDetectedAtPlacement = (block, profile) => {
         const detectedAt = block.querySelector('[data-defect-field="detected_at"]');
-        const target = block.querySelector(
-            `[data-defect-group="${isPir ? 'control' : 'result'}"]`,
-        );
-        if (!detectedAt || !target || detectedAt.parentElement === target) {
+        const target = profile
+            ? block.querySelector(`[data-defect-group="${profile.detected_at_group}"]`)
+            : null;
+        if (!detectedAt || !target) {
             return;
         }
-        if (isPir) {
-            // Под ПиР «Контроль» оставляет только вид дефекта, дата идёт за ним.
-            target.append(detectedAt);
+        const rank = (name) => {
+            const index = profile.fields.indexOf(name);
+            return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+        };
+        const successor = [...target.querySelectorAll('[data-defect-field]')].find(
+            (label) => label !== detectedAt && rank(label.dataset.defectField) > rank('detected_at'),
+        );
+        if (successor) {
+            target.insertBefore(detectedAt, successor);
         } else {
-            // Возврат к МП: дата снова первая в «Результате контроля», перед
-            // двумя количествами, а не в конце группы.
-            target.insertBefore(detectedAt, target.querySelector('label'));
+            target.append(detectedAt);
         }
     };
 
@@ -115,33 +134,39 @@ const initialiseActDefectFormset = (root) => {
         if (!block || !select) {
             return;
         }
-        const isChosen = Boolean(select.value);
-        const isPir = select.value === PIR_WORKSHOP;
+        const profile = workshopProfiles[select.value] || null;
+        const isChosen = Boolean(profile);
         block.querySelectorAll('[data-defect-collapsible]').forEach((element) => {
             element.hidden = !isChosen;
         });
-        block.querySelectorAll('[data-mp-only]').forEach((field) => {
-            const label = field.closest('label');
-            if (label) {
-                label.hidden = !isChosen || isPir;
-            }
-            field.required = isChosen && !isPir;
-            if (isPir && field.value) {
-                field.value = '';
-                setFieldError(field, '');
-            }
-        });
+        // Until a workshop is chosen the collapsible groups above already hide
+        // everything but the workshop select itself, and the server-rendered
+        // `required` attributes stay as Django wrote them.
+        if (isChosen) {
+            block.querySelectorAll('[data-defect-field]').forEach((label) => {
+                const name = label.dataset.defectField;
+                const field = label.querySelector('input, select, textarea');
+                const applies = profile.fields.includes(name);
+                label.hidden = !applies;
+                if (!field) {
+                    return;
+                }
+                field.required = applies && profile.required.includes(name);
+                if (!applies && field.value) {
+                    field.value = '';
+                    setFieldError(field, '');
+                }
+            });
+        }
         const legend = block.querySelector('[data-defect-legend]');
         if (legend) {
             if (!legend.dataset.legendDefault) {
                 legend.dataset.legendDefault = legend.textContent;
             }
-            legend.textContent = isPir
-                ? legend.dataset.legendPir || legend.dataset.legendDefault
-                : legend.dataset.legendDefault;
+            legend.textContent = isChosen ? profile.legend : legend.dataset.legendDefault;
         }
-        syncDetectedAtPlacement(block, isPir);
-        syncDefectTypeOptions(block, isPir);
+        syncDetectedAtPlacement(block, profile);
+        syncDefectTypeOptions(block, profile);
     };
 
     const syncAllWorkshopVisibility = () => {

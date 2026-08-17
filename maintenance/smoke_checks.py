@@ -150,15 +150,15 @@ def _check_users_and_profiles():
 
 def _check_acts_registry():
     active_codes = ['CREATED_OTK', 'KO_REVIEW', 'TO_ANALYSIS', 'OTK_REVIEW', 'ACTIONS_ASSIGNED']
-    active = Act.objects.select_related(
-        'created_by', 'operation', 'defect_type', 'priority', 'status'
-    ).filter(status__code__in=active_codes)
-    archived = Act.objects.select_related('status').filter(status__code='ARCHIVED')
+    active = Act.objects.select_related('created_by', 'priority', 'status').filter(
+        status__code__in=active_codes
+    )
+    archived = Act.objects.select_related('created_by', 'status').filter(status__code='ARCHIVED')
     for act in list(active[:100]) + list(archived[:100]):
         str(act)
         act.status.name
-        act.operation.name
-        act.defect_type.name
+        # Defect data lives on `ActDefect`, checked by `_check_defects_history_comments`.
+        act.created_by.get_username()
     return (
         f'Всего актов — {Act.objects.count()}, активных — {active.count()}, '
         f'архивных — {archived.count()}.'
@@ -384,15 +384,12 @@ def _create_act(state):
     status = ActStatus.objects.filter(code='CREATED_OTK').first() or _reference(
         ActStatus, 'ActStatus'
     )
+    # Only document-level data: defect data belongs to the defect created next.
     act = Act.objects.create(
         number='АОК-СМОУК-000',
         created_by=state['user'],
-        party_number='SMOKE-000',
         nomenclature=SMOKE_MARKER,
-        operation=_reference(Operation, 'Operation'),
-        defect_type=_reference(DefectType, 'DefectType'),
         status=status,
-        description=SMOKE_MARKER,
     )
     state['act'] = act
     return f'Акт создан с номером {act.number}.'

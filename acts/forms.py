@@ -19,6 +19,12 @@ from .models import (
     act_number_suffix,
     format_act_number,
 )
+from .workshops import (
+    ALL_DEFECT_TYPE_CODES,
+    DEFECT_FIELDS,
+    get_profile,
+    universally_required_fields,
+)
 
 
 ALLOWED_ATTACHMENT_EXTENSIONS = {
@@ -38,40 +44,6 @@ NUMBER_PATTERN = re.compile(r'^[0-9/-]+$')
 PRODUCT_FIELD_PATTERN = re.compile(r'^[А-Яа-яЁё0-9.-]+$')
 PRODUCT_FIELD_ERROR = 'Допустимы только русские буквы, цифры, точки и тире.'
 D11_OPERATION_CODES = ('OPERATIONAL_CONTROL', 'FINAL_CONTROL')
-# Defect types offered by the МП workshop — unchanged.
-MP_DEFECT_TYPE_CODES = (
-    'SIZE_NONCONFORMITY',
-    'DEFORMATION',
-    'ASYMMETRIC_CUT',
-    'OBLIQUE_CUT',
-    'GRINDING_SIZE_DEVIATION',
-    'END_FACE_DELAMINATION_DAMAGE',
-    'CUT_SURFACE_DELAMINATION',
-    'OL_WINDING_TENSION_LOSS',
-    'WINDING_SHIFT',
-    'HIGH_ROUGHNESS',
-    'OTHER',
-)
-# The ПиР workshop reuses three of the same reference records and nothing else.
-PIR_DEFECT_TYPE_CODES = (
-    'DEFORMATION',
-    'OTHER',
-    'SIZE_NONCONFORMITY',
-)
-# Every defect type any workshop may offer; the per-workshop set below is what
-# actually gets validated.
-DEFECT_TYPE_CODES = tuple(dict.fromkeys(MP_DEFECT_TYPE_CODES + PIR_DEFECT_TYPE_CODES))
-DEFECT_TYPE_CODES_BY_WORKSHOP = {
-    ActDefect.Workshop.MP_SHOP: MP_DEFECT_TYPE_CODES,
-    ActDefect.Workshop.PIR_SHOP: PIR_DEFECT_TYPE_CODES,
-}
-# Collected by МП only. A ПиР defect never stores them, whatever the POST says.
-MP_ONLY_DEFECT_FIELDS = ('party_number', 'operation', 'mp_type', 'description')
-# Per-workshop markers rendered on the defect type options for the browser.
-DEFECT_TYPE_OPTION_MARKERS = {
-    ActDefect.Workshop.MP_SHOP: 'data-workshop-mp',
-    ActDefect.Workshop.PIR_SHOP: 'data-workshop-pir',
-}
 
 
 class ActCreateForm(forms.ModelForm):
@@ -171,27 +143,26 @@ class ActCreateForm(forms.ModelForm):
 
 
 class DefectTypeSelect(forms.Select):
-    """Marks each option with the workshops that may use that defect type.
+    """Publishes the reference code of each option for the browser.
 
-    The browser uses the markers to narrow the dropdown; the authoritative
-    check stays in `ActDefectForm.clean`.
+    The browser narrows the dropdown to the codes its workshop profile lists;
+    the authoritative check stays in `ActDefectForm.clean`.
     """
 
     def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
         option = super().create_option(name, value, label, selected, index, subindex, attrs)
         code = getattr(getattr(value, 'instance', None), 'code', '')
-        for workshop, codes in DEFECT_TYPE_CODES_BY_WORKSHOP.items():
-            if code in codes:
-                option['attrs'][DEFECT_TYPE_OPTION_MARKERS[workshop]] = '1'
+        if code:
+            option['attrs']['data-defect-code'] = code
         return option
 
 
 class ActDefectForm(forms.ModelForm):
-    """One defect row. Which fields apply depends on the selected workshop.
+    """One defect row, validated against the profile of the selected workshop.
 
-    МП keeps its full field set. ПиР collects only цех, ЗНП, вид дефекта, дата
-    обнаружения and the two quantities: the МП-only fields are neither required
-    nor saved, so switching a form to ПиР cannot carry stale МП values along.
+    `acts/workshops.py` decides which fields apply, which are required, what is
+    cleared and which defect types are accepted, so a POST carrying values a
+    workshop does not collect can never persist them.
     """
 
     class Meta:
@@ -237,24 +208,21 @@ class ActDefectForm(forms.ModelForm):
         self.fields['detected_at'].initial = current_date
         self.fields['detected_at'].widget.attrs['max'] = current_date.isoformat()
         self.fields['defect_type'].queryset = DefectType.objects.filter(
-            code__in=DEFECT_TYPE_CODES,
+            code__in=ALL_DEFECT_TYPE_CODES,
             is_active=True,
         ).order_by('name')
         self.fields['operation'].queryset = Operation.objects.filter(
             code__in=D11_OPERATION_CODES,
             is_active=True,
         ).order_by('sort_order', 'name')
-        self.fields['workshop'].required = True
         for field_name in ('znp_number', 'party_number'):
             self.fields[field_name].widget.attrs['pattern'] = r'[0-9/-]+'
-        self.fields['znp_number'].required = True
-        self.fields['checked_quantity'].required = True
-        self.fields['nonconforming_quantity'].required = True
-        # МП-only fields are optional at field level and enforced in `clean()`
-        # for МП only, so the browser never marks them required under ПиР.
-        for field_name in MP_ONLY_DEFECT_FIELDS:
-            self.fields[field_name].required = False
-            self.fields[field_name].widget.attrs['data-mp-only'] = '1'
+        # A field only some workshops collect stays optional at field level and
+        # is enforced in `clean()` by the selected profile, so the browser never
+        # marks it required under a workshop that does not collect it.
+        always_required = universally_required_fields()
+        for field_name in DEFECT_FIELDS:
+            self.fields[field_name].required = field_name in always_required
 
     def clean_detected_at(self):
         detected_at = self.cleaned_data.get('detected_at')
@@ -278,21 +246,22 @@ class ActDefectForm(forms.ModelForm):
                 'Количество несоответствующей продукции не может превышать количество проверенной продукции.',
             )
 
-        workshop = cleaned_data.get('workshop')
-        if workshop == ActDefect.Workshop.PIR_SHOP:
-            # Whatever the POST carried for the МП-only fields is dropped, so a
-            # form switched from МП to ПиР stores no stale values.
-            for field_name in MP_ONLY_DEFECT_FIELDS:
-                cleaned_data[field_name] = None if field_name == 'operation' else ''
-                self.errors.pop(field_name, None)
-        elif workshop == ActDefect.Workshop.MP_SHOP:
-            for field_name in MP_ONLY_DEFECT_FIELDS:
-                if not cleaned_data.get(field_name):
-                    self.add_error(field_name, 'Обязательное поле.')
+        profile = get_profile(cleaned_data.get('workshop'))
+        if profile is None:
+            return cleaned_data
+
+        # Whatever the POST carried for a non-applicable field is dropped, so a
+        # form switched from МП to ПиР — or a crafted request — stores nothing
+        # the workshop does not collect.
+        for field_name in profile.non_applicable_fields:
+            cleaned_data[field_name] = profile.non_applicable_value(field_name)
+            self.errors.pop(field_name, None)
+        for field_name in profile.required_fields:
+            if cleaned_data.get(field_name) in (None, '') and field_name not in self.errors:
+                self.add_error(field_name, 'Обязательное поле.')
 
         defect_type = cleaned_data.get('defect_type')
-        allowed_codes = DEFECT_TYPE_CODES_BY_WORKSHOP.get(workshop)
-        if defect_type and allowed_codes is not None and defect_type.code not in allowed_codes:
+        if defect_type and not profile.allows_defect_type(defect_type.code):
             self.add_error('defect_type', 'Этот вид дефекта недоступен для выбранного цеха.')
         return cleaned_data
 
