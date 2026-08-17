@@ -11,6 +11,8 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
+from accounts.models import UserProfile
+
 from .expressions import OneCExpressionError, evaluate_one_c
 from .models import EntrySource, WindingEntry
 
@@ -27,11 +29,24 @@ ENTRY = {
 }
 
 
+def make_user(username, role=UserProfile.Role.PDO):
+    """A user with an active profile; ПДО unless another role is asked for.
+
+    `accounts.signals.ensure_user_profile` already creates the profile, so
+    this only sets the role on it.
+    """
+    user = User.objects.create_user(username=username, password='demo12345')
+    UserProfile.objects.filter(user=user).update(role=role, is_active=True)
+    return user
+
+
 class CalculatorTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.user = User.objects.create_user(username='calc', password='demo12345')
-        cls.other = User.objects.create_user(username='calc2', password='demo12345')
+        # Writing to «Проработка» is a ПДО action, so the fixtures that write
+        # carry the role.
+        cls.user = make_user('calc')
+        cls.other = make_user('calc2')
 
     def _post(self, url_name, user='calc', **overrides):
         self.client.force_login(User.objects.get(username=user))
@@ -147,10 +162,105 @@ class CalculatorTests(TestCase):
         exported = sheet()
         self.assertEqual(exported.count('<row '), 2)
         self.assertIn('<t>Нет</t>', exported)
-        self.assertIn('<c r="I2"/>', exported)
-        self.assertIn('<c r="M2"/>', exported)
+        self.assertIn('<c r="J2"/>', exported)
+        self.assertIn('<c r="N2"/>', exported)
         self.assertNotIn('None', exported)
 
         # «1С, ч» exports the converted hours, not the seconds that were typed.
         WindingEntry.objects.update(one_c_expression='4.4*75*30', one_c_hours=2.75)
-        self.assertIn('<c r="L2"><v>2.75</v></c>', sheet())
+        self.assertIn('<c r="M2"><v>2.75</v></c>', sheet())
+
+
+class WorkupOwnershipTests(TestCase):
+    """«Проработка» is read by everyone and changed only by ПДО."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.pdo = make_user('pdo_user')
+        # An ordinary role, and a superuser without the role: neither owns the
+        # journal. `is_superuser` alone is deliberately not enough.
+        cls.otk = make_user('otk_user', role=UserProfile.Role.OTK)
+        cls.root = make_user('root_user', role=UserProfile.Role.OTK)
+        User.objects.filter(pk=cls.root.pk).update(is_superuser=True, is_staff=True)
+
+    def _json(self, url, user, payload=None):
+        self.client.force_login(user)
+        return self.client.post(
+            url, data=json.dumps(payload or {}), content_type='application/json',
+        )
+
+    def test_mutations_require_pdo_while_reading_stays_open_to_everyone(self):
+        created = self._json(reverse('calculator:entry_create'), self.pdo, ENTRY)
+        self.assertEqual(created.status_code, 201)
+        entry_id = created.json()['entry']['id']
+
+        # Same signature, same row: the ПДО path keeps the existing
+        # deduplication exactly as it was.
+        repeated = self._json(reverse('calculator:entry_create'), self.pdo, ENTRY)
+        self.assertEqual(repeated.status_code, 200)
+        self.assertFalse(repeated.json()['created'])
+        self.assertEqual(WindingEntry.objects.count(), 1)
+
+        mutations = (
+            (reverse('calculator:entry_create'), {**ENTRY, 'tapeThicknessMm': 0.23}),
+            (reverse('calculator:entry_manual_create'), ENTRY),
+            (reverse('calculator:entry_production', args=[entry_id]),
+             {'batchQuantity': 4, 'actualBatchTimeHours': 2}),
+            (reverse('calculator:entry_production_unlock', args=[entry_id]), {}),
+            (reverse('calculator:entry_delete', args=[entry_id]), {}),
+        )
+        for user in (self.otk, self.root):
+            for url, payload in mutations:
+                response = self._json(url, user, payload)
+                self.assertEqual(response.status_code, 403, url)
+                self.assertIn('detail', response.json())
+        # Refused requests changed nothing at all.
+        self.assertEqual(WindingEntry.objects.count(), 1)
+        self.assertFalse(WindingEntry.objects.get(pk=entry_id).production_confirmed)
+
+        # Both may still read the journal, its page and the export.
+        for user in (self.pdo, self.otk):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(reverse('calculator:page')).status_code, 200)
+            listed = self.client.get(reverse('calculator:entry_list'))
+            self.assertEqual(listed.status_code, 200)
+            self.assertEqual(len(listed.json()['entries']), 1)
+            self.assertEqual(self.client.get(reverse('calculator:export')).status_code, 200)
+
+        # ПДО runs the whole production cycle: manual row, confirm, unlock.
+        self.assertEqual(
+            self._json(reverse('calculator:entry_manual_create'), self.pdo, ENTRY).status_code, 201,
+        )
+        confirmed = self._json(
+            reverse('calculator:entry_production', args=[entry_id]), self.pdo,
+            {'batchQuantity': 4, 'actualBatchTimeHours': 2},
+        )
+        self.assertEqual(confirmed.status_code, 200)
+        self.assertEqual(WindingEntry.objects.get(pk=entry_id).actual_unit_time_hours, 0.5)
+        self.assertEqual(
+            self._json(reverse('calculator:entry_production_unlock', args=[entry_id]), self.pdo).status_code,
+            200,
+        )
+
+    def test_deletion_removes_one_row_and_the_export_carries_the_winding_speed(self):
+        first = self._json(reverse('calculator:entry_create'), self.pdo, ENTRY).json()['entry']['id']
+        second = self._json(
+            reverse('calculator:entry_create'), self.pdo, {**ENTRY, 'tapeThicknessMm': 0.23},
+        ).json()['entry']['id']
+
+        # «ВН, с/мм» is the stored winding speed, between «Калибровка» and «КС».
+        self.client.force_login(self.pdo)
+        response = self.client.get(reverse('calculator:export'))
+        with zipfile.ZipFile(io.BytesIO(response.content)) as workbook:
+            sheet = workbook.read('xl/worksheets/sheet1.xml').decode('utf-8')
+        self.assertIn('<t>ВН, с/мм</t>', sheet)
+        self.assertIn('<c r="G2"><v>4.4</v></c>', sheet)
+
+        deleted = self._json(reverse('calculator:entry_delete', args=[first]), self.pdo)
+        self.assertEqual(deleted.status_code, 200)
+        self.assertTrue(deleted.json()['deleted'])
+        # Only the named primary key went; the second case is untouched.
+        self.assertEqual(list(WindingEntry.objects.values_list('pk', flat=True)), [second])
+        self.assertEqual(
+            self._json(reverse('calculator:entry_delete', args=[first]), self.pdo).status_code, 404,
+        )

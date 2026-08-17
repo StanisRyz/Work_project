@@ -24,6 +24,10 @@ class UserProfile(models.Model):
         OTK = 'otk', 'ОТК'
         KO = 'ko', 'КО'
         TO = 'to', 'ТО'
+        # Планово-диспетчерский отдел: owns the calculator's «Проработка»
+        # journal. A first-class role like the others — never a department
+        # check, never a synonym of any existing role.
+        PDO = 'pdo', 'ПДО'
         MANAGER = 'manager', 'Руководитель'
         ADMIN = 'admin', 'Администратор'
 

@@ -250,13 +250,13 @@
     overflow-x: auto;
 }
 
-/* Thirteen business columns plus the action: wide enough that nothing is
+/* Fourteen business columns plus the action: wide enough that nothing is
    squeezed, and the wrapper scrolls horizontally when the screen is not. */
 .calculator-module .calc-table {
-    min-width: 1420px;
+    min-width: 1460px;
 }
 
-/* Thirteen narrow numeric columns read badly as bare rows, so this one table
+/* Fourteen narrow numeric columns read badly as bare rows, so this one table
    gets a full grid. `border-collapse: collapse` comes from `.data-table`, so a
    border on every cell is one line between neighbours — header cells included
    — in the ordinary application border colour, not a spreadsheet's. */
@@ -279,6 +279,19 @@
     width: 150px;
 }
 
+/* The three production-time columns hold short numbers — a batch count, a
+   handful of hours — so they get a narrow field. «1С, ч» and «Сотрудник»
+   keep their width: an arithmetic expression and a surname need it. */
+.calculator-module .calc-col-compact {
+    padding-right: 5px;
+    padding-left: 5px;
+}
+
+.calculator-module .calc-col-compact .calc-production-input {
+    width: 68px;
+    padding: 7px 6px;
+}
+
 .calculator-module .calc-production-input:disabled {
     background: var(--color-bg);
     color: var(--color-muted);
@@ -289,17 +302,33 @@
     font-weight: 700;
 }
 
-.calculator-module .calc-production-status,
 .calculator-module .calc-production-error {
     display: block;
     max-width: 180px;
     margin-top: 3px;
     white-space: normal;
-    color: var(--color-muted);
+    color: #b42318;
 }
 
-.calculator-module .calc-production-error {
-    color: #b42318;
+/* ✓ or ✎, then the trash: one compact pair that never wraps. */
+.calc-row-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.calculator-module .calc-delete {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    padding-right: 8px;
+    padding-left: 8px;
+}
+
+.calculator-module .calc-delete svg {
+    display: block;
 }
 
 @media (max-width: 900px) {

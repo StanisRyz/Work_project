@@ -14,7 +14,13 @@ class DemoAccountCommandTests(TestCase):
                 with self.assertRaisesMessage(CommandError, 'available only'):
                     call_command('seed_demo_accounts', confirm_demo=True)
 
-        self.assertFalse(Department.objects.exists())
+        # The command made no changes at all. Only the departments it would
+        # have seeded are checked: reference departments created by data
+        # migrations — «Планово-диспетчерская служба» — legitimately exist.
+        self.assertFalse(
+            Department.objects.filter(code__in=['OTK', 'KO', 'TO', 'MANAGEMENT']).exists(),
+        )
+        self.assertFalse(User.objects.exists())
 
 
 class LandingRedirectTests(TestCase):

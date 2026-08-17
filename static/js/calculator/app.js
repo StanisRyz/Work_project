@@ -17,9 +17,13 @@
   var exportButton = document.getElementById('calc-export'), reloadButton = document.getElementById('calc-reload'), statusEl = document.getElementById('calc-journal-status');
   var nameFilter = document.getElementById('calc-name-filter');
   var manualForm = document.getElementById('calc-manual-form'), manualErrorsEl = document.getElementById('calc-manual-errors');
+  var deleteDialog = document.getElementById('calc-delete-dialog');
 
   var journalApi = api.createJournalApi(root.dataset.entriesUrl);
   var exportUrl = root.dataset.exportUrl;
+  // Presentation only. The server re-checks the ПДО role on every mutation;
+  // this flag decides which controls exist, so nothing here restates the rule.
+  var canManage = root.dataset.canManageWorkup === '1';
   var latestCalculation = null, journal = [], busy = false;
 
   var formatNumber = api.formatNumber, formatDuration = api.formatDuration;
@@ -29,19 +33,34 @@
   function showHeight() { var data = input(); if (!Number.isFinite(data.d) || !Number.isFinite(data.D) || data.d <= 0 || data.D <= data.d) { heightEl.textContent = '—'; heightFormulaEl.textContent = 'Введите положительные d и D, где D > d'; return; } heightEl.textContent = formatNumber(data.windingHeightMm, 2) + ' мм'; heightFormulaEl.textContent = '(' + formatNumber(data.D, 2) + ' − ' + formatNumber(data.d, 2) + ') / 2'; }
   function row(label, value) { return '<div><dt>' + label + '</dt><dd>' + value + '</dd></div>'; }
   function escapeHtml(value) { return String(value).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function formatHours(value) { return formatNumber(value, 3) + ' ч'; }
 
   function setStatus(text, stateClass) { statusEl.textContent = text; statusEl.className = 'calc-status' + (stateClass ? ' calc-status--' + stateClass : ''); }
   function setBusy(value) {
     busy = value;
     reloadButton.disabled = value;
     exportButton.disabled = value;
-    manualForm.querySelector('button[type="submit"]').disabled = value;
-    Array.prototype.forEach.call(journalBody.querySelectorAll('.calc-confirm, .calc-edit'), function (button) { button.disabled = value; });
+    if (manualForm) manualForm.querySelector('button[type="submit"]').disabled = value;
+    Array.prototype.forEach.call(journalBody.querySelectorAll('.calc-confirm, .calc-edit, .calc-delete'), function (button) { button.disabled = value; });
   }
+  /**
+   * The production cell. Editable for ПДО, plain text for everyone else: a
+   * disabled input would still say «you may type here one day», and the
+   * journal is read-only for them by design.
+   */
   function productionInput(className, entry, value, label, type, attributes) {
+    if (!canManage) return '<span class="' + className + '">' + escapeHtml(value == null || value === '' ? '—' : value) + '</span>';
     var locked = entry.productionConfirmed ? ' disabled' : '';
     return '<input class="' + className + ' calc-production-input" type="' + type + '" ' + attributes + locked + ' value="' + escapeHtml(value == null ? '' : value) + '" aria-label="' + label + ' для ' + escapeHtml(entry.name) + '">';
+  }
+  var TRASH_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+  /** ✓ or ✎, then the trash — nothing at all for a non-ПДО reader. */
+  function actionCell(entry) {
+    if (!canManage) return '';
+    var primary = entry.productionConfirmed
+      ? '<button class="link-button link-button--compact link-button--secondary calc-edit" type="button" data-id="' + entry.id + '" title="Редактировать" aria-label="Редактировать производственные данные">✎</button>'
+      : '<button class="link-button link-button--compact calc-confirm" type="button" data-id="' + entry.id + '" title="Подтвердить" aria-label="Подтвердить производственные данные">✓</button>';
+    var remove = '<button class="link-button link-button--compact link-button--danger calc-delete" type="button" data-id="' + entry.id + '" title="Удалить строку" aria-label="Удалить строку магнитопровода ' + escapeHtml(entry.name) + ' из проработки">' + TRASH_ICON + '</button>';
+    return '<td><div class="calc-row-actions">' + primary + remove + '</div></td>';
   }
   /** Millimetres as typed: «100» stays «100», a hand-added «100,5» stays «100,5». */
   function formatMm(value) { return Number(value).toLocaleString('ru-RU', { maximumFractionDigits: 2 }); }
@@ -53,7 +72,9 @@
    * stays in `oneCExpression` and comes back when the row is reopened with ✎.
    */
   function oneCValue(entry) {
-    if (!entry.productionConfirmed) return entry.oneCExpression;
+    // A reader who cannot edit is never shown the raw seconds expression: the
+    // column is headed in hours and there is no field to hand it back to.
+    if (!entry.productionConfirmed && canManage) return entry.oneCExpression;
     return entry.oneCHours == null ? '' : formatNumber(entry.oneCHours, 3);
   }
   /** «Нет» is a state, not a missing number: an uncalibrated core says so. */
@@ -63,11 +84,9 @@
   function renderJournal() {
     var filtered = api.filterJournalEntries(journal, { name: nameFilter.value });
     journalBody.innerHTML = filtered.map(function (entry) {
-      var action = entry.productionConfirmed
-        ? '<button class="link-button link-button--compact link-button--secondary calc-edit" type="button" data-id="' + entry.id + '" title="Редактировать" aria-label="Редактировать производственные данные">✎</button>'
-        : '<button class="link-button link-button--compact calc-confirm" type="button" data-id="' + entry.id + '" title="Подтвердить" aria-label="Подтвердить производственные данные">✓</button>';
-      var unitTime = entry.actualUnitTimeHours == null ? '—' : formatHours(entry.actualUnitTimeHours);
-      var status = entry.productionConfirmed ? '' : '<small class="calc-production-status">Требуется подтверждение</small>';
+      // The column header already carries the hour: «0,083», not «0,083 ч».
+      // An unconfirmed row simply shows «—» — ✓ says the rest.
+      var unitTime = entry.actualUnitTimeHours == null ? '—' : formatNumber(entry.actualUnitTimeHours, 3);
       return '<tr data-id="' + entry.id + '">'
         + '<td>' + formatMm(entry.d) + '</td>'
         + '<td>' + formatMm(entry.D) + '</td>'
@@ -75,15 +94,17 @@
         + '<td>' + formatNumber(entry.heightMm, 2) + '</td>'
         + '<td>' + formatMm(entry.tapeThicknessMm) + '</td>'
         + '<td>' + calibrationCell(entry) + '</td>'
+        // The winding speed the calculation already produced and stored.
+        + '<td>' + formatNumber(entry.standardCoefficient, 2) + '</td>'
         + '<td>×' + formatNumber(entry.complexityCoefficient, 2) + '</td>'
         + '<td>' + formatNumber(api.calculatedTimeHours(entry.totalTimeSeconds), 3) + '</td>'
-        + '<td>' + productionInput('calc-batch-quantity', entry, entry.batchQuantity, 'Единиц в партии', 'number', 'min="1" step="1" inputmode="numeric"') + '</td>'
-        + '<td>' + productionInput('calc-actual-batch-time', entry, entry.actualBatchTimeHours, 'Фактическое время партии в часах', 'number', 'min="0" step="0.01" inputmode="decimal"') + '</td>'
-        + '<td><span class="calc-unit-time">' + unitTime + '</span>' + status + '<small class="calc-production-error" aria-live="polite"></small></td>'
+        + '<td class="calc-col-compact">' + productionInput('calc-batch-quantity', entry, entry.batchQuantity, 'Единиц в партии', 'number', 'min="1" step="1" inputmode="numeric"') + '</td>'
+        + '<td class="calc-col-compact">' + productionInput('calc-actual-batch-time', entry, entry.actualBatchTimeHours, 'Фактическое время партии в часах', 'number', 'min="0" step="0.01" inputmode="decimal"') + '</td>'
+        + '<td class="calc-col-compact"><span class="calc-unit-time">' + unitTime + '</span><small class="calc-production-error" aria-live="polite"></small></td>'
         // Text, not `number`: the field accepts «4.4*62» as well as «3600».
         + '<td>' + productionInput('calc-one-c', entry, oneCValue(entry), 'Время 1С', 'text', 'inputmode="text"') + '</td>'
         + '<td>' + productionInput('calc-employee', entry, entry.employeeName, 'Сотрудник', 'text', 'maxlength="120"') + '</td>'
-        + '<td>' + action + '</td></tr>';
+        + actionCell(entry) + '</tr>';
     }).join('');
     journalEmpty.hidden = filtered.length > 0;
     journalEmpty.textContent = journal.length ? 'По заданным условиям записей не найдено.' : 'Записей пока нет. Выполните расчёт или добавьте строку вручную.';
@@ -116,7 +137,9 @@
     });
   }
   async function addCurrentCalculation() {
-    if (!latestCalculation) return;
+    // Outside ПДО the calculator is a calculator: the result is shown, and
+    // nothing is written. Not an error either — there is nothing to report.
+    if (!latestCalculation || !canManage) return;
     var name = api.magneticCoreName(latestCalculation.data);
     // No local duplicate check: whether this is a new case depends on the
     // tape and the calibration too, and only the server knows the signature.
@@ -165,10 +188,18 @@
   form.elements.calibration.addEventListener('change', toggleCalibrationDiameter);
   root.querySelector('.calc-tabs').addEventListener('click', function (event) { if (event.target.matches('.calc-tab')) switchTab(event.target.dataset.tab); });
   nameFilter.addEventListener('input', renderJournal);
-  manualForm.addEventListener('submit', function (event) { event.preventDefault(); if (!busy) addManualEntry(); });
+  // Absent entirely for a non-ПДО user: the template does not render it.
+  if (manualForm) manualForm.addEventListener('submit', function (event) { event.preventDefault(); if (!busy) addManualEntry(); });
 
   journalBody.addEventListener('click', async function (event) {
-    var button = event.target;
+    // `closest`, not the event target: the trash button's own SVG is what gets
+    // clicked most of the time.
+    var button = event.target.closest ? event.target.closest('button') : null;
+    if (!button) return;
+    if (button.matches('.calc-delete')) {
+      if (!busy) askToDelete(Number(button.dataset.id));
+      return;
+    }
     if (!button.matches('.calc-confirm, .calc-edit') || busy) return;
     var id = Number(button.dataset.id);
     var rowEl = button.closest('tr'), errorEl = rowEl.querySelector('.calc-production-error');
@@ -202,6 +233,53 @@
       setStatus(error.message, 'error');
     } finally { setBusy(false); }
   });
+
+  /**
+   * Deletion: the module's own `<dialog>`, never `confirm()`.
+   *
+   * It reuses the application's modal and button classes, but owns its own
+   * markup because the answer is a `fetch()`, not a form submission — the row
+   * disappears from the table only after the server says it is gone.
+   */
+  var deleteText = document.getElementById('calc-delete-text');
+  var deleteError = document.getElementById('calc-delete-error');
+  var deleteAccept = document.getElementById('calc-delete-accept');
+  var pendingDeleteId = null;
+  function askToDelete(id) {
+    var entry = journal.filter(function (item) { return item.id === id; })[0];
+    if (!entry || !deleteDialog || typeof deleteDialog.showModal !== 'function') return;
+    pendingDeleteId = id;
+    deleteText.textContent = 'Магнитопровод ' + entry.name + ' будет удалён из «Проработки».';
+    deleteError.hidden = true;
+    deleteError.textContent = '';
+    deleteAccept.disabled = false;
+    deleteDialog.showModal();
+    deleteAccept.focus();
+  }
+  async function confirmDelete() {
+    if (pendingDeleteId == null) return;
+    var id = pendingDeleteId;
+    deleteAccept.disabled = true;
+    try {
+      await journalApi.remove(id);
+    } catch (error) {
+      deleteError.textContent = error.message;
+      deleteError.hidden = false;
+      deleteAccept.disabled = false;
+      return;
+    }
+    // Only now: the local journal follows the database, never predicts it.
+    journal = journal.filter(function (item) { return item.id !== id; });
+    pendingDeleteId = null;
+    deleteDialog.close();
+    renderJournal();
+    setStatus('Строка удалена из «Проработки».');
+  }
+  if (deleteDialog) {
+    document.getElementById('calc-delete-cancel').addEventListener('click', function () { deleteDialog.close(); });
+    deleteAccept.addEventListener('click', function () { confirmDelete(); });
+    deleteDialog.addEventListener('close', function () { pendingDeleteId = null; });
+  }
 
   reloadButton.addEventListener('click', function () { if (!busy) loadJournal(); });
 

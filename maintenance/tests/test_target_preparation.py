@@ -44,8 +44,11 @@ class TargetPreparationTests(TestCase):
         self.assertEqual(result['deleted'], [])
         self.assertEqual(ActStatus.objects.count(), before_acts)
         self.assertEqual(TaskStatus.objects.count(), before_tasks)
+        # Every migration-seeded model present in the target is planned —
+        # read from the constant, so adding one seeded model does not silently
+        # narrow what this test checks.
         planned = {entry['model'] for entry in result['planned']}
-        self.assertEqual(planned, {'references.ActStatus', 'references.TaskStatus'})
+        self.assertEqual(planned, set(dt.MIGRATION_SEEDED_MODELS))
 
     def test_execute_removes_only_the_listed_reference_codes(self):
         self._seed_migration_rows()
@@ -57,7 +60,7 @@ class TargetPreparationTests(TestCase):
         self.assertFalse(ActStatus.objects.exists())
         self.assertFalse(TaskStatus.objects.exists())
         deleted = {entry['model'] for entry in result['deleted']}
-        self.assertEqual(deleted, {'references.ActStatus', 'references.TaskStatus'})
+        self.assertEqual(deleted, set(dt.MIGRATION_SEEDED_MODELS))
 
     def test_execute_requires_the_exact_confirmation(self):
         self._seed_migration_rows()

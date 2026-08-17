@@ -16,8 +16,8 @@ import zipfile
 from html import escape
 
 EXPORT_HEADERS = (
-    'd, мм', 'D, мм', 'b, мм', 'h, мм', 'δ, мм', 'Калибровка, мм', 'КС',
-    'Р.В., ч', 'Ед.В.П.', 'Ф.В.П., ч', 'Ф.В.Ед, ч', '1С, ч', 'Сотрудник',
+    'd, мм', 'D, мм', 'b, мм', 'h, мм', 'δ, мм', 'Калибровка, мм', 'ВН, с/мм',
+    'КС', 'Р.В., ч', 'Ед.В.П.', 'Ф.В.П., ч', 'Ф.В.Ед, ч', '1С, ч', 'Сотрудник',
 )
 
 NO_CALIBRATION = 'Нет'
@@ -92,7 +92,11 @@ def _entry_row(entry):
     return (
         _number(entry.d), _number(entry.outer_diameter), _number(entry.b),
         _number(entry.height_mm), _number(entry.tape_thickness_mm),
-        _calibration_cell(entry), _number(entry.complexity_coefficient),
+        _calibration_cell(entry),
+        # «ВН, с/мм» is the stored winding speed the formulas already produced;
+        # numeric, so the recipient can work with it.
+        _number(entry.standard_coefficient),
+        _number(entry.complexity_coefficient),
         _number(entry.total_time_seconds / 3600 if entry.total_time_seconds is not None else None),
         _number(entry.batch_quantity), _number(entry.actual_batch_time_hours),
         _number(entry.actual_unit_time_hours), _number(entry.one_c_hours),

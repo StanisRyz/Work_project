@@ -79,11 +79,14 @@ EXCLUDED_MODELS = (
 # importing; `prepare_empty_migration_target` is the only tool allowed to do it
 # and only for the exact codes listed here.
 MIGRATION_SEEDED_MODELS = (
+    'accounts.Department',
     'references.ActStatus',
     'references.TaskStatus',
 )
 
 MIGRATION_SEEDED_ROWS = {
+    # accounts.0003 creates the planning and dispatch office.
+    'accounts.Department': ('PDO',),
     # acts.0014 / acts.0015 create these two act statuses.
     'references.ActStatus': ('ARCHIVED', 'OTK_REVIEW'),
     # references.0002 / references.0003 create these two task statuses.

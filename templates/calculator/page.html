@@ -12,9 +12,15 @@ Every class is namespaced under `.calculator-module` so nothing here can reach
 {% endcomment %}
 
 {% block content %}
+{% comment %}
+`data-can-manage-workup` is presentation metadata: it decides which controls
+exist, never whether the server accepts a request. Every mutation endpoint
+re-checks `calculator.permissions.can_manage_workup()` on its own.
+{% endcomment %}
 <div class="calculator-module" data-calculator
      data-entries-url="{% url 'calculator:entry_list' %}"
-     data-export-url="{% url 'calculator:export' %}">
+     data-export-url="{% url 'calculator:export' %}"
+     data-can-manage-workup="{{ can_manage_workup|yesno:'1,0' }}">
 
     {% comment %}
     No outer heading: the module opens on its own tabs, like Акты and Задачи.
@@ -71,8 +77,10 @@ Every class is namespaced under `.calculator-module` so nothing here can reach
             {% comment %}
             Two rows: adding a line by hand, then searching. The manual row
             uses the same calculation engine as the Калькулятор tab — only the
-            parameters are typed here instead of on the other tab.
+            parameters are typed here instead of on the other tab. It belongs
+            to ПДО; everyone else keeps the search below it.
             {% endcomment %}
+            {% if can_manage_workup %}
             <form id="calc-manual-form" class="calc-manual-row" novalidate aria-label="Добавить строку вручную">
                 <label><span>d, мм</span><input name="d" type="number" min="0" step="any" inputmode="decimal"></label>
                 <label><span>D, мм</span><input name="D" type="number" min="0" step="any" inputmode="decimal"></label>
@@ -82,6 +90,7 @@ Every class is namespaced under `.calculator-module` so nothing here can reach
                 <button id="calc-manual-add" class="link-button link-button--compact" type="submit" title="Добавить строку" aria-label="Добавить строку в проработку">+</button>
             </form>
             <p id="calc-manual-errors" class="calc-errors" aria-live="polite"></p>
+            {% endif %}
 
             <div class="calc-journal-filters" aria-label="Поиск по журналу">
                 <label><span>Имя d/D-b</span><input id="calc-name-filter" type="search" placeholder="Например, 100/130-40"></label>
@@ -92,9 +101,15 @@ Every class is namespaced under `.calculator-module` so nothing here can reach
                     <thead>
                         <tr>
                             <th>d, мм</th><th>D, мм</th><th>b, мм</th><th>h, мм</th>
-                            <th>δ, мм</th><th>Калибровка, мм</th><th>КС</th><th>Р.В., ч</th>
-                            <th>Ед.В.П.</th><th>Ф.В.П., ч</th><th>Ф.В.Ед, ч</th>
-                            <th>1С, ч</th><th>Сотрудник</th><th>Действие</th>
+                            {% comment %}
+                            «ВН, с/мм» is the stored winding speed the formulas
+                            already produced — no new field, no recalculation.
+                            {% endcomment %}
+                            <th>δ, мм</th><th>Калибровка, мм</th><th>ВН, с/мм</th><th>КС</th><th>Р.В., ч</th>
+                            <th class="calc-col-compact">Ед.В.П.</th>
+                            <th class="calc-col-compact">Ф.В.П., ч</th>
+                            <th class="calc-col-compact">Ф.В.Ед, ч</th>
+                            <th>1С, ч</th><th>Сотрудник</th>{% if can_manage_workup %}<th>Действие</th>{% endif %}
                         </tr>
                     </thead>
                     <tbody id="calc-journal-body"></tbody>
@@ -103,11 +118,33 @@ Every class is namespaced under `.calculator-module` so nothing here can reach
             <p id="calc-journal-empty" class="calc-placeholder">Записей пока нет. Выполните расчёт, чтобы добавить магнитопровод в журнал.</p>
         </section>
     </section>
+
+    {% if can_manage_workup %}
+    {% comment %}
+    The module's own confirmation dialog. It reuses `.app-modal` and the
+    `.link-button` modifiers of the global modal, but not its markup: the
+    global one submits a form and navigates, while a journal deletion is a
+    `fetch()` whose result decides whether the row leaves the table. Teaching
+    the shared modal about AJAX callbacks would make every workflow
+    confirmation carry that complexity.
+    {% endcomment %}
+    <dialog class="app-modal" id="calc-delete-dialog" aria-labelledby="calc-delete-title">
+        <div class="app-modal__form">
+            <h2 id="calc-delete-title">Удалить строку?</h2>
+            <p id="calc-delete-text"></p>
+            <p class="app-modal__error" id="calc-delete-error" hidden></p>
+            <div class="app-modal__actions">
+                <button class="link-button link-button--secondary" type="button" id="calc-delete-cancel">Отмена</button>
+                <button class="link-button link-button--danger" type="button" id="calc-delete-accept">Удалить</button>
+            </div>
+        </div>
+    </dialog>
+    {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/calculator.css' %}?v=20260817-2">
+<link rel="stylesheet" href="{% static 'css/calculator.css' %}?v=20260817-3">
 {% endblock %}
 
 {% block scripts %}
@@ -121,6 +158,6 @@ persistence layer, and the controller last.
 <script src="{% static 'js/calculator/calculation.js' %}?v=20260814-1"></script>
 <script src="{% static 'js/calculator/oneC.js' %}?v=20260817-1"></script>
 <script src="{% static 'js/calculator/journal.js' %}?v=20260817-1"></script>
-<script src="{% static 'js/calculator/api.js' %}?v=20260817-1"></script>
-<script src="{% static 'js/calculator/app.js' %}?v=20260817-1"></script>
+<script src="{% static 'js/calculator/api.js' %}?v=20260817-2"></script>
+<script src="{% static 'js/calculator/app.js' %}?v=20260817-2"></script>
 {% endblock %}

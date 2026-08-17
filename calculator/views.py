@@ -3,7 +3,13 @@
 Ordinary Django views: `login_required` for everything, Django's own CSRF
 middleware for every state-changing request, and `services.py` as the only
 place a row is written. No REST framework is involved.
+
+Reading is open to every authenticated user; every *mutation* additionally
+goes through `@workup_manager_required`, which is `can_manage_workup()` and
+nothing else. The template's `can_manage_workup` flag only decides which
+controls are drawn — a crafted request meets the same check here.
 """
+import functools
 import json
 from urllib.parse import quote
 
@@ -15,16 +21,36 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .export import build_journal_xlsx
 from .models import WindingEntry
+from .permissions import can_manage_workup
 from .services import (
     CalculatorValidationError,
     confirm_production,
     create_entry,
     create_manual_entry,
+    delete_entry,
     journal_entries,
     unlock_production,
 )
 
 EXPORT_FILENAME = 'проработка.xlsx'
+
+FORBIDDEN_MESSAGE = 'Изменять «Проработку» может только сотрудник с ролью ПДО.'
+
+
+def workup_manager_required(view):
+    """Refuse a journal mutation with JSON 403 unless the user is ПДО.
+
+    A JSON answer, not the HTML login redirect: every caller here is a
+    `fetch()` from the calculator page, and the check runs before the view
+    touches the request body, so a rejected request changes nothing.
+    """
+    @functools.wraps(view)
+    def wrapper(request, *args, **kwargs):
+        if not can_manage_workup(request.user):
+            return JsonResponse({'detail': FORBIDDEN_MESSAGE}, status=403)
+        return view(request, *args, **kwargs)
+
+    return wrapper
 
 
 def _payload(request):
@@ -49,6 +75,9 @@ def _validation_response(error):
 def calculator_page(request):
     return render(request, 'calculator/page.html', {
         'active_page': 'calculator', 'header_title': 'Калькулятор',
+        # Presentation metadata only: it decides which controls are rendered,
+        # never whether a request is allowed.
+        'can_manage_workup': can_manage_workup(request.user),
     })
 
 
@@ -63,9 +92,14 @@ def entry_list(request):
 
 
 @login_required
+@workup_manager_required
 @require_POST
 def entry_create(request):
-    """Create the calculated case, or return the one that already exists."""
+    """Create the calculated case, or return the one that already exists.
+
+    Only ПДО reaches it: a non-ПДО user still calculates and still sees the
+    result, the calculation simply is not persisted.
+    """
     try:
         entry, created = create_entry(request.user, _payload(request))
     except CalculatorValidationError as error:
@@ -74,6 +108,7 @@ def entry_create(request):
 
 
 @login_required
+@workup_manager_required
 @require_POST
 def entry_manual_create(request):
     """Add a row by hand from «Проработка»; a duplicate is a valid request."""
@@ -85,6 +120,7 @@ def entry_manual_create(request):
 
 
 @login_required
+@workup_manager_required
 @require_POST
 def entry_confirm_production(request, pk):
     entry = get_object_or_404(WindingEntry, pk=pk)
@@ -96,10 +132,27 @@ def entry_confirm_production(request, pk):
 
 
 @login_required
+@workup_manager_required
 @require_POST
 def entry_unlock_production(request, pk):
     entry = get_object_or_404(WindingEntry, pk=pk)
     return JsonResponse({'entry': unlock_production(request.user, entry).to_payload()})
+
+
+@login_required
+@workup_manager_required
+@require_POST
+def entry_delete(request, pk):
+    """Delete exactly the row the primary key names.
+
+    The permission is checked before the lookup, so an unauthorised request
+    cannot even probe which primary keys exist; a missing row is the ordinary
+    404. The response is deliberately tiny — the client removes the one row it
+    asked about and nothing else.
+    """
+    entry = get_object_or_404(WindingEntry, pk=pk)
+    delete_entry(entry)
+    return JsonResponse({'deleted': True, 'id': pk})
 
 
 @login_required

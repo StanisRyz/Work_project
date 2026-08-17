@@ -262,6 +262,18 @@ def unlock_production(user, entry):
     return locked
 
 
+def delete_entry(entry):
+    """Remove exactly one journal row, identified by its primary key.
+
+    A hard delete on purpose: there is no archive, no trash and no
+    deletion history in this module, and a row removed from «Проработка» is
+    simply gone. Only the given primary key is touched — a shared signature or
+    a shared visible name never drags a neighbouring row along.
+    """
+    with transaction.atomic():
+        WindingEntry.objects.filter(pk=entry.pk).delete()
+
+
 def journal_entries():
     """Everything «Проработка» shows — which is everything the export gets.
 

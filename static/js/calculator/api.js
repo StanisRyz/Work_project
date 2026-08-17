@@ -22,11 +22,13 @@
     } catch (error) {
       throw new Error('Нет связи с сервером. Проверьте подключение и повторите.');
     }
-    if (response.redirected || response.status === 401 || response.status === 403) {
-      throw new Error('Сессия завершена. Обновите страницу и войдите заново.');
-    }
     var payload = null;
     try { payload = await response.json(); } catch (error) { payload = null; }
+    // A refusal the server explained — today only the ПДО rule — is shown as
+    // it was written; a redirect or a bare 401/403 is a lost session.
+    if (response.redirected || response.status === 401 || (response.status === 403 && !(payload && payload.detail))) {
+      throw new Error('Сессия завершена. Обновите страницу и войдите заново.');
+    }
     if (!response.ok) {
       throw new Error((payload && payload.detail) || 'Не удалось сохранить данные. Повторите попытку.');
     }
@@ -55,7 +57,9 @@
       /** Add a row by hand: always a new row, duplicates included. */
       createManual(payload) { return post(entriesUrl + 'manual/', payload); },
       confirmProduction(id, production) { return post(entryUrl(id, '/production/'), production); },
-      unlockProduction(id) { return post(entryUrl(id, '/production/unlock/'), {}); }
+      unlockProduction(id) { return post(entryUrl(id, '/production/unlock/'), {}); },
+      /** Remove exactly this row. The server answers before the table changes. */
+      remove(id) { return post(entryUrl(id, '/delete/'), {}); }
     };
   };
 })();
