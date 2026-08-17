@@ -100,7 +100,14 @@ const initialiseActDefectFormset = (root) => {
         if (!detectedAt || !target || detectedAt.parentElement === target) {
             return;
         }
-        target.append(detectedAt);
+        if (isPir) {
+            // Под ПиР «Контроль» оставляет только вид дефекта, дата идёт за ним.
+            target.append(detectedAt);
+        } else {
+            // Возврат к МП: дата снова первая в «Результате контроля», перед
+            // двумя количествами, а не в конце группы.
+            target.insertBefore(detectedAt, target.querySelector('label'));
+        }
     };
 
     const syncWorkshopVisibility = (block) => {

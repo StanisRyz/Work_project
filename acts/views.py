@@ -135,8 +135,13 @@ def act_history_fragment(request, pk):
     history_events = get_history_events(act)
     return _fragment_response(
         {
+            # The whole timeline, exactly as the detail page renders it: the
+            # client replaces the contents of `[data-live-act-history]`, so the
+            # card, the «История акта» heading and the «Все события» control
+            # must come from the same partial or they vanish on the first
+            # refresh.
             'html': render_to_string(
-                'acts/includes/history_content.html',
+                'acts/includes/history_timeline.html',
                 {'act': act, 'history_groups': group_history_events(history_events)},
                 request=request,
             )

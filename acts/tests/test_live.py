@@ -207,6 +207,21 @@ class ActRegistryFragmentTests(ActLiveMixin, TestCase):
         self.assertIn('data-live-act-registry-results', content)
         self.assertIn(f'data-fragment-url="{self.url}"', content)
 
+    def test_the_modules_open_on_their_tabs_without_a_heading_block(self):
+        """Акты, Задачи and Калькулятор start the same way: with their tabs."""
+        registry = self.client.get(reverse('acts:list')).content.decode()
+        calculator = self.client.get(reverse('calculator:page')).content.decode()
+
+        self.assertNotIn('act-registry-heading', registry)
+        self.assertNotIn('<h1>Акты</h1>', registry)
+        self.assertNotIn('calc-heading', calculator)
+        self.assertNotIn('<h1>Калькулятор</h1>', calculator)
+        # The tabs and «Создать АКТ» now share one top row.
+        self.assertIn('act-registry-toolbar', registry)
+        self.assertIn('Мои акты', registry)
+        self.assertIn('Создать АКТ', registry)
+        self.assertIn('calc-tabs', calculator)
+
 
 class ActDetailFragmentTests(ActLiveMixin, TestCase):
     def setUp(self):
@@ -285,6 +300,43 @@ class ActDetailFragmentTests(ActLiveMixin, TestCase):
         payload = self.client.get(self.urls['history']).json()
 
         self.assertIn('Акт отредактирован в тесте.', payload['html'])
+
+    def test_the_history_fragment_repeats_the_page_markup_contract(self):
+        """The live fragment replaces `[data-live-act-history]` wholesale.
+
+        Both renders therefore have to carry the timeline wrapper, the heading
+        and the «Все события» control: a fragment holding only the event list
+        made the card disappear the moment SSE connected.
+        """
+        # Written directly: this test is about the two renders, not about the
+        # service that emits events.
+        ActHistoryEvent.objects.create(
+            act=self.act,
+            user=self.otk,
+            event_type=ActHistoryEvent.EventType.SENT_TO_KO,
+            message='Акт передан в КО в тесте.',
+            from_status=self.statuses['CREATED_OTK'],
+            to_status=self.statuses['KO_REVIEW'],
+        )
+        page = self.client.get(
+            f"{reverse('acts:detail', args=[self.act.pk])}?tab=history"
+        ).content.decode()
+        fragment = self.client.get(self.urls['history']).json()['html']
+
+        self.assertIn('data-live-act-history', page)
+        for marker in (
+            'act-history-section',
+            'history-feed__header',
+            'История акта',
+            'Все события',
+            'history-feed',
+            'history-day',
+            'history-event__transition',
+            'history-event__meta',
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, page)
+                self.assertIn(marker, fragment)
 
     def test_the_comments_fragment_shows_a_new_comment_without_the_form(self):
         add_act_comment(self.act, self.otk, 'Свежий комментарий', notify=False)

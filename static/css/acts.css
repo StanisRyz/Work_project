@@ -4,23 +4,23 @@
     gap: 14px;
 }
 
-.act-registry-heading {
+/* The registry's top row: the scope tabs plus «Создать АКТ», sharing one
+   underline so Акты opens exactly like Задачи and Калькулятор. */
+.act-registry-toolbar {
     display: flex;
-    align-items: flex-start;
+    align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
+    border-bottom: 1px solid var(--color-border);
 }
 
-.act-registry-heading h1 {
-    margin: 0;
-    color: var(--color-primary-dark);
-    font-size: 28px;
-    line-height: 1.2;
+.act-registry-toolbar .act-registry-tabs {
+    border-bottom: 0;
 }
 
-.act-registry-heading p {
-    margin: 4px 0 0;
-    color: var(--color-muted);
+.act-registry-toolbar > .link-button {
+    margin: 0 0 6px;
+    flex: none;
 }
 
 .act-kpi-card {
@@ -85,10 +85,6 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 10px;
-}
-
-.act-registry-actions > a.link-button {
-    display: none;
 }
 
 .act-badge {
@@ -1062,7 +1058,14 @@
     gap: 7px !important;
 }
 
-.defect-form-block [data-defect-collapsible][hidden] {
+/* `.act-form--editor label` sets `display: grid`, and an author declaration
+   beats the user-agent `[hidden] { display: none }`. Without these two rules a
+   field the workshop does not apply — the МП-only Операция and Тип МП under
+   ПиР — would stay visible even though the DOM marks it hidden, so both the
+   collapsible groups and the individual hidden labels are forced out of the
+   grid and leave no empty row behind. */
+.defect-form-block [data-defect-collapsible][hidden],
+.defect-form-block label[hidden] {
     display: none !important;
 }
 
@@ -1712,6 +1715,8 @@
 }
 
 @media (max-width: 700px) {
+    .act-registry-toolbar { align-items: stretch; flex-direction: column; gap: 8px; }
+    .act-registry-toolbar > .link-button { margin: 0 0 8px; width: 100%; justify-content: center; }
     .act-detail-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
     .act-detail-heading h1 { font-size: 22px; }
 

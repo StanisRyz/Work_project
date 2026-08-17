@@ -59,6 +59,13 @@ tasks never live inside `acts`.
   `MEDIA_ROOT` is never published by the web server and is a different
   directory from `STATIC_ROOT`.
 - Django Templates and vanilla JavaScript only: no framework, bundler or npm.
+- **A live-replaced block and its initial server render share one markup
+  contract.** The client swaps the whole contents of the container, so the
+  fragment view must render the same outer partial the page does —
+  `[data-live-act-history]` gets `history_timeline.html` (card, «История акта»,
+  «Все события») from both, with `history_content.html` reused as the inner
+  event list. A fragment rendering only the inner partial makes the wrapper
+  disappear on the first refresh.
 - **A live-replaced fragment never owns a listener bound at page load.**
   `[data-live-act-work]` is swapped wholesale, so its markup is wired by a
   delegated `document` listener or a `window.qualityFragments` initialiser; a
@@ -96,8 +103,11 @@ tasks never live inside `acts`.
   («Цех ПиР») collects only workshop, ЗНП, defect type, detected date and the
   two quantities: `MP_ONLY_DEFECT_FIELDS` are cleared in `clean()` whatever the
   POST carried, and only `PIR_DEFECT_TYPE_CODES` are accepted.
-  `static/js/act_create.js` filters the dropdown and the required flags for UX
-  only — never as the validation.
+  `static/js/act_create.js` filters the dropdown, the required flags and the
+  visibility of the МП-only fields (Операция and Тип МП leave the «Контроль»
+  group under ПиР) for UX only — never as the validation. Hiding needs the
+  `display: none !important` rules in `acts.css`: an author `display` on a
+  label beats the user-agent `[hidden]`, so the attribute alone is not enough.
 - `Act.operation`, `Act.party_number`, `Act.description` and
   `ActDefect.description` are optional so a ПиР act stores nothing invented.
   Never write a placeholder such as `"-"` in place of missing business data;

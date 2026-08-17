@@ -3,20 +3,20 @@
 {% block title %}Акты - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-<header class="act-registry-heading">
-    <div>
-        <h1>Акты</h1>
-        <p>Операционный контроль</p>
-    </div>
+{% comment %}
+The registry opens on its tabs, like Задачи and Калькулятор. «Создать АКТ»
+shares that top row instead of owning a heading block of its own.
+{% endcomment %}
+<div class="act-registry-toolbar">
+    <nav class="act-registry-tabs" aria-label="Область списка актов">
+        <a class="act-registry-tabs__link{% if scope == 'my' %} act-registry-tabs__link--active{% endif %}" href="?scope=my">Мои акты</a>
+        <a class="act-registry-tabs__link{% if scope == 'all' %} act-registry-tabs__link--active{% endif %}" href="?scope=all">Все акты</a>
+        <a class="act-registry-tabs__link{% if scope == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?scope=archive">Архив</a>
+    </nav>
     {% if can_create %}
         <a class="link-button" href="{% url 'acts:create' %}">Создать АКТ</a>
     {% endif %}
-</header>
-<nav class="act-registry-tabs" aria-label="Область списка актов">
-    <a class="act-registry-tabs__link{% if scope == 'my' %} act-registry-tabs__link--active{% endif %}" href="?scope=my">Мои акты</a>
-    <a class="act-registry-tabs__link{% if scope == 'all' %} act-registry-tabs__link--active{% endif %}" href="?scope=all">Все акты</a>
-    <a class="act-registry-tabs__link{% if scope == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?scope=archive">Архив</a>
-</nav>
+</div>
 
 {% comment %}
 The registry container: only the KPI and results contents are replaced by a
@@ -77,18 +77,13 @@ filters and search survive.
 
 {% if can_clear_all_acts %}
     <section class="act-registry-actions" aria-label="Действия с актами">
-        {% if can_create %}
-            <a class="link-button" href="{% url 'acts:create' %}">Создать АКТ</a>
-        {% endif %}
-        {% if can_clear_all_acts %}
-            <button class="link-button link-button--danger" type="button"
-                data-confirm
-                data-confirm-form="act-clear-form"
-                data-confirm-title="Очистить все акты"
-                data-confirm-text="Все акты, их история, комментарии и вложения будут удалены. Это действие нельзя отменить."
-                data-confirm-label="Удалить всё"
-                data-confirm-variant="danger">Очистить акты</button>
-        {% endif %}
+        <button class="link-button link-button--danger" type="button"
+            data-confirm
+            data-confirm-form="act-clear-form"
+            data-confirm-title="Очистить все акты"
+            data-confirm-text="Все акты, их история, комментарии и вложения будут удалены. Это действие нельзя отменить."
+            data-confirm-label="Удалить всё"
+            data-confirm-variant="danger">Очистить акты</button>
     </section>
 {% endif %}
 {% endblock %}

@@ -16,13 +16,9 @@ Every class is namespaced under `.calculator-module` so nothing here can reach
      data-entries-url="{% url 'calculator:entry_list' %}"
      data-export-url="{% url 'calculator:export' %}">
 
-    <header class="calc-heading">
-        <div>
-            <h1>Калькулятор</h1>
-            <p>Время навивки и дополнительных операций по согласованным формулам.</p>
-        </div>
-    </header>
-
+    {% comment %}
+    No outer heading: the module opens on its own tabs, like Акты and Задачи.
+    {% endcomment %}
     <nav class="calc-tabs" aria-label="Разделы калькулятора">
         <button class="calc-tab calc-tab--active" type="button" data-tab="calculator" aria-selected="true">Калькулятор</button>
         <button class="calc-tab" type="button" data-tab="journal" aria-selected="false">Проработка</button>
@@ -111,7 +107,7 @@ Every class is namespaced under `.calculator-module` so nothing here can reach
 {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/calculator.css' %}?v=20260817-1">
+<link rel="stylesheet" href="{% static 'css/calculator.css' %}?v=20260817-2">
 {% endblock %}
 
 {% block scripts %}
