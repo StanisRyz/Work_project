@@ -61,12 +61,8 @@ class ActLiveMixin:
     def make_act(self, status_code='CREATED_OTK', *, author=None, number=None, **extra):
         values = {
             'created_by': author or self.otk,
-            'party_number': 'P-1',
             'nomenclature': 'Катушка',
-            'operation': self.operation,
-            'defect_type': self.defect_type,
             'status': self.statuses[status_code],
-            'description': 'Описание',
         }
         if number:
             values['number'] = number

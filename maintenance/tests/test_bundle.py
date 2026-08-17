@@ -62,12 +62,8 @@ class BundleFixtureMixin:
         self.user = User.objects.create_user(username='bundle_user', password='demo12345')
         self.act = Act.objects.create(
             created_by=self.user,
-            party_number='P-001',
             nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
             status=self.status,
-            description='Описание',
         )
 
     def add_attachment(self, relative_path='acts/attachments/1/sample.txt', content=b'demo'):
@@ -463,12 +459,8 @@ class VerificationTests(BundleFixtureMixin, TestCase):
         bundle = self._export()
         Act.objects.create(
             created_by=self.user,
-            party_number='P-002',
             nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
             status=self.status,
-            description='Ещё один',
         )
 
         with override_settings(MEDIA_ROOT=self.media_root):

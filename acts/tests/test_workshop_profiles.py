@@ -89,12 +89,9 @@ class WorkshopAwareDefectTests(TestCase):
         self.assertEqual(mp_defect.mp_type, 'PL')
         self.assertEqual(mp_defect.description, 'Описание дефекта МП')
 
-        # The first defect no longer decides anything about the act itself.
-        self.assertEqual(act.znp_number, '')
-        self.assertEqual(act.party_number, '')
-        self.assertEqual(act.description, '')
-        self.assertIsNone(act.operation)
-        self.assertIsNone(act.defect_type)
+        # The act carries no defect data at all any more.
+        for field in ('znp_number', 'party_number', 'description', 'operation', 'defect_type'):
+            self.assertFalse(hasattr(act, field), field)
 
     def test_the_database_refuses_mp_only_data_on_a_pir_defect(self):
         self.client.post(reverse('acts:create'), self._mixed_act_payload())
@@ -111,7 +108,7 @@ class WorkshopAwareDefectTests(TestCase):
                     detected_at=timezone.localdate(),
                 )
 
-    def test_the_registry_finds_an_act_by_data_of_a_non_first_defect(self):
+    def test_the_registry_and_detail_work_without_any_act_summary(self):
         self.client.post(reverse('acts:create'), self._mixed_act_payload())
         act = Act.objects.get(order_number='400-1')
 
@@ -123,3 +120,23 @@ class WorkshopAwareDefectTests(TestCase):
             self.assertContains(response, act.number)
             # The join must not duplicate the act.
             self.assertEqual(len(response.context['acts']), 1)
+
+        # Both defects reach the detail page, which has no act summary to fall
+        # back on any more.
+        detail = self.client.get(reverse('acts:detail', args=[act.pk]), {'tab': 'work'})
+        self.assertEqual(len(detail.context['defect_decision_rows']), 2)
+        self.assertContains(detail, '600-600')
+        self.assertContains(detail, '500-1')
+
+    def test_an_act_without_defects_renders_the_empty_state(self):
+        act = Act.objects.create(
+            number='АОК-2026-00099',
+            created_by=self.otk_user,
+            nomenclature='Катушка',
+            status=ActStatus.objects.get(code='CREATED_OTK'),
+        )
+
+        response = self.client.get(reverse('acts:detail', args=[act.pk]), {'tab': 'work'})
+
+        self.assertEqual(response.context['defect_decision_rows'], [])
+        self.assertContains(response, 'Дефекты не добавлены.')

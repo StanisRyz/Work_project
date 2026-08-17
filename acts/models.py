@@ -78,12 +78,8 @@ class Act(models.Model):
     designation, type, status/priority, the КО/ТО/approval/closing workflow and
     the timestamps. Defect data — workshop, ЗНП, party, defect type, operation,
     МП type, description, detected date, quantities and the per-defect КО
-    decision — belongs to `ActDefect`.
-
-    `znp_number`, `party_number`, `operation`, `defect_type` and `description`
-    are legacy summaries of the first defect. They are no longer written and no
-    new logic may read them; they stay only so historical rows keep their values
-    and Phase 1 can be rolled back.
+    decision — lives in `ActDefect` and nowhere else. The act carries no summary
+    of its first defect: read `act.defects` instead.
     """
 
     class Type(models.TextChoices):
@@ -135,10 +131,6 @@ class Act(models.Model):
     )
     customer = models.CharField('Заказчик', max_length=160, blank=True)
     order_number = models.CharField('Номер заказа', max_length=80, blank=True)
-    # Legacy defect summary. `ActDefect` owns this data now; the columns are
-    # kept for rollback and historical rows only — see the class docstring.
-    znp_number = models.CharField('Номер ЗНП', max_length=80, blank=True)
-    party_number = models.CharField('Номер партии', max_length=120, blank=True)
     nomenclature = models.CharField('Номенклатура', max_length=240)
     kd_designation = models.CharField('Обозначение по КД', max_length=240, blank=True)
     act_type = models.CharField(
@@ -146,20 +138,6 @@ class Act(models.Model):
         max_length=32,
         choices=Type.choices,
         default=Type.OPERATIONAL_CONTROL,
-    )
-    operation = models.ForeignKey(
-        Operation,
-        on_delete=models.PROTECT,
-        verbose_name='Операция',
-        blank=True,
-        null=True,
-    )
-    defect_type = models.ForeignKey(
-        DefectType,
-        on_delete=models.PROTECT,
-        verbose_name='Вид дефекта',
-        blank=True,
-        null=True,
     )
     priority = models.ForeignKey(
         Priority,
@@ -169,7 +147,7 @@ class Act(models.Model):
         null=True,
     )
     status = models.ForeignKey(ActStatus, on_delete=models.PROTECT, verbose_name='Статус')
-    description = models.TextField('Описание', blank=True)
+    # Unchanged on purpose: its business meaning is decided separately.
     due_date = models.DateField('Срок рассмотрения', blank=True, null=True)
     ko_decision = models.CharField(
         'Решение КО',

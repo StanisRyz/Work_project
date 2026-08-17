@@ -52,17 +52,14 @@ class ActViewTests(TestCase):
         return user
 
     def _create_act(self, status, created_by=None, **kwargs):
+        # Defect data belongs to `ActDefect`; tests that need it add defects.
         return Act.objects.create(
             number=kwargs.get('number', f'АОК-2026-{Act.objects.count() + 1:05d}'),
             created_by=created_by or self.otk_user,
-            party_number=kwargs.get('party_number', 'P-001'),
             nomenclature=kwargs.get('nomenclature', 'Катушка'),
             act_type=kwargs.get('act_type', Act.Type.OPERATIONAL_CONTROL),
-            operation=self.operation,
-            defect_type=self.defect_type,
             priority=kwargs.get('priority'),
             status=status,
-            description='Описание дефекта',
             due_date=kwargs.get('due_date'),
         )
 
@@ -103,10 +100,8 @@ class ActViewTests(TestCase):
         self.assertEqual(ActDefect.objects.filter(act=act).count(), 1)
         defect = act.defects.get()
         self.assertEqual(defect.workshop, ActDefect.Workshop.MP_SHOP)
-        # Defect data belongs to the defect; the legacy act summary is not written.
+        # Defect data lives only on the defect.
         self.assertEqual(defect.party_number, '100-100')
-        self.assertEqual(act.party_number, '')
-        self.assertIsNone(act.defect_type)
 
     def test_act_form_uses_compact_defect_groups(self):
         self.client.force_login(self.otk_user)

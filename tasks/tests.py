@@ -28,8 +28,7 @@ class TaskViewsTests(TestCase):
         cls.manager = cls._user('manager', UserProfile.Role.MANAGER, cls.department)
         cls.creator = cls._user('otk', UserProfile.Role.OTK, cls.other_department)
         cls.act = Act.objects.create(
-            created_by=cls.creator, party_number='P-1', nomenclature='Изделие', operation=cls.operation,
-            defect_type=cls.defect_type, status=cls.status_archived, description='Дефект',
+            created_by=cls.creator, nomenclature='Изделие', status=cls.status_archived,
         )
 
     @classmethod

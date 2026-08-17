@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Department, UserProfile
-from acts.models import Act, ActCorrectiveAction, ActCorrectiveActionAssignee, ActHistoryEvent, ActRootAnalysis
+from acts.models import Act, ActCorrectiveAction, ActCorrectiveActionAssignee, ActDefect, ActHistoryEvent, ActRootAnalysis
 from acts.services import (
     add_act_comment,
     add_act_history_event,
@@ -69,12 +69,8 @@ class NotificationTestMixin:
     def create_act(self, status_code='CREATED_OTK', **overrides):
         values = {
             'created_by': self.otk,
-            'party_number': '1/2-3',
             'nomenclature': 'Изделие',
-            'operation': self.operation,
-            'defect_type': self.defect_type,
             'status': self.statuses[status_code],
-            'description': 'Описание',
         }
         values.update(overrides)
         return Act.objects.create(**values)
@@ -440,8 +436,18 @@ class NotificationViewTests(NotificationTestMixin, TestCase):
     EMAIL_NOTIFICATION_MAX_ATTEMPTS=2,
 )
 class NotificationEmailTests(NotificationTestMixin, TestCase):
+    DEFECT_DESCRIPTION = 'Описание дефекта, которое не должно попасть в письмо.'
+
     def queue_delivery(self, recipient=None):
         act = self.create_act('KO_REVIEW')
+        # Defect text lives on the defect now, and must stay out of the email.
+        ActDefect.objects.create(
+            act=act,
+            workshop=ActDefect.Workshop.MP_SHOP,
+            defect_type=self.defect_type,
+            description=self.DEFECT_DESCRIPTION,
+            detected_at=timezone.localdate(),
+        )
         notifications = create_notifications(
             event_type=Notification.EventType.ACT_SENT_TO_KO,
             act=act,
@@ -465,7 +471,7 @@ class NotificationEmailTests(NotificationTestMixin, TestCase):
         self.assertIn(act.number, message.subject)
         self.assertIn(f'https://quality.example.test/acts/{act.pk}/', message.body)
         self.assertIn('Требуемое действие', message.body)
-        self.assertNotIn(act.description, message.body)
+        self.assertNotIn(self.DEFECT_DESCRIPTION, message.body)
         self.assertEqual(message.alternatives[0].mimetype, 'text/html')
 
     def test_return_comment_is_not_in_email_content(self):

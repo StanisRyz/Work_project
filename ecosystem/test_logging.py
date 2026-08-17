@@ -683,8 +683,9 @@ class BusinessEventLoggingTests(TestCase):
 
     def setUp(self):
         from accounts.models import Department, UserProfile
-        from acts.models import Act
-        from references.models import ActStatus, DefectType, Operation
+        from acts.models import Act, ActDefect
+        from django.utils import timezone
+        from references.models import ActStatus, DefectType
 
         self.department = Department.objects.create(name='ОТК', code='OTK')
         self.otk_user = User.objects.create_user('otk_probe', password='probe-password-1')
@@ -695,12 +696,16 @@ class BusinessEventLoggingTests(TestCase):
         self.act = Act.objects.create(
             number='АОК-2026-00001',
             created_by=self.otk_user,
-            party_number='P-1',
             nomenclature='Изделие',
-            operation=Operation.objects.first(),
-            defect_type=DefectType.objects.first(),
             status=ActStatus.objects.get(code='CREATED_OTK'),
+        )
+        # The business text a log must never carry lives on the defect.
+        ActDefect.objects.create(
+            act=self.act,
+            workshop=ActDefect.Workshop.MP_SHOP,
+            defect_type=DefectType.objects.first(),
             description='СЕКРЕТНОЕ ОПИСАНИЕ ДЕФЕКТА',
+            detected_at=timezone.localdate(),
         )
 
     def test_a_successful_transition_is_logged_with_ids_and_statuses(self):
@@ -846,12 +851,8 @@ class TaskEventLoggingTests(TestCase):
         )
         act = Act.objects.create(
             created_by=self.user,
-            party_number='P-1',
             nomenclature='Изделие',
-            operation=Operation.objects.first(),
-            defect_type=DefectType.objects.first(),
             status=ActStatus.objects.get(code='ARCHIVED'),
-            description='описание',
         )
         # A task always originates from an approved corrective action, so the
         # fixture builds that chain rather than a detached task row.

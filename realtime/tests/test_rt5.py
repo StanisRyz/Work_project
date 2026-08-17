@@ -33,12 +33,8 @@ class ActCreatedEventTests(RealtimeFixtureMixin, TestCase):
         return Act.objects.create(
             number='АОК-2026-00007',
             created_by=self.otk_user,
-            party_number='P-RT5',
-            nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
+            nomenclature='Катушка-RT5',
             status=self.status_created,
-            description='Описание',
         )
 
     def test_the_event_is_published_after_commit(self):
@@ -72,7 +68,7 @@ class ActCreatedEventTests(RealtimeFixtureMixin, TestCase):
                         raise Rollback
 
         self.assertEqual(publisher.published, [])
-        self.assertFalse(Act.objects.filter(party_number='P-RT5').exists())
+        self.assertFalse(Act.objects.filter(nomenclature='Катушка-RT5').exists())
 
     def test_the_payload_carries_no_business_data(self):
         from realtime.emitters import emit_act_created
@@ -146,12 +142,8 @@ class ActCreatedEventTests(RealtimeFixtureMixin, TestCase):
         author = self.make_user('rt_author_admin', UserProfile.Role.ADMIN)
         act = Act.objects.create(
             created_by=author,
-            party_number='P-DUP',
             nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
             status=self.status_created,
-            description='Описание',
         )
 
         with capture_realtime_events() as publisher:
@@ -200,7 +192,7 @@ class ActCreatedEventTests(RealtimeFixtureMixin, TestCase):
 
         with capture_realtime_events() as publisher:
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(reverse('acts:create'), {'party_number': ''})
+                response = self.client.post(reverse('acts:create'), {'nomenclature': ''})
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(publisher.events_of_type(RealtimeEventType.ACT_CREATED), [])

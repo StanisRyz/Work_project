@@ -162,12 +162,8 @@ class PostgresImportTests(BundleFixtureMixin, TransactionTestCase):
             highest_act_pk = Act.objects.order_by('-pk').values_list('pk', flat=True).first()
             new_act = Act.objects.create(
                 created_by=User.objects.get(username='bundle_user'),
-                party_number='P-NEW',
                 nomenclature='Катушка',
-                operation=Operation.objects.get(code='BUNDLE_OP'),
-                defect_type=DefectType.objects.get(code='BUNDLE_DEFECT'),
                 status=ActStatus.objects.get(code='CREATED_OTK'),
-                description='После импорта',
             )
 
         self.assertGreater(new_act.pk, highest_act_pk)

@@ -70,12 +70,8 @@ class StaleActStateTests(TestCase):
     def _create_act(self, status, **overrides):
         values = {
             'created_by': self.otk_user,
-            'party_number': 'P-001',
             'nomenclature': 'Катушка',
-            'operation': self.operation,
-            'defect_type': self.defect_type,
             'status': status,
-            'description': 'Описание',
         }
         values.update(overrides)
         return Act.objects.create(**values)

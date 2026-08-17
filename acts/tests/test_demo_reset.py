@@ -58,12 +58,8 @@ class DemoResetPermissionTests(TestCase):
     def _act(self):
         return Act.objects.create(
             created_by=self.otk,
-            party_number='P-DR',
             nomenclature='Изделие',
-            operation=self.operation,
-            defect_type=self.defect_type,
             status=self.status,
-            description='Описание',
         )
 
     def test_the_permission_is_false_while_the_flag_is_off(self):

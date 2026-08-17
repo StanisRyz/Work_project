@@ -52,13 +52,9 @@ class Command(BaseCommand):
                 number=number,
                 defaults={
                     'created_by': created_by,
-                    'party_number': party,
                     'nomenclature': nomenclature,
-                    'operation': operation,
-                    'defect_type': defect_type,
                     'priority': priority,
                     'status': status,
-                    'description': 'Демонстрационный акт для проверки маршрута ОТК - КО - ТО.',
                     'due_date': today + timedelta(days=index + 2),
                 },
             )
@@ -73,11 +69,15 @@ class Command(BaseCommand):
                 act.to_analysis_by = to_user
                 act.to_analysis_at = timezone.now()
             act.save()
+            # Every defect detail belongs here, including the party number.
             ActDefect.objects.update_or_create(
                 act=act,
                 defect_type=defect_type,
                 defaults={
-                    'description': act.description,
+                    'workshop': ActDefect.Workshop.MP_SHOP,
+                    'operation': operation,
+                    'party_number': party,
+                    'description': 'Демонстрационный дефект для проверки маршрута ОТК - КО - ТО.',
                     'detected_at': act.due_date or today,
                 },
             )

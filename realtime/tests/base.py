@@ -69,12 +69,8 @@ class RealtimeFixtureMixin:
         return Act.objects.create(
             number='АОК-2026-00001',
             created_by=created_by or self.otk_user,
-            party_number='P-001',
             nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
             status=status or self.status_created,
-            description='Описание дефекта',
         )
 
     def make_analysis(self, act, assignees=None):

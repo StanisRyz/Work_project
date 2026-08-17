@@ -356,12 +356,8 @@ class FreshBootstrapCommandTests(TestCase):
         Act.objects.create(
             number='PERF-SYNTHETIC-2026-000001',
             created_by=User.objects.create_user('bootstrap_probe'),
-            party_number='P-1',
             nomenclature='PERF-SYNTHETIC изделие',
-            operation=Operation.objects.first(),
-            defect_type=DefectType.objects.first(),
             status=ActStatus.objects.get(code='CREATED_OTK'),
-            description='PERF-SYNTHETIC',
         )
 
         code, output = self._run(allow_sqlite=True)

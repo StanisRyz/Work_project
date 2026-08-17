@@ -103,7 +103,7 @@ class Command(BaseCommand):
 
     def _create(self, counts):
         from accounts.models import Department, UserProfile
-        from acts.models import Act, ActComment, ActHistoryEvent
+        from acts.models import Act, ActComment, ActDefect, ActHistoryEvent
         from notifications.models import Notification
         from references.models import ActStatus, DefectType, Operation, TaskStatus
 
@@ -130,12 +130,8 @@ class Command(BaseCommand):
         acts = [
             Act(
                 created_by=random.choice(users),
-                party_number=f'P-{index:06d}',
                 nomenclature=f'{MARKER} изделие {index}',
-                operation=operation,
-                defect_type=defect_type,
                 status=random.choice(statuses),
-                description=f'{MARKER} описание {index}',
             )
             for index in range(counts['acts'])
         ]
@@ -148,6 +144,24 @@ class Command(BaseCommand):
             Act.objects.filter(number__startswith=MARKER).values_list('pk', flat=True)
         )
         created['acts'] = len(acts)
+
+        # One defect per act: defect data exists only on `ActDefect`, so an act
+        # without one would be a legacy-shaped row the application no longer has.
+        ActDefect.objects.bulk_create(
+            [
+                ActDefect(
+                    act_id=act_id,
+                    workshop=ActDefect.Workshop.MP_SHOP,
+                    defect_type=defect_type,
+                    operation=operation,
+                    party_number=f'P-{index:06d}',
+                    description=f'{MARKER} описание {index}',
+                    detected_at=now.date(),
+                )
+                for index, act_id in enumerate(act_ids)
+            ],
+            batch_size=BATCH_SIZE,
+        )
 
         if act_ids:
             ActComment.objects.bulk_create(

@@ -34,12 +34,8 @@ class TaskLiveMixin:
         cls.other = cls.make_user('live_other', UserProfile.Role.TO)
         cls.act = Act.objects.create(
             created_by=cls.owner,
-            party_number='P-1',
             nomenclature='Катушка',
-            operation=cls.operation,
-            defect_type=cls.defect_type,
             status=cls.status_created,
-            description='Описание',
         )
 
     @classmethod

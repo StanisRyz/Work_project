@@ -96,9 +96,6 @@ class ActCreationTests(TestCase):
         self.assertEqual(defect.mp_type, '')
         self.assertEqual(defect.description, '')
         self.assertIsNone(defect.operation)
-        self.assertIsNone(act.operation)
-        self.assertEqual(act.party_number, '')
-        self.assertEqual(act.description, '')
 
     def test_a_defect_type_outside_the_pir_set_is_refused_by_the_backend(self):
         response = self.client.post(

@@ -98,13 +98,15 @@ tasks never live inside `acts`.
 - Every defect requires a workshop/supplier choice on the form, while the model
   field stays `blank=True` so existing rows keep no invented value. Revealing
   the remaining fields must never clear already-entered values.
-- **`Act` owns document and workflow data; `ActDefect` is the canonical source
-  of defect data.** The act keeps its number, creator, customer, order,
+- **`Act` owns document and workflow data; `ActDefect` is the only source of
+  defect data.** The act keeps its number, creator, customer, order,
   nomenclature, КД designation, type, status/priority, the КО/ТО/approval/
   closing workflow and the timestamps. Workshop, ЗНП, party, defect type,
   operation, МП type, description, detected date, quantities and the per-defect
-  КО decision belong to the defect. Never assume the first defect represents the
-  act: an act may mix workshops, and reordering its defects changes nothing.
+  КО decision exist only on the defect — the act carries no summary of them and
+  no code may reconstruct one. Never assume the first defect represents the act:
+  an act may mix workshops, and reordering its defects changes nothing. An act
+  with no defects renders the neutral empty state; it never gets invented data.
 - **`acts/workshops.py` owns the workshop rules** — which fields apply, which
   are required, what is cleared when not applicable, the allowed defect type
   codes and the presentation metadata. `ActDefectForm` validates against the
@@ -119,12 +121,13 @@ tasks never live inside `acts`.
   the detected date between groups for UX. Hiding needs the
   `display: none !important` rules in `acts.css`: an author `display` on a
   label beats the user-agent `[hidden]`, so the attribute alone is not enough.
-- `Act.znp_number`, `Act.party_number`, `Act.operation`, `Act.defect_type` and
-  `Act.description` are **legacy summaries of the first defect, kept only for
-  rollback and historical rows**. Create and edit no longer write them, and new
-  logic must neither read nor populate them; their removal is a separate phase.
-  `Act.due_date` keeps its current derivation from the first detected date on
-  purpose — its semantics are decided separately.
+- **`Act.due_date` is deliberately unresolved.** It is presented as a review
+  deadline but still derived from the first defect's detected date. Do not
+  rename, remove, re-derive or re-filter it — the business decision is a
+  separate patch.
+- An act must have at least one `ActDefect`: `manage.py audit_legacy_act_defects`
+  reports any that do not, and migration `0024` refuses to run while one exists.
+  Never infer a workshop from old data or fabricate a defect to get past it.
 - Never write a placeholder such as `"-"` in place of missing business data;
   read-only views render the neutral `—`.
 - Structured TO analysis is atomic and read-only after submission; each

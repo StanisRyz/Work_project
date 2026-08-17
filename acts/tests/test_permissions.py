@@ -66,12 +66,8 @@ class ActPermissionTests(TestCase):
     def _create_act(cls, status, created_by=None):
         return Act.objects.create(
             created_by=created_by or cls.otk_user,
-            party_number='P-001',
             nomenclature='Катушка',
-            operation=cls.operation,
-            defect_type=cls.defect_type,
             status=status,
-            description='Описание дефекта',
         )
 
     def test_otk_can_create_act(self):

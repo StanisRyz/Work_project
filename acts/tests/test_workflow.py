@@ -46,12 +46,8 @@ class ActWorkflowTests(TestCase):
     def _create_act(self, status):
         return Act.objects.create(
             created_by=self.otk_user,
-            party_number='P-001',
             nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
             status=status,
-            description='Описание дефекта',
         )
 
     def test_otk_can_send_own_created_act_to_ko(self):

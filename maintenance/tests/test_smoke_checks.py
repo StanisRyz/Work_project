@@ -54,12 +54,8 @@ class SmokeCheckDataMixin:
         profile.save(update_fields=['department'])
         self.act = Act.objects.create(
             created_by=self.user,
-            party_number='SMOKE-EXISTING',
             nomenclature='Катушка',
-            operation=self.operation,
-            defect_type=self.defect_type,
             status=ActStatus.objects.get(code='CREATED_OTK'),
-            description='Существующий акт',
         )
 
 

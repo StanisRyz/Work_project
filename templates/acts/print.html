@@ -80,13 +80,7 @@
                     </tbody>
                 </table>
             {% else %}
-                <table>
-                    <tr><th>Номер ЗНП</th><td>{{ act.znp_number|default:'—' }}</td></tr>
-                    <tr><th>Номер партии</th><td>{{ act.party_number|default:'—' }}</td></tr>
-                    <tr><th>Вид дефекта</th><td>{{ act.defect_type|default:'—' }}</td></tr>
-                    <tr><th>Операция</th><td>{{ act.operation|default:'—' }}</td></tr>
-                    <tr><th>Описание</th><td>{{ act.description|default:'—' }}</td></tr>
-                </table>
+                <p>Дефекты не добавлены.</p>
             {% endif %}
         </section>
 

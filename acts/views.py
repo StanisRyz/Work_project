@@ -354,8 +354,6 @@ def act_add_comment(request, pk):
     act = get_object_or_404(
         Act.objects.select_related(
             'created_by',
-            'operation',
-            'defect_type',
             'priority',
             'status',
             'ko_decision_by',
@@ -752,24 +750,10 @@ def _get_act_detail_context(
     history_events = get_history_events(act)
     history_groups = group_history_events(history_events)
     comments = get_act_comments(act)
+    # The defects themselves are the only defect data there is: an act without
+    # them renders the neutral empty state, never a reconstructed row.
     defect_rows = list(act.defects.select_related('defect_type', 'operation'))
-    has_defect_records = bool(defect_rows)
-    if not defect_rows:
-        # Historical acts only: rows created before `ActDefect` existed have no
-        # defect of their own, so their legacy summary is all there is to show.
-        defect_rows = [
-            {
-                'defect_type': act.defect_type,
-                'operation': act.operation,
-                'znp_number': act.znp_number,
-                'party_number': act.party_number,
-                'checked_quantity': None,
-                'nonconforming_quantity': None,
-                'description': act.description,
-                'detected_at': act.due_date,
-            }
-        ]
-    if ko_decision_formset is None and has_defect_records:
+    if ko_decision_formset is None and defect_rows:
         ko_decision_formset = ActDefectKoDecisionFormSet(
             queryset=act.defects.select_related('defect_type')
         )
@@ -820,7 +804,6 @@ def _get_act_detail_context(
         'available_actions': get_available_act_actions(act, user),
         'defect_rows': defect_rows,
         'defect_decision_rows': defect_decision_rows,
-        'has_defect_records': has_defect_records,
         'history_events': history_events,
         'history_groups': history_groups,
         'comments': comments,
