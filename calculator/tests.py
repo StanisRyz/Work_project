@@ -88,10 +88,11 @@ class CalculatorTests(TestCase):
         self.assertEqual(WindingEntry.objects.filter(source=EntrySource.MANUAL).count(), 2)
         self.assertEqual(WindingEntry.objects.count(), 5)
 
-    def test_one_c_expressions_are_evaluated_safely_and_stored_with_the_result(self):
-        self.assertEqual(evaluate_one_c('2,5*30'), ('2,5*30', 75))
-        self.assertEqual(evaluate_one_c('(2+3)*10')[1], 50)
-        self.assertEqual(evaluate_one_c('100/4')[1], 25)
+    def test_one_c_expressions_are_seconds_and_are_stored_as_hours(self):
+        # The arithmetic is in seconds; the journal column is in hours.
+        self.assertEqual(evaluate_one_c('4.4*75*30'), ('4.4*75*30', 2.75))
+        self.assertEqual(evaluate_one_c('3600')[1], 1)
+        self.assertAlmostEqual(evaluate_one_c('4,4*62')[1], 272.8 / 3600)
         self.assertEqual(evaluate_one_c('  '), ('', None))
         for bad in ('100/0', '__import__("os")', '2**8', '2 3', '(1+2', '5;9'):
             with self.assertRaises(OneCExpressionError):
@@ -103,7 +104,7 @@ class CalculatorTests(TestCase):
             # A browser-supplied per-unit time must be ignored entirely.
             data=json.dumps({
                 'batchQuantity': 8, 'actualBatchTimeHours': 6, 'actualUnitTimeHours': 999,
-                'oneCExpression': '2,5*30', 'employeeName': 'Иванов',
+                'oneCExpression': '4.4*75*30', 'employeeName': 'Иванов',
             }),
             content_type='application/json',
         )
@@ -111,7 +112,8 @@ class CalculatorTests(TestCase):
         entry = WindingEntry.objects.get(pk=entry_id)
         self.assertTrue(entry.production_confirmed)
         self.assertEqual(entry.actual_unit_time_hours, 0.75)
-        self.assertEqual((entry.one_c_expression, entry.one_c_hours), ('2,5*30', 75))
+        # The expression survives confirmation so ✎ can bring it back.
+        self.assertEqual((entry.one_c_expression, entry.one_c_hours), ('4.4*75*30', 2.75))
         self.assertEqual(entry.employee_name, 'Иванов')
 
         rejected = self.client.post(
@@ -148,3 +150,7 @@ class CalculatorTests(TestCase):
         self.assertIn('<c r="I2"/>', exported)
         self.assertIn('<c r="M2"/>', exported)
         self.assertNotIn('None', exported)
+
+        # «1С, ч» exports the converted hours, not the seconds that were typed.
+        WindingEntry.objects.update(one_c_expression='4.4*75*30', one_c_hours=2.75)
+        self.assertIn('<c r="L2"><v>2.75</v></c>', sheet())

@@ -1,17 +1,21 @@
 /**
- * The «1С, ч» field: a number or a small arithmetic expression.
+ * The «1С» field: a number or a small arithmetic expression, in seconds.
  *
  * A hand-written tokenizer and recursive-descent parser over exactly the
  * grammar `calculator/expressions.py` accepts — numbers with a comma or a
  * dot, `+ - * /`, parentheses and whitespace. `eval()` and `new Function()`
  * are deliberately absent: this string comes from a text input.
  *
- * What this produces is a preview. The value that reaches the database is the
- * one the server parsed from the same expression.
+ * The arithmetic is in seconds and the journal column is in hours, so the
+ * result is divided by 3600 here exactly as it is on the server. What this
+ * produces is only a check that the field can be parsed at all; the value
+ * that reaches the database is the one the server parsed from the same
+ * expression.
  */
 (function () {
   var api = window.windingCalculator = window.windingCalculator || {};
   var TOKEN = /^\s*(?:(\d+(?:[.,]\d+)?|[.,]\d+)|([-+*/()]))/;
+  var SECONDS_PER_HOUR = 3600;
 
   function tokenize(text) {
     var tokens = [], rest = text;
@@ -79,8 +83,8 @@
     if (!text) return null;
     var tokens = tokenize(text);
     if (!tokens) return NaN;
-    var value = parse(tokens);
-    if (value === null || !Number.isFinite(value) || value < 0) return NaN;
-    return value;
+    var seconds = parse(tokens);
+    if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return NaN;
+    return seconds / SECONDS_PER_HOUR;
   };
 })();

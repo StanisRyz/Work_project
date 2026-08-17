@@ -155,11 +155,14 @@ tasks never live inside `acts`.
   `create_manual_entry()` in `calculator/services.py` are the two doors, and
   manual rows reuse the same ported calculation engine — there is no second
   formula for the journal.
-- The «1С, ч» field accepts a number or a small arithmetic expression and is
+- The «1С» field accepts a number or a small arithmetic expression and is
   parsed by the hand-written evaluator in `calculator/expressions.py` (mirrored
   for preview in `static/js/calculator/oneC.js`). `eval()`, `exec()` and
-  `new Function()` are never acceptable here. The expression and the evaluated
-  number are stored separately, and the stored number is always the server's.
+  `new Function()` are never acceptable here. **The invariant is that
+  `one_c_expression` is arithmetic in seconds and `one_c_hours` is the
+  server-derived `seconds / 3600`**; the column, the cell after ✓ and the
+  export are all hours. The expression is kept so ✎ can hand it back for
+  editing, and the stored number is always the server's, never the preview's.
   `employee_name` is typed text, unrelated to `User`; `created_by`/`updated_by`
   stay auditing only.
 - `actual_unit_time_hours` is server-derived as

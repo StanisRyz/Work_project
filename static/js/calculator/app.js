@@ -45,9 +45,16 @@
   }
   /** Millimetres as typed: «100» stays «100», a hand-added «100,5» stays «100,5». */
   function formatMm(value) { return Number(value).toLocaleString('ru-RU', { maximumFractionDigits: 2 }); }
-  function oneCHint(entry) {
-    if (entry.oneCHours == null || String(entry.oneCExpression).trim() === String(entry.oneCHours)) return '';
-    return '<small class="calc-production-status">= ' + formatNumber(entry.oneCHours, 3) + ' ч</small>';
+  /**
+   * The «1С» cell shows two different things on purpose: the expression while
+   * the row is being edited, because that is what the user types and edits,
+   * and the hours it evaluates to once the row is confirmed, because that is
+   * the number the column is headed with. The expression is never lost — it
+   * stays in `oneCExpression` and comes back when the row is reopened with ✎.
+   */
+  function oneCValue(entry) {
+    if (!entry.productionConfirmed) return entry.oneCExpression;
+    return entry.oneCHours == null ? '' : formatNumber(entry.oneCHours, 3);
   }
   /** «Нет» is a state, not a missing number: an uncalibrated core says so. */
   function calibrationCell(entry) {
@@ -73,9 +80,8 @@
         + '<td>' + productionInput('calc-batch-quantity', entry, entry.batchQuantity, 'Единиц в партии', 'number', 'min="1" step="1" inputmode="numeric"') + '</td>'
         + '<td>' + productionInput('calc-actual-batch-time', entry, entry.actualBatchTimeHours, 'Фактическое время партии в часах', 'number', 'min="0" step="0.01" inputmode="decimal"') + '</td>'
         + '<td><span class="calc-unit-time">' + unitTime + '</span>' + status + '<small class="calc-production-error" aria-live="polite"></small></td>'
-        // Text, not `number`: the field accepts «2,5*30» as well as «75». The
-        // hint shows what the server made of it when the two differ.
-        + '<td>' + productionInput('calc-one-c', entry, entry.oneCExpression, 'Время 1С в часах', 'text', 'inputmode="text" placeholder="75 или 2,5*30"') + oneCHint(entry) + '</td>'
+        // Text, not `number`: the field accepts «4.4*62» as well as «3600».
+        + '<td>' + productionInput('calc-one-c', entry, oneCValue(entry), 'Время 1С', 'text', 'inputmode="text"') + '</td>'
         + '<td>' + productionInput('calc-employee', entry, entry.employeeName, 'Сотрудник', 'text', 'maxlength="120"') + '</td>'
         + '<td>' + action + '</td></tr>';
     }).join('');

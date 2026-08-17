@@ -1,15 +1,20 @@
-"""A four-function arithmetic evaluator for the «1С, ч» field.
+"""A four-function arithmetic evaluator for the «1С» field.
 
 The field accepts either a plain number or the small expression a normer
-would write down — `2,5*30`, `(2+3)*10`, `100/4` — and nothing else. Python's
-`eval()`/`exec()` are not an option and never will be here: the string comes
-from a browser, so it is tokenized and parsed by hand and only the grammar
-below can be expressed at all.
+would write down — `4.4*62`, `4.4*75*30`, `(2+3)*10` — and nothing else.
+Python's `eval()`/`exec()` are not an option and never will be here: the
+string comes from a browser, so it is tokenized and parsed by hand and only
+the grammar below can be expressed at all.
 
     expression := term (('+' | '-') term)*
     term       := factor (('*' | '/') factor)*
     factor     := ('+' | '-') factor | '(' expression ')' | number
     number     := digits [('.' | ',') digits] | ('.' | ',') digits
+
+**The arithmetic is in seconds; the journal stores hours.** A normer writes
+`4.4*62` — a per-millimetre rate times a length, in seconds — and the column
+shows `0,076 ч`. The conversion happens once, here, so `one_c_expression`
+always means seconds and `one_c_hours` always means hours.
 
 The browser mirrors this in `static/js/calculator/oneC.js` for an instant
 preview, but the stored number is always the one this module returned.
@@ -18,6 +23,7 @@ import math
 import re
 
 MAX_LENGTH = 120
+SECONDS_PER_HOUR = 3600
 
 _TOKEN = re.compile(r'\s*(?:(\d+(?:[.,]\d+)?|[.,]\d+)|([-+*/()]))')
 
@@ -107,6 +113,9 @@ class _Parser:
 def evaluate_one_c(raw):
     """Return `(expression, hours)` for the field, or `('', None)` if empty.
 
+    The expression is evaluated in seconds and the result is divided by 3600,
+    so `4.4*75*30` is 9900 s and lands in the journal as 2,75 ч.
+
     The field is optional, so blank input is a normal answer rather than an
     error. Anything else must parse, stay finite and end up non-negative — a
     negative norm is a typo, not a value worth storing.
@@ -118,9 +127,9 @@ def evaluate_one_c(raw):
         return '', None
     if len(expression) > MAX_LENGTH:
         raise OneCExpressionError(f'1С: выражение длиннее {MAX_LENGTH} символов.')
-    value = _Parser(_tokenize(expression)).parse()
-    if not math.isfinite(value):
+    seconds = _Parser(_tokenize(expression)).parse()
+    if not math.isfinite(seconds):
         raise OneCExpressionError('1С: результат вне допустимого диапазона.')
-    if value < 0:
+    if seconds < 0:
         raise OneCExpressionError('1С: время не может быть отрицательным.')
-    return expression, value
+    return expression, seconds / SECONDS_PER_HOUR

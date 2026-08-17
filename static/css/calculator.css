@@ -274,9 +274,14 @@
     min-width: 1420px;
 }
 
+/* Thirteen narrow numeric columns read badly as bare rows, so this one table
+   gets a full grid. `border-collapse: collapse` comes from `.data-table`, so a
+   border on every cell is one line between neighbours — header cells included
+   — in the ordinary application border colour, not a spreadsheet's. */
 .calculator-module .calc-table th,
 .calculator-module .calc-table td {
     padding: 10px 8px;
+    border: 1px solid var(--color-border);
     text-align: center;
     vertical-align: middle;
     white-space: nowrap;
