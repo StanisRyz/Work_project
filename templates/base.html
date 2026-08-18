@@ -7,7 +7,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="{% static 'images/favicon.png' %}">
     <title>{% block title %}Единая цифровая экосистема управления качеством{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260722-5">
-    <link rel="stylesheet" href="{% static 'css/layout.css' %}?v=20260813-1">
+    <link rel="stylesheet" href="{% static 'css/layout.css' %}?v=20260818-1">
     <link rel="stylesheet" href="{% static 'css/components.css' %}?v=20260813-1">
     <link rel="stylesheet" href="{% static 'css/acts.css' %}?v=20260817-1">
     {# Page-specific stylesheets, so a module's CSS is not loaded everywhere. #}
@@ -37,7 +37,7 @@
     {% endcomment %}
     <div class="toast-region" data-toast-region role="region" aria-label="Уведомления в реальном времени" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>
     {% include 'includes/confirm_modal.html' %}
-    <script src="{% static 'js/app.js' %}?v=20260813-1"></script>
+    <script src="{% static 'js/app.js' %}?v=20260818-1"></script>
     <script src="{% static 'js/confirm_modal.js' %}?v=20260813-1"></script>
     {% if realtime_client.enabled %}
     {% comment %}

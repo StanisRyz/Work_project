@@ -29,9 +29,16 @@ model without explicit approval.
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
 
 The user-facing sections are Акты (`/acts/`), Задачи (`/tasks/`) and
-Калькулятор (`/calculator/`); `/` redirects to `/acts/` and so does the login
-fallback, for every role including superusers. Django Admin (`/admin/`) is
-reached directly, not from the sidebar.
+Калькулятор времени навивки (`/calculator/`); `/` redirects to `/acts/` and so
+does the login fallback, for every role including superusers. Django Admin
+(`/admin/`) is reached directly, not from the sidebar.
+
+The navigation panel is two levels deep: the click-controlled top-level
+categories Качество (Акты, Задачи) and Калькуляторы (Калькулятор времени
+навивки), each opening its own vertical submenu. Only leaf items are links;
+categories are buttons, one submenu open at a time, and the panel and the
+profile menu are never open together. All of that state lives in
+`static/js/app.js`.
 
 Reference data belongs in `references`, never as free text on a business model;
 tasks never live inside `acts`.

@@ -74,7 +74,7 @@ def _validation_response(error):
 @ensure_csrf_cookie
 def calculator_page(request):
     return render(request, 'calculator/page.html', {
-        'active_page': 'calculator', 'header_title': 'Калькулятор',
+        'active_page': 'calculator', 'header_title': 'Калькулятор времени навивки',
         # Presentation metadata only: it decides which controls are rendered,
         # never whether a request is allowed.
         'can_manage_workup': can_manage_workup(request.user),

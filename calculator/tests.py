@@ -381,3 +381,35 @@ class WorkupRealtimeTests(TestCase):
             self.assertIn(self.pdo.pk, identifiers)
             self.assertIn(self.reader.pk, identifiers)
             self.assertNotIn(self.inactive.pk, identifiers)
+
+
+class NavigationTests(TestCase):
+    """The grouped top navigation, from the server's side of the contract."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = make_user('nav')
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def test_the_navigation_groups_the_pages_under_two_click_categories(self):
+        content = self.client.get(reverse('acts:list')).content.decode()
+
+        self.assertIn('aria-controls="sidebar-submenu-quality"', content)
+        self.assertIn('aria-controls="sidebar-submenu-calculators"', content)
+        # Categories are toggles, and both submenus start collapsed.
+        self.assertEqual(content.count('data-nav-category'), 2)
+        self.assertEqual(content.count('aria-expanded="false"'), 3)
+        self.assertIn('Калькулятор времени навивки', content)
+
+    def test_the_calculator_page_marks_its_category_and_link_as_active(self):
+        response = self.client.get(reverse('calculator:page'))
+        content = response.content.decode()
+
+        self.assertEqual(response.context['header_title'], 'Калькулятор времени навивки')
+        self.assertIn('sidebar__category sidebar__category--active', content)
+        self.assertIn('sidebar__link sidebar__link--active', content)
+        # The module's own tabs are untouched.
+        self.assertIn('>Калькулятор</button>', content)
+        self.assertIn('>Проработка</button>', content)

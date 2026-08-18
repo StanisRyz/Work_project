@@ -35,8 +35,7 @@
     width: auto;
     min-height: 60px;
     padding: 0 20px;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: visible;
     background: var(--color-surface);
     border: 0;
     border-bottom: 1px solid var(--color-border);
@@ -159,25 +158,90 @@
     font-size: 13px;
 }
 
+/* First level: categories in a row across the panel. */
 .sidebar .sidebar__nav {
     display: flex;
+    flex-wrap: wrap;
     align-items: stretch;
     gap: 4px;
     width: 100%;
 }
 
-.sidebar .sidebar__link {
+.sidebar__group {
+    position: relative;
+}
+
+.sidebar__category {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     min-height: 60px;
     padding: 0 14px;
-    border-radius: 0;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+    font-weight: 600;
     white-space: nowrap;
+    cursor: pointer;
+}
+
+.sidebar__category:hover {
+    color: var(--color-primary);
+}
+
+/* The category that contains the current page. */
+.sidebar__category--active {
+    border-bottom-color: var(--color-primary);
+    color: var(--color-primary-dark);
+}
+
+.sidebar__chevron {
+    width: 15px;
+    height: 15px;
+}
+
+.sidebar__category[aria-expanded='true'] .sidebar__chevron {
+    transform: rotate(180deg);
+}
+
+/* Second level: vertical, attached to its category. */
+.sidebar__submenu {
+    display: grid;
+    position: absolute;
+    z-index: 30;
+    top: 100%;
+    left: 0;
+    min-width: max(100%, 200px);
+    max-width: calc(100vw - 28px);
+    padding: 6px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    box-shadow: 0 12px 28px rgb(15 23 42 / 14%);
+}
+
+.sidebar__submenu[hidden] {
+    display: none;
+}
+
+.sidebar .sidebar__link {
+    display: block;
+    min-height: 0;
+    padding: 9px 10px;
+    border-radius: 6px;
+    color: var(--color-text);
+}
+
+.sidebar .sidebar__link:hover {
+    background: #f4f7fc;
 }
 
 .sidebar .sidebar__link--active {
-    border-bottom: 3px solid var(--color-primary);
-    background: transparent;
+    background: #edf3ff;
+    color: var(--color-primary-dark);
+    font-weight: 600;
 }
 
 @media (max-width: 760px) {
@@ -190,7 +254,9 @@
     .topbar { padding: 0 14px; }
     .topbar__logo { width: 42px; }
     .sidebar { padding: 0 14px; }
-    .sidebar .sidebar__link { padding: 0 12px; }
+    .sidebar__category { padding: 0 10px; }
+    /* Keep a submenu of a right-hand category inside the viewport. */
+    .sidebar__group:last-child .sidebar__submenu { right: 0; left: auto; }
     .notification-menu__popup { position: fixed; top: 58px; right: 14px; }
 
 }

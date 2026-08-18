@@ -41,35 +41,106 @@ window.qualityFragments = (() => {
     };
 })();
 
+/**
+ * Main navigation: a full-width panel under the topbar holding first-level
+ * category buttons, each with its own vertical submenu.
+ *
+ * All of its state lives here, so there is one place that decides what is
+ * open: the panel itself, at most one category submenu, and the mutual
+ * exclusion with the profile menu. Nothing is persisted — the navigation
+ * always starts closed on a fresh page, including after following a link.
+ */
 document.addEventListener('DOMContentLoaded', () => {
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.querySelector('[data-sidebar-overlay]');
     const toggle = document.querySelector('[data-sidebar-toggle]');
     const closeButton = document.querySelector('[data-sidebar-close]');
-    const storageKey = 'quality-sidebar-open';
+    const profileMenu = document.querySelector('.profile-menu');
 
     if (!sidebar || !overlay || !toggle) {
         return;
     }
 
-    const setOpen = (isOpen) => {
-        sidebar.classList.toggle('sidebar--open', isOpen);
-        overlay.hidden = !isOpen;
-        toggle.setAttribute('aria-expanded', String(isOpen));
-        toggle.setAttribute('aria-label', isOpen ? 'Закрыть меню' : 'Открыть меню');
-        localStorage.setItem(storageKey, String(isOpen));
+    const categories = [...sidebar.querySelectorAll('[data-nav-category]')];
+
+    const submenuOf = (category) => {
+        const group = category.closest('[data-nav-group]');
+        return group ? group.querySelector('[data-nav-submenu]') : null;
     };
 
-    setOpen(localStorage.getItem(storageKey) === 'true');
-    toggle.addEventListener('click', () => setOpen(!sidebar.classList.contains('sidebar--open')));
-    closeButton?.addEventListener('click', () => setOpen(false));
-    overlay.addEventListener('click', () => setOpen(false));
-    sidebar.querySelectorAll('.sidebar__link').forEach((link) => {
-        link.addEventListener('click', () => {
-            if (window.matchMedia('(max-width: 760px)').matches) {
-                setOpen(false);
+    /** Collapse every category; the panel itself is left as it is. */
+    const closeCategories = () => {
+        categories.forEach((category) => {
+            category.setAttribute('aria-expanded', 'false');
+            const submenu = submenuOf(category);
+            if (submenu) {
+                submenu.hidden = true;
             }
         });
+    };
+
+    const isOpen = () => sidebar.classList.contains('sidebar--open');
+
+    const setOpen = (open) => {
+        sidebar.classList.toggle('sidebar--open', open);
+        overlay.hidden = !open;
+        toggle.setAttribute('aria-expanded', String(open));
+        toggle.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
+        // Closing the panel must never leave a category expanded behind it.
+        if (!open) {
+            closeCategories();
+        } else if (profileMenu) {
+            profileMenu.open = false;
+        }
+    };
+
+    setOpen(false);
+
+    toggle.addEventListener('click', () => setOpen(!isOpen()));
+    closeButton?.addEventListener('click', () => setOpen(false));
+    overlay.addEventListener('click', () => setOpen(false));
+
+    // Click only: at most one submenu is open, and clicking the open category
+    // again closes it.
+    categories.forEach((category) => {
+        category.addEventListener('click', () => {
+            const willOpen = category.getAttribute('aria-expanded') !== 'true';
+            closeCategories();
+            if (!willOpen) {
+                return;
+            }
+            category.setAttribute('aria-expanded', 'true');
+            const submenu = submenuOf(category);
+            if (submenu) {
+                submenu.hidden = false;
+            }
+        });
+    });
+
+    // A leaf link navigates away: close the panel first, on every viewport, so
+    // the next page never renders with the menu hanging open.
+    sidebar.querySelectorAll('.sidebar__link').forEach((link) => {
+        link.addEventListener('click', () => setOpen(false));
+    });
+
+    // Anything outside the panel — including the topbar around the toggle —
+    // dismisses the whole navigation.
+    document.addEventListener('click', (event) => {
+        if (!isOpen()) {
+            return;
+        }
+        const target = event.target;
+        if (sidebar.contains(target) || toggle.contains(target)) {
+            return;
+        }
+        setOpen(false);
+    });
+
+    // The profile menu and the navigation are mutually exclusive.
+    profileMenu?.addEventListener('toggle', () => {
+        if (profileMenu.open) {
+            setOpen(false);
+        }
     });
 });
 
