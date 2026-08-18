@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% load static l10n %}
+
+{% block title %}Калькулятор рубки пластин - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% comment %}
+An independent calculator: no model, no journal, no API and no real-time
+channel. The view renders the agreed coefficients from
+`plate_cutting/constants.py` into the `<template>` below, so the browser reads
+a coefficient off the selected option instead of carrying its own copy.
+`{% localize off %}` keeps the machine-readable numbers as `0.74`, while the
+Russian display formatting is done in JavaScript.
+Every class is namespaced under `.plate-cutting-module`.
+{% endcomment %}
+
+{% block content %}
+{% localize off %}
+<div class="plate-cutting-module" data-plate-cutting data-hole-seconds="{{ hole_seconds }}">
+
+    <section class="pcut-card">
+        <div class="pcut-card__heading">
+            <div>
+                <h2>Пакеты</h2>
+                <p class="pcut-hint">Время рубки одного пакета: коэффициент диапазона × количество пластин + {% localize on %}{{ hole_seconds }}{% endlocalize %} с × количество отверстий.</p>
+            </div>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-package>+ Дополнительный пакет</button>
+        </div>
+
+        <div class="pcut-packages" data-packages></div>
+    </section>
+
+    <section class="pcut-card pcut-total" aria-live="polite">
+        <h2>Итого</h2>
+        <p class="pcut-total__value"><output data-total-hours>0,00</output> <small>ч</small></p>
+        <p class="pcut-total__seconds" data-total-seconds></p>
+        <p class="pcut-total__skipped" data-total-skipped hidden></p>
+    </section>
+
+    {% comment %}
+    One package, cloned for the first one and for every «+ Дополнительный
+    пакет». The options — and only they — carry the coefficients.
+    {% endcomment %}
+    <template data-package-template>
+        <article class="pcut-package" data-package>
+            <div class="pcut-package__head">
+                <h3 data-package-title>Пакет</h3>
+                <button class="link-button link-button--compact link-button--danger pcut-package__remove" type="button" data-remove-package title="Удалить пакет" aria-label="Удалить пакет">
+                    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                </button>
+            </div>
+            <div class="pcut-fields">
+                <label>
+                    <span>Длина пластины</span>
+                    <select data-field="range">
+                        {% for range in length_ranges %}<option value="{{ range.value }}" data-seconds="{{ range.seconds }}">{{ range.label }}</option>{% endfor %}
+                    </select>
+                </label>
+                <label>
+                    <span>Количество пластин</span>
+                    <input data-field="plates" type="number" min="1" step="1" inputmode="numeric" placeholder="Например, 500">
+                </label>
+                <label>
+                    <span>Количество отверстий, всего</span>
+                    <input data-field="holes" type="number" min="0" step="1" inputmode="numeric" value="0">
+                </label>
+                <div class="pcut-package__result">
+                    <span class="pcut-package__result-label">Время пакета</span>
+                    <div class="pcut-package__result-row">
+                        <output data-package-time>—</output>
+                        {# Same stroked chevron and rotation as the profile menu; click only. #}
+                        <button class="pcut-details-toggle" type="button" data-details-toggle aria-expanded="false" aria-label="Показать расчёт пакета" title="Расчёт пакета">
+                            <svg class="ui-icon pcut-details-toggle__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+                        </button>
+                        <div class="pcut-details-popup" data-details-popup hidden></div>
+                    </div>
+                </div>
+            </div>
+            <p class="pcut-errors" data-package-errors aria-live="polite"></p>
+        </article>
+    </template>
+</div>
+{% endlocalize %}
+{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/plate_cutting.css' %}?v=20260818-1">
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/plate_cutting.js' %}?v=20260818-2"></script>
+{% endblock %}

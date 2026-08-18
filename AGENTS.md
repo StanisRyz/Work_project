@@ -24,21 +24,23 @@ model without explicit approval.
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
 | `tasks` | tasks created on approval, their assignees and completion |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculator/`, the `.xlsx` export and `import_calculator_json` |
+| `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/` and the agreed coefficients in `plate_cutting/constants.py`. No models, no migrations, no endpoints |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
 
-The user-facing sections are Акты (`/acts/`), Задачи (`/tasks/`) and
-Калькулятор времени навивки (`/calculator/`); `/` redirects to `/acts/` and so
-does the login fallback, for every role including superusers. Django Admin
+The user-facing sections are Акты (`/acts/`), Задачи (`/tasks/`), Калькулятор
+времени навивки (`/calculator/`) and Калькулятор рубки пластин
+(`/calculators/plate-cutting/`); `/` redirects to `/acts/` and so does the
+login fallback, for every role including superusers. Django Admin
 (`/admin/`) is reached directly, not from the sidebar.
 
 The navigation panel is two levels deep: the click-controlled top-level
 categories Качество (Акты, Задачи) and Калькуляторы (Калькулятор времени
-навивки), each opening its own vertical submenu. Only leaf items are links;
-categories are buttons, one submenu open at a time, and the panel and the
-profile menu are never open together. All of that state lives in
-`static/js/app.js`.
+навивки, Калькулятор рубки пластин), each opening its own vertical submenu.
+Only leaf items are links; categories are buttons, one submenu open at a time,
+and the panel and the profile menu are never open together. All of that state
+lives in `static/js/app.js`.
 
 Reference data belongs in `references`, never as free text on a business model;
 tasks never live inside `acts`.
@@ -169,6 +171,17 @@ tasks never live inside `acts`.
 - Notifications are created in the same transaction as their business event,
   deduplicated per recipient by a stable source key, and routed in one place:
   `notifications/services.py`.
+- **Калькулятор рубки пластин is a page and nothing else.** The seventeen
+  length bands and the `0.95 s` hole coefficient live only in
+  `plate_cutting/constants.py`; the view renders them into the `<select>` of
+  `templates/plate_cutting/page.html`, and `static/js/plate_cutting.js` reads a
+  coefficient off the selected option instead of carrying a copy. One package is
+  `range_seconds × plates + 0.95 × holes`, converted to hours (`/ 3600`) only
+  afterwards and rounded to two decimals for display alone; `calculatePackage()`
+  is the single implementation, and the visible result, the breakdown popup and
+  «Итого» all render from what it returns. No model, migration, endpoint, Redis
+  channel or persistence is involved — adding any would be a change of design.
+
 - **The calculator was integrated from `StanisRyz/calculate` at commit
   `d32eae0e5d7b66bdd41214cc7ba9601534c4f254`** and this repository is now the
   source of truth for it. `static/js/calculator/rules.js` and

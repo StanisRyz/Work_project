@@ -1,0 +1,266 @@
+/*
+ * Калькулятор рубки пластин.
+ *
+ * Loaded only by its own page. Every selector is nested under
+ * `.plate-cutting-module`, so nothing here can reach Акты, Задачи or the
+ * winding calculator. Colours, radius and spacing come from the project's
+ * tokens in `base.css`; buttons reuse `.link-button` and are never restyled.
+ */
+
+.plate-cutting-module {
+    display: grid;
+    gap: 16px;
+}
+
+.plate-cutting-module .pcut-card {
+    padding: 20px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+.plate-cutting-module .pcut-card h2 {
+    margin: 0 0 4px;
+    font-size: 19px;
+}
+
+.plate-cutting-module .pcut-card__heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.plate-cutting-module .pcut-hint {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+/* ------------------------------------------------------------- packages -- */
+
+.plate-cutting-module .pcut-packages {
+    display: grid;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.plate-cutting-module .pcut-package {
+    padding: 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.plate-cutting-module .pcut-package--invalid {
+    border-color: #f0b4ad;
+}
+
+.plate-cutting-module .pcut-package__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.plate-cutting-module .pcut-package__head h3 {
+    margin: 0;
+    font-size: 15px;
+}
+
+.plate-cutting-module .pcut-package__remove {
+    margin-top: 0;
+    min-width: 34px;
+    padding-right: 8px;
+    padding-left: 8px;
+}
+
+.plate-cutting-module .pcut-package__remove svg {
+    display: block;
+}
+
+/* Four columns on a desktop: range, plates, holes, result. */
+.plate-cutting-module .pcut-fields {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.1fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(150px, 1fr);
+    gap: 12px;
+    align-items: end;
+}
+
+.plate-cutting-module label,
+.plate-cutting-module .pcut-package__result {
+    display: grid;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.plate-cutting-module input,
+.plate-cutting-module select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.plate-cutting-module .pcut-package__result-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.plate-cutting-module .pcut-package__result-row output {
+    flex: 1;
+    color: var(--color-text);
+    font-weight: 700;
+}
+
+.plate-cutting-module .pcut-errors {
+    margin: 10px 0 0;
+    color: #b42318;
+    font-size: 13px;
+}
+
+.plate-cutting-module .pcut-errors:empty {
+    margin: 0;
+}
+
+/* --------------------------------------------------- calculation details -- */
+
+/* The profile menu's chevron button: click only, and the same rotation. */
+.plate-cutting-module .pcut-details-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    border: 0;
+    background: none;
+    color: #3c5488;
+    cursor: pointer;
+}
+
+.plate-cutting-module .pcut-details-toggle__chevron {
+    width: 16px;
+    height: 16px;
+    transition: transform .15s ease;
+}
+
+.plate-cutting-module .pcut-details-toggle[aria-expanded='true'] .pcut-details-toggle__chevron {
+    transform: rotate(180deg);
+}
+
+.plate-cutting-module .pcut-details-toggle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.plate-cutting-module .pcut-details-popup {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 6px);
+    right: 0;
+    width: max(240px, 100%);
+    max-width: min(320px, 90vw);
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    box-shadow: 0 12px 28px rgb(15 23 42 / 14%);
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 400;
+}
+
+.plate-cutting-module .pcut-details-popup[hidden] {
+    display: none;
+}
+
+.plate-cutting-module .pcut-details-popup__empty {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.plate-cutting-module .pcut-details-popup__list {
+    display: grid;
+    margin: 0;
+}
+
+.plate-cutting-module .pcut-details-popup__list div {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.plate-cutting-module .pcut-details-popup__list div:last-child {
+    border-bottom: 0;
+}
+
+.plate-cutting-module .pcut-details-popup__list dt {
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.plate-cutting-module .pcut-details-popup__list dd {
+    margin: 2px 0 0;
+    font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- total -- */
+
+.plate-cutting-module .pcut-total__value {
+    margin: 6px 0 0;
+    color: var(--color-primary-dark);
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.plate-cutting-module .pcut-total__value small {
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--color-muted);
+}
+
+.plate-cutting-module .pcut-total__seconds,
+.plate-cutting-module .pcut-total__skipped {
+    margin: 8px 0 0;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.plate-cutting-module .pcut-total__skipped {
+    color: #b42318;
+}
+
+@media (max-width: 900px) {
+    .plate-cutting-module .pcut-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .plate-cutting-module .pcut-card__heading {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+@media (max-width: 560px) {
+    .plate-cutting-module .pcut-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .plate-cutting-module .pcut-details-popup {
+        right: auto;
+        left: 0;
+        width: 100%;
+        max-width: none;
+    }
+}

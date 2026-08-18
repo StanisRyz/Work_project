@@ -25,13 +25,14 @@ All open/close state lives in `static/js/app.js`.
             </div>
         </div>
         <div class="sidebar__group" data-nav-group>
-            <button class="sidebar__category{% if active_page == 'calculator' %} sidebar__category--active{% endif %}"
+            <button class="sidebar__category{% if active_page == 'calculator' or active_page == 'plate_cutting' %} sidebar__category--active{% endif %}"
                     type="button" aria-expanded="false" aria-controls="sidebar-submenu-calculators" data-nav-category>
                 <span>Калькуляторы</span>
                 <svg class="ui-icon sidebar__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
             </button>
             <div class="sidebar__submenu" id="sidebar-submenu-calculators" data-nav-submenu hidden>
                 <a class="sidebar__link{% if active_page == 'calculator' %} sidebar__link--active{% endif %}" href="{% url 'calculator:page' %}">Калькулятор времени навивки</a>
+                <a class="sidebar__link{% if active_page == 'plate_cutting' %} sidebar__link--active{% endif %}" href="{% url 'plate_cutting:page' %}">Калькулятор рубки пластин</a>
             </div>
         </div>
     </nav>

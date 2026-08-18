@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'acts',
     'tasks',
     'calculator',
+    'plate_cutting',
     'notifications',
     'maintenance',
     'realtime',
