@@ -245,9 +245,10 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
 #   7. history: count + max(created_at) over the visible-acts subquery
 #   8. activities: linked-task totals, timestamps and assignment fingerprint
 #   9. activities: linked-task status distribution
+#  10. workup: journal totals, confirmed count and max(updated_at)
 # Session authentication and the one cached `user.userprofile` lookup are not
 # counted here — they belong to the request, not to this service.
-FIXED_SYNC_QUERIES = 9
+FIXED_SYNC_QUERIES = 10
 
 
 class SyncEndpointTests(SyncStateMixin, TestCase):

@@ -39,6 +39,9 @@ class EventTypeContractTests(SimpleTestCase):
                 'ACT_UPDATED': 'act.updated',
                 'ACT_STATUS_CHANGED': 'act.status_changed',
                 'COMMENT_CREATED': 'comment.created',
+                'WORKUP_CREATED': 'workup.created',
+                'WORKUP_UPDATED': 'workup.updated',
+                'WORKUP_DELETED': 'workup.deleted',
             },
         )
 

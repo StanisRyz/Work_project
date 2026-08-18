@@ -25,6 +25,9 @@
   // this flag decides which controls exist, so nothing here restates the rule.
   var canManage = root.dataset.canManageWorkup === '1';
   var latestCalculation = null, journal = [], busy = false;
+  // A live update arrived while a local mutation was still in flight, so a
+  // fresh authoritative list has to be asked for once that mutation lands.
+  var remoteRefreshPending = false;
 
   var formatNumber = api.formatNumber, formatDuration = api.formatDuration;
 
@@ -41,6 +44,10 @@
     exportButton.disabled = value;
     if (manualForm) manualForm.querySelector('button[type="submit"]').disabled = value;
     Array.prototype.forEach.call(journalBody.querySelectorAll('.calc-confirm, .calc-edit, .calc-delete'), function (button) { button.disabled = value; });
+    if (!value && remoteRefreshPending) {
+      remoteRefreshPending = false;
+      if (api.journal && typeof api.journal.requestRefresh === 'function') api.journal.requestRefresh();
+    }
   }
   /**
    * The production cell. Editable for ПДО, plain text for everyone else: a
@@ -115,6 +122,61 @@
     if (!replaced) journal = journal.concat([entry]);
     renderJournal();
   }
+  /**
+   * Live updates from other users.
+   *
+   * `renderJournal()` rebuilds the whole `<tbody>`, which would otherwise
+   * throw away a production value somebody is in the middle of typing. So the
+   * cells a user has actually touched are carried across the re-render — with
+   * the caret where it was — instead of the row being locked or the update
+   * being dropped. A cell whose row disappeared or was confirmed elsewhere has
+   * nothing left to type into, and there the server state simply wins.
+   */
+  var PRODUCTION_FIELDS = ['calc-batch-quantity', 'calc-actual-batch-time', 'calc-one-c', 'calc-employee'];
+  function draftFieldName(field) {
+    for (var index = 0; index < PRODUCTION_FIELDS.length; index += 1) {
+      if (field.classList.contains(PRODUCTION_FIELDS[index])) return PRODUCTION_FIELDS[index];
+    }
+    return '';
+  }
+  function captureDrafts() {
+    var active = document.activeElement;
+    return Array.prototype.map.call(journalBody.querySelectorAll('.calc-production-input[data-user-edited="1"]'), function (field) {
+      var rowEl = field.closest('tr');
+      var draft = { id: rowEl ? Number(rowEl.dataset.id) : 0, field: draftFieldName(field), value: field.value, focused: field === active, start: null, end: null };
+      // `selectionStart` is not available on `type="number"` and throws in
+      // some browsers: the caret is a nicety, the typed text is not.
+      try { draft.start = field.selectionStart; draft.end = field.selectionEnd; } catch (error) { draft.start = null; }
+      return draft;
+    }).filter(function (draft) { return draft.id && draft.field; });
+  }
+  function restoreDrafts(drafts) {
+    drafts.forEach(function (draft) {
+      var field = journalBody.querySelector('tr[data-id="' + draft.id + '"] .' + draft.field);
+      if (!field || field.disabled) return;
+      field.value = draft.value;
+      field.dataset.userEdited = '1';
+      if (!draft.focused) return;
+      field.focus();
+      if (draft.start != null) { try { field.setSelectionRange(draft.start, draft.end); } catch (error) { /* no caret API on this input type */ } }
+    });
+  }
+  /**
+   * The authoritative journal, as the server has it right now.
+   *
+   * Idempotent by construction: the list is keyed by id and replaces the local
+   * one wholesale, so receiving the echo of this browser's own change simply
+   * redraws the same rows. A local mutation still in flight wins — this list
+   * was fetched before that mutation was saved, so applying it afterwards
+   * would step back in time. A current one is asked for instead.
+   */
+  function applyRemoteEntries(entries) {
+    if (busy) { remoteRefreshPending = true; return; }
+    var drafts = captureDrafts();
+    journal = entries;
+    renderJournal();
+    restoreDrafts(drafts);
+  }
   async function loadJournal() {
     setStatus('Загрузка журнала…', 'busy');
     setBusy(true);
@@ -188,6 +250,12 @@
   form.elements.calibration.addEventListener('change', toggleCalibrationDiameter);
   root.querySelector('.calc-tabs').addEventListener('click', function (event) { if (event.target.matches('.calc-tab')) switchTab(event.target.dataset.tab); });
   nameFilter.addEventListener('input', renderJournal);
+  // A touched production cell holds unsaved input from here on, and is what
+  // `applyRemoteEntries()` carries across a live update.
+  journalBody.addEventListener('input', function (event) {
+    var field = event.target;
+    if (field && field.classList && field.classList.contains('calc-production-input')) field.dataset.userEdited = '1';
+  });
   // Absent entirely for a non-ПДО user: the template does not render it.
   if (manualForm) manualForm.addEventListener('submit', function (event) { event.preventDefault(); if (!busy) addManualEntry(); });
 
@@ -302,6 +370,18 @@
     } catch (error) { setStatus(error.message, 'error'); }
     finally { setBusy(false); }
   });
+
+  /**
+   * The only surface `static/js/realtime/workup.js` drives.
+   *
+   * It hands over the list the Calculator's own GET endpoint returned and
+   * nothing else: rendering, filtering and every calculation stay here, and
+   * the page works exactly as before when real-time is disabled.
+   *
+   * `requestRefresh` is filled in by that adapter — it is how a live update
+   * that had to wait for a local mutation asks for a current list.
+   */
+  api.journal = { applyEntries: applyRemoteEntries, reload: loadJournal, requestRefresh: null };
 
   toggleCalibrationDiameter();
   showHeight();

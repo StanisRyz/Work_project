@@ -15,6 +15,7 @@ from .events import (
     RESOURCE_NOTIFICATION,
     RESOURCE_TASK,
     RESOURCE_USER,
+    RESOURCE_WORKUP,
     RealtimeEvent,
     RealtimeEventType,
 )
@@ -157,4 +158,41 @@ def comment_created_event(comment):
             'act_id': comment.act_id,
             'author_id': comment.author_id,
         },
+    )
+
+
+def workup_created_event(entry):
+    """A new «Проработка» row. Its identifier and how it was born — no numbers.
+
+    Nothing of the journal itself travels here: geometry, production time, the
+    1С expression and the employee name stay behind the ordinary
+    `calculator:entry_list` endpoint the client refetches.
+    """
+    return RealtimeEvent(
+        event_type=RealtimeEventType.WORKUP_CREATED,
+        resource_type=RESOURCE_WORKUP,
+        resource_id=entry.pk,
+        data={'source': str(entry.source)},
+    )
+
+
+def workup_updated_event(entry, change):
+    """One row changed. `change` says which state moved, never to what value."""
+    return RealtimeEvent(
+        event_type=RealtimeEventType.WORKUP_UPDATED,
+        resource_type=RESOURCE_WORKUP,
+        resource_id=entry.pk,
+        data={
+            'change': str(change),
+            'production_confirmed': bool(entry.production_confirmed),
+        },
+    )
+
+
+def workup_deleted_event(entry_id):
+    """A removed row: only the identifier survives, the row itself is gone."""
+    return RealtimeEvent(
+        event_type=RealtimeEventType.WORKUP_DELETED,
+        resource_type=RESOURCE_WORKUP,
+        resource_id=int(entry_id),
     )

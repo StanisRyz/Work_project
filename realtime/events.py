@@ -35,6 +35,9 @@ class RealtimeEventType(StrEnum):
     ACT_UPDATED = 'act.updated'
     ACT_STATUS_CHANGED = 'act.status_changed'
     COMMENT_CREATED = 'comment.created'
+    WORKUP_CREATED = 'workup.created'
+    WORKUP_UPDATED = 'workup.updated'
+    WORKUP_DELETED = 'workup.deleted'
 
 
 # Resource types an event may describe. Kept small and explicit so a typo
@@ -44,10 +47,23 @@ RESOURCE_COMMENT = 'comment'
 RESOURCE_NOTIFICATION = 'notification'
 RESOURCE_TASK = 'task'
 RESOURCE_USER = 'user'
+RESOURCE_WORKUP = 'workup'
 
 RESOURCE_TYPES = frozenset(
-    {RESOURCE_ACT, RESOURCE_COMMENT, RESOURCE_NOTIFICATION, RESOURCE_TASK, RESOURCE_USER}
+    {
+        RESOURCE_ACT,
+        RESOURCE_COMMENT,
+        RESOURCE_NOTIFICATION,
+        RESOURCE_TASK,
+        RESOURCE_USER,
+        RESOURCE_WORKUP,
+    }
 )
+
+# Which «Проработка» row change a `workup.updated` describes. Technical
+# metadata, not content: the client refetches the journal either way.
+WORKUP_CHANGE_CONFIRMED = 'production_confirmed'
+WORKUP_CHANGE_UNLOCKED = 'production_unlocked'
 
 # Only these types may appear anywhere inside `data`. Everything else — model
 # instances, datetimes, sets, bytes, Decimal — is rejected, which is what keeps

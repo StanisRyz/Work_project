@@ -8,6 +8,7 @@ inactive users and inactive profiles are dropped exactly as
 """
 
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 
 from .targets import act_target, user_target, user_targets
 
@@ -93,6 +94,32 @@ def act_status_changed_targets(act, history_event):
     user_ids = _ids_of(get_recipients_for_history_event(history_event))
     user_ids += _ids_of(get_act_participants(act))
     return [*user_targets(_active_ids(user_ids)), act_target(act.pk)]
+
+
+def workup_targets():
+    """Everyone who may open Calculator → «Проработка».
+
+    Reading the journal is open to every authenticated user — that is what
+    `calculator.views.entry_list` allows — so the audience is every active
+    account, and the event says nothing a reader could not already fetch from
+    that endpoint. Resolved by the database rather than by loading users into
+    Python, exactly like `act_created_targets`, so one journal write costs the
+    same regardless of how large the user table is.
+
+    Inactive users and inactive profiles are dropped as everywhere else; a
+    genuine superuser is kept even without a profile, mirroring the
+    profile-independent fallback in `calculator.permissions.can_manage_workup`.
+
+    Deliberately still per-user `user:<id>` targets: the journal is shared, but
+    the SSE stream a client may subscribe to is not, and no client-selectable
+    public channel is introduced for it.
+    """
+    return user_targets(
+        get_user_model()
+        .objects.filter(Q(userprofile__is_active=True) | Q(is_superuser=True), is_active=True)
+        .order_by('pk')
+        .values_list('pk', flat=True)
+    )
 
 
 def comment_targets(comment):

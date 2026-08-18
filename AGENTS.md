@@ -307,6 +307,13 @@ tasks never live inside `acts`.
   never travel in a payload. Channel names come only from a validated
   `RealtimeTarget`, and Redis publishes only to kinds a client can subscribe to —
   today `user:<id>`; `act:<id>` needs the authorised subscription first.
+- «Проработка» mutations emit invalidation-style events (`workup.created`,
+  `workup.updated`, `workup.deleted`) from `calculator/services.py`, never from
+  signals, and only when a row actually changed — a deduplicated `get_or_create`
+  hit emits nothing. The audience is every active account, because every
+  authenticated user may read the journal. The client refetches the rows through
+  the ordinary `calculator:entry_list` GET and hands them to the calculator
+  controller; realtime never renders the table or carries journal values.
 - A live refresh never replaces a form holding unsaved input: only read-only
   blocks are swapped, and a dirty form gets the conflict banner with the typed
   text intact. Recovery has one owner per authenticated session — every periodic request is gated

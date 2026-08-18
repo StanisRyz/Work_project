@@ -12,6 +12,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import Department, UserProfile
+from realtime.testing import capture_realtime_events
 
 from .expressions import OneCExpressionError, evaluate_one_c
 from .models import EntrySource, WindingEntry
@@ -309,3 +310,74 @@ class WorkupOwnershipTests(TestCase):
         self.assertEqual(
             self._json(reverse('calculator:entry_delete', args=[first]), self.pdo).status_code, 404,
         )
+
+
+class WorkupRealtimeTests(TestCase):
+    """«Проработка» announces every persisted change, and only those."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.pdo = make_user('rt_pdo')
+        # A reader who never touches the journal: the events still reach them,
+        # because everyone authenticated may open «Проработку».
+        cls.reader = make_user('rt_reader', role=UserProfile.Role.OTK)
+        cls.inactive = make_user('rt_inactive', role=UserProfile.Role.OTK)
+        UserProfile.objects.filter(user=cls.inactive).update(is_active=False)
+
+    def _json(self, url, payload=None):
+        self.client.force_login(self.pdo)
+        return self.client.post(
+            url, data=json.dumps(payload or {}), content_type='application/json',
+        )
+
+    def test_every_persisted_change_publishes_one_invalidation_event(self):
+        with capture_realtime_events() as publisher:
+            with self.captureOnCommitCallbacks(execute=True):
+                entry_id = self._json(reverse('calculator:entry_create'), ENTRY).json()['entry']['id']
+            with self.captureOnCommitCallbacks(execute=True):
+                self._json(
+                    reverse('calculator:entry_production', args=[entry_id]),
+                    {'batchQuantity': 4, 'actualBatchTimeHours': 2},
+                )
+            with self.captureOnCommitCallbacks(execute=True):
+                self._json(reverse('calculator:entry_production_unlock', args=[entry_id]))
+            with self.captureOnCommitCallbacks(execute=True):
+                self._json(reverse('calculator:entry_delete', args=[entry_id]))
+
+            types = [event.event_type.value for event in publisher.events]
+            self.assertEqual(
+                types, ['workup.created', 'workup.updated', 'workup.updated', 'workup.deleted'],
+            )
+            # The row identifier and technical metadata only — never geometry,
+            # production time, the 1С expression or the employee name.
+            for event in publisher.events:
+                self.assertEqual(event.resource_type, 'workup')
+                self.assertEqual(event.resource_id, entry_id)
+                self.assertLessEqual(set(event.data), {'source', 'change', 'production_confirmed'})
+
+    def test_a_repeated_calculation_announces_nothing(self):
+        with capture_realtime_events() as publisher:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._json(reverse('calculator:entry_create'), ENTRY)
+            publisher.clear()
+
+            # The same case again: `get_or_create` hands back the existing row,
+            # so nothing changed and nothing may be announced.
+            with self.captureOnCommitCallbacks(execute=True):
+                repeated = self._json(reverse('calculator:entry_create'), ENTRY)
+
+            self.assertEqual(repeated.status_code, 200)
+            self.assertFalse(repeated.json()['created'])
+            self.assertEqual(publisher.events, [])
+
+    def test_the_audience_is_every_active_account_as_per_user_targets(self):
+        with capture_realtime_events() as publisher:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._json(reverse('calculator:entry_manual_create'), ENTRY)
+
+            targets = publisher.published[0][1]
+            self.assertEqual({target.kind for target in targets}, {'user'})
+            identifiers = {target.identifier for target in targets}
+            self.assertIn(self.pdo.pk, identifiers)
+            self.assertIn(self.reader.pk, identifiers)
+            self.assertNotIn(self.inactive.pk, identifiers)

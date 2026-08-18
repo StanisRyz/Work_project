@@ -35,6 +35,7 @@ REVISION_TASKS = 'tasks'
 REVISION_ACTS = 'acts'
 REVISION_COMMENTS = 'comments'
 REVISION_ACTIVITIES = 'activities'
+REVISION_WORKUP = 'workup'
 
 REVISION_KEYS = (
     REVISION_NOTIFICATIONS,
@@ -42,6 +43,7 @@ REVISION_KEYS = (
     REVISION_ACTS,
     REVISION_COMMENTS,
     REVISION_ACTIVITIES,
+    REVISION_WORKUP,
 )
 
 TOKEN_LENGTH = 16
@@ -227,6 +229,31 @@ def _activities_revision(user):
     )
 
 
+def _workup_revision(user):
+    """Calculator → «Проработка», which every authenticated user sees whole.
+
+    The journal is one shared table with no per-user visibility rule, so the
+    token takes no `user` filter — the argument is there only to keep every
+    revision function the same shape. One aggregate, no rows loaded: a deleted
+    row moves `total`, an edited one moves `last_updated`, and confirming or
+    reopening production moves `confirmed` even when neither of the other two
+    happens to change.
+    """
+    from calculator.models import WindingEntry
+
+    aggregate = WindingEntry.objects.aggregate(
+        total=Count('pk'),
+        confirmed=Count('pk', filter=Q(production_confirmed=True)),
+        last_updated=Max('updated_at'),
+    )
+    return _token(
+        'w',
+        aggregate['total'],
+        aggregate['confirmed'],
+        aggregate['last_updated'],
+    )
+
+
 def build_sync_state(user):
     """Return the user's current revision snapshot.
 
@@ -245,6 +272,7 @@ def build_sync_state(user):
             REVISION_ACTS: _acts_revision(user),
             REVISION_COMMENTS: _comments_revision(user),
             REVISION_ACTIVITIES: _activities_revision(user),
+            REVISION_WORKUP: _workup_revision(user),
         },
         'unread_notifications': unread,
     }

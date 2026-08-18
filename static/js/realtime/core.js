@@ -32,6 +32,9 @@
         ACT_UPDATED: 'act.updated',
         ACT_STATUS_CHANGED: 'act.status_changed',
         COMMENT_CREATED: 'comment.created',
+        WORKUP_CREATED: 'workup.created',
+        WORKUP_UPDATED: 'workup.updated',
+        WORKUP_DELETED: 'workup.deleted',
     };
 
     const SUBSCRIBED_EVENTS = Object.keys(EVENT_TYPES).map((key) => EVENT_TYPES[key]);

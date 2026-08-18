@@ -105,7 +105,7 @@ class ProfileRealtimeSyncCommandTests(RealtimeFixtureMixin, TestCase):
             report = json.loads(path.read_text(encoding='utf-8'))
 
         by_scenario = {row['scenario']: row for row in report['measurements']}
-        self.assertEqual(by_scenario['realtime_sync']['queries'], 9)
+        self.assertEqual(by_scenario['realtime_sync']['queries'], 10)
         self.assertEqual(by_scenario['revision_notifications']['queries'], 1)
         for name in ('revision_tasks', 'revision_acts', 'revision_comments', 'revision_activities'):
             self.assertEqual(by_scenario[name]['queries'], 2, name)

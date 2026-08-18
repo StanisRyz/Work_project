@@ -11,10 +11,19 @@ Row creation comes in two flavours and they are not interchangeable:
 `create_entry()` is the Calculator tab writing a calculation case, which
 converges on one row per signature, and `create_manual_entry()` is a person
 adding a line to «Проработка» by hand, which always produces a new row.
+
+Every function that actually changes a row also emits one real-time event —
+here, in the service layer, never from a model signal, so a fixture load or a
+technical `save()` stays silent. The event only says that the journal moved;
+`publish_after_commit()` means a rollback or a failed validation publishes
+nothing at all, and every client refetches the rows through `entry_list`.
 """
 import math
 
 from django.db import transaction
+
+from realtime.emitters import emit_workup_created, emit_workup_deleted, emit_workup_updated
+from realtime.events import WORKUP_CHANGE_CONFIRMED, WORKUP_CHANGE_UNLOCKED
 
 from .expressions import OneCExpressionError, evaluate_one_c
 from .models import (
@@ -197,6 +206,11 @@ def create_entry(user, data):
             source=EntrySource.CALCULATOR,
             defaults={**values, 'created_by': user, 'updated_by': user},
         )
+        if created:
+            # Only a genuinely new row is news: repeating the same calculation
+            # hands back the row that is already there and changes nothing, so
+            # it must not announce a creation that did not happen.
+            emit_workup_created(entry)
     return entry, created
 
 
@@ -211,9 +225,11 @@ def create_manual_entry(user, data):
     """
     values = clean_entry(data)
     with transaction.atomic():
-        return WindingEntry.objects.create(
+        entry = WindingEntry.objects.create(
             **values, source=EntrySource.MANUAL, created_by=user, updated_by=user,
         )
+        emit_workup_created(entry)
+        return entry
 
 
 def confirm_production(user, entry, data):
@@ -245,6 +261,7 @@ def confirm_production(user, entry, data):
             'one_c_expression', 'one_c_hours', 'employee_name',
             'production_confirmed', 'updated_by', 'updated_at',
         ])
+        emit_workup_updated(locked, WORKUP_CHANGE_CONFIRMED)
     return locked
 
 
@@ -259,6 +276,7 @@ def unlock_production(user, entry):
         locked.production_confirmed = False
         locked.updated_by = user
         locked.save(update_fields=['production_confirmed', 'updated_by', 'updated_at'])
+        emit_workup_updated(locked, WORKUP_CHANGE_UNLOCKED)
     return locked
 
 
@@ -271,7 +289,11 @@ def delete_entry(entry):
     a shared visible name never drags a neighbouring row along.
     """
     with transaction.atomic():
-        WindingEntry.objects.filter(pk=entry.pk).delete()
+        removed, _ = WindingEntry.objects.filter(pk=entry.pk).delete()
+        if removed:
+            # The row is gone, so the event carries its identifier and nothing
+            # else — and a delete that matched nothing stays silent.
+            emit_workup_deleted(entry.pk)
 
 
 def journal_entries():

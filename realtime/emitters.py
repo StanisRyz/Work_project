@@ -22,6 +22,9 @@ from .factories import (
     task_completed_event,
     task_created_event,
     task_updated_event,
+    workup_created_event,
+    workup_deleted_event,
+    workup_updated_event,
 )
 from .publisher import publish_after_commit, realtime_enabled
 from .recipients import (
@@ -32,6 +35,7 @@ from .recipients import (
     notification_read_targets,
     notification_targets,
     task_targets,
+    workup_targets,
 )
 
 
@@ -131,4 +135,35 @@ def emit_comment_created(comment):
         return None
     event = comment_created_event(comment)
     publish_after_commit(event, comment_targets(comment))
+    return event
+
+
+def emit_workup_created(entry):
+    """Call only for a genuinely new «Проработка» row.
+
+    A repeated calculation that `get_or_create` resolves to the row already in
+    the journal changed nothing, so it must not reach this function.
+    """
+    if not realtime_enabled():
+        return None
+    event = workup_created_event(entry)
+    publish_after_commit(event, workup_targets())
+    return event
+
+
+def emit_workup_updated(entry, change):
+    """Call after a persisted change to a saved row, on the locked instance."""
+    if not realtime_enabled():
+        return None
+    event = workup_updated_event(entry, change)
+    publish_after_commit(event, workup_targets())
+    return event
+
+
+def emit_workup_deleted(entry_id):
+    """Call with the primary key of a row that was actually removed."""
+    if not realtime_enabled():
+        return None
+    event = workup_deleted_event(entry_id)
+    publish_after_commit(event, workup_targets())
     return event
