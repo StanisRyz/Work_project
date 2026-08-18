@@ -24,7 +24,7 @@ class DemoAccountCommandTests(TestCase):
 
 
 class LandingRedirectTests(TestCase):
-    """`/acts/` is the working page for every authenticated user, including administrators."""
+    """`/quality/acts/` is the working page for every authenticated user, including administrators."""
 
     def _create_user(self, username, role):
         user = User.objects.create_user(username=username, password='demo12345')

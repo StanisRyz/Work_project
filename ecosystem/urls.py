@@ -15,10 +15,11 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
 from django.views.generic.base import RedirectView
 
 from . import health
+from .legacy_urls import legacy_prefix_alias
 
 urlpatterns = [
     # Unauthenticated on purpose: a process manager or load balancer must be
@@ -26,12 +27,26 @@ urlpatterns = [
     path('health/live/', health.health_live, name='health_live'),
     path('health/ready/', health.health_ready, name='health_ready'),
     path('', RedirectView.as_view(pattern_name='acts:list', permanent=False)),
-    path('acts/', include('acts.urls')),
-    path('tasks/', include('tasks.urls')),
-    path('calculator/', include('calculator.urls')),
+
+    # User-facing modules live under a two-level hierarchy that mirrors the
+    # navigation: `/quality/<module>/` and `/calculators/<module>/`. New
+    # modules follow the same convention; the app names and URL namespaces
+    # behind them stay as they are.
+    path('quality/acts/', include('acts.urls')),
+    path('quality/tasks/', include('tasks.urls')),
+    path('calculators/winding/', include('calculator.urls')),
     path('calculators/plate-cutting/', include('plate_cutting.urls')),
+
+    # Infrastructure stays outside that hierarchy.
     path('notifications/', include('notifications.urls')),
     path('accounts/', include('accounts.urls')),
     path('realtime/', include('realtime.urls')),
     path('admin/', admin.site.urls),
+
+    # Temporary: the flat paths used before the hierarchy, method-preserving
+    # and unnamed so only the canonical URLs are ever generated. See
+    # `ecosystem/legacy_urls.py`.
+    re_path(r'^acts/(?P<rest>.*)$', legacy_prefix_alias('/quality/acts/')),
+    re_path(r'^tasks/(?P<rest>.*)$', legacy_prefix_alias('/quality/tasks/')),
+    re_path(r'^calculator/(?P<rest>.*)$', legacy_prefix_alias('/calculators/winding/')),
 ]

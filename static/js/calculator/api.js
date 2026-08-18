@@ -4,7 +4,7 @@
  * There is no file picker, no File System Access handle, no IndexedDB and no
  * document `revision`: the journal lives in the application's database and is
  * reached through the ordinary authenticated, CSRF-protected Django
- * endpoints under `/calculator/`. Calculation and rendering never call this
+ * endpoints under `/calculators/winding/`. Calculation and rendering never call this
  * module's internals — they only ask it to load, create, confirm or unlock.
  */
 (function () {
@@ -44,7 +44,7 @@
   }
 
   /**
-   * `entriesUrl` is `/calculator/entries/`; the per-entry routes hang off it,
+   * `entriesUrl` is `/calculators/winding/entries/`; the per-entry routes hang off it,
    * which keeps the template down to one URL instead of four.
    */
   api.createJournalApi = function (entriesUrl) {

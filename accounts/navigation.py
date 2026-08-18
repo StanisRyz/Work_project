@@ -1,6 +1,6 @@
 """Where an authenticated user belongs after login and at the application root.
 
-`/acts/` is the working page for everyone, including administrators and
+`/quality/acts/` is the working page for everyone, including administrators and
 Django superusers. Reused by the login view and the navigation templates so
 the answer lives in one place.
 """

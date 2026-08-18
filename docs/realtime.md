@@ -205,13 +205,13 @@ Django, клиент подставляет уже готовый фрагмен
 | Блок | Endpoint | Ключ ревизии |
 | --- | --- | --- |
 | Колокольчик | `/notifications/header-fragment/` | `notifications` |
-| Реестр задач | `/tasks/list-fragment/` | `tasks` |
-| Реестр актов | `/acts/list-fragment/` | `acts` |
-| Сводка акта | `/acts/<pk>/live-summary-fragment/` | `acts` |
-| Рабочая вкладка акта | `/acts/<pk>/work-fragment/` | `acts` |
-| История акта | `/acts/<pk>/history-fragment/` | `comments` |
-| Комментарии акта | `/acts/<pk>/comments-fragment/` | `comments` |
-| Связанные мероприятия | `/acts/<pk>/activities-fragment/` | `activities` |
+| Реестр задач | `/quality/tasks/list-fragment/` | `tasks` |
+| Реестр актов | `/quality/acts/list-fragment/` | `acts` |
+| Сводка акта | `/quality/acts/<pk>/live-summary-fragment/` | `acts` |
+| Рабочая вкладка акта | `/quality/acts/<pk>/work-fragment/` | `acts` |
+| История акта | `/quality/acts/<pk>/history-fragment/` | `comments` |
+| Комментарии акта | `/quality/acts/<pk>/comments-fragment/` | `comments` |
+| Связанные мероприятия | `/quality/acts/<pk>/activities-fragment/` | `activities` |
 
 Каждый фрагмент заново загружает объект, заново проверяет `request.user` и
 права, не принимает идентификатор пользователя, ничего не меняет на GET и

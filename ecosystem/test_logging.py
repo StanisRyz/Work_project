@@ -314,7 +314,7 @@ class RequestLoggingMiddlewareTests(TestCase):
         self.client.force_login(self.user)
 
         with self.assertLogs('ecosystem.request', level=logging.WARNING) as captured:
-            self.client.get('/acts/999999/')
+            self.client.get(reverse('acts:detail', args=[999999]))
 
         self.assertIn('outcome=client_error', '\n'.join(captured.output))
 
@@ -357,7 +357,7 @@ class RequestLoggingMiddlewareTests(TestCase):
             raise RuntimeError('exploded')
 
         middleware = RequestLoggingMiddleware(boom)
-        request = RequestFactory().get('/acts/')
+        request = RequestFactory().get('/quality/acts/')
         request.user = self.user
 
         with self.assertLogs('ecosystem.request', level=logging.ERROR) as captured:
@@ -425,7 +425,7 @@ class AsyncRequestLoggingTests(TestCase):
             raise RuntimeError('async exploded')
 
         middleware = RequestLoggingMiddleware(boom)
-        request = RequestFactory().get('/acts/')
+        request = RequestFactory().get('/quality/acts/')
 
         with self.assertLogs('ecosystem.request', level=logging.ERROR) as captured:
             with self.assertRaises(RuntimeError):

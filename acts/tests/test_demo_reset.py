@@ -31,7 +31,7 @@ class DemoResetUrlRegistrationTests(TestCase):
     def test_a_direct_request_is_a_plain_404_when_the_flag_is_off(self):
         # The path itself, without reverse(): a deployment with the flag off
         # must answer as if the feature never existed.
-        response = self.client.post('/acts/clear-all/')
+        response = self.client.post('/quality/acts/clear-all/')
 
         self.assertEqual(response.status_code, 404)
 
