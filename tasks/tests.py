@@ -1,16 +1,22 @@
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Department, UserProfile
 from acts.models import Act, ActCorrectiveAction, ActCorrectiveActionAssignee, ActRootAnalysis
+from protocols.models import (
+    QUALITY_PROTOCOL_TYPE_CODE, Protocol, ProtocolAction, ProtocolType,
+)
 from realtime.sync import build_sync_state
 from references.models import ActStatus, DefectType, Operation, TaskStatus
 
 from .models import Task, TaskAssignee
+from .permissions import can_complete_task
 from .services import TaskWorkflowError, complete_task, replace_task_assignees
 
 
@@ -307,3 +313,102 @@ class TaskViewsTests(TestCase):
         self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive&number={task.pk}')
         task.refresh_from_db()
         self.assertEqual(task.completed_by, administrator)
+
+
+class TaskSourceTests(TestCase):
+    """The source contract: which relation shapes may exist at all.
+
+    Structural only. No production code creates a protocol-sourced task yet;
+    these tests build the rows directly to prove the schema is ready and that
+    the wrong shapes cannot be stored.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.department = Department.objects.create(code='TO', name='ТО')
+        cls.user = User.objects.create_user(username='source_user', password='demo12345')
+        cls.task_status = TaskStatus.objects.get(code='IN_PROGRESS')
+        cls.act = Act.objects.create(
+            created_by=cls.user, nomenclature='Изделие',
+            status=ActStatus.objects.get(code='ARCHIVED'),
+        )
+        cls.root_analysis = ActRootAnalysis.objects.create(act=cls.act, root_cause='Причина')
+        cls.corrective_action = ActCorrectiveAction.objects.create(
+            root_analysis=cls.root_analysis, comment='Мероприятие',
+            department=cls.department, due_date=timezone.localdate(),
+        )
+        protocol_type = ProtocolType.objects.get_or_create(
+            code=QUALITY_PROTOCOL_TYPE_CODE, defaults={'name': 'Протокол по качеству'},
+        )[0]
+        cls.protocol = Protocol.objects.create(
+            protocol_type=protocol_type, number=1, author=cls.user,
+        )
+        cls.protocol_action = ProtocolAction.objects.create(
+            protocol=cls.protocol, task_text='Решение протокола',
+            department=cls.department, due_date=timezone.localdate(),
+        )
+
+    def _task_kwargs(self, **overrides):
+        return {
+            'task_text': 'Задача', 'department': self.department,
+            'due_date': timezone.localdate(), 'created_by': self.user,
+            'status': self.task_status, **overrides,
+        }
+
+    def test_database_rejects_mixed_and_incomplete_task_sources(self):
+        invalid_shapes = {
+            'act source carrying a protocol': self._task_kwargs(
+                source_type=Task.SourceType.ACT, act=self.act,
+                root_analysis=self.root_analysis, source_action=self.corrective_action,
+                protocol=self.protocol,
+            ),
+            'act source missing its corrective action': self._task_kwargs(
+                source_type=Task.SourceType.ACT, act=self.act, root_analysis=self.root_analysis,
+            ),
+            'protocol action source without the action': self._task_kwargs(
+                source_type=Task.SourceType.PROTOCOL_ACTION, protocol=self.protocol,
+            ),
+            'protocol approval source still holding act relations': self._task_kwargs(
+                source_type=Task.SourceType.PROTOCOL_APPROVAL, protocol=self.protocol,
+                act=self.act, root_analysis=self.root_analysis,
+                source_action=self.corrective_action,
+            ),
+        }
+        for label, kwargs in invalid_shapes.items():
+            with self.subTest(shape=label):
+                # Each attempt gets its own savepoint: an `IntegrityError`
+                # breaks the surrounding transaction otherwise.
+                with self.assertRaises(IntegrityError), transaction.atomic():
+                    Task.objects.create(**kwargs)
+        self.assertEqual(Task.objects.count(), 0)
+
+    def test_protocol_shaped_tasks_are_storable_and_approvals_never_complete(self):
+        action_task = Task.objects.create(**self._task_kwargs(
+            source_type=Task.SourceType.PROTOCOL_ACTION,
+            protocol=self.protocol, protocol_action=self.protocol_action,
+        ))
+        action_task.full_clean(exclude=['task_text'])
+        self.assertIsNone(action_task.act_id)
+
+        # The cross-table rule no check constraint can express.
+        other_protocol = Protocol.objects.create(
+            protocol_type=self.protocol.protocol_type, number=2, author=self.user,
+        )
+        mismatched = Task(**self._task_kwargs(
+            source_type=Task.SourceType.PROTOCOL_ACTION,
+            protocol=other_protocol, protocol_action=self.protocol_action,
+        ))
+        with self.assertRaises(ValidationError):
+            mismatched.clean()
+
+        # Agreeing to a protocol is its own decision — the ordinary completion
+        # workflow must refuse it even for a user who is otherwise entitled.
+        approval_task = Task.objects.create(**self._task_kwargs(
+            source_type=Task.SourceType.PROTOCOL_APPROVAL, protocol=self.protocol,
+        ))
+        TaskAssignee.objects.create(task=approval_task, user=self.user)
+        self.assertFalse(can_complete_task(approval_task, self.user))
+        with self.assertRaises(TaskWorkflowError):
+            complete_task(approval_task, self.user, 'Согласовано.')
+        approval_task.refresh_from_db()
+        self.assertEqual(approval_task.status.code, 'IN_PROGRESS')

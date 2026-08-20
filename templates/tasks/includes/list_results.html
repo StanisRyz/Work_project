@@ -11,8 +11,8 @@ never replaces controls the user may be typing into.
         {% for task in tasks %}
             <tr data-task-row="{{ task.pk }}"{% if tab != 'archive' and task.due_date < today %} class="task-row--overdue"{% endif %}>
                 <td><a class="table-link" href="{% url 'tasks:detail' task.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{{ task.pk }}</a></td>
-                <td>По акту</td>
-                <td><a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a></td>
+                <td>{{ task.get_source_type_display }}</td>
+                <td>{% if task.act_id %}<a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a>{% else %}—{% endif %}</td>
                 <td><span class="{% if tab != 'archive' and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></td>
             </tr>
         {% endfor %}

@@ -170,6 +170,36 @@ tasks never live inside `acts`.
   `tasks.services.replace_task_assignees()`. Every authenticated user may read
   every task through `all`, `archive` and task detail; only active assigned
   tasks appear in `my`, and read access never grants completion rights.
+- **A task's origin is `source_type`, never a nullable relation.** Three values
+  exist — `ACT`, `PROTOCOL_APPROVAL`, `PROTOCOL_ACTION` — and exactly one
+  relation shape is valid for each, enforced by `Task.clean()` and by the
+  `task_source_relations_match_source_type` check constraint:
+
+  | `source_type` | required | must be NULL |
+  | --- | --- | --- |
+  | `ACT` | `act`, `root_analysis`, `source_action` | `protocol`, `protocol_action` |
+  | `PROTOCOL_APPROVAL` | `protocol` | `act`, `root_analysis`, `source_action`, `protocol_action` |
+  | `PROTOCOL_ACTION` | `protocol`, `protocol_action` | `act`, `root_analysis`, `source_action` |
+
+  The act relations are nullable *only* so the other shapes can exist; for an
+  `ACT` task all three stay required. `source_action` and `protocol_action` are
+  one-to-one, so neither a corrective action nor a protocol decision can ever
+  produce a second task. `protocol_action.protocol == task.protocol` is checked
+  in `Task.clean()` and must be re-checked in any service that writes one — a
+  single-row check constraint cannot span two tables.
+- Every writer states `source_type` explicitly; the `ACT` default exists only
+  so the column could be added to the existing production table and is never a
+  substitute for saying so. Read-side code must not assume `task.act` or
+  `task.root_analysis` is present — branch on `source_type`.
+- **`PROTOCOL_APPROVAL` is never completed through the normal task workflow.**
+  `can_complete_task()` and `complete_task()` both refuse it: agreeing to a
+  protocol is its own decision, and closing it with an execution comment would
+  silently approve a document. No such task exists yet — this is the invariant
+  the approval stage builds on, not a feature.
+- Schema changes to `Task` migrate the existing production table in place:
+  add first, classify existing rows in a separate data migration, relax
+  nullability, then add constraints. Never delete, recreate or renumber task
+  rows, and never generate tasks from existing rows in a migration.
 - `Act.number` is a **business identifier, never the identity**. The user types
   a suffix of up to `ACT_NUMBER_SUFFIX_LENGTH` (5) arbitrary characters and
   `acts.models.format_act_number()` builds `АОК-{year}-{zero-padded suffix}` on
@@ -317,12 +347,12 @@ tasks never live inside `acts`.
   lands, without touching the views or the UI. Deletion stays stricter: only the
   author, only a `DRAFT`, confirmed through the application modal.
 - **`ProtocolAction` is not `tasks.Task`.** It is the decision as recorded
-  inside the protocol — text, department, due date, assignees — with no
-  relation to a real task and no rows in `tasks`. The editor's «Задачи» block
-  writes `ProtocolAction`/`ProtocolActionAssignee` only; its assignees need not
-  be participants, and a protocol may contain none. Creating actual tasks from an
-  archived protocol is a later stage; until then the `Task` schema and its act
-  relationships stay untouched.
+  inside the protocol — text, department, due date, assignees. The editor's
+  «Задачи» block writes `ProtocolAction`/`ProtocolActionAssignee` only; its
+  assignees need not be participants, and a protocol may contain none. `Task`
+  can now point at a `Protocol` and at a `ProtocolAction` (see the task source
+  types above), but nothing creates such a row: creating actual tasks from an
+  archived protocol is a later stage, and no protocol-sourced task exists.
 
 ## Security and permissions
 

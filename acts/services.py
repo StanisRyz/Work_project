@@ -487,6 +487,10 @@ def approve_act(act, user):
                 raise ActWorkflowError('Срок корректирующего мероприятия не может быть раньше даты утверждения.')
         for action in corrective_actions:
             task = Task.objects.create(
+                # Stated, not inferred: the source type is what the task
+                # registry, the completion guard and the source constraint
+                # read, and act approval is the only writer of `ACT` tasks.
+                source_type=Task.SourceType.ACT,
                 source_action=action,
                 act=act,
                 root_analysis=action.root_analysis,
@@ -781,7 +785,7 @@ def clear_all_acts():
         # so remove those dependent tasks before the acts themselves.
         from tasks.models import Task
 
-        Task.objects.filter(act__isnull=False).delete()
+        Task.objects.filter(source_type=Task.SourceType.ACT).delete()
         Act.objects.all().delete()
     for attachment in attachments:
         try:

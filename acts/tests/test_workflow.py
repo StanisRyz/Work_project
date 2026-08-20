@@ -318,6 +318,25 @@ class ActWorkflowTests(TestCase):
             1,
         )
 
+    def test_approval_creates_a_task_that_is_explicitly_act_sourced(self):
+        # The act path is the only writer of `ACT` tasks and must say so
+        # itself: an act task that fell back on the field default, or that
+        # carried a protocol relation, is what the source constraint exists to
+        # stop, and the registry reads `source_type` rather than the relations.
+        act = self._create_act(self.status_to)
+        form = ToAnalysisStructureForm(self._structured_analysis_post())
+        self.assertTrue(form.is_valid())
+        apply_structured_to_analysis(act, self.to_user, form.analysis_data)
+
+        approve_act(act, self.otk_user)
+
+        task = Task.objects.get(act=act)
+        self.assertEqual(task.source_type, Task.SourceType.ACT)
+        self.assertIsNotNone(task.source_action_id)
+        self.assertIsNotNone(task.root_analysis_id)
+        self.assertIsNone(task.protocol_id)
+        self.assertIsNone(task.protocol_action_id)
+
     def test_approval_creates_one_shared_task_for_all_action_assignees(self):
         second_to_user = self._create_user('to_second', UserProfile.Role.TO)
         second_to_user.userprofile.department = self.department

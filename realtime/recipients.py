@@ -41,13 +41,21 @@ def notification_read_targets(user_or_id):
 
 
 def task_targets(task):
-    """The task's current active assignees, plus the act routing hint."""
+    """The task's current active assignees, plus the act routing hint.
+
+    The assignees are the authoritative recipients; the act target is only a
+    routing hint, and a task whose source is not an act simply has none — it is
+    omitted rather than faked, since `act:None` is not a routable target.
+    """
     assignee_ids = get_user_model().objects.filter(
         task_assignments__task=task,
         is_active=True,
         userprofile__is_active=True,
     ).order_by('pk').values_list('pk', flat=True)
-    return [*user_targets(assignee_ids), act_target(task.act_id)]
+    targets = list(user_targets(assignee_ids))
+    if task.act_id:
+        targets.append(act_target(task.act_id))
+    return targets
 
 
 def act_created_targets(act):

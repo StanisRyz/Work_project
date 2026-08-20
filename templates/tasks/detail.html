@@ -14,7 +14,7 @@
 <div class="task-detail-columns">
     <section class="task-detail-info-card">
         <div class="task-detail-info-row"><dt>Статус</dt><dd>{{ task.status }}</dd></div>
-        <div class="task-detail-info-row"><dt>Исходный акт</dt><dd><a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a></dd></div>
+        {% if task.act_id %}<div class="task-detail-info-row"><dt>Исходный акт</dt><dd><a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a></dd></div>{% endif %}
         <div class="task-detail-info-row"><dt>Срок</dt><dd><span class="{% if task.status.code != 'COMPLETED' and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></dd></div>
     </section>
 
@@ -55,11 +55,13 @@
 </div>
 
 <div class="task-detail-analysis-columns">
+    {% if task.root_analysis_id %}
     <section class="task-detail-analysis-card">
         <span class="task-detail-eyebrow">Анализ ТО</span>
         <h2>Корневая причина</h2>
         <div class="task-comment-block">{{ task.root_analysis.root_cause|linebreaksbr }}</div>
     </section>
+    {% endif %}
     <section class="task-detail-analysis-card">
         <span class="task-detail-eyebrow">Корректирующее мероприятие</span>
         <h2>Задача</h2>

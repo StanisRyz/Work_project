@@ -8,7 +8,7 @@ from ecosystem.logging_utils import log_event
 from realtime.emitters import emit_task_completed, emit_task_updated
 from references.models import TaskStatus
 
-from .models import TaskAssignee
+from .models import Task, TaskAssignee
 from .permissions import can_complete_task
 
 
@@ -114,6 +114,12 @@ def complete_task(task, user, execution_comment):
     with transaction.atomic():
         task = task.__class__.objects.select_for_update().prefetch_related('assignees').get(pk=task.pk)
         previous_status = getattr(task.status, 'code', None)
+        # Stated separately from the permission check so the refusal is
+        # legible in the log: this is not "you may not", it is "this kind of
+        # task is not finished this way". `can_complete_task` refuses it too.
+        if task.source_type == Task.SourceType.PROTOCOL_APPROVAL:
+            _rejected('protocol_approval_not_completable', previous_status)
+            raise TaskWorkflowError('Задача согласования протокола не завершается таким образом.')
         if not can_complete_task(task, user):
             _rejected('not_permitted_or_already_completed', previous_status)
             raise TaskWorkflowError('Завершение задачи недоступно.')
