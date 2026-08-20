@@ -23,6 +23,7 @@ model without explicit approval.
 | `references` | operations, defect types, act/task statuses, priorities; `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
 | `tasks` | tasks created on approval, their assignees and completion |
+| `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, history; numbering and mutations in `protocols/services.py`. Independent from `acts`; no user-facing pages yet |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/` and the agreed coefficients in `plate_cutting/constants.py`. No models, no migrations, no endpoints |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
@@ -272,6 +273,29 @@ tasks never live inside `acts`.
   from the tab's local state: confirmation is a production state, not an
   export gate. A missing value is written as an empty cell — never `None`,
   `null`, a stand-in `0` or an empty `<v>`.
+- **Protocol numbers are per type and reusable.** Each `ProtocolType` owns its
+  own series, so «Качество №1» and a future type's «№1» coexist. Deleting a
+  draft frees its number, and the next protocol of that type takes the
+  **smallest free positive number**, never `max + 1`: with `1, 2, 4, 5` taken
+  the answer is `3`. Allocation happens only in
+  `protocols.services.create_protocol()`, inside one transaction that row-locks
+  the `ProtocolType` first; `unique_protocol_number_per_type` is the final
+  guarantee, not the allocator. Never allocate from a signal, a form or a
+  `save()` override.
+- Every protocol mutation goes through `protocols/services.py`.
+  `create_protocol()` is atomic by contract: the number, the `Protocol`, the
+  author's `ProtocolParticipant` and the `CREATED` history event exist together
+  or not at all. Participant snapshots (`display_name`, `position`,
+  `department_name`) are frozen when the participant is added and never follow
+  the profile afterwards; `Protocol.author` is the only authority on authorship
+  — do not add an `is_author` flag. A `ProtocolSpeech` speaker is a
+  `ProtocolParticipant` of the same protocol, checked in the model and in the
+  service. Draft deletion is author-only and `DRAFT`-only.
+- **`ProtocolAction` is not `tasks.Task`.** It is the decision as recorded
+  inside the protocol — text, department, due date, assignees — with no
+  relation to a real task and no rows in `tasks`. Creating actual tasks from an
+  archived protocol is a later stage; until then the `Task` schema and its act
+  relationships stay untouched.
 
 ## Security and permissions
 
