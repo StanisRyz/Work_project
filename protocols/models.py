@@ -335,3 +335,87 @@ class ProtocolHistoryEvent(models.Model):
 
     def __str__(self):
         return f'{self.protocol}: {self.get_event_type_display()}'
+
+
+class ProtocolApproval(models.Model):
+    """One person's decision on one revision of one protocol.
+
+    A row per `(protocol, revision, user)`, created when that revision is sent
+    for approval and never deleted afterwards: a resubmission opens a *new*
+    revision with its own rows, so revision 1's signatures stay readable next
+    to revision 2's. The two `required_as_*` flags say why the person had to
+    sign — a participant marked «требуется согласование», an assignee of a
+    protocol task, or both — and remain the historical answer even after the
+    protocol is edited.
+
+    `display_name`, `position` and `department_name` are frozen at submission
+    for the same reason participant snapshots are: the archive must keep saying
+    who signed and in which role, whatever the profile does later.
+
+    `task` is a lazy `'tasks.Task'` reference on purpose: `tasks.models` already
+    imports `protocols.models`, and a real import here would close the circle.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Ожидает согласования'
+        APPROVED = 'APPROVED', 'Согласовано'
+        RETURNED = 'RETURNED', 'Возвращено на доработку'
+        CANCELLED = 'CANCELLED', 'Отменено'
+
+    protocol = models.ForeignKey(
+        Protocol,
+        on_delete=models.CASCADE,
+        related_name='approvals',
+        verbose_name='Протокол',
+    )
+    revision = models.PositiveIntegerField('Редакция')
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='protocol_approvals',
+        verbose_name='Согласующий',
+    )
+    status = models.CharField(
+        'Статус',
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    task = models.OneToOneField(
+        'tasks.Task',
+        on_delete=models.SET_NULL,
+        related_name='protocol_approval',
+        blank=True,
+        null=True,
+        verbose_name='Задача согласования',
+    )
+    required_as_participant = models.BooleanField(
+        'Согласует как участник', default=False
+    )
+    required_as_action_assignee = models.BooleanField(
+        'Согласует как исполнитель задачи', default=False
+    )
+    display_name = models.CharField('ФИО в документе', max_length=180)
+    position = models.CharField('Должность в документе', max_length=120, blank=True)
+    department_name = models.CharField('Подразделение в документе', max_length=120, blank=True)
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+    decided_at = models.DateTimeField('Решение принято', blank=True, null=True)
+    return_comment = models.TextField('Комментарий возврата', blank=True)
+
+    class Meta:
+        ordering = ['-revision', 'pk']
+        verbose_name = 'Согласование протокола'
+        verbose_name_plural = 'Согласования протоколов'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['protocol', 'revision', 'user'],
+                name='unique_protocol_approval_per_revision',
+            )
+        ]
+
+    def __str__(self):
+        return f'{self.protocol} ред. {self.revision}: {self.display_name}'
+
+    @property
+    def is_pending(self):
+        return self.status == self.Status.PENDING

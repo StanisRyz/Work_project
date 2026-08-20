@@ -1,11 +1,12 @@
 import logging
 import time
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from ecosystem.logging_utils import log_event
-from realtime.emitters import emit_task_completed, emit_task_updated
+from realtime.emitters import emit_task_completed, emit_task_created, emit_task_updated
 from references.models import TaskStatus
 
 from .models import Task, TaskAssignee
@@ -171,3 +172,144 @@ def complete_task(task, user, execution_comment):
         outcome='ok',
     )
     return task
+
+
+# --------------------------------------------------------------------------
+# Protocol workflow task lifecycle
+#
+# Protocol tasks are written *only* through these four functions, called only
+# from `protocols/services.py` inside the workflow transaction that already
+# holds the `Protocol` row lock. They are deliberately not transactional on
+# their own: a protocol transition that fails halfway must take every task it
+# created with it, so the caller's `atomic()` block is the unit of work.
+#
+# `complete_task()` stays untouched and keeps refusing `PROTOCOL_APPROVAL`:
+# an approval task is closed by the protocol decision, never by an employee
+# posting an execution result.
+# --------------------------------------------------------------------------
+
+
+def _active_status(code, label):
+    try:
+        return TaskStatus.objects.get(code=code, is_active=True)
+    except TaskStatus.DoesNotExist as exc:
+        log_event(
+            logger,
+            'ERROR',
+            'task.operation_failed',
+            operation='resolve_status',
+            status_code=code,
+            error_type='MissingTaskStatus',
+            outcome='failed',
+        )
+        raise TaskWorkflowError(f'Не найден активный статус задачи «{label}».') from exc
+
+
+def _save_new_task(task, assignee_ids, *, actor):
+    """Validate the source shape, save, attach assignees, announce once."""
+    if not assignee_ids:
+        raise TaskWorkflowError('У задачи должен быть хотя бы один исполнитель.')
+    try:
+        # Restates the check constraint in readable form, and adds the
+        # cross-table `protocol_action.protocol == protocol` rule SQL cannot.
+        task.clean()
+    except ValidationError as exc:
+        raise TaskWorkflowError('Некорректный источник задачи.') from exc
+    task.save()
+    TaskAssignee.objects.bulk_create(
+        [TaskAssignee(task=task, user_id=user_id) for user_id in assignee_ids]
+    )
+    # Only once the assignees exist, so the event never describes a half-built
+    # task; `publish_after_commit` keeps a rolled-back transaction silent.
+    emit_task_created(task, assignee_ids)
+    log_event(
+        logger,
+        'INFO',
+        'task.created',
+        task_id=task.pk,
+        protocol_id=task.protocol_id,
+        source_type=task.source_type,
+        actor_user_id=_pk_of(actor),
+        assignee_count=len(assignee_ids),
+        next_status=task.status.code,
+        outcome='ok',
+    )
+    return task
+
+
+def create_protocol_approval_task(protocol, approver, *, department, due_date, created_by, task_text):
+    """One `PROTOCOL_APPROVAL` task: one protocol, one approver, no action."""
+    task = Task(
+        source_type=Task.SourceType.PROTOCOL_APPROVAL,
+        protocol=protocol,
+        task_text=task_text,
+        department=department,
+        due_date=due_date,
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    return _save_new_task(task, [approver.pk], actor=created_by)
+
+
+def create_protocol_action_task(protocol, action, assignee_ids, *, created_by):
+    """The real shared task a protocol decision becomes once the protocol archives.
+
+    The `protocol_action` one-to-one is the database-level guarantee that one
+    decision can never produce two tasks; this function does not re-check it,
+    it relies on it.
+    """
+    task = Task(
+        source_type=Task.SourceType.PROTOCOL_ACTION,
+        protocol=protocol,
+        protocol_action=action,
+        task_text=action.task_text,
+        department=action.department,
+        due_date=action.due_date,
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    return _save_new_task(task, sorted(set(assignee_ids)), actor=created_by)
+
+
+def _close_approval_task(task, *, approver, decided_at, reason):
+    if task is None:
+        return None
+    if task.source_type != Task.SourceType.PROTOCOL_APPROVAL:
+        raise TaskWorkflowError('Так закрывается только задача согласования протокола.')
+    task.status = _active_status('COMPLETED', 'Выполнено')
+    task.completed_by = approver
+    task.completed_at = decided_at
+    # `auto_now` fields are only bumped when named in `update_fields`.
+    task.save(update_fields=['status', 'completed_by', 'completed_at', 'updated_at'])
+    emit_task_completed(task)
+    log_event(
+        logger,
+        'INFO',
+        'task.protocol_approval_closed',
+        task_id=task.pk,
+        protocol_id=task.protocol_id,
+        actor_user_id=_pk_of(approver),
+        reason=reason,
+        next_status='COMPLETED',
+        outcome='ok',
+    )
+    return task
+
+
+def complete_protocol_approval_task(task, approver, decided_at):
+    """Close an approval task because that person approved.
+
+    No execution comment: the decision itself is the result, and it is recorded
+    on the `ProtocolApproval` row, not in the task's free text.
+    """
+    return _close_approval_task(task, approver=approver, decided_at=decided_at, reason='approved')
+
+
+def cancel_protocol_approval_task(task, decided_at):
+    """Close an approval task that is no longer needed, claiming nothing.
+
+    Used when the protocol goes back for revision: the remaining approvers no
+    longer have anything to sign, so `completed_by` stays NULL rather than
+    naming someone who never decided.
+    """
+    return _close_approval_task(task, approver=None, decided_at=decided_at, reason='cancelled')

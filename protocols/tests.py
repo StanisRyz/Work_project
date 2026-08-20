@@ -1,6 +1,7 @@
 """The behaviours the protocol foundation and its draft editor cannot get wrong."""
 
-from datetime import timedelta
+from datetime import date, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -8,17 +9,32 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Department, UserProfile
+from ecosystem.workdays import add_working_days
 from protocols.models import (
     QUALITY_PROTOCOL_TYPE_CODE,
     Protocol,
     ProtocolAction,
+    ProtocolActionAssignee,
     ProtocolAgendaItem,
+    ProtocolApproval,
     ProtocolHistoryEvent,
     ProtocolParticipant,
     ProtocolSpeech,
     ProtocolType,
 )
-from protocols.services import create_protocol, delete_draft_protocol
+from protocols.permissions import can_edit_protocol
+from protocols.services import (
+    ProtocolWorkflowError,
+    add_participant,
+    add_speech,
+    approve_protocol,
+    create_protocol,
+    delete_draft_protocol,
+    return_protocol_for_revision,
+    send_protocol_for_approval,
+)
+from tasks.models import Task
+from tasks.services import TaskWorkflowError, complete_task
 
 
 class ProtocolCreationTests(TestCase):
@@ -254,3 +270,241 @@ class ProtocolAccessTests(TestCase):
         self.assertEqual(ProtocolParticipant.objects.count(), 0)
 
 
+class ProtocolApprovalWorkflowTests(TestCase):
+    """The approval workflow's three hard parts, one scenario each.
+
+    Not a state matrix: the refusals are single `if` statements, while the
+    behaviours that can genuinely go wrong are *who must sign*, *what a return
+    resets*, and *what archiving creates*. Those are what is exercised here,
+    end to end through the services.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.quality = ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE)
+        cls.otk = Department.objects.create(name='ОТК', code='OTK')
+        cls.to = Department.objects.create(name='ТО', code='TO')
+        cls.author = _employee('wf_author', cls.otk, 'Иван', 'Петров')
+        cls.reviewer = _employee('wf_reviewer', cls.to, 'Пётр', 'Сидоров')
+        cls.executor = _employee('wf_executor', cls.to, 'Анна', 'Кузнецова')
+        cls.observer = _employee('wf_observer', cls.otk, 'Ольга', 'Смирнова')
+
+    def _build_protocol(self, *, approvers=(), action_assignees=(), with_action=True):
+        """A structurally complete protocol, written the way the editor writes one."""
+        protocol = create_protocol(self.quality, self.author)
+        for order, user in enumerate(approvers, start=1):
+            add_participant(protocol, user, department=self.to, requires_approval=True, display_order=order)
+        ProtocolAgendaItem.objects.create(protocol=protocol, text='О качестве партии', display_order=0)
+        add_speech(
+            protocol,
+            protocol.participants.get(user=self.author),
+            'Доложил о результатах контроля.',
+        )
+        if with_action:
+            action = ProtocolAction.objects.create(
+                protocol=protocol,
+                task_text='Проверить оснастку',
+                department=self.to,
+                due_date=timezone.localdate() + timedelta(days=7),
+                display_order=0,
+            )
+            for user in action_assignees:
+                ProtocolActionAssignee.objects.create(action=action, user=user)
+        return protocol
+
+    def test_required_approvers_deduplicate_exclude_the_author_and_get_a_two_working_day_task(self):
+        # The reviewer is required twice over — an approval-marked participant
+        # *and* an action assignee — and the author is an assignee too.
+        protocol = self._build_protocol(
+            approvers=[self.reviewer],
+            action_assignees=[self.reviewer, self.executor, self.author],
+        )
+
+        with patch('protocols.services.timezone.localdate', return_value=date(2026, 8, 20)):
+            # A Thursday: +2 working days steps over the weekend to Monday.
+            send_protocol_for_approval(protocol, self.author)
+        protocol.refresh_from_db()
+
+        self.assertEqual((protocol.status, protocol.revision), (Protocol.Status.APPROVAL, 1))
+        approvals = {a.user_id: a for a in ProtocolApproval.objects.filter(protocol=protocol)}
+        # One row per person, never one per reason, and never one for the author.
+        self.assertEqual(set(approvals), {self.reviewer.pk, self.executor.pk})
+        self.assertEqual(
+            (approvals[self.reviewer.pk].required_as_participant,
+             approvals[self.reviewer.pk].required_as_action_assignee),
+            (True, True),
+        )
+        self.assertEqual(
+            (approvals[self.executor.pk].required_as_participant,
+             approvals[self.executor.pk].required_as_action_assignee),
+            (False, True),
+        )
+        # The snapshot is frozen at submission and does not follow the profile.
+        self.reviewer.userprofile.position = 'Начальник ТО'
+        self.reviewer.userprofile.save(update_fields=['position'])
+        approvals[self.reviewer.pk].refresh_from_db()
+        self.assertEqual(approvals[self.reviewer.pk].position, 'Специалист')
+
+        for approval in approvals.values():
+            task = approval.task
+            self.assertEqual(task.source_type, Task.SourceType.PROTOCOL_APPROVAL)
+            self.assertEqual((task.protocol_id, task.protocol_action_id), (protocol.pk, None))
+            self.assertIsNone(task.act_id)
+            self.assertEqual(task.created_by, self.author)
+            self.assertEqual(task.status.code, 'IN_PROGRESS')
+            self.assertEqual(task.due_date, date(2026, 8, 24))
+            self.assertEqual(task.task_text, 'Согласовать протокол Качество №1')
+            self.assertEqual([a.user_id for a in task.assignees.all()], [approval.user_id])
+        # Every weekday, in one place, so the rule cannot drift per caller.
+        self.assertEqual(
+            [add_working_days(date(2026, 8, 17) + timedelta(days=offset), 2) for offset in range(7)],
+            [date(2026, 8, 19), date(2026, 8, 20), date(2026, 8, 21), date(2026, 8, 24),
+             date(2026, 8, 25), date(2026, 8, 25), date(2026, 8, 25)],
+        )
+        # And an approval task is still not completable the ordinary way.
+        with self.assertRaises(TaskWorkflowError):
+            complete_task(approvals[self.reviewer.pk].task, self.reviewer, 'Готово')
+
+        # A protocol nobody must approve — only the author, and the author as
+        # the single assignee — must not park in `APPROVAL` waiting for a
+        # signature that can never arrive.
+        solo = self._build_protocol(action_assignees=[self.author])
+        send_protocol_for_approval(solo, self.author)
+        solo.refresh_from_db()
+        self.assertEqual((solo.status, solo.revision), (Protocol.Status.ARCHIVED, 1))
+        self.assertFalse(ProtocolApproval.objects.filter(protocol=solo).exists())
+        self.assertEqual(
+            Task.objects.get(protocol=solo).source_type, Task.SourceType.PROTOCOL_ACTION
+        )
+        self.assertEqual(
+            [e.event_type for e in solo.history_events.order_by('pk')][-3:],
+            [
+                ProtocolHistoryEvent.EventType.SENT_FOR_APPROVAL,
+                ProtocolHistoryEvent.EventType.ARCHIVED,
+                ProtocolHistoryEvent.EventType.TASKS_CREATED,
+            ],
+        )
+
+    def test_a_return_reopens_editing_and_the_resubmission_requires_every_signature_again(self):
+        protocol = self._build_protocol(
+            approvers=[self.reviewer, self.observer], action_assignees=[self.executor]
+        )
+        send_protocol_for_approval(protocol, self.author)
+        protocol.refresh_from_db()
+        first = {a.user_id: a for a in ProtocolApproval.objects.filter(protocol=protocol, revision=1)}
+
+        # The executor approves, then the reviewer sends the whole round back
+        # while the observer is still pending.
+        approve_protocol(protocol, self.executor)
+        return_protocol_for_revision(protocol, self.reviewer, 'Уточнить формулировку решения.')
+        protocol.refresh_from_db()
+
+        self.assertEqual((protocol.status, protocol.revision), (Protocol.Status.REVISION, 1))
+        for approval in first.values():
+            approval.refresh_from_db()
+        # An approval already given stays a historical fact; the returner's row
+        # keeps the comment. Nothing from revision 1 is deleted.
+        self.assertEqual(first[self.executor.pk].status, ProtocolApproval.Status.APPROVED)
+        self.assertEqual(first[self.reviewer.pk].status, ProtocolApproval.Status.RETURNED)
+        self.assertEqual(
+            first[self.reviewer.pk].return_comment, 'Уточнить формулировку решения.'
+        )
+        self.assertEqual(first[self.observer.pk].status, ProtocolApproval.Status.CANCELLED)
+        for approval in first.values():
+            approval.task.refresh_from_db()
+            self.assertEqual(approval.task.status.code, 'COMPLETED')
+        # The cancelled task is closed without naming an approver: nobody is
+        # going to pretend the observer decided anything.
+        self.assertIsNone(first[self.observer.pk].task.completed_by)
+        self.assertEqual(first[self.reviewer.pk].task.completed_by, self.reviewer)
+        self.assertTrue(
+            protocol.history_events.filter(
+                event_type=ProtocolHistoryEvent.EventType.RETURNED_FOR_REVISION,
+                revision=1,
+                message__contains='Уточнить формулировку решения.',
+            ).exists()
+        )
+        # `REVISION` is editable by exactly the same people as a draft.
+        self.assertTrue(can_edit_protocol(protocol, self.author))
+        self.assertFalse(can_edit_protocol(protocol, self.reviewer))
+
+        send_protocol_for_approval(protocol, self.author)
+        protocol.refresh_from_db()
+
+        self.assertEqual((protocol.status, protocol.revision), (Protocol.Status.APPROVAL, 2))
+        self.assertTrue(
+            protocol.history_events.filter(
+                event_type=ProtocolHistoryEvent.EventType.RESENT_FOR_APPROVAL, revision=2
+            ).exists()
+        )
+        second = ProtocolApproval.objects.filter(protocol=protocol, revision=2)
+        # Everyone signs again — including the executor, who approved revision 1.
+        self.assertEqual(
+            sorted(second.values_list('user_id', flat=True)),
+            sorted([self.reviewer.pk, self.observer.pk, self.executor.pk]),
+        )
+        self.assertEqual(
+            set(second.values_list('status', flat=True)), {ProtocolApproval.Status.PENDING}
+        )
+        self.assertEqual(ProtocolApproval.objects.filter(protocol=protocol).count(), 6)
+        # Revision 1's approval never counts towards revision 2.
+        self.assertNotEqual(
+            second.get(user=self.executor).task_id, first[self.executor.pk].task_id
+        )
+
+    def test_the_last_approval_archives_the_protocol_and_creates_one_task_per_action(self):
+        protocol = self._build_protocol(
+            approvers=[self.reviewer], action_assignees=[self.executor, self.author]
+        )
+        second_action = ProtocolAction.objects.create(
+            protocol=protocol,
+            task_text='Обновить инструкцию',
+            department=self.otk,
+            due_date=timezone.localdate() + timedelta(days=14),
+            display_order=1,
+        )
+        ProtocolActionAssignee.objects.create(action=second_action, user=self.reviewer)
+        send_protocol_for_approval(protocol, self.author)
+        protocol.refresh_from_db()
+
+        approve_protocol(protocol, self.reviewer)
+        protocol.refresh_from_db()
+        # Still one pending approval, so nothing is archived and no task exists.
+        self.assertEqual(protocol.status, Protocol.Status.APPROVAL)
+        self.assertFalse(Task.objects.filter(source_type=Task.SourceType.PROTOCOL_ACTION).exists())
+
+        approve_protocol(protocol, self.executor)
+        protocol.refresh_from_db()
+
+        self.assertEqual(protocol.status, Protocol.Status.ARCHIVED)
+        tasks = {t.protocol_action_id: t for t in Task.objects.filter(protocol=protocol,
+                                                                     source_type=Task.SourceType.PROTOCOL_ACTION)}
+        action = protocol.actions.get(display_order=0)
+        self.assertEqual(set(tasks), {action.pk, second_action.pk})
+        self.assertEqual(tasks[action.pk].task_text, 'Проверить оснастку')
+        self.assertEqual(tasks[action.pk].department, self.to)
+        self.assertEqual(tasks[action.pk].due_date, action.due_date)
+        self.assertEqual(tasks[action.pk].created_by, self.author)
+        self.assertEqual(tasks[action.pk].status.code, 'IN_PROGRESS')
+        # Assignees are copied verbatim, author included: the author is excluded
+        # from *approving*, never from *doing*.
+        self.assertEqual(
+            sorted(a.user_id for a in tasks[action.pk].assignees.all()),
+            sorted([self.executor.pk, self.author.pk]),
+        )
+        # A repeated or stale approval changes nothing and creates no duplicate.
+        with self.assertRaises(ProtocolWorkflowError):
+            approve_protocol(protocol, self.reviewer)
+        self.assertEqual(
+            Task.objects.filter(protocol=protocol, source_type=Task.SourceType.PROTOCOL_ACTION).count(),
+            2,
+        )
+        self.assertEqual(
+            protocol.history_events.filter(
+                event_type=ProtocolHistoryEvent.EventType.ARCHIVED
+            ).count(),
+            1,
+        )
+        # The shared-task semantics are the ordinary ones: one assignee finishes it.
+        completed = complete_task(tasks[action.pk], self.executor, 'Оснастка проверена.')
+        self.assertEqual(completed.status.code, 'COMPLETED')

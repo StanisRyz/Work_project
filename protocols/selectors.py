@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from accounts.models import Department
 
-from .models import Protocol, ProtocolType
+from .models import Protocol, ProtocolApproval, ProtocolType
 
 
 # The registry tabs. «В работе» is written against all three live statuses even
@@ -68,3 +68,85 @@ def get_editor_directory():
         .select_related('userprofile__department')
         .order_by('last_name', 'first_name', 'username'),
     }
+
+
+# --------------------------------------------------------------------------
+# Approval read side
+#
+# The minimum the approval UI stage needs, and nothing more: the current
+# round, its progress, one user's place in it, and the earlier rounds kept for
+# audit. Reads only — every decision stays in `protocols/services.py`.
+# --------------------------------------------------------------------------
+
+
+def get_current_revision_approvals(protocol):
+    """The approval rows of the revision the protocol is on right now.
+
+    A protocol that has never been sent is on revision 0 and has none, which
+    is an empty queryset rather than a special case.
+    """
+    return (
+        ProtocolApproval.objects.filter(protocol=protocol, revision=protocol.revision)
+        .select_related('user', 'task', 'task__status')
+        .order_by('pk')
+    )
+
+
+def get_approval_progress(protocol):
+    """How far the current round has got: `{revision, total, approved, pending}`.
+
+    Counted from the approval rows, never from the protocol status: `APPROVAL`
+    with nothing pending is exactly the state finalization is about to leave,
+    and the counts must keep saying so.
+    """
+    approvals = get_current_revision_approvals(protocol)
+    total = 0
+    approved = 0
+    pending = 0
+    for approval in approvals:
+        total += 1
+        if approval.status == ProtocolApproval.Status.APPROVED:
+            approved += 1
+        elif approval.status == ProtocolApproval.Status.PENDING:
+            pending += 1
+    return {
+        'revision': protocol.revision,
+        'total': total,
+        'approved': approved,
+        'pending': pending,
+    }
+
+
+def get_user_approval(protocol, user):
+    """This user's approval row for the current revision, or `None`.
+
+    `None` covers all of «not an approver», «this revision does not require
+    them» and «not signed in» — the caller renders nothing in every case.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return None
+    return (
+        ProtocolApproval.objects.filter(protocol=protocol, revision=protocol.revision, user=user)
+        .select_related('task', 'task__status')
+        .first()
+    )
+
+
+def get_approvals_by_revision(protocol):
+    """Every round the protocol has been through, newest revision first.
+
+    Returns `[{'revision': n, 'approvals': [...]}, ...]`. Earlier revisions are
+    kept forever and are the audit answer to «who signed what, and when» — they
+    never count towards the current round.
+    """
+    groups = []
+    rows = (
+        ProtocolApproval.objects.filter(protocol=protocol)
+        .select_related('user', 'task')
+        .order_by('-revision', 'pk')
+    )
+    for approval in rows:
+        if not groups or groups[-1]['revision'] != approval.revision:
+            groups.append({'revision': approval.revision, 'approvals': []})
+        groups[-1]['approvals'].append(approval)
+    return groups

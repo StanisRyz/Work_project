@@ -8,7 +8,7 @@ role rules by accident.
 
 from accounts.models import UserProfile
 
-from .models import Protocol
+from .models import Protocol, ProtocolApproval
 
 
 def get_user_profile(user):
@@ -41,10 +41,11 @@ def can_view_protocol(protocol, user):
     return bool(getattr(user, 'is_authenticated', False))
 
 
-# The statuses whose content the author may still change. «На доработке» joins
-# this tuple when the approval stage lands: the author/administrator rule below
-# is already written against the tuple, so nothing else has to move.
-EDITABLE_STATUSES = (Protocol.Status.DRAFT,)
+# The statuses whose content the author may still change. A protocol returned
+# for revision is edited by exactly the same people as a draft — that is the
+# whole point of returning it — while `APPROVAL` and `ARCHIVED` are read-only:
+# nobody edits a document while it is being signed, or after it is archived.
+EDITABLE_STATUSES = (Protocol.Status.DRAFT, Protocol.Status.REVISION)
 
 
 def can_edit_protocol(protocol, user):
@@ -73,3 +74,35 @@ def can_delete_draft_protocol(protocol, user):
     if protocol.status != Protocol.Status.DRAFT:
         return False
     return bool(getattr(user, 'is_authenticated', False)) and protocol.author_id == user.id
+
+
+def can_send_protocol_for_approval(protocol, user):
+    """Author-only, and only from an editable status.
+
+    Deliberately *not* author-or-Admin. An administrator may fix the content of
+    an allowed state, but submitting for approval says the author is finished
+    with the document, and nobody makes that statement on their behalf. The
+    service re-checks this under the row lock; this is the presentation answer.
+    """
+    if protocol.status not in EDITABLE_STATUSES:
+        return False
+    return bool(getattr(user, 'is_authenticated', False)) and protocol.author_id == user.id
+
+
+def can_decide_protocol_approval(protocol, user):
+    """Whether this user has a pending approval on the protocol's current revision.
+
+    One query, used by both «Согласовать» and «Вернуть на доработку»: the two
+    actions have exactly the same precondition and differ only in the comment.
+    The authoritative check stays in `protocols/services.py`, under the lock.
+    """
+    if protocol.status != Protocol.Status.APPROVAL:
+        return False
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    return ProtocolApproval.objects.filter(
+        protocol=protocol,
+        revision=protocol.revision,
+        user=user,
+        status=ProtocolApproval.Status.PENDING,
+    ).exists()

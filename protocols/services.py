@@ -14,12 +14,16 @@ Two rules shape this file:
 """
 
 from django.db import transaction
+from django.utils import timezone
+
+from ecosystem.workdays import add_working_days
 
 from .models import (
     Protocol,
     ProtocolAction,
     ProtocolActionAssignee,
     ProtocolAgendaItem,
+    ProtocolApproval,
     ProtocolHistoryEvent,
     ProtocolParticipant,
     ProtocolSpeech,
@@ -315,3 +319,407 @@ def save_protocol_draft(protocol, user, data):
         message=f'Протокол «{locked.protocol_type.name} №{locked.number}» отредактирован.',
     )
     return locked
+
+
+# --------------------------------------------------------------------------
+# Approval workflow
+#
+# One lock order, everywhere: `Protocol.select_for_update()` first, then the
+# approvals, then the tasks. Every transition re-reads the authoritative row
+# *after* taking that lock, so a stale tab, a double click or two approvers
+# pressing at the same instant serialize instead of racing. Nothing here is
+# reachable from the browser yet — the endpoints are the next stage.
+# --------------------------------------------------------------------------
+
+# Only Saturday and Sunday are skipped; there is deliberately no holiday
+# calendar to fall out of date.
+APPROVAL_TASK_WORKING_DAYS = 2
+
+
+def _pk_of(value):
+    return getattr(value, 'pk', value)
+
+
+def _lock_protocol(protocol):
+    locked = Protocol.objects.select_for_update().filter(pk=_pk_of(protocol)).first()
+    if locked is None:
+        raise ProtocolWorkflowError('Протокол уже удалён.')
+    return locked
+
+
+def _protocol_label(protocol):
+    return f'{protocol.protocol_type.name} №{protocol.number}'
+
+
+def _record(protocol, actor, event_type, message):
+    return ProtocolHistoryEvent.objects.create(
+        protocol=protocol,
+        actor=actor,
+        event_type=event_type,
+        revision=protocol.revision,
+        message=message,
+    )
+
+
+def _resolve_approver_department(user, participant):
+    """The department this approval — and its task — belongs to.
+
+    The department chosen for the participant in the editor wins: that is the
+    role the person takes in *this* protocol. Only when there is none does the
+    profile answer, and when neither does, the submission is refused rather
+    than a task created without a department.
+    """
+    if participant is not None and participant.department_id is not None:
+        return participant.department
+    profile = getattr(user, 'userprofile', None)
+    return getattr(profile, 'department', None)
+
+
+def collect_required_approvers(protocol):
+    """Who must approve the protocol as it is stored right now.
+
+    `participants marked requires_approval` UNION `every ProtocolAction
+    assignee`, MINUS the author — the one place this formula exists. A person
+    required for both reasons gets one entry carrying both flags, and an author
+    assigned to a protocol task gets no entry at all: an author does not
+    approve their own document.
+
+    Returns entries in a stable order (participants as displayed, then action
+    assignees), each `{'user', 'participant', 'required_as_participant',
+    'required_as_action_assignee'}`.
+    """
+    entries = {}
+
+    def _entry(user, participant=None):
+        existing = entries.get(user.pk)
+        if existing is None:
+            existing = {
+                'user': user,
+                'participant': participant,
+                'required_as_participant': False,
+                'required_as_action_assignee': False,
+            }
+            entries[user.pk] = existing
+        elif existing['participant'] is None and participant is not None:
+            existing['participant'] = participant
+        return existing
+
+    participants = {
+        participant.user_id: participant
+        for participant in protocol.participants.select_related(
+            'department', 'user__userprofile__department'
+        )
+    }
+    for participant in sorted(participants.values(), key=lambda p: (p.display_order, p.pk)):
+        if participant.requires_approval and participant.user_id != protocol.author_id:
+            _entry(participant.user, participant)['required_as_participant'] = True
+
+    actions = protocol.actions.prefetch_related(
+        'assignees__user__userprofile__department'
+    ).order_by('display_order', 'pk')
+    for action in actions:
+        for assignment in sorted(action.assignees.all(), key=lambda a: a.pk):
+            if assignment.user_id == protocol.author_id:
+                # Excluded here too, not only among participants: being named
+                # in a decision does not make an author approve themselves.
+                continue
+            entry = _entry(assignment.user, participants.get(assignment.user_id))
+            entry['required_as_action_assignee'] = True
+
+    return list(entries.values())
+
+
+def _is_usable_employee(user):
+    profile = getattr(user, 'userprofile', None)
+    return bool(user.is_active and profile is not None and profile.is_active)
+
+
+def _user_label(user):
+    return user.get_full_name() or user.get_username()
+
+
+def validate_protocol_for_approval(protocol):
+    """Re-read the stored protocol and refuse anything that cannot be approved.
+
+    Existence is not completeness: a draft can be saved, then emptied, then
+    submitted from a stale tab. Everything the approval and the archive depend
+    on is checked here against the persisted rows, and the caller runs this
+    *inside* the transaction that holds the protocol lock, so a refusal never
+    leaves a partial write behind.
+
+    Returns the required-approver entries, each with its resolved department.
+    """
+    if not protocol.participants.filter(user_id=protocol.author_id).exists():
+        raise ProtocolWorkflowError('Протокол повреждён: автор не является участником.')
+    if not any(item.text.strip() for item in protocol.agenda_items.all()):
+        raise ProtocolWorkflowError('Добавьте хотя бы один вопрос повестки.')
+
+    speeches = list(protocol.speeches.select_related('speaker'))
+    if not any(speech.text.strip() for speech in speeches):
+        raise ProtocolWorkflowError('Добавьте хотя бы одно выступление в разделе «Слушали».')
+    for speech in speeches:
+        if speech.speaker.protocol_id != protocol.pk:
+            raise ProtocolWorkflowError('Выступающий должен быть участником этого протокола.')
+
+    actions = protocol.actions.select_related('department').prefetch_related('assignees__user')
+    for action in actions:
+        if not action.task_text.strip() or action.department_id is None or action.due_date is None:
+            raise ProtocolWorkflowError(
+                'У каждой задачи протокола должны быть текст, подразделение и срок.'
+            )
+        if not any(
+            _is_usable_employee(assignment.user) for assignment in action.assignees.all()
+        ):
+            raise ProtocolWorkflowError(
+                'У каждой задачи протокола должен быть хотя бы один активный исполнитель.'
+            )
+
+    approvers = collect_required_approvers(protocol)
+    for entry in approvers:
+        user = entry['user']
+        if not _is_usable_employee(user):
+            raise ProtocolWorkflowError(
+                f'Согласующий «{_user_label(user)}» больше не является активным сотрудником.'
+            )
+        department = _resolve_approver_department(user, entry['participant'])
+        if department is None:
+            raise ProtocolWorkflowError(
+                f'У согласующего «{_user_label(user)}» не определено подразделение.'
+            )
+        entry['department'] = department
+    return approvers
+
+
+@transaction.atomic
+def send_protocol_for_approval(protocol, actor):
+    """Move an own `DRAFT`/`REVISION` protocol to `APPROVAL` as a new revision.
+
+    Author-only. An administrator may *edit* the allowed states, but sending a
+    document for approval states that its author is finished with it, and
+    nobody makes that statement on someone else's behalf.
+
+    A protocol whose current content requires nobody's approval — only the
+    author, no approval-marked participants, no non-author assignees — is not
+    left waiting in `APPROVAL` for a signature that can never arrive: the
+    revision and the send event are recorded, and it is finalized immediately
+    inside this same transaction.
+    """
+    # Imported inside the workflow, not at module level: `tasks.models`
+    # already imports `protocols.models`, and a top-level import here would
+    # close the circle.
+    from tasks.services import create_protocol_approval_task
+
+    locked = _lock_protocol(protocol)
+    if locked.author_id != _pk_of(actor):
+        raise ProtocolWorkflowError('Отправить протокол на согласование может только его автор.')
+    if locked.status not in (Protocol.Status.DRAFT, Protocol.Status.REVISION):
+        raise ProtocolWorkflowError('Протокол уже отправлен на согласование или заархивирован.')
+    resent = locked.status == Protocol.Status.REVISION
+
+    approvers = validate_protocol_for_approval(locked)
+
+    # A new revision, always. The approvals of the previous one are left
+    # untouched as history and never count towards this one.
+    locked.revision += 1
+    locked.status = Protocol.Status.APPROVAL
+    locked.save(update_fields=['status', 'revision', 'updated_at'])
+    label = _protocol_label(locked)
+    _record(
+        locked,
+        actor,
+        ProtocolHistoryEvent.EventType.RESENT_FOR_APPROVAL
+        if resent
+        else ProtocolHistoryEvent.EventType.SENT_FOR_APPROVAL,
+        f'Протокол «{label}» отправлен на согласование (редакция {locked.revision}).',
+    )
+
+    due_date = add_working_days(timezone.localdate(), APPROVAL_TASK_WORKING_DAYS)
+    for entry in approvers:
+        user = entry['user']
+        snapshot = build_participant_snapshot(user, entry['department'])
+        approval = ProtocolApproval.objects.create(
+            protocol=locked,
+            revision=locked.revision,
+            user=user,
+            status=ProtocolApproval.Status.PENDING,
+            required_as_participant=entry['required_as_participant'],
+            required_as_action_assignee=entry['required_as_action_assignee'],
+            display_name=snapshot['display_name'],
+            position=snapshot['position'],
+            department_name=snapshot['department_name'],
+        )
+        approval.task = create_protocol_approval_task(
+            locked,
+            user,
+            department=entry['department'],
+            due_date=due_date,
+            created_by=locked.author,
+            task_text=f'Согласовать протокол {label}',
+        )
+        approval.save(update_fields=['task'])
+
+    if not approvers:
+        _finalize_protocol(locked, actor)
+    return locked
+
+
+@transaction.atomic
+def approve_protocol(protocol, actor):
+    """Record one approver's decision to approve the current revision.
+
+    The protocol row is locked first, so two approvers pressing at the same
+    moment queue behind each other: whichever commits second re-reads the
+    pending set and is the one that sees its approval become the last,
+    finalizing inside its own transaction. Only one of them can observe that.
+    """
+    from tasks.services import complete_protocol_approval_task
+
+    locked = _lock_protocol(protocol)
+    if locked.status != Protocol.Status.APPROVAL:
+        raise ProtocolWorkflowError('Протокол не находится на согласовании.')
+    approval = ProtocolApproval.objects.filter(
+        protocol=locked,
+        revision=locked.revision,
+        user_id=_pk_of(actor),
+        status=ProtocolApproval.Status.PENDING,
+    ).first()
+    if approval is None:
+        # Not an approver, already decided, or a page left open on an older
+        # revision — one refusal covers all three.
+        raise ProtocolWorkflowError('Согласование этого протокола вам недоступно.')
+
+    decided_at = timezone.now()
+    approval.status = ProtocolApproval.Status.APPROVED
+    approval.decided_at = decided_at
+    approval.save(update_fields=['status', 'decided_at'])
+    complete_protocol_approval_task(approval.task, actor, decided_at)
+    _record(
+        locked,
+        actor,
+        ProtocolHistoryEvent.EventType.APPROVED_BY_USER,
+        f'{approval.display_name}: протокол согласован (редакция {locked.revision}).',
+    )
+
+    still_pending = ProtocolApproval.objects.filter(
+        protocol=locked,
+        revision=locked.revision,
+        status=ProtocolApproval.Status.PENDING,
+    ).exists()
+    if not still_pending:
+        _finalize_protocol(locked, actor)
+    return locked
+
+
+@transaction.atomic
+def return_protocol_for_revision(protocol, actor, comment):
+    """Send the protocol back to its author, closing the rest of the round.
+
+    An approval already given stays `APPROVED`: it is a historical fact about
+    that revision. The still-pending ones become `CANCELLED` and their tasks
+    are closed *without* an approver, because those people no longer have
+    anything to sign. Nothing is deleted, on either side.
+    """
+    from tasks.services import cancel_protocol_approval_task, complete_protocol_approval_task
+
+    comment = (comment or '').strip()
+    if not comment:
+        raise ProtocolWorkflowError('Укажите причину возврата на доработку.')
+
+    locked = _lock_protocol(protocol)
+    if locked.status != Protocol.Status.APPROVAL:
+        raise ProtocolWorkflowError('Протокол не находится на согласовании.')
+    approvals = list(
+        ProtocolApproval.objects.filter(
+            protocol=locked,
+            revision=locked.revision,
+            status=ProtocolApproval.Status.PENDING,
+        ).select_related('task__status')
+    )
+    actor_id = _pk_of(actor)
+    approval = next((item for item in approvals if item.user_id == actor_id), None)
+    if approval is None:
+        raise ProtocolWorkflowError('Возврат этого протокола на доработку вам недоступен.')
+
+    decided_at = timezone.now()
+    approval.status = ProtocolApproval.Status.RETURNED
+    approval.decided_at = decided_at
+    approval.return_comment = comment
+    approval.save(update_fields=['status', 'decided_at', 'return_comment'])
+    complete_protocol_approval_task(approval.task, actor, decided_at)
+
+    for other in approvals:
+        if other.pk == approval.pk:
+            continue
+        other.status = ProtocolApproval.Status.CANCELLED
+        other.decided_at = decided_at
+        other.save(update_fields=['status', 'decided_at'])
+        cancel_protocol_approval_task(other.task, decided_at)
+
+    locked.status = Protocol.Status.REVISION
+    locked.save(update_fields=['status', 'updated_at'])
+    _record(
+        locked,
+        actor,
+        ProtocolHistoryEvent.EventType.RETURNED_FOR_REVISION,
+        f'Протокол возвращён на доработку (редакция {locked.revision}). Причина: {comment}',
+    )
+    return locked
+
+
+def _finalize_protocol(protocol, actor):
+    """Archive the protocol and turn every decision into a real task.
+
+    **The caller must already hold the `Protocol` row lock inside the workflow
+    transaction.** This is not an entry point and takes no lock of its own: it
+    is the tail of `send_protocol_for_approval()` and `approve_protocol()`, and
+    its whole guarantee is that the archive, the tasks and their assignees
+    appear together or not at all. Any failure here rolls the surrounding
+    transition back — the protocol does not stay archived, the final approval
+    is not half-committed, and no partial set of tasks survives.
+    """
+    from tasks.models import Task
+    from tasks.services import create_protocol_action_task
+
+    if ProtocolApproval.objects.filter(
+        protocol=protocol,
+        revision=protocol.revision,
+        status=ProtocolApproval.Status.PENDING,
+    ).exists():
+        raise ProtocolWorkflowError('По протоколу остались несогласованные позиции.')
+
+    protocol.status = Protocol.Status.ARCHIVED
+    protocol.save(update_fields=['status', 'updated_at'])
+    _record(
+        protocol,
+        actor,
+        ProtocolHistoryEvent.EventType.ARCHIVED,
+        f'Протокол «{_protocol_label(protocol)}» согласован и помещён в архив.',
+    )
+
+    actions = list(
+        protocol.actions.select_related('department')
+        .prefetch_related('assignees')
+        .order_by('display_order', 'pk')
+    )
+    if not actions:
+        # No decisions, so no tasks and no `TASKS_CREATED`: the event states
+        # that tasks were created, and an empty one would be audit noise.
+        return protocol
+    # The `protocol_action` one-to-one already makes a second task impossible;
+    # this turns the resulting IntegrityError into a controlled refusal.
+    if Task.objects.filter(protocol_action__in=actions).exists():
+        raise ProtocolWorkflowError('Задачи по этому протоколу уже созданы.')
+    for action in actions:
+        create_protocol_action_task(
+            protocol,
+            action,
+            [assignment.user_id for assignment in action.assignees.all()],
+            created_by=protocol.author,
+        )
+    _record(
+        protocol,
+        actor,
+        ProtocolHistoryEvent.EventType.TASKS_CREATED,
+        f'По протоколу создано задач: {len(actions)}.',
+    )
+    return protocol

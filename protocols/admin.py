@@ -13,6 +13,7 @@ from .models import (
     Protocol,
     ProtocolAction,
     ProtocolAgendaItem,
+    ProtocolApproval,
     ProtocolHistoryEvent,
     ProtocolParticipant,
     ProtocolSpeech,
@@ -67,4 +68,14 @@ class ProtocolHistoryEventAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('protocol', 'event_type', 'revision', 'actor', 'created_at')
     search_fields = ('message', 'actor__username')
     list_filter = ('event_type', 'created_at')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(ProtocolApproval)
+class ProtocolApprovalAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """Diagnostics only: an approval is a decision, taken through the workflow."""
+
+    list_display = ('protocol', 'revision', 'display_name', 'status', 'decided_at')
+    search_fields = ('display_name', 'user__username')
+    list_filter = ('status', 'revision', 'protocol__protocol_type')
     readonly_fields = ('created_at',)

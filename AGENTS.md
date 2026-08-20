@@ -18,12 +18,12 @@ model without explicit approval.
 
 | App | Owns |
 | --- | --- |
-| `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware. No models |
+| `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware, working-day arithmetic (`workdays.py`). No models |
 | `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`). No user-facing pages beyond login/logout — user/department management is Django Admin only |
 | `references` | operations, defect types, act/task statuses, priorities; `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
 | `tasks` | tasks created on approval, their assignees and completion |
-| `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, history; the pages under `/quality/protocols/`; numbering and mutations in `protocols/services.py`. Independent from `acts` |
+| `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/` and the agreed coefficients in `plate_cutting/constants.py`. No models, no migrations, no endpoints |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
@@ -194,8 +194,8 @@ tasks never live inside `acts`.
 - **`PROTOCOL_APPROVAL` is never completed through the normal task workflow.**
   `can_complete_task()` and `complete_task()` both refuse it: agreeing to a
   protocol is its own decision, and closing it with an execution comment would
-  silently approve a document. No such task exists yet — this is the invariant
-  the approval stage builds on, not a feature.
+  silently approve a document. Such tasks are closed only by the protocol
+  approval workflow, through the dedicated services listed below.
 - Schema changes to `Task` migrate the existing production table in place:
   add first, classify existing rows in a separate data migration, relax
   nullability, then add constraints. Never delete, recreate or renumber task
@@ -343,16 +343,78 @@ tasks never live inside `acts`.
   not an `IntegrityError`.
 - Editing rights live in `protocols/permissions.py`: reading is open to every
   authenticated user, and `can_edit_protocol()` answers author-or-Admin for the
-  statuses in `EDITABLE_STATUSES` — `REVISION` joins that tuple when approval
-  lands, without touching the views or the UI. Deletion stays stricter: only the
+  statuses in `EDITABLE_STATUSES` — `DRAFT` and `REVISION`, so a protocol
+  returned for revision is edited by exactly the same people as a draft, while
+  `APPROVAL` and `ARCHIVED` are read-only. Deletion stays stricter: only the
   author, only a `DRAFT`, confirmed through the application modal.
 - **`ProtocolAction` is not `tasks.Task`.** It is the decision as recorded
   inside the protocol — text, department, due date, assignees. The editor's
   «Задачи» block writes `ProtocolAction`/`ProtocolActionAssignee` only; its
   assignees need not be participants, and a protocol may contain none. `Task`
   can now point at a `Protocol` and at a `ProtocolAction` (see the task source
-  types above), but nothing creates such a row: creating actual tasks from an
-  archived protocol is a later stage, and no protocol-sourced task exists.
+  types above); the real `PROTOCOL_ACTION` task is created only when the
+  protocol is archived, by the finalization rule below.
+- **The protocol approval state machine.** `DRAFT`/`REVISION` →
+  (`send_protocol_for_approval`) → `APPROVAL` → (`approve_protocol`, last one)
+  → `ARCHIVED`, or `APPROVAL` → (`return_protocol_for_revision`) → `REVISION`.
+  `ARCHIVED` is terminal. Submission is **author-only** — an Admin may edit an
+  allowed state but never sends someone else's document — while approving and
+  returning belong to whoever holds a `PENDING` approval on the *current*
+  revision.
+- **Required approvers = participants with `requires_approval` ∪ every
+  `ProtocolAction` assignee − the author.** One formula, one function:
+  `protocols.services.collect_required_approvers()`. Users are deduplicated
+  across all reasons and all actions, and `ProtocolApproval` keeps
+  `required_as_participant` / `required_as_action_assignee` so a historical
+  revision still says *why* someone had to sign. The author never gets an
+  approval row even when assigned to a protocol task — excluded from approving,
+  never from doing. `validate_protocol_for_approval()` re-reads the persisted
+  protocol first (author participant, an agenda item, a speech, speakers who
+  belong to it, complete actions with a usable assignee, approvers who are
+  still active and have a resolvable department) and refuses with a
+  `ProtocolWorkflowError` rather than writing anything partial.
+- **A revision is a whole new round.** Every submission increments
+  `Protocol.revision` (first submission: `0 → 1`) and creates entirely new
+  `ProtocolApproval` rows and approval tasks from the *current* content.
+  Approvals and tasks from earlier revisions are never deleted, never reused
+  and never count towards the new round: someone who approved revision 1 signs
+  revision 2 again. History is `SENT_FOR_APPROVAL` on the first submission and
+  `RESENT_FOR_APPROVAL` afterwards; every workflow event carries the revision
+  it belongs to, and the return comment is preserved in
+  `RETURNED_FOR_REVISION`. Do not add field-by-field audit events.
+- **Approval deadlines are `+2` working days**, Saturday and Sunday being the
+  only non-working days — Thursday → Monday, Friday/Saturday/Sunday → Tuesday.
+  It lives once, in `ecosystem.workdays.add_working_days()`; there is
+  deliberately no holiday calendar, and no caller re-derives `weekday()`
+  arithmetic.
+- **Lock order is `Protocol.select_for_update()` first**, then approvals, then
+  tasks — in every transition, without exception. Each service re-reads the
+  authoritative status, actor and content *after* the lock, so stale tabs,
+  double clicks and two approvers pressing at once serialize instead of racing:
+  only one request can ever observe that it closed the last pending approval.
+- **Approval-task lifecycle is driven only by the protocol workflow.** Tasks
+  are written through `tasks.services.create_protocol_approval_task()`,
+  `create_protocol_action_task()`, `complete_protocol_approval_task()` and
+  `cancel_protocol_approval_task()` — never from a view, a model or a signal,
+  and never directly from `protocols/services.py`. An approver's task is closed
+  as `COMPLETED` with them as `completed_by` and no execution comment; the
+  cancelled ones of a returned round are closed with `completed_by` left NULL,
+  because nobody is going to pretend those people approved. `complete_task()`
+  is unchanged and still refuses `PROTOCOL_APPROVAL`.
+- **Finalization is atomic and lock-bound.** `_finalize_protocol()` is internal:
+  it takes no lock of its own and may only be called while the caller already
+  holds the `Protocol` lock inside the workflow transaction. It confirms no
+  current-revision approval is still pending, archives the protocol, records
+  `ARCHIVED`, creates exactly one `PROTOCOL_ACTION` task per `ProtocolAction`
+  (text, department, due date and assignees copied from the action,
+  `created_by` = the protocol author, status `IN_PROGRESS`) and records
+  `TASKS_CREATED` when it created any. Any failure rolls the whole transition
+  back — the protocol does not stay archived, the final approval is not
+  half-committed, and no partial set of tasks survives. The `protocol_action`
+  one-to-one is the database-level guarantee against a duplicate task; the
+  service turns it into a controlled refusal rather than relying on the
+  `IntegrityError`. A protocol nobody must approve is finalized by the
+  submission itself, in that same transaction, so it never parks in `APPROVAL`.
 
 ## Security and permissions
 
