@@ -10,7 +10,11 @@ from django.views.decorators.http import require_GET, require_POST
 from realtime.auth import realtime_login_required
 
 from .models import Notification
-from .services import get_notification_header_state, mark_notifications_read
+from .services import (
+    NOTIFICATION_SOURCE_SELECT_RELATED,
+    get_notification_header_state,
+    mark_notifications_read,
+)
 
 
 @login_required
@@ -18,9 +22,10 @@ def notification_list(request):
     selected_filter = request.GET.get('filter', 'all')
     if selected_filter not in {'all', 'unread'}:
         selected_filter = 'all'
+    # Every source relation is joined once here, so a page mixing act,
+    # protocol and task notifications costs no extra query per row.
     notifications = Notification.objects.filter(recipient=request.user).select_related(
-        'actor',
-        'related_act',
+        *NOTIFICATION_SOURCE_SELECT_RELATED
     )
     if selected_filter == 'unread':
         notifications = notifications.filter(is_read=False)

@@ -13,6 +13,7 @@ Two rules shape this file:
   final integrity guarantee and is not the allocator.
 """
 
+from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
 
@@ -507,6 +508,7 @@ def send_protocol_for_approval(protocol, actor):
     # Imported inside the workflow, not at module level: `tasks.models`
     # already imports `protocols.models`, and a top-level import here would
     # close the circle.
+    from notifications.services import notify_protocol_approval_required
     from tasks.services import create_protocol_approval_task
 
     locked = _lock_protocol(protocol)
@@ -557,6 +559,10 @@ def send_protocol_for_approval(protocol, actor):
             task_text=f'Согласовать протокол {label}',
         )
         approval.save(update_fields=['task'])
+        # Only now, with the approval row committed to this transaction, does
+        # the person have anything to be told about. The queue task creates no
+        # notification of its own: one required action, one notification.
+        notify_protocol_approval_required(locked, approval, actor)
 
     if not approvers:
         _finalize_protocol(locked, actor)
@@ -619,6 +625,7 @@ def return_protocol_for_revision(protocol, actor, comment):
     are closed *without* an approver, because those people no longer have
     anything to sign. Nothing is deleted, on either side.
     """
+    from notifications.services import notify_protocol_returned
     from tasks.services import cancel_protocol_approval_task, complete_protocol_approval_task
 
     comment = (comment or '').strip()
@@ -663,6 +670,10 @@ def return_protocol_for_revision(protocol, actor, comment):
         ProtocolHistoryEvent.EventType.RETURNED_FOR_REVISION,
         f'Протокол возвращён на доработку (редакция {locked.revision}). Причина: {comment}',
     )
+    # Inside this transaction, so a refusal anywhere above leaves no
+    # notification claiming a return that never happened. The reason itself is
+    # not copied into it — it stays authoritative on the approval row.
+    notify_protocol_returned(locked, actor)
     return locked
 
 
@@ -677,6 +688,10 @@ def _finalize_protocol(protocol, actor):
     transition back — the protocol does not stay archived, the final approval
     is not half-committed, and no partial set of tasks survives.
     """
+    from notifications.services import (
+        notify_protocol_approved,
+        notify_protocol_task_assigned,
+    )
     from tasks.models import Task
     from tasks.services import create_protocol_action_task
 
@@ -695,6 +710,10 @@ def _finalize_protocol(protocol, actor):
         ProtocolHistoryEvent.EventType.ARCHIVED,
         f'Протокол «{_protocol_label(protocol)}» согласован и помещён в архив.',
     )
+    # The author is told the document is finished. `actor` is the last approver
+    # — or, for a protocol nobody had to approve, the author themselves, which
+    # the notification service deliberately does not treat as self-notification.
+    notify_protocol_approved(protocol, actor)
 
     actions = list(
         protocol.actions.select_related('department')
@@ -710,11 +729,14 @@ def _finalize_protocol(protocol, actor):
     if Task.objects.filter(protocol_action__in=actions).exists():
         raise ProtocolWorkflowError('Задачи по этому протоколу уже созданы.')
     for action in actions:
-        create_protocol_action_task(
-            protocol,
-            action,
-            [assignment.user_id for assignment in action.assignees.all()],
-            created_by=protocol.author,
+        assignee_ids = [assignment.user_id for assignment in action.assignees.all()]
+        task = create_protocol_action_task(
+            protocol, action, assignee_ids, created_by=protocol.author
+        )
+        # After the task and its assignees exist, never before: a notification
+        # must not describe a task a later failure would roll back.
+        notify_protocol_task_assigned(
+            task, actor, list(User.objects.filter(pk__in=assignee_ids))
         )
     _record(
         protocol,

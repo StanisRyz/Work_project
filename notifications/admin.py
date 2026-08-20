@@ -25,10 +25,12 @@ class NotificationDeliveryInline(ReadOnlyAdminMixin, admin.TabularInline):
 
 @admin.register(Notification)
 class NotificationAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
-    list_display = ('title', 'recipient', 'event_type', 'related_act', 'created_at', 'is_read')
-    list_filter = ('event_type', 'is_read', 'created_at')
+    list_display = (
+        'title', 'recipient', 'event_type', 'source_type', 'created_at', 'is_read',
+    )
+    list_filter = ('event_type', 'source_type', 'is_read', 'created_at')
     search_fields = ('title', 'message', 'recipient__username', 'related_act__number')
-    raw_id_fields = ('recipient', 'actor', 'related_act')
+    raw_id_fields = ('recipient', 'actor', 'related_act', 'related_protocol', 'related_task')
     readonly_fields = ('created_at',)
     inlines = (NotificationDeliveryInline,)
 

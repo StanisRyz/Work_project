@@ -12,7 +12,7 @@
  *   data-confirm-variant             confirm button modifier: warning | danger
  *   data-confirm-url                 POST target — the modal posts its own form
  *   data-confirm-form                id of an existing form to submit instead
- *   data-confirm-form-action         POST target for that form (default: its own action)
+ *   data-confirm-form-action         POST target for that form, applied only on confirm
  *   data-confirm-comment="required"  show a mandatory comment field
  *   data-confirm-comment-label       caption of that field
  *   data-confirm-comment-name        posted field name (default: comment)
@@ -45,6 +45,24 @@
     let targetForm = null;
     let commentRequired = false;
     let submitting = false;
+    // The target form's own action, saved only while an override is in force.
+    // `null` means «nothing to restore», so a cancel that never overrode
+    // anything cannot rewrite the form's action either.
+    let restoreAction = null;
+
+    /**
+     * Put the target form's own action back.
+     *
+     * An override is applied at confirm time and undone here, so a cancelled
+     * modal — or a confirm the browser then blocks on validation — never
+     * leaves «Сохранить черновик» pointing at the submission endpoint.
+     */
+    const restoreTargetAction = () => {
+        if (targetForm && restoreAction !== null) {
+            targetForm.setAttribute('action', restoreAction);
+        }
+        restoreAction = null;
+    };
 
     const showError = (message) => {
         error.textContent = message;
@@ -92,14 +110,8 @@
         }
 
         // Only the standalone mode posts this form; in form mode the existing
-        // page form keeps its own fields. Its action is overridden only when
-        // the trigger names another endpoint — that is how one editor form can
-        // be posted either to «сохранить» or to «отправить на согласование»
-        // with exactly the content currently on screen.
+        // page form keeps its own action and fields until the user confirms.
         form.action = targetForm ? '' : button.dataset.confirmUrl || '';
-        if (targetForm && button.dataset.confirmFormAction) {
-            targetForm.action = button.dataset.confirmFormAction;
-        }
 
         clearError();
         dialog.showModal();
@@ -128,6 +140,7 @@
     cancel.addEventListener('click', close);
 
     dialog.addEventListener('close', () => {
+        restoreTargetAction();
         submitting = false;
         accept.disabled = false;
         if (trigger && typeof trigger.focus === 'function' && document.contains(trigger)) {
@@ -159,6 +172,15 @@
         if (targetForm) {
             event.preventDefault();
             accept.disabled = true;
+            // Redirect the page form only now, at the moment of confirmation —
+            // that is how one editor form is posted either to «сохранить» or to
+            // «отправить на согласование» with exactly the content on screen.
+            // The previous action is remembered so closing the dialog undoes it.
+            const override = trigger && trigger.dataset.confirmFormAction;
+            if (override) {
+                restoreAction = targetForm.getAttribute('action') || '';
+                targetForm.setAttribute('action', override);
+            }
             if (typeof targetForm.requestSubmit === 'function') {
                 targetForm.requestSubmit();
             } else {

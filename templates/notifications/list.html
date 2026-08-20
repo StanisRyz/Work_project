@@ -35,7 +35,8 @@
                 {% if notification.actor %}<small>Инициатор: {{ notification.actor.get_full_name|default:notification.actor.username }}</small>{% endif %}
             </div>
             <div class="notification-card__actions">
-                <a class="link-button" href="{{ notification.related_url }}">Открыть акт</a>
+                {# Caption follows the source: акт, протокол or задача. #}
+                <a class="link-button" href="{{ notification.related_url }}">{{ notification.related_label }}</a>
                 {% if not notification.is_read %}
                 <form method="post" action="{% url 'notifications:mark_read' notification.pk %}">
                     {% csrf_token %}

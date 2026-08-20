@@ -33,6 +33,34 @@ HISTORY_EVENT_TYPES = {
 # How many unread notifications the bell menu ever shows.
 HEADER_NOTIFICATION_LIMIT = 5
 
+# Every source relation is LEFT JOINed: selecting one is harmless for a
+# notification that has none, and listing all three is what keeps a mixed page
+# of act, protocol and task notifications free of per-row queries. The protocol
+# type comes along because a protocol notification's label is built from it.
+NOTIFICATION_SOURCE_SELECT_RELATED = (
+    'actor',
+    'related_act',
+    'related_protocol__protocol_type',
+    'related_task__protocol__protocol_type',
+)
+
+# Where each source type lives on the row, which route opens it, and how the
+# «открыть» link is captioned. One table, so a new source type is one entry
+# rather than a conditional in the model, the services and two templates.
+SOURCE_FIELDS = {
+    Notification.SourceType.ACT: 'related_act',
+    Notification.SourceType.PROTOCOL: 'related_protocol',
+    Notification.SourceType.TASK: 'related_task',
+}
+
+SOURCE_ROUTES = {
+    Notification.SourceType.ACT: ('acts:detail', 'Открыть акт'),
+    Notification.SourceType.PROTOCOL: ('protocols:detail', 'Открыть протокол'),
+    Notification.SourceType.TASK: ('tasks:detail', 'Открыть задачу'),
+}
+
+# Email stays exactly as it was: act events only. Protocol events are in-app
+# for now, and adding one here would start creating deliveries for them.
 EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.ACT_SENT_TO_KO,
     Notification.EventType.ACT_SENT_TO_TO,
@@ -93,8 +121,110 @@ def notify_comment_added(comment, actor):
     )
 
 
-def create_notifications(*, event_type, act, actor, recipients, source_key, exclude_actor=True):
-    """Create deduplicated in-app notifications and their independent email deliveries."""
+def notify_protocol_approval_required(protocol, approval, actor):
+    """Tell one approver that a new round needs their decision.
+
+    Keyed on the `ProtocolApproval` row, which is immutable and created fresh
+    for every revision: a resubmission therefore notifies again, while calling
+    this twice for the same round does not. This is the *only* notification an
+    approver gets for that duty — the `PROTOCOL_APPROVAL` task it comes with is
+    a work-queue entry and deliberately produces none of its own.
+    """
+    return create_notifications(
+        event_type=Notification.EventType.PROTOCOL_APPROVAL_REQUIRED,
+        protocol=protocol,
+        actor=actor,
+        recipients=[approval.user],
+        source_key=f'approval:{approval.pk}',
+    )
+
+
+def notify_protocol_returned(protocol, actor):
+    """Tell the author their protocol came back, without repeating the reason.
+
+    The return comment stays in `ProtocolApproval.return_comment` and in the
+    protocol history, which are the authoritative places to read it; a
+    notification says only that the document needs attention.
+    """
+    return create_notifications(
+        event_type=Notification.EventType.PROTOCOL_RETURNED_FOR_REVISION,
+        protocol=protocol,
+        actor=actor,
+        recipients=[protocol.author],
+        source_key=f'protocol:{protocol.pk}:revision:{protocol.revision}',
+        exclude_actor=False,
+    )
+
+
+def notify_protocol_approved(protocol, actor):
+    """Tell the author the protocol is fully approved and archived.
+
+    `exclude_actor=False` is load-bearing: a protocol nobody had to approve is
+    archived by its own author's submission, so actor and recipient are then
+    legitimately the same person and the notification must still be created.
+    """
+    return create_notifications(
+        event_type=Notification.EventType.PROTOCOL_APPROVED,
+        protocol=protocol,
+        actor=actor,
+        recipients=[protocol.author],
+        source_key=f'protocol:{protocol.pk}:revision:{protocol.revision}',
+        exclude_actor=False,
+    )
+
+
+def notify_protocol_task_assigned(task, actor, assignees):
+    """Tell the assignees of a real protocol task that it now exists.
+
+    Task-sourced, so it links to the task itself rather than to the protocol.
+    An approval queue entry is refused outright: it is not work anybody
+    performs, and its approver already has a protocol notification.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.PROTOCOL_ACTION:
+        raise ValueError('Уведомление о назначении создаётся только для задачи по протоколу.')
+    return create_notifications(
+        event_type=Notification.EventType.PROTOCOL_TASK_ASSIGNED,
+        task=task,
+        actor=actor,
+        recipients=assignees,
+        source_key=f'task:{task.pk}',
+        exclude_actor=False,
+    )
+
+
+def _resolve_source(act, protocol, task):
+    """Exactly one source object, and the source type it implies.
+
+    Resolving the type from the object it was given is what keeps
+    `source_type` and the stored relation from ever disagreeing — nothing
+    passes them separately.
+    """
+    given = [
+        (source_type, source)
+        for source_type, source in (
+            (Notification.SourceType.ACT, act),
+            (Notification.SourceType.PROTOCOL, protocol),
+            (Notification.SourceType.TASK, task),
+        )
+        if source is not None
+    ]
+    if len(given) != 1:
+        raise ValueError('Уведомление должно иметь ровно один источник: акт, протокол или задачу.')
+    return given[0]
+
+
+def create_notifications(
+    *, event_type, actor, recipients, source_key,
+    act=None, protocol=None, task=None, exclude_actor=True,
+):
+    """Create deduplicated in-app notifications and their independent email deliveries.
+
+    Exactly one of `act`, `protocol` or `task` names what the notification is
+    about; `source_type` follows from it.
+    """
+    source_type, source = _resolve_source(act, protocol, task)
     actor_id = getattr(actor, 'pk', None)
     recipient_ids = {
         recipient.pk
@@ -111,7 +241,7 @@ def create_notifications(*, event_type, act, actor, recipients, source_key, excl
         is_active=True,
         userprofile__is_active=True,
     ).order_by('pk')
-    text = _event_text(event_type, act)
+    text = _event_text(event_type, source_type, source)
     created_notifications = []
     with transaction.atomic():
         for recipient in users:
@@ -123,7 +253,8 @@ def create_notifications(*, event_type, act, actor, recipients, source_key, excl
                     'event_type': event_type,
                     'title': text.title,
                     'message': text.message,
-                    'related_act': act,
+                    'source_type': source_type,
+                    SOURCE_FIELDS[source_type]: source,
                 },
             )
             if not created:
@@ -152,7 +283,7 @@ def get_notification_header_state(user):
 
     unread = Notification.objects.filter(recipient=user, is_read=False)
     items = list(
-        unread.select_related('actor', 'related_act')
+        unread.select_related(*NOTIFICATION_SOURCE_SELECT_RELATED)
         .order_by('-created_at', '-pk')[:HEADER_NOTIFICATION_LIMIT]
     )
     return {
@@ -188,15 +319,40 @@ def mark_notifications_read(user, *, scope, notification_ids=None):
     return changed_ids, unread_count
 
 
+def get_notification_source(notification):
+    """The object a notification is about, chosen by its declared source type.
+
+    Branching is on `source_type`, never on which relation happens to be
+    filled: a NULL cannot tell an absent source from a wrong one.
+    """
+    return getattr(notification, SOURCE_FIELDS[notification.source_type])
+
+
 def get_required_action(notification):
-    return _event_text(notification.event_type, notification.related_act).required_action
+    return _event_text(
+        notification.event_type,
+        notification.source_type,
+        get_notification_source(notification),
+    ).required_action
 
 
 def get_notification_url(notification, *, absolute=False):
-    path = reverse('acts:detail', kwargs={'pk': notification.related_act_id})
+    """The page this notification opens, resolved by source type.
+
+    Built from the stored foreign key id, so rendering a link costs no query
+    and no relation has to be loaded. Always a named route — never a
+    hard-coded public path.
+    """
+    route, _label = SOURCE_ROUTES[notification.source_type]
+    source_id = getattr(notification, f'{SOURCE_FIELDS[notification.source_type]}_id')
+    path = reverse(route, kwargs={'pk': source_id})
     if not absolute:
         return path
     return urljoin(f"{settings.APP_BASE_URL.rstrip('/')}/", path.lstrip('/'))
+
+
+def get_notification_open_label(notification):
+    return SOURCE_ROUTES[notification.source_type][1]
 
 
 def _create_email_delivery(notification):
@@ -271,7 +427,51 @@ def get_comment_participants(act):
     return [user for user in candidates if can_contribute_to_act(act, user)]
 
 
-def _event_text(event_type, act):
+def _protocol_label(protocol):
+    return f'{protocol.protocol_type.name} №{protocol.number}'
+
+
+def _protocol_event_text(event_type, protocol):
+    label = _protocol_label(protocol)
+    return {
+        Notification.EventType.PROTOCOL_APPROVAL_REQUIRED: NotificationText(
+            f'Требуется согласование протокола {label}',
+            f'Протокол {label} ожидает вашего согласования.',
+            'Откройте протокол и согласуйте его или верните на доработку.',
+        ),
+        Notification.EventType.PROTOCOL_RETURNED_FOR_REVISION: NotificationText(
+            f'Протокол {label} возвращён на доработку',
+            f'Протокол {label} возвращён на доработку согласующим.',
+            'Откройте протокол, ознакомьтесь с причиной возврата и внесите исправления.',
+        ),
+        Notification.EventType.PROTOCOL_APPROVED: NotificationText(
+            f'Протокол {label} согласован',
+            f'Все требуемые согласования получены, протокол {label} помещён в архив.',
+            'Дополнительных действий по протоколу не требуется.',
+        ),
+    }[event_type]
+
+
+def _task_event_text(event_type, task):
+    label = _protocol_label(task.protocol)
+    return {
+        Notification.EventType.PROTOCOL_TASK_ASSIGNED: NotificationText(
+            f'Назначена задача по протоколу {label}',
+            f'Вы назначены исполнителем задачи, созданной по протоколу {label}.',
+            'Откройте задачу и выполните её в указанный срок.',
+        ),
+    }[event_type]
+
+
+def _event_text(event_type, source_type, source):
+    if source_type == Notification.SourceType.PROTOCOL:
+        return _protocol_event_text(event_type, source)
+    if source_type == Notification.SourceType.TASK:
+        return _task_event_text(event_type, source)
+    return _act_event_text(event_type, source)
+
+
+def _act_event_text(event_type, act):
     number = act.number
     texts = {
         Notification.EventType.ACT_SENT_TO_KO: NotificationText(

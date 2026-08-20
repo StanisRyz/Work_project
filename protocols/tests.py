@@ -3,6 +3,7 @@
 from datetime import date, timedelta
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
@@ -652,3 +653,34 @@ class ProtocolApprovalUiTests(TestCase):
             [group['revision'] for group in history.context['approval_revisions']], [2, 1]
         )
         self.assertContains(history, 'Уточните сроки.')
+
+    def test_cancelling_the_send_modal_leaves_the_editor_posting_to_save(self):
+        """The editor form must never keep the submission endpoint after «Отмена».
+
+        A source-level check rather than a browser one: the project has no
+        JavaScript test runner and this stage is not the place to add one. What
+        it pins down is the shape of the fix — the trigger's action override is
+        applied only when the user confirms, and closing the dialog puts the
+        form's own action back — so a regression to «rewrite the action when the
+        modal opens» is caught here instead of by a user losing a draft.
+        """
+        protocol = create_protocol(self.quality, self.author)
+        self.client.force_login(self.author)
+        page = self.client.get(reverse('protocols:detail', args=[protocol.pk]))
+
+        # The editor posts to «сохранить» as rendered; the submission endpoint
+        # only ever lives on the trigger button.
+        self.assertContains(page, f'action="{reverse("protocols:save_draft", args=[protocol.pk])}"')
+        self.assertContains(
+            page,
+            f'data-confirm-form-action="{reverse("protocols:send_for_approval", args=[protocol.pk])}"',
+        )
+
+        script = (settings.BASE_DIR / 'static' / 'js' / 'confirm_modal.js').read_text(
+            encoding='utf-8'
+        )
+        open_block = script.split("const open = (button)")[1].split("document.addEventListener")[0]
+        self.assertNotIn('confirmFormAction', open_block)
+        submit_block = script.split("form.addEventListener('submit'")[1]
+        self.assertIn('confirmFormAction', submit_block)
+        self.assertIn('restoreTargetAction();', script.split("dialog.addEventListener('close'")[1])

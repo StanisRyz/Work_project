@@ -34,6 +34,15 @@ def _status_code(instance, attribute='status'):
 
 
 def notification_created_event(notification):
+    """Identifiers only, whatever the notification is about.
+
+    A notification can now be sourced from an act, a protocol or a task, so the
+    payload carries `source_type` and the three nullable ids — `act_id` keeps
+    its name and stays NULL for the other sources. No title, message, comment,
+    protocol content, task text, name or address ever travels this way: a
+    client that needs text refetches it through the notifications endpoints,
+    authenticated as itself.
+    """
     return RealtimeEvent(
         event_type=RealtimeEventType.NOTIFICATION_CREATED,
         resource_type=RESOURCE_NOTIFICATION,
@@ -41,7 +50,10 @@ def notification_created_event(notification):
         data={
             'recipient_id': notification.recipient_id,
             'actor_id': notification.actor_id,
+            'source_type': str(notification.source_type),
             'act_id': notification.related_act_id,
+            'protocol_id': notification.related_protocol_id,
+            'task_id': notification.related_task_id,
             'notification_event_type': str(notification.event_type),
         },
     )

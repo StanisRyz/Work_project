@@ -214,7 +214,50 @@ tasks never live inside `acts`.
   model — logs are diagnostics and may be rotated away.
 - Notifications are created in the same transaction as their business event,
   deduplicated per recipient by a stable source key, and routed in one place:
-  `notifications/services.py`.
+  `notifications/services.py`. Never create a `Notification` from a view, a
+  template, a model signal or JavaScript.
+- **A notification's origin is `source_type`, never a nullable relation.** Three
+  values exist — `ACT`, `PROTOCOL`, `TASK` — and exactly one relation shape is
+  valid for each, enforced by `Notification.clean()` and by the
+  `notification_source_relations_match_source_type` check constraint:
+
+  | `source_type` | required | must be NULL |
+  | --- | --- | --- |
+  | `ACT` | `related_act` | `related_protocol`, `related_task` |
+  | `PROTOCOL` | `related_protocol` | `related_act`, `related_task` |
+  | `TASK` | `related_task` | `related_act`, `related_protocol` |
+
+  `related_act` keeps its name and its meaning; it is nullable *only* so the
+  other shapes can exist. `create_notifications()` takes exactly one of
+  `act=`/`protocol=`/`task=` and derives `source_type` from it, so the type and
+  the stored relation can never disagree. `get_notification_url()` resolves by
+  source type through named routes — `acts:detail`, `protocols:detail`,
+  `tasks:detail` — from the stored foreign key id, never a hard-coded path.
+  Schema changes migrate the existing production table in place: add fields,
+  classify existing rows as `ACT` in a data migration, relax nullability, then
+  add the constraint. Never recreate notifications or their `NotificationDelivery`
+  rows — read state, `read_at`, deduplication keys and delivery state are live
+  production data.
+- **Protocol notifications are in-app only, and one per business fact.**
+  `notify_protocol_approval_required()` (one per `ProtocolApproval`, keyed on
+  its pk, so a new revision notifies again), `notify_protocol_returned()` and
+  `notify_protocol_approved()` (the author, keyed on protocol + revision) are
+  `PROTOCOL`-sourced; `notify_protocol_task_assigned()` is `TASK`-sourced and
+  links to the task. Each is called inside the workflow transaction that
+  already holds the `Protocol` lock, and only *after* the row it describes
+  exists, so a rollback leaves no notification claiming a return, an archive or
+  a task that never happened. A **`PROTOCOL_APPROVAL` task creates no
+  assignment notification** — the approver already has the approval-required
+  one, and `notify_protocol_task_assigned()` refuses any task that is not
+  `PROTOCOL_ACTION`. `notify_protocol_approved()` uses `exclude_actor=False` on
+  purpose: a protocol nobody had to approve is archived by its own author.
+- **No protocol email and no protocol realtime.** The protocol event types are
+  deliberately absent from `EMAIL_ELIGIBLE_EVENTS`, so no `NotificationDelivery`
+  is ever created for them; act email behaviour is unchanged. `notification.created`
+  carries identifiers only — recipient, actor, `source_type`, the nullable
+  act/protocol/task ids and the event type — and never protocol text, a return
+  comment, a task description, a name or an address. There are no
+  `protocol.*` realtime events and no protocol revision in `/realtime/sync/`.
 - **Калькулятор рубки пластин is a page and nothing else.** The seventeen
   length bands and the `0.95 s` hole coefficient live only in
   `plate_cutting/constants.py`; the view renders them into the `<select>` of

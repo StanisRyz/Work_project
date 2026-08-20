@@ -27,8 +27,33 @@ from acts.services import (
 )
 from notifications.email_delivery import process_delivery
 from notifications.models import Notification, NotificationDelivery
-from notifications.services import create_notifications, notify_action_assigned, notify_history_event
+from notifications.services import (
+    create_notifications,
+    notify_action_assigned,
+    notify_history_event,
+    notify_protocol_approval_required,
+    notify_protocol_returned,
+    notify_protocol_task_assigned,
+)
+from protocols.models import (
+    QUALITY_PROTOCOL_TYPE_CODE,
+    Protocol,
+    ProtocolAction,
+    ProtocolActionAssignee,
+    ProtocolAgendaItem,
+    ProtocolApproval,
+    ProtocolType,
+)
+from protocols.services import (
+    add_participant,
+    add_speech,
+    approve_protocol,
+    create_protocol,
+    return_protocol_for_revision,
+    send_protocol_for_approval,
+)
 from references.models import ActStatus, DefectType, Operation, TaskStatus
+from tasks.models import Task
 
 
 class NotificationTestMixin:
@@ -641,3 +666,172 @@ class NotificationEmailTests(NotificationTestMixin, TestCase):
         delivery.refresh_from_db()
         self.assertEqual(delivery.status, NotificationDelivery.Status.SENT)
         self.assertEqual(delivery.attempts, 2)
+
+
+class NotificationSourceTests(NotificationTestMixin, TestCase):
+    """Notifications from all three sources, end to end through the workflows.
+
+    Three scenarios rather than a source matrix. What generalizing the source
+    can break is: an act notification silently changing meaning, a protocol
+    round notifying the wrong people or notifying them twice, and finalization
+    either forgetting the author or turning an approval queue task into a
+    second «вам назначена задача».
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.quality = ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE)
+        for user in (cls.otk, cls.ko, cls.to):
+            user.userprofile.department = cls.department
+            user.userprofile.position = 'Специалист'
+            user.userprofile.save(update_fields=['department', 'position'])
+
+    def _protocol(self, *, approvers=(), assignees=()):
+        """A structurally complete protocol, ready to be submitted."""
+        protocol = create_protocol(self.quality, self.otk)
+        for order, user in enumerate(approvers, start=1):
+            add_participant(
+                protocol, user, department=self.department,
+                requires_approval=True, display_order=order,
+            )
+        ProtocolAgendaItem.objects.create(protocol=protocol, text='Вопрос', display_order=0)
+        add_speech(protocol, protocol.participants.get(user=self.otk), 'Доложил.')
+        if assignees:
+            action = ProtocolAction.objects.create(
+                protocol=protocol, task_text='Проверить оснастку',
+                department=self.department,
+                due_date=timezone.localdate() + timedelta(days=7),
+                display_order=0,
+            )
+            for user in assignees:
+                ProtocolActionAssignee.objects.create(action=action, user=user)
+        return protocol
+
+    def _of(self, event_type, recipient=None):
+        rows = Notification.objects.filter(event_type=event_type)
+        if recipient is not None:
+            rows = rows.filter(recipient=recipient)
+        return list(rows.order_by('pk'))
+
+    def test_existing_act_notifications_keep_their_source_url_and_delivery(self):
+        act = self.create_act('CREATED_OTK')
+        send_to_ko(act, self.otk)
+
+        notification = Notification.objects.get(
+            recipient=self.ko, event_type=Notification.EventType.ACT_SENT_TO_KO
+        )
+        # Classified as an act notification, with only the act relation set.
+        self.assertEqual(notification.source_type, Notification.SourceType.ACT)
+        self.assertEqual(notification.related_act, act)
+        self.assertIsNone(notification.related_protocol_id)
+        self.assertIsNone(notification.related_task_id)
+        # Same text, same act link, same «открыть» caption as before.
+        self.assertEqual(notification.title, f'Акт {act.number} передан в КО')
+        self.assertEqual(notification.related_url, reverse('acts:detail', args=[act.pk]))
+        self.assertEqual(notification.related_label, 'Открыть акт')
+        # Email eligibility and read state are untouched by the generalization.
+        self.assertEqual(notification.deliveries.count(), 1)
+        self.assertTrue(notification.mark_read())
+        notification.refresh_from_db()
+        self.assertTrue(notification.is_read)
+
+        # And the source shape is now enforced by the database itself.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Notification.objects.create(
+                recipient=self.to,
+                event_type=Notification.EventType.COMMENT_ADDED,
+                title='Смешанный источник', message='—',
+                source_type=Notification.SourceType.ACT,
+                related_act=act, related_protocol=self._protocol(),
+                deduplication_key='mixed-source',
+            )
+
+    def test_approval_round_and_return_notify_once_per_business_fact(self):
+        protocol = self._protocol(approvers=[self.ko, self.to])
+        send_protocol_for_approval(protocol, self.otk)
+        protocol.refresh_from_db()
+
+        required = self._of(Notification.EventType.PROTOCOL_APPROVAL_REQUIRED)
+        self.assertEqual({item.recipient for item in required}, {self.ko, self.to})
+        first = required[0]
+        self.assertEqual(first.source_type, Notification.SourceType.PROTOCOL)
+        self.assertEqual(first.related_protocol, protocol)
+        self.assertIsNone(first.related_act_id)
+        self.assertEqual(first.title, f'Требуется согласование протокола Качество №{protocol.number}')
+        self.assertEqual(first.related_url, reverse('protocols:detail', args=[protocol.pk]))
+        self.assertEqual(first.related_label, 'Открыть протокол')
+        # An approval queue task is not work: it adds no assignment notification.
+        self.assertEqual(self._of(Notification.EventType.PROTOCOL_TASK_ASSIGNED), [])
+        # In-app only — no protocol event is email-eligible.
+        self.assertFalse(
+            NotificationDelivery.objects.filter(notification__in=required).exists()
+        )
+        # Repeating the service for the same round changes nothing.
+        approval = ProtocolApproval.objects.get(protocol=protocol, user=self.ko)
+        self.assertEqual(notify_protocol_approval_required(protocol, approval, self.otk), [])
+        self.assertEqual(len(self._of(Notification.EventType.PROTOCOL_APPROVAL_REQUIRED)), 2)
+
+        return_protocol_for_revision(protocol, self.ko, 'Уточните сроки.')
+        protocol.refresh_from_db()
+        returned = self._of(Notification.EventType.PROTOCOL_RETURNED_FOR_REVISION)
+        self.assertEqual([item.recipient for item in returned], [self.otk])
+        self.assertEqual(returned[0].source_type, Notification.SourceType.PROTOCOL)
+        # The reason stays on the approval row; the notification never repeats it.
+        self.assertNotIn('Уточните сроки.', returned[0].message)
+        self.assertNotIn('Уточните сроки.', returned[0].title)
+        self.assertEqual(notify_protocol_returned(protocol, self.ko), [])
+
+        # A new revision is a new business fact: everyone is asked again.
+        send_protocol_for_approval(protocol, self.otk)
+        protocol.refresh_from_db()
+        self.assertEqual(protocol.revision, 2)
+        self.assertEqual(len(self._of(Notification.EventType.PROTOCOL_APPROVAL_REQUIRED)), 4)
+
+    def test_finalization_notifies_the_author_and_the_real_task_assignees(self):
+        protocol = self._protocol(approvers=[self.ko], assignees=[self.to, self.otk])
+        send_protocol_for_approval(protocol, self.otk)
+        # Both required approvers: the participant marked for approval, and
+        # the assignee a protocol task made an approver automatically.
+        approve_protocol(protocol, self.ko)
+        approve_protocol(protocol, self.to)
+        protocol.refresh_from_db()
+        self.assertEqual(protocol.status, Protocol.Status.ARCHIVED)
+
+        approved = self._of(Notification.EventType.PROTOCOL_APPROVED)
+        self.assertEqual([item.recipient for item in approved], [self.otk])
+        self.assertEqual(approved[0].source_type, Notification.SourceType.PROTOCOL)
+        self.assertEqual(approved[0].title, f'Протокол Качество №{protocol.number} согласован')
+
+        # The real task notifies both assignees — including the author, who is
+        # an executor here even though they never approve their own protocol.
+        task = Task.objects.get(source_type=Task.SourceType.PROTOCOL_ACTION)
+        assigned = self._of(Notification.EventType.PROTOCOL_TASK_ASSIGNED)
+        self.assertEqual({item.recipient for item in assigned}, {self.to, self.otk})
+        for item in assigned:
+            self.assertEqual(item.source_type, Notification.SourceType.TASK)
+            self.assertEqual(item.related_task, task)
+            self.assertIsNone(item.related_protocol_id)
+            self.assertEqual(item.related_url, reverse('tasks:detail', args=[task.pk]))
+            self.assertEqual(item.related_label, 'Открыть задачу')
+        # The approval queue task never produces one of these.
+        approval_task = ProtocolApproval.objects.get(protocol=protocol, user=self.ko).task
+        self.assertFalse(
+            Notification.objects.filter(related_task=approval_task).exists()
+        )
+        with self.assertRaises(ValueError):
+            notify_protocol_task_assigned(approval_task, self.otk, [self.ko])
+
+        # Zero required approvers: the submission itself archives the protocol,
+        # so actor and recipient are the same author — and it still notifies.
+        solo = self._protocol()
+        send_protocol_for_approval(solo, self.otk)
+        solo.refresh_from_db()
+        self.assertEqual(solo.status, Protocol.Status.ARCHIVED)
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient=self.otk,
+                related_protocol=solo,
+                event_type=Notification.EventType.PROTOCOL_APPROVED,
+            ).exists()
+        )
