@@ -1,0 +1,44 @@
+{% comment %}
+The protocol's own audit trail, in the same day-grouped timeline the act uses.
+Read-only: history is never edited from the UI.
+{% endcomment %}
+<section class="detail-section act-history-section">
+    <div class="history-feed__header">
+        <h2>История протокола</h2>
+        <span class="history-feed__filter" aria-label="Все события">Все события</span>
+    </div>
+    {% if history_groups %}
+        <div class="history-feed">
+            {% for group in history_groups %}
+                <section class="history-day">
+                    <h3><time datetime="{{ group.date|date:'Y-m-d' }}">{{ group.date|date:'j E Y' }}</time></h3>
+                    <div class="history-day__events">
+                        {% for event in group.events %}
+                            <article class="history-event history-event--{{ event.event_type|lower }}">
+                                <span class="history-event__icon" aria-hidden="true">
+                                    {% if event.event_type == 'CREATED' %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14"/></svg>
+                                    {% elif event.event_type == 'EDITED' %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="m4 20 4-1 10-10-3-3L5 16zM15 6l3 3"/></svg>
+                                    {% else %}
+                                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="M5 12h13m-5-5 5 5-5 5"/></svg>
+                                    {% endif %}
+                                </span>
+                                <div class="history-event__content">
+                                    <strong>{{ event.get_event_type_display }}</strong>
+                                    <p>{{ event.message }}</p>
+                                </div>
+                                <div class="history-event__meta">
+                                    <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:'d.m.Y H:i' }}</time>
+                                    <span>{{ event.actor.get_full_name|default:event.actor.username|default:'Система' }}</span>
+                                </div>
+                            </article>
+                        {% endfor %}
+                    </div>
+                </section>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="placeholder-text">История протокола пока пуста.</p>
+    {% endif %}
+</section>

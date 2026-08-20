@@ -1,0 +1,1 @@
+{% for department in departments %}<option value="{{ department.pk }}"{% if selected == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}

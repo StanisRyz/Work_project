@@ -1,0 +1,21 @@
+{% comment %}
+The speaker list is exactly the protocol's participants — no department or user
+directory here. The browser rebuilds these options as participant rows change;
+the server accepts only a participant of this same protocol.
+{% endcomment %}
+<div class="protocol-row protocol-row--speech" data-row>
+    <label>
+        <span>Выступающий</span>
+        <select name="speeches-{{ row.index }}-speaker" data-speaker-select required>
+            <option value="">Выберите выступающего</option>
+            {% for option in speaker_options %}<option value="{{ option.value }}"{% if row.speaker == option.value %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+        </select>
+        {% if row.errors.speaker %}<span class="field-error">{{ row.errors.speaker }}</span>{% endif %}
+    </label>
+    <label>
+        <span>Слушали</span>
+        <textarea name="speeches-{{ row.index }}-text" rows="3" placeholder="Изложение выступления">{{ row.text }}</textarea>
+        {% if row.errors.text %}<span class="field-error">{{ row.errors.text }}</span>{% endif %}
+    </label>
+    <button class="protocol-remove-button" type="button" data-remove-row aria-label="Удалить выступление" title="Удалить выступление">×</button>
+</div>

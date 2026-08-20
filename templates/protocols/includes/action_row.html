@@ -1,0 +1,39 @@
+{% comment %}
+A task draft: `ProtocolAction` only. Nothing here creates or touches a
+`tasks.Task` — real tasks are a later stage.
+{% endcomment %}
+<div class="protocol-action-card" data-row>
+    <div class="protocol-action-card__head">
+        <h3>Задача</h3>
+        <button class="protocol-remove-button" type="button" data-remove-row aria-label="Удалить задачу" title="Удалить задачу">×</button>
+    </div>
+    <label>
+        <span>Формулировка</span>
+        <textarea name="actions-{{ row.index }}-text" rows="2" placeholder="Что необходимо сделать">{{ row.text }}</textarea>
+        {% if row.errors.text %}<span class="field-error">{{ row.errors.text }}</span>{% endif %}
+    </label>
+    <div class="protocol-action-card__fields">
+        <label>
+            <span>Подразделение</span>
+            <select name="actions-{{ row.index }}-department" required>
+                <option value="">Выберите подразделение</option>
+                {% include 'protocols/includes/department_options.html' with selected=row.department %}
+            </select>
+            {% if row.errors.department %}<span class="field-error">{{ row.errors.department }}</span>{% endif %}
+        </label>
+        <label>
+            <span>Срок</span>
+            <input type="date" name="actions-{{ row.index }}-due_date" value="{{ row.due_date }}" required>
+            {% if row.errors.due_date %}<span class="field-error">{{ row.errors.due_date }}</span>{% endif %}
+        </label>
+    </div>
+    <div class="protocol-assignee-list" data-assignee-list>
+        {% for assignee in row.assignees %}
+            {% include 'protocols/includes/assignee_row.html' with assignee=assignee action_index=row.index %}
+        {% empty %}
+            {% include 'protocols/includes/assignee_row.html' with assignee=empty_assignee action_index=row.index %}
+        {% endfor %}
+    </div>
+    {% if row.errors.assignees %}<span class="field-error">{{ row.errors.assignees }}</span>{% endif %}
+    <button class="link-button link-button--secondary link-button--compact" type="button" data-add-assignee>+ Исполнитель</button>
+</div>

@@ -1,0 +1,66 @@
+{% comment %}
+The protocol as every other authenticated user sees it. Reading is open to
+everyone; it never carries an editing control, and the backend refuses the
+save and delete routes regardless of what is rendered here.
+{% endcomment %}
+<section class="detail-section protocol-block">
+    <h2>Участники</h2>
+    {% if participants %}
+        <ul class="protocol-readonly-list">
+            {% for participant in participants %}
+                <li>
+                    <strong>{{ participant.display_name }}</strong>
+                    <span>{{ participant.department_name|default:'—' }}{% if participant.position %} · {{ participant.position }}{% endif %}</span>
+                    {% if participant.user_id == protocol.author_id %}<span class="protocol-author-mark">Автор протокола</span>{% endif %}
+                    {% if participant.requires_approval %}<span class="status-badge">Требует согласования</span>{% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="placeholder-text">—</p>
+    {% endif %}
+</section>
+
+<section class="detail-section protocol-block">
+    <h2>Повестка</h2>
+    {% if agenda_items %}
+        <ol class="protocol-readonly-ordered">
+            {% for item in agenda_items %}<li>{{ item.text|linebreaksbr }}</li>{% endfor %}
+        </ol>
+    {% else %}
+        <p class="placeholder-text">—</p>
+    {% endif %}
+</section>
+
+<section class="detail-section protocol-block">
+    <h2>Слушали</h2>
+    {% if speeches %}
+        <ul class="protocol-readonly-list">
+            {% for speech in speeches %}
+                <li>
+                    <strong>{{ speech.speaker.display_name }}</strong>
+                    <p>{{ speech.text|linebreaksbr }}</p>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="placeholder-text">—</p>
+    {% endif %}
+</section>
+
+<section class="detail-section protocol-block">
+    <h2>Задачи</h2>
+    {% if actions %}
+        <ul class="protocol-readonly-list">
+            {% for action in actions %}
+                <li>
+                    <p>{{ action.task_text|linebreaksbr }}</p>
+                    <span>{{ action.department.name }} · срок {{ action.due_date|date:'d.m.Y' }}</span>
+                    <span>{% for assignee in action.assignees.all %}{{ assignee.user.get_full_name|default:assignee.user.username }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="placeholder-text">—</p>
+    {% endif %}
+</section>

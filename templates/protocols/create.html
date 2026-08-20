@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Создание протокола - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260820-1">
+{% endblock %}
+
+{% block content %}
+<div class="protocol-create-page">
+    <header class="protocol-page-header">
+        <a class="act-back-link" href="{% url 'protocols:list' %}" aria-label="К списку протоколов">←</a>
+        <div>
+            <h1>Создание протокола</h1>
+            <p>Выберите тип протокола — номер присваивается автоматически внутри выбранного типа.</p>
+        </div>
+    </header>
+
+    {% if error %}<p class="field-error">{{ error }}</p>{% endif %}
+
+    {% comment %}
+    The types come from the active `ProtocolType` rows in `display_order`: no
+    kind of protocol is written into this template.
+    {% endcomment %}
+    {% if protocol_types %}
+        <form class="protocol-type-grid" method="post">
+            {% csrf_token %}
+            {% for protocol_type in protocol_types %}
+                <button class="protocol-type-card" type="submit" name="protocol_type" value="{{ protocol_type.pk }}">
+                    <strong>{{ protocol_type.name }}</strong>
+                    <span>Создать протокол этого типа</span>
+                </button>
+            {% endfor %}
+        </form>
+    {% else %}
+        {% include 'acts/includes/empty_state.html' with title='Типы протоколов не настроены' message='Обратитесь к администратору: активных типов протоколов нет.' %}
+    {% endif %}
+</div>
+{% endblock %}

@@ -34,6 +34,7 @@ urlpatterns = [
     # behind them stay as they are.
     path('quality/acts/', include('acts.urls')),
     path('quality/tasks/', include('tasks.urls')),
+    path('quality/protocols/', include('protocols.urls')),
     path('calculators/winding/', include('calculator.urls')),
     path('calculators/plate-cutting/', include('plate_cutting.urls')),
 

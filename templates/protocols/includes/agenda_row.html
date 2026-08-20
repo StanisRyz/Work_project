@@ -1,0 +1,8 @@
+<div class="protocol-row protocol-row--agenda" data-row>
+    <label>
+        <span>Вопрос повестки</span>
+        <textarea name="agenda-{{ row.index }}-text" rows="2" placeholder="Сформулируйте вопрос">{{ row.text }}</textarea>
+        {% if row.errors.text %}<span class="field-error">{{ row.errors.text }}</span>{% endif %}
+    </label>
+    <button class="protocol-remove-button" type="button" data-remove-row aria-label="Удалить вопрос" title="Удалить вопрос">×</button>
+</div>

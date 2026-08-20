@@ -1,0 +1,6 @@
+{% comment %}
+Every active employee, tagged with the department the browser filters on. The
+same mechanism the ТО analysis form uses: no directory endpoint, and the server
+re-checks the department of whatever comes back.
+{% endcomment %}
+{% for employee in employees %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if selected == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}</option>{% endfor %}

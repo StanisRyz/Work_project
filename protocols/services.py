@@ -17,12 +17,15 @@ from django.db import transaction
 
 from .models import (
     Protocol,
+    ProtocolAction,
+    ProtocolActionAssignee,
+    ProtocolAgendaItem,
     ProtocolHistoryEvent,
     ProtocolParticipant,
     ProtocolSpeech,
     ProtocolType,
 )
-from .permissions import can_delete_draft_protocol
+from .permissions import can_delete_draft_protocol, can_edit_protocol
 
 
 class ProtocolWorkflowError(Exception):
@@ -146,3 +149,169 @@ def delete_draft_protocol(protocol, user):
     # the rest of the project uses for dependent rows.
     locked.speeches.all().delete()
     locked.delete()
+
+
+def _document_snapshot(protocol):
+    """A comparable picture of everything the editor can change.
+
+    Compared before and after a save so one edit produces at most one `EDITED`
+    event and an unchanged submission produces none — history records that the
+    protocol was edited, not which field moved.
+    """
+    return {
+        'participants': [
+            (p.user_id, p.department_id, p.requires_approval, p.display_order)
+            for p in protocol.participants.all()
+        ],
+        'agenda': [(item.text, item.display_order) for item in protocol.agenda_items.all()],
+        'speeches': [
+            (speech.speaker.user_id, speech.text, speech.display_order)
+            for speech in protocol.speeches.select_related('speaker')
+        ],
+        'actions': [
+            (
+                action.task_text,
+                action.department_id,
+                action.due_date,
+                action.display_order,
+                sorted(assignee.user_id for assignee in action.assignees.all()),
+            )
+            for action in protocol.actions.prefetch_related('assignees')
+        ],
+    }
+
+
+def _apply_participants(protocol, participants):
+    """Reconcile the participant rows, keeping the snapshots that already exist.
+
+    A participant who stays keeps the `display_name`/`position` frozen when they
+    were added — saving an unrelated block must not quietly refresh them from
+    the profile. Only a genuinely new (or re-added) row gets a new snapshot, and
+    only a changed department re-freezes `department_name` with it.
+    """
+    author_participant = protocol.participants.filter(user_id=protocol.author_id).first()
+    if author_participant is None:
+        # Impossible through `create_protocol()`; refuse rather than invent one.
+        raise ProtocolWorkflowError('Протокол повреждён: автор не является участником.')
+    if author_participant.display_order != 0 or author_participant.requires_approval:
+        author_participant.display_order = 0
+        author_participant.requires_approval = False
+        author_participant.save(update_fields=['display_order', 'requires_approval'])
+
+    existing = {
+        participant.user_id: participant
+        for participant in protocol.participants.all()
+        if participant.user_id != protocol.author_id
+    }
+    keep = set()
+    for order, item in enumerate(participants, start=1):
+        user = item['user']
+        participant = existing.get(user.pk)
+        if participant is None:
+            ProtocolParticipant.objects.create(
+                protocol=protocol,
+                user=user,
+                requires_approval=item['requires_approval'],
+                display_order=order,
+                **build_participant_snapshot(user, item['department']),
+            )
+            continue
+        keep.add(user.pk)
+        updates = []
+        if participant.department_id != getattr(item['department'], 'pk', None):
+            participant.department = item['department']
+            participant.department_name = (getattr(item['department'], 'name', '') or '')[:120]
+            updates += ['department', 'department_name']
+        if participant.requires_approval != item['requires_approval']:
+            participant.requires_approval = item['requires_approval']
+            updates.append('requires_approval')
+        if participant.display_order != order:
+            participant.display_order = order
+            updates.append('display_order')
+        if updates:
+            participant.save(update_fields=updates)
+    for user_id, participant in existing.items():
+        if user_id not in keep:
+            participant.delete()
+
+
+def _apply_speeches(protocol, speeches):
+    """Rewrite «Слушали», resolving each speaker to a participant of this protocol."""
+    participants = {
+        participant.user_id: participant for participant in protocol.participants.all()
+    }
+    for order, speech in enumerate(speeches):
+        speaker = participants.get(speech['speaker_user'].pk)
+        if speaker is None:
+            # The form already refuses this; the service refuses it again so the
+            # rule holds for any future caller.
+            raise ProtocolWorkflowError('Выступающий должен быть участником этого протокола.')
+        ProtocolSpeech.objects.create(
+            protocol=protocol,
+            speaker=speaker,
+            text=speech['text'],
+            display_order=order,
+        )
+
+
+def _apply_actions(protocol, actions):
+    """Rewrite the protocol's task drafts. These are `ProtocolAction` rows only —
+    no `tasks.Task` is created, read or touched here."""
+    for order, item in enumerate(actions):
+        action = ProtocolAction.objects.create(
+            protocol=protocol,
+            task_text=item['text'],
+            department=item['department'],
+            due_date=item['due_date'],
+            display_order=order,
+        )
+        ProtocolActionAssignee.objects.bulk_create(
+            [ProtocolActionAssignee(action=action, user=user) for user in item['assignees']]
+        )
+
+
+@transaction.atomic
+def save_protocol_draft(protocol, user, data):
+    """Persist the whole structured draft, or none of it.
+
+    One transaction covers the lock, the re-check and every block, so a refusal
+    anywhere — a lost race, a revoked right, a speaker who is no longer a
+    participant — leaves the stored protocol exactly as it was.
+    """
+    locked = Protocol.objects.select_for_update().filter(pk=protocol.pk).first()
+    if locked is None:
+        raise ProtocolWorkflowError('Протокол уже удалён.')
+    # Re-checked *after* the lock: the page may have been open while the
+    # protocol moved on or the right was withdrawn.
+    if not can_edit_protocol(locked, user):
+        raise ProtocolWorkflowError('Изменить протокол в его текущем состоянии нельзя.')
+
+    before = _document_snapshot(locked)
+    # Speeches protect the participants they point at, so they go first and are
+    # rebuilt after the participant rows settle — the project's fixed order for
+    # dependent rows.
+    locked.speeches.all().delete()
+    _apply_participants(locked, data['participants'])
+    _apply_speeches(locked, data['speeches'])
+    locked.agenda_items.all().delete()
+    ProtocolAgendaItem.objects.bulk_create(
+        [
+            ProtocolAgendaItem(protocol=locked, text=text, display_order=order)
+            for order, text in enumerate(data['agenda'])
+        ]
+    )
+    locked.actions.all().delete()
+    _apply_actions(locked, data['actions'])
+
+    if _document_snapshot(locked) == before:
+        return locked
+    # `auto_now` is skipped when the field is not listed, so it is listed.
+    locked.save(update_fields=['updated_at'])
+    ProtocolHistoryEvent.objects.create(
+        protocol=locked,
+        actor=user,
+        event_type=ProtocolHistoryEvent.EventType.EDITED,
+        revision=locked.revision,
+        message=f'Протокол «{locked.protocol_type.name} №{locked.number}» отредактирован.',
+    )
+    return locked

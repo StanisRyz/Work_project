@@ -41,13 +41,26 @@ def can_view_protocol(protocol, user):
     return bool(getattr(user, 'is_authenticated', False))
 
 
-def can_edit_draft_protocol(protocol, user):
-    """Only a draft is editable, and only by its author or an administrator."""
-    if protocol.status != Protocol.Status.DRAFT:
+# The statuses whose content the author may still change. «На доработке» joins
+# this tuple when the approval stage lands: the author/administrator rule below
+# is already written against the tuple, so nothing else has to move.
+EDITABLE_STATUSES = (Protocol.Status.DRAFT,)
+
+
+def can_edit_protocol(protocol, user):
+    """Author or administrator, while the protocol is in an editable status."""
+    if protocol.status not in EDITABLE_STATUSES:
         return False
     if is_protocol_admin(user):
         return True
     return bool(getattr(user, 'is_authenticated', False)) and protocol.author_id == user.id
+
+
+def can_edit_draft_protocol(protocol, user):
+    """The draft-only spelling of `can_edit_protocol()`, kept for its callers."""
+    if protocol.status != Protocol.Status.DRAFT:
+        return False
+    return can_edit_protocol(protocol, user)
 
 
 def can_delete_draft_protocol(protocol, user):

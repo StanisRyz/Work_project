@@ -1,0 +1,95 @@
+{% comment %}
+The whole protocol in one form, saved by one explicit «Сохранить черновик».
+There is no autosave. Every block is a plain repeatable list of rows;
+`static/js/protocol_editor.js` only adds, removes and renumbers them and keeps
+the dependent selectors in step — every rule is re-checked on the server.
+{% endcomment %}
+<form class="protocol-editor" method="post" action="{% url 'protocols:save_draft' protocol.pk %}" data-protocol-editor data-author-id="{{ protocol.author_id }}" data-author-name="{{ author_participant.display_name|default:protocol.author }}">
+    {% csrf_token %}
+
+    {% for error in form.non_field_errors %}<p class="field-error protocol-editor__error">{{ error }}</p>{% endfor %}
+
+    <section class="detail-section protocol-block" data-block="participants">
+        <div class="protocol-block__head">
+            <h2>Участники</h2>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-row>+ Участник</button>
+        </div>
+        <input type="hidden" name="participants-TOTAL_FORMS" value="{{ form.participant_rows|length }}" data-total>
+
+        {% comment %}
+        The author is fixed: no department or employee selector, no approval
+        checkbox and no delete. `Protocol.author` stays the only authority.
+        {% endcomment %}
+        <div class="protocol-row protocol-row--author">
+            <div class="protocol-readonly-field"><span>Подразделение</span><strong>{{ author_participant.department_name|default:'—' }}</strong></div>
+            <div class="protocol-readonly-field"><span>Сотрудник</span><strong>{{ author_participant.display_name|default:protocol.author }}</strong></div>
+            <span class="protocol-author-mark">Автор протокола</span>
+        </div>
+
+        <div class="protocol-row-list" data-row-list>
+            {% for row in form.participant_rows %}
+                {% include 'protocols/includes/participant_row.html' %}
+            {% endfor %}
+        </div>
+        <template data-row-template>
+            {% include 'protocols/includes/participant_row.html' with row=empty_row %}
+        </template>
+    </section>
+
+    <section class="detail-section protocol-block" data-block="agenda">
+        <div class="protocol-block__head">
+            <h2>Повестка</h2>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-row>+ Вопрос</button>
+        </div>
+        <input type="hidden" name="agenda-TOTAL_FORMS" value="{{ form.agenda_rows|length }}" data-total>
+        <div class="protocol-row-list" data-row-list>
+            {% for row in form.agenda_rows %}
+                {% include 'protocols/includes/agenda_row.html' %}
+            {% endfor %}
+        </div>
+        <template data-row-template>
+            {% include 'protocols/includes/agenda_row.html' with row=empty_row %}
+        </template>
+    </section>
+
+    <section class="detail-section protocol-block" data-block="speeches">
+        <div class="protocol-block__head">
+            <h2>Слушали</h2>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-row>+ Выступление</button>
+        </div>
+        <input type="hidden" name="speeches-TOTAL_FORMS" value="{{ form.speech_rows|length }}" data-total>
+        <div class="protocol-row-list" data-row-list>
+            {% for row in form.speech_rows %}
+                {% include 'protocols/includes/speech_row.html' %}
+            {% endfor %}
+        </div>
+        <template data-row-template>
+            {% include 'protocols/includes/speech_row.html' with row=empty_row %}
+        </template>
+    </section>
+
+    <section class="detail-section protocol-block" data-block="actions">
+        <div class="protocol-block__head">
+            <h2>Задачи</h2>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-row>+ Задача</button>
+        </div>
+        <p class="protocol-block__hint">Протокол может не содержать задач. Заполненная задача требует формулировки, подразделения, срока и хотя бы одного исполнителя.</p>
+        <input type="hidden" name="actions-TOTAL_FORMS" value="{{ form.action_rows|length }}" data-total>
+        <div class="protocol-row-list protocol-row-list--actions" data-row-list>
+            {% for row in form.action_rows %}
+                {% include 'protocols/includes/action_row.html' %}
+            {% endfor %}
+        </div>
+        <template data-row-template>
+            {% include 'protocols/includes/action_row.html' with row=empty_action_row %}
+        </template>
+        <template data-assignee-template>
+            {% include 'protocols/includes/assignee_row.html' with assignee=empty_assignee action_index=0 %}
+        </template>
+    </section>
+
+    <div class="protocol-editor__actions">
+        <a class="link-button link-button--secondary" href="{% url 'protocols:list' %}">К списку протоколов</a>
+        <button class="link-button" type="submit">Сохранить черновик</button>
+    </div>
+</form>

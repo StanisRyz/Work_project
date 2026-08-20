@@ -1,0 +1,243 @@
+/*
+ * Protocols-specific layout only.
+ *
+ * Cards, buttons, tabs, badges, tables and the confirmation modal all come from
+ * the shared design system (`components.css`, `acts.css`); what is here is the
+ * editor's row grids and the few read-only blocks that have no equivalent yet.
+ */
+
+/* Registry -------------------------------------------------------------- */
+
+.protocol-table { min-width: 720px; }
+.protocol-table tbody tr { position: relative; }
+.protocol-table tbody tr:hover { background: #f7f9ff; }
+
+/* One click anywhere on the row opens the protocol; the number stays a real
+   link, so keyboard and «open in new tab» keep working. */
+.protocol-row-link::after { content: ''; position: absolute; inset: 0; }
+
+/* Type selection --------------------------------------------------------- */
+
+.protocol-create-page { display: grid; gap: 18px; }
+
+.protocol-page-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.protocol-page-header h1 { margin: 0; font-size: 22px; }
+.protocol-page-header p { margin: 4px 0 0; color: var(--color-muted); }
+
+.protocol-type-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.protocol-type-card {
+    display: grid;
+    gap: 6px;
+    padding: 18px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.protocol-type-card:hover,
+.protocol-type-card:focus-visible {
+    border-color: var(--color-primary-dark);
+    box-shadow: 0 2px 10px rgba(22, 40, 82, 0.08);
+}
+
+.protocol-type-card strong { color: var(--color-primary-dark); font-size: 16px; }
+.protocol-type-card span { color: var(--color-muted); font-size: 13px; }
+
+/* Detail heading --------------------------------------------------------- */
+
+.protocol-detail-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 16px;
+    margin-bottom: 16px;
+}
+
+.protocol-detail-heading__title { display: flex; align-items: center; gap: 12px; }
+.protocol-detail-heading__title h1 { margin: 0; font-size: 22px; }
+
+.protocol-detail-heading__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.protocol-detail-heading .link-button--danger { margin-left: auto; }
+
+/* Editor ----------------------------------------------------------------- */
+
+.protocol-editor { display: grid; gap: 16px; }
+.protocol-editor__error { margin: 0 0 12px; }
+
+.protocol-block { display: grid; gap: 12px; }
+
+.protocol-block__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.protocol-block__head h2 { margin: 0; font-size: 17px; }
+.protocol-block__hint { margin: 0; color: var(--color-muted); font-size: 13px; }
+
+.protocol-row-list { display: grid; gap: 12px; }
+
+.protocol-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+    align-items: end;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+.protocol-row--author { background: #f7f9ff; }
+.protocol-row--agenda,
+.protocol-row--speech { grid-template-columns: minmax(0, 1fr) auto; }
+.protocol-row--speech { grid-template-columns: minmax(0, 240px) minmax(0, 1fr) auto; }
+
+.protocol-row label { display: grid; gap: 6px; color: var(--color-muted); font-size: 14px; }
+
+.protocol-row select,
+.protocol-row input,
+.protocol-row textarea,
+.protocol-action-card select,
+.protocol-action-card input,
+.protocol-action-card textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.protocol-row textarea,
+.protocol-action-card textarea { resize: vertical; }
+
+.protocol-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 10px;
+    white-space: nowrap;
+}
+
+.protocol-checkbox input { width: auto; }
+
+.protocol-readonly-field { display: grid; gap: 6px; font-size: 14px; }
+.protocol-readonly-field span { color: var(--color-muted); }
+.protocol-readonly-field strong { color: var(--color-text); }
+
+.protocol-author-mark {
+    align-self: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #eef4ff;
+    color: var(--color-primary-dark);
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.protocol-remove-button {
+    align-self: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.protocol-remove-button:hover,
+.protocol-remove-button:focus-visible { border-color: #c0392b; color: #c0392b; }
+
+/* Task drafts ------------------------------------------------------------ */
+
+.protocol-action-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+.protocol-action-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.protocol-action-card__head h3 { margin: 0; font-size: 15px; }
+.protocol-action-card label { display: grid; gap: 6px; color: var(--color-muted); font-size: 14px; }
+
+.protocol-action-card__fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
+    gap: 12px;
+}
+
+.protocol-assignee-list { display: grid; gap: 10px; }
+
+.protocol-assignee-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 12px;
+}
+
+.protocol-editor__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* Read-only view --------------------------------------------------------- */
+
+.protocol-readonly-list,
+.protocol-readonly-ordered { display: grid; gap: 12px; margin: 0; padding-left: 0; }
+.protocol-readonly-ordered { padding-left: 20px; }
+.protocol-readonly-list { list-style: none; }
+
+.protocol-readonly-list li { display: grid; gap: 4px; }
+.protocol-readonly-list li p { margin: 0; }
+.protocol-readonly-list li span { color: var(--color-muted); font-size: 14px; }
+.protocol-readonly-list li .status-badge,
+.protocol-readonly-list li .protocol-author-mark { justify-self: start; }
+
+/* Narrow screens --------------------------------------------------------- */
+
+@media (max-width: 900px) {
+    .protocol-row,
+    .protocol-row--speech,
+    .protocol-action-card__fields,
+    .protocol-assignee-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+
+    .protocol-remove-button { justify-self: end; }
+    .protocol-checkbox { padding-bottom: 0; }
+    .protocol-detail-heading .link-button--danger { margin-left: 0; }
+}
