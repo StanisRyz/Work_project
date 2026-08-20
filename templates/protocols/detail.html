@@ -4,7 +4,7 @@
 {% block title %}{{ protocol.protocol_type.name }} №{{ protocol.number }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260820-1">
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260820-2">
 {% endblock %}
 
 {% block content %}
@@ -17,6 +17,11 @@
     <div class="protocol-detail-heading__meta">
         <span>Создан {{ protocol.created_at|date:'d.m.Y H:i' }}</span>
         <span>Автор: {{ protocol.author.get_full_name|default:protocol.author.username }}</span>
+        {% comment %}
+        Revision 0 means «никогда не отправлялся»: showing it would say less
+        than nothing, so it appears only once a round has actually opened.
+        {% endcomment %}
+        {% if protocol.revision %}<span>Редакция {{ protocol.revision }}</span>{% endif %}
     </div>
     {% if can_delete %}
         {% comment %}
@@ -43,15 +48,29 @@
 
 {% if detail_tab == 'history' %}
     {% include 'protocols/includes/history_timeline.html' %}
-{% elif can_edit %}
-    {% include 'protocols/includes/editor.html' %}
+    {% include 'protocols/includes/approval_history.html' %}
 {% else %}
-    {% include 'protocols/includes/readonly.html' %}
+    {% comment %}
+    The current round is shown above the document itself while the protocol is
+    being signed, and for an archived or returned protocol it stays as the
+    record of the last round. The panel is keyed on there actually being
+    approvals: a protocol that has never been sent has none, and neither has
+    one that required nobody and was archived by the submission itself — an
+    empty «0 из 0» panel would describe a round that never existed.
+    {% endcomment %}
+    {% if current_approvals %}
+        {% include 'protocols/includes/approval_panel.html' %}
+    {% endif %}
+    {% if can_edit %}
+        {% include 'protocols/includes/editor.html' %}
+    {% else %}
+        {% include 'protocols/includes/readonly.html' %}
+    {% endif %}
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
 {% if detail_tab == 'protocol' and can_edit %}
-    <script src="{% static 'js/protocol_editor.js' %}?v=20260820-1"></script>
+    <script src="{% static 'js/protocol_editor.js' %}?v=20260820-2"></script>
 {% endif %}
 {% endblock %}

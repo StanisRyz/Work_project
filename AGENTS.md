@@ -415,6 +415,50 @@ tasks never live inside `acts`.
   service turns it into a controlled refusal rather than relying on the
   `IntegrityError`. A protocol nobody must approve is finalized by the
   submission itself, in that same transaction, so it never parks in `APPROVAL`.
+- **The workflow endpoints are thin and POST-only.** Three routes exist —
+  `protocols:send_for_approval`, `protocols:approve`, `protocols:return_for_revision`
+  — one per transition, each a wrapper around `send_protocol_for_approval()`,
+  `approve_protocol()` and `return_protocol_for_revision()`. A GET on any of
+  them redirects to the protocol and mutates nothing; a `ProtocolWorkflowError`
+  is rendered back on the protocol page. `protocols/permissions.py` only decides
+  what is *rendered* — `can_send_protocol_for_approval()` for the author's
+  «Отправить на согласование», `can_decide_protocol_approval()` for the two
+  approver buttons — and the services stay authoritative under the row lock.
+  Never restate a state-machine rule in a view, a template or JavaScript.
+- **Submission posts the editor form itself.** «Отправить на согласование» posts
+  the *same* fields as «Сохранить черновик» to the submission endpoint, and the
+  view runs `ProtocolDraftForm` → `save_protocol_draft()` → `send_protocol_for_approval()`
+  in that order, so what goes for approval is exactly what was on screen. An
+  invalid form submits nothing; a draft that saves but is refused by
+  `validate_protocol_for_approval()` leaves the protocol editable with the error
+  shown. Do not merge the two calls, and do not add an autosave.
+- **The approval UI reads through the selectors.** `get_approval_progress()`,
+  `get_current_approval_rows()` and `get_approval_revision_groups()` are what the
+  panel and the by-revision history render; templates never rebuild an approval
+  query. Everything shown comes from `ProtocolApproval` snapshots and the stored
+  `required_as_*` flags, never from the profile as it stands today, and a
+  previous revision stays visible without being presented as the live round.
+  The editor's «согласует как исполнитель задачи» hint is derived in
+  `protocol_editor.js` for presentation only: it never writes `requires_approval`,
+  which stays the author's own manual value, and `collect_required_approvers()`
+  remains the only authority on who must sign.
+- **An approval task always opens the protocol.** `PROTOCOL_APPROVAL` is a
+  work-queue entry, so `tasks:detail` redirects it to `protocols:detail` and the
+  ordinary completion UI is never rendered for it — matching `can_complete_task()`
+  and `complete_task()`, which already refuse it. `PROTOCOL_ACTION` stays a
+  normal task with the normal detail and completion flow, minus the act-only
+  sections. Act-only blocks branch on `source_type`, never on a relation being
+  non-NULL.
+- **Task source presentation lives in `tasks/presentation.py`.** `describe_task_source()`
+  builds the label and the `reverse()`d link («Качество №7» → the protocol, an
+  act number → the act), and `describe_task_state()` answers with the
+  `ProtocolApproval` decision for an approval queue entry — a task closed because
+  someone else returned the protocol is `COMPLETED` as a queue row and must never
+  be shown as approved. `build_task_list_state()` returns those as `rows`, so the
+  full page and the live fragment stay identical. The registry's «Тип задачи»
+  filter is `source_type`; the task's own workflow status is a separate column,
+  and the two are never conflated again. Never hard-code a public URL in a
+  template.
 
 ## Security and permissions
 

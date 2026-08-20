@@ -89,11 +89,11 @@ class TaskListBuilderTests(TaskLiveMixin, TestCase):
 
     def test_filters_and_sorting_are_validated(self):
         state = build_task_list_state(
-            self.owner, _query('tab=nonsense&status=hack&due=hack&sort=hack')
+            self.owner, _query('tab=nonsense&source_type=hack&due=hack&sort=hack')
         )
 
         self.assertEqual(state['tab'], 'my')
-        self.assertEqual(state['selected']['status'], '')
+        self.assertEqual(state['selected']['source_type'], '')
         self.assertEqual(state['selected']['due'], '')
         self.assertEqual(state['selected']['sort'], '')
 

@@ -7,6 +7,12 @@
  * filters the employee selectors by the chosen department and keeps the speaker
  * selectors in step with the participant rows.
  *
+ * It also derives one purely presentational hint: a participant who is also an
+ * assignee of a protocol task will have to approve the protocol whether or not
+ * «Требует согласования» is ticked. The hint never changes the checkbox — the
+ * manual flag is stored on its own, and `collect_required_approvers()` on the
+ * server remains the only authority on who must sign.
+ *
  * No business rule lives here. The server re-parses and re-validates everything
  * — required fields, duplicate participants, the department an employee really
  * belongs to and the speaker being a participant of this protocol.
@@ -93,9 +99,31 @@
         });
     };
 
+    /**
+     * Mark the participants who will be required to approve because a protocol
+     * task names them. Read-only: it toggles a hint and nothing else, so a
+     * participant's own «Требует согласования» value survives untouched.
+     */
+    const syncAutoApprovalHints = () => {
+        const assigned = new Set(
+            [...form.querySelectorAll('[data-assignee-row] [data-employee-select]')]
+                .map((select) => select.value)
+                .filter(Boolean),
+        );
+        form.querySelectorAll('[data-block="participants"] [data-row]').forEach((row) => {
+            const hint = row.querySelector('[data-auto-approval-hint]');
+            const user = row.querySelector('[data-participant-user]');
+            if (!hint || !user) return;
+            // The author never approves their own protocol, even when a task
+            // names them, so their row is never hinted.
+            hint.hidden = !user.value || user.value === authorId || !assigned.has(user.value);
+        });
+    };
+
     const syncAllPairs = () => {
         form.querySelectorAll('[data-employee-pair]').forEach(syncPair);
         syncParticipants();
+        syncAutoApprovalHints();
     };
 
     const addRow = (block) => {
@@ -144,11 +172,14 @@
         const target = event.target;
         if (target.matches('[data-participant-user]') || target.closest('[data-block]')?.dataset.block === 'participants') {
             syncParticipants();
+        } else if (target.matches('[data-department-select]') || target.matches('[data-employee-select]')) {
+            syncPair(target.closest('[data-employee-pair]'));
+        } else {
             return;
         }
-        if (target.matches('[data-department-select]') || target.matches('[data-employee-select]')) {
-            syncPair(target.closest('[data-employee-pair]'));
-        }
+        // Both branches can change who a protocol task names, so the derived
+        // approval hint is refreshed from one place.
+        syncAutoApprovalHints();
     });
 
     blocks.forEach(renumber);

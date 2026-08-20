@@ -508,3 +508,147 @@ class ProtocolApprovalWorkflowTests(TestCase):
         # The shared-task semantics are the ordinary ones: one assignee finishes it.
         completed = complete_task(tasks[action.pk], self.executor, 'Оснастка проверена.')
         self.assertEqual(completed.status.code, 'COMPLETED')
+
+
+class ProtocolApprovalUiTests(TestCase):
+    """The approval workflow as it is actually reached: through the pages.
+
+    Two scenarios, both end to end. The services already have their own tests
+    above; what is checked here is the part only the UI stage can get wrong —
+    that «Отправить на согласование» submits *the form's current content*, that
+    the protocol then really is read-only with its round exposed, and that an
+    approval task is a queue entry which leads to the protocol and is never
+    completable as an ordinary task.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.quality = ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE)
+        cls.otk = Department.objects.create(name='ОТК', code='OTK')
+        cls.to = Department.objects.create(name='ТО', code='TO')
+        cls.author = _employee('ui_author', cls.otk, 'Иван', 'Петров')
+        cls.reviewer = _employee('ui_reviewer', cls.to, 'Пётр', 'Сидоров')
+        cls.executor = _employee('ui_executor', cls.to, 'Анна', 'Кузнецова')
+
+    def _payload(self, **overrides):
+        """Exactly what the editor form posts, for either endpoint."""
+        payload = {
+            'participants-TOTAL_FORMS': '1',
+            'participants-0-department': str(self.to.pk),
+            'participants-0-user': str(self.reviewer.pk),
+            'participants-0-requires_approval': 'on',
+            'agenda-TOTAL_FORMS': '1',
+            'agenda-0-text': 'О качестве партии',
+            'speeches-TOTAL_FORMS': '1',
+            'speeches-0-speaker': str(self.author.pk),
+            'speeches-0-text': 'Доложил о результатах контроля.',
+            'actions-TOTAL_FORMS': '1',
+            'actions-0-text': 'Проверить оснастку',
+            'actions-0-department': str(self.to.pk),
+            'actions-0-due_date': (timezone.localdate() + timedelta(days=7)).isoformat(),
+            'actions-0-assignee_departments': str(self.to.pk),
+            'actions-0-assignees': str(self.executor.pk),
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_author_submits_the_form_content_and_the_protocol_becomes_read_only(self):
+        protocol = create_protocol(self.quality, self.author)
+        self.client.force_login(self.author)
+        send_url = reverse('protocols:send_for_approval', args=[protocol.pk])
+
+        # An invalid form submits nothing at all: no draft, no approval round.
+        refused = self.client.post(send_url, self._payload(**{'agenda-0-text': ''}))
+        self.assertEqual(refused.status_code, 400)
+        protocol.refresh_from_db()
+        self.assertEqual((protocol.status, protocol.revision), (Protocol.Status.DRAFT, 0))
+        self.assertFalse(ProtocolApproval.objects.filter(protocol=protocol).exists())
+
+        # A GET never mutates: the endpoint is POST-only.
+        self.client.get(send_url)
+        protocol.refresh_from_db()
+        self.assertEqual(protocol.status, Protocol.Status.DRAFT)
+
+        # The real submission: the content typed *now* is what is saved and
+        # what goes for approval — the page was never saved before this.
+        response = self.client.post(
+            send_url, self._payload(**{'agenda-0-text': 'Итоговая повестка'})
+        )
+        self.assertRedirects(response, reverse('protocols:detail', args=[protocol.pk]))
+        protocol.refresh_from_db()
+        self.assertEqual((protocol.status, protocol.revision), (Protocol.Status.APPROVAL, 1))
+        self.assertEqual(protocol.agenda_items.get().text, 'Итоговая повестка')
+
+        page = self.client.get(reverse('protocols:detail', args=[protocol.pk]))
+        # `APPROVAL` is read-only even for the author, and the round is shown.
+        self.assertFalse(page.context['can_edit'])
+        self.assertFalse(page.context['can_send_for_approval'])
+        self.assertNotContains(page, 'Сохранить черновик')
+        self.assertContains(page, 'Согласовано: 0 из 2')
+        self.assertContains(page, 'Редакция 1')
+        # The snapshot says who signs and why, from the stored flags.
+        self.assertContains(page, 'Пётр Сидоров')
+        self.assertContains(page, 'Участник, отмеченный «Требует согласования»')
+        self.assertContains(page, 'Исполнитель задачи протокола')
+
+    def test_an_approval_task_leads_to_the_protocol_and_decides_only_there(self):
+        protocol = create_protocol(self.quality, self.author)
+        self.client.force_login(self.author)
+        self.client.post(
+            reverse('protocols:send_for_approval', args=[protocol.pk]), self._payload()
+        )
+        approval = ProtocolApproval.objects.get(protocol=protocol, user=self.reviewer)
+
+        # The queue entry exists, but it is only that: opening it lands on the
+        # protocol, and the ordinary completion endpoint refuses it outright.
+        self.client.force_login(self.reviewer)
+        self.assertRedirects(
+            self.client.get(reverse('tasks:detail', args=[approval.task_id])),
+            reverse('protocols:detail', args=[protocol.pk]),
+        )
+        refused = self.client.post(
+            reverse('tasks:complete', args=[approval.task_id]),
+            {'execution_comment': 'Согласовано.'},
+        )
+        self.assertEqual(refused.status_code, 400)
+        approval.refresh_from_db()
+        self.assertEqual(approval.status, ProtocolApproval.Status.PENDING)
+
+        # A return needs a comment, and refusing it keeps the page usable.
+        return_url = reverse('protocols:return_for_revision', args=[protocol.pk])
+        empty = self.client.post(return_url, {'comment': '   '})
+        self.assertEqual(empty.status_code, 400)
+        self.assertContains(empty, 'Укажите причину возврата на доработку.', status_code=400)
+
+        page = self.client.get(reverse('protocols:detail', args=[protocol.pk]))
+        self.assertTrue(page.context['can_decide_approval'])
+        self.assertContains(page, 'Вернуть на доработку')
+        self.assertContains(page, 'Согласовать')
+
+        self.client.post(return_url, {'comment': 'Уточните сроки.'})
+        protocol.refresh_from_db()
+        approval.refresh_from_db()
+        self.assertEqual(protocol.status, Protocol.Status.REVISION)
+        self.assertEqual(approval.status, ProtocolApproval.Status.RETURNED)
+        # The executor's round was cancelled — never presented as approved.
+        cancelled = ProtocolApproval.objects.get(protocol=protocol, user=self.executor)
+        self.assertEqual(cancelled.status, ProtocolApproval.Status.CANCELLED)
+
+        # Resubmission opens revision 2; revision 1 stays visible as history
+        # and no longer counts towards the live round.
+        self.client.force_login(self.author)
+        self.client.post(
+            reverse('protocols:send_for_approval', args=[protocol.pk]), self._payload()
+        )
+        protocol.refresh_from_db()
+        self.assertEqual((protocol.status, protocol.revision), (Protocol.Status.APPROVAL, 2))
+        page = self.client.get(reverse('protocols:detail', args=[protocol.pk]))
+        self.assertContains(page, 'Согласовано: 0 из 2')
+        self.assertContains(page, 'Редакция 2')
+        history = self.client.get(
+            reverse('protocols:detail', args=[protocol.pk]), {'tab': 'history'}
+        )
+        self.assertEqual(
+            [group['revision'] for group in history.context['approval_revisions']], [2, 1]
+        )
+        self.assertContains(history, 'Уточните сроки.')

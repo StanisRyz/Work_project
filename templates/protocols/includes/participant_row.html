@@ -22,6 +22,12 @@ is fixed and lives directly in the editor.
     <label class="protocol-checkbox">
         <input type="checkbox" name="participants-{{ row.index }}-requires_approval"{% if row.requires_approval %} checked{% endif %}>
         <span>Требует согласования</span>
+        {% comment %}
+        Shown by `protocol_editor.js` when this employee is also an assignee of
+        a protocol task. It never touches the checkbox: the manual flag is the
+        author's own choice and is stored independently of the automatic rule.
+        {% endcomment %}
+        <span class="protocol-auto-approval-hint" data-auto-approval-hint hidden>Согласует как исполнитель задачи</span>
     </label>
     <button class="protocol-remove-button" type="button" data-remove-row aria-label="Удалить участника" title="Удалить участника">×</button>
 </div>

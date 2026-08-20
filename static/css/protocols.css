@@ -229,6 +229,109 @@
 .protocol-readonly-list li .status-badge,
 .protocol-readonly-list li .protocol-author-mark { justify-self: start; }
 
+/* Approval ---------------------------------------------------------------
+   Panel, per-approver rows and the by-revision history. The card, badge and
+   button styles themselves stay in the shared system; only the grids and the
+   four decision colours are here. */
+
+.protocol-approval-panel,
+.protocol-approval-history { display: grid; gap: 12px; }
+
+.protocol-approval-panel__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+}
+
+.protocol-approval-panel__head h2 { margin: 0; font-size: 17px; }
+
+.protocol-approval-progress {
+    color: var(--color-primary-dark);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.protocol-approval-list {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.protocol-approval-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 260px);
+    align-items: start;
+    gap: 10px 16px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-left-width: 3px;
+    border-radius: var(--radius);
+}
+
+.protocol-approval-item--pending { border-left-color: #f59e0b; }
+.protocol-approval-item--approved { border-left-color: #16a34a; }
+.protocol-approval-item--returned { border-left-color: #c0392b; }
+.protocol-approval-item--cancelled { border-left-color: var(--color-muted); }
+
+.protocol-approval-item__who,
+.protocol-approval-item__state { display: grid; gap: 4px; }
+.protocol-approval-item__state { justify-items: start; }
+
+.protocol-approval-item__who span,
+.protocol-approval-item__state time,
+.protocol-approval-item__waiting { color: var(--color-muted); font-size: 14px; }
+
+.protocol-approval-item__reason { font-size: 13px; font-style: italic; }
+
+.protocol-approval-item__comment {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 14px;
+}
+
+.protocol-approval-panel__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.protocol-approval-panel__own { margin: 0; color: var(--color-muted); font-size: 14px; }
+
+.protocol-approval-revision { display: grid; gap: 10px; }
+
+.protocol-approval-revision + .protocol-approval-revision {
+    padding-top: 14px;
+    border-top: 1px solid var(--color-border);
+}
+
+.protocol-approval-revision__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.protocol-approval-revision__head h3 { margin: 0; font-size: 15px; }
+
+/* A previous round stays readable but must never look like the live one. */
+.protocol-approval-revision:not(.protocol-approval-revision--current) .protocol-approval-item {
+    background: var(--color-bg);
+    border-left-color: var(--color-border);
+}
+
+.protocol-auto-approval-hint {
+    color: var(--color-muted);
+    font-size: 12px;
+    font-style: italic;
+    white-space: normal;
+}
+
+.protocol-auto-approval-hint[hidden] { display: none; }
+
 /* Narrow screens --------------------------------------------------------- */
 
 @media (max-width: 900px) {
@@ -237,7 +340,9 @@
     .protocol-action-card__fields,
     .protocol-assignee-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
 
+    .protocol-approval-item { grid-template-columns: minmax(0, 1fr); }
+
     .protocol-remove-button { justify-self: end; }
-    .protocol-checkbox { padding-bottom: 0; }
+    .protocol-checkbox { flex-wrap: wrap; padding-bottom: 0; }
     .protocol-detail-heading .link-button--danger { margin-left: 0; }
 }

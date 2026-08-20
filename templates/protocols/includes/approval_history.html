@@ -1,0 +1,41 @@
+{% comment %}
+Approval history grouped by revision, newest first.
+
+Rows from earlier revisions are kept forever and stay readable, but only the
+revision the protocol is actually on is marked as current — a resubmission
+must never make a previous round look active. Built by
+`get_approval_revision_groups()`; the template runs no query of its own.
+{% endcomment %}
+{% if approval_revisions %}
+<section class="detail-section protocol-approval-history">
+    <h2>Согласования по редакциям</h2>
+    {% for group in approval_revisions %}
+        <article class="protocol-approval-revision{% if group.is_current %} protocol-approval-revision--current{% endif %}">
+            <div class="protocol-approval-revision__head">
+                <h3>Редакция {{ group.revision }}</h3>
+                <span class="act-badge {% if group.is_current %}act-badge--status{% else %}act-badge--muted{% endif %}">{% if group.is_current %}Текущая редакция{% else %}Предыдущая редакция{% endif %}</span>
+            </div>
+            <ul class="protocol-approval-list">
+                {% for row in group.approvals %}
+                    <li class="protocol-approval-item protocol-approval-item--{{ row.variant }}">
+                        <div class="protocol-approval-item__who">
+                            <strong>{{ row.approval.display_name }}</strong>
+                            <span>{{ row.approval.department_name|default:'—' }}{% if row.approval.position %} · {{ row.approval.position }}{% endif %}</span>
+                            {% if row.reason %}<span class="protocol-approval-item__reason">{{ row.reason }}</span>{% endif %}
+                        </div>
+                        <div class="protocol-approval-item__state">
+                            <span class="approval-status approval-status--{{ row.variant }}">{{ row.status_label }}</span>
+                            {% if row.approval.decided_at %}
+                                <time datetime="{{ row.approval.decided_at|date:'c' }}">{{ row.approval.decided_at|date:'d.m.Y H:i' }}</time>
+                            {% endif %}
+                            {% if row.approval.return_comment %}
+                                <p class="protocol-approval-item__comment">Причина возврата: {{ row.approval.return_comment|linebreaksbr }}</p>
+                            {% endif %}
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        </article>
+    {% endfor %}
+</section>
+{% endif %}

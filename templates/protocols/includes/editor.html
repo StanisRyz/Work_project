@@ -4,7 +4,7 @@ There is no autosave. Every block is a plain repeatable list of rows;
 `static/js/protocol_editor.js` only adds, removes and renumbers them and keeps
 the dependent selectors in step — every rule is re-checked on the server.
 {% endcomment %}
-<form class="protocol-editor" method="post" action="{% url 'protocols:save_draft' protocol.pk %}" data-protocol-editor data-author-id="{{ protocol.author_id }}" data-author-name="{{ author_participant.display_name|default:protocol.author }}">
+<form class="protocol-editor" id="protocol-editor-form" method="post" action="{% url 'protocols:save_draft' protocol.pk %}" data-protocol-editor data-author-id="{{ protocol.author_id }}" data-author-name="{{ author_participant.display_name|default:protocol.author }}">
     {% csrf_token %}
 
     {% for error in form.non_field_errors %}<p class="field-error protocol-editor__error">{{ error }}</p>{% endfor %}
@@ -74,6 +74,12 @@ the dependent selectors in step — every rule is re-checked on the server.
             <button class="link-button link-button--secondary link-button--compact" type="button" data-add-row>+ Задача</button>
         </div>
         <p class="protocol-block__hint">Протокол может не содержать задач. Заполненная задача требует формулировки, подразделения, срока и хотя бы одного исполнителя.</p>
+        {% comment %}
+        Presentation only. `collect_required_approvers()` on the server stays
+        the authority on who must sign; this sentence and the per-participant
+        hint below merely say out loud what it will decide.
+        {% endcomment %}
+        <p class="protocol-block__hint">Исполнители задач протокола автоматически становятся согласующими — кроме автора протокола.</p>
         <input type="hidden" name="actions-TOTAL_FORMS" value="{{ form.action_rows|length }}" data-total>
         <div class="protocol-row-list protocol-row-list--actions" data-row-list>
             {% for row in form.action_rows %}
@@ -90,6 +96,22 @@ the dependent selectors in step — every rule is re-checked on the server.
 
     <div class="protocol-editor__actions">
         <a class="link-button link-button--secondary" href="{% url 'protocols:list' %}">К списку протоколов</a>
-        <button class="link-button" type="submit">Сохранить черновик</button>
+        <button class="link-button link-button--secondary" type="submit">Сохранить черновик</button>
+        {% if can_send_for_approval %}
+            {% comment %}
+            Author-only, and it posts *this* form — the same fields «Сохранить
+            черновик» posts — to the submission endpoint, so what goes for
+            approval is exactly what is on screen. The view saves the draft
+            first and only then calls `send_protocol_for_approval()`; both
+            re-check status and author under the row lock.
+            {% endcomment %}
+            <button class="link-button" type="button"
+                    data-confirm
+                    data-confirm-form="protocol-editor-form"
+                    data-confirm-form-action="{% url 'protocols:send_for_approval' protocol.pk %}"
+                    data-confirm-title="Отправить протокол на согласование?"
+                    data-confirm-text="Текущее содержимое протокола будет сохранено и отправлено согласующим. Пока согласование активно, документ доступен только для чтения — изменить его можно будет лишь после возврата на доработку."
+                    data-confirm-label="Отправить">Отправить на согласование</button>
+        {% endif %}
     </div>
 </form>

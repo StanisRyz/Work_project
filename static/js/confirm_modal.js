@@ -12,6 +12,7 @@
  *   data-confirm-variant             confirm button modifier: warning | danger
  *   data-confirm-url                 POST target — the modal posts its own form
  *   data-confirm-form                id of an existing form to submit instead
+ *   data-confirm-form-action         POST target for that form (default: its own action)
  *   data-confirm-comment="required"  show a mandatory comment field
  *   data-confirm-comment-label       caption of that field
  *   data-confirm-comment-name        posted field name (default: comment)
@@ -91,8 +92,14 @@
         }
 
         // Only the standalone mode posts this form; in form mode the existing
-        // page form keeps its own action and fields.
+        // page form keeps its own fields. Its action is overridden only when
+        // the trigger names another endpoint — that is how one editor form can
+        // be posted either to «сохранить» or to «отправить на согласование»
+        // with exactly the content currently on screen.
         form.action = targetForm ? '' : button.dataset.confirmUrl || '';
+        if (targetForm && button.dataset.confirmFormAction) {
+            targetForm.action = button.dataset.confirmFormAction;
+        }
 
         clearError();
         dialog.showModal();

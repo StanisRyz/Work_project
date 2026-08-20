@@ -575,6 +575,23 @@
     font-weight: 700;
 }
 
+/* One approval decision, as a pill. Shared: the protocol page renders it per
+   approver, and the task registry uses it for the real outcome of an approval
+   queue entry. */
+.approval-status {
+    display: inline-flex;
+    width: fit-content;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.approval-status--pending { background: #fff7ed; color: #9a3412; }
+.approval-status--approved { background: #ecfdf5; color: #15803d; }
+.approval-status--returned { background: #fef2f2; color: #b91c1c; }
+.approval-status--cancelled { background: var(--color-bg); color: var(--color-muted); }
+
 .route-summary {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));

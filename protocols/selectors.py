@@ -150,3 +150,65 @@ def get_approvals_by_revision(protocol):
             groups.append({'revision': approval.revision, 'approvals': []})
         groups[-1]['approvals'].append(approval)
     return groups
+
+
+# --------------------------------------------------------------------------
+# Approval presentation
+#
+# Thin wrappers over the queries above: they add the labels the approval panel
+# and the approval history render and nothing else. Templates never rebuild an
+# approval query of their own, and no rule is restated here — «why did this
+# person have to sign» is read from the historical flags frozen at submission,
+# never recomputed from the protocol as it stands today.
+# --------------------------------------------------------------------------
+
+
+APPROVAL_STATUS_VARIANTS = {
+    ProtocolApproval.Status.PENDING: 'pending',
+    ProtocolApproval.Status.APPROVED: 'approved',
+    ProtocolApproval.Status.RETURNED: 'returned',
+    ProtocolApproval.Status.CANCELLED: 'cancelled',
+}
+
+
+def describe_approval_reason(approval):
+    """Why this person was required, from the flags stored with the revision."""
+    if approval.required_as_participant and approval.required_as_action_assignee:
+        return 'Участник с согласованием и исполнитель задачи протокола'
+    if approval.required_as_action_assignee:
+        return 'Исполнитель задачи протокола'
+    if approval.required_as_participant:
+        return 'Участник, отмеченный «Требует согласования»'
+    return ''
+
+
+def describe_approval(approval):
+    """One approval row as the templates render it."""
+    return {
+        'approval': approval,
+        'variant': APPROVAL_STATUS_VARIANTS.get(approval.status, 'pending'),
+        'status_label': approval.get_status_display(),
+        'reason': describe_approval_reason(approval),
+    }
+
+
+def get_current_approval_rows(protocol):
+    """The current revision's approvals, described for rendering."""
+    return [describe_approval(approval) for approval in get_current_revision_approvals(protocol)]
+
+
+def get_approval_revision_groups(protocol):
+    """Every round, newest first, each flagged as the current revision or not.
+
+    `is_current` is what keeps a previous round from looking active once the
+    protocol has been resubmitted: the rows stay visible forever, but only the
+    revision the protocol is actually on is presented as the live one.
+    """
+    return [
+        {
+            'revision': group['revision'],
+            'is_current': group['revision'] == protocol.revision,
+            'approvals': [describe_approval(approval) for approval in group['approvals']],
+        }
+        for group in get_approvals_by_revision(protocol)
+    ]

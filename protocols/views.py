@@ -11,19 +11,31 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import ProtocolDraftForm
 from .models import Protocol, ProtocolType
-from .permissions import can_delete_draft_protocol, can_edit_protocol
+from .permissions import (
+    can_decide_protocol_approval,
+    can_delete_draft_protocol,
+    can_edit_protocol,
+    can_send_protocol_for_approval,
+)
 from .selectors import (
     build_protocol_list_state,
     get_active_protocol_types,
+    get_approval_progress,
+    get_approval_revision_groups,
+    get_current_approval_rows,
     get_editor_directory,
     get_protocol_history_groups,
     get_readable_protocols_queryset,
+    get_user_approval,
 )
 from .services import (
     ProtocolWorkflowError,
+    approve_protocol,
     create_protocol,
     delete_draft_protocol,
+    return_protocol_for_revision,
     save_protocol_draft,
+    send_protocol_for_approval,
 )
 
 
@@ -106,6 +118,106 @@ def protocol_delete(request, pk):
     return redirect('protocols:list')
 
 
+# --------------------------------------------------------------------------
+# Workflow endpoints
+#
+# POST only, one per transition, and each one a thin wrapper: the view parses
+# the request, asks `protocols/permissions.py` the presentation question and
+# hands the decision to `protocols/services.py`, which re-checks status, actor
+# and content under the row lock. No state machine is restated here, and a GET
+# never reaches a service — it redirects to the protocol page.
+# --------------------------------------------------------------------------
+
+
+@login_required
+def protocol_send_for_approval(request, pk):
+    """Save what the editor currently shows, then submit that content.
+
+    The two steps are deliberately separate calls in that order: the author
+    presses one button, but what goes for approval must be exactly what they
+    are looking at, so the visible form is validated and stored first and the
+    workflow service then re-reads the persisted protocol. An invalid form
+    submits nothing; a draft that saves but is refused by
+    `validate_protocol_for_approval()` leaves the protocol editable with the
+    workflow error shown, which is the whole point of not merging the two.
+    """
+    if request.method != 'POST':
+        return redirect('protocols:detail', pk=pk)
+    protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
+    if not can_send_protocol_for_approval(protocol, request.user):
+        return render(
+            request, 'protocols/detail.html',
+            _detail_context(
+                request, protocol,
+                save_error='Отправить этот протокол на согласование нельзя.',
+            ),
+            status=403,
+        )
+    form = ProtocolDraftForm(protocol, request.POST)
+    if not form.is_valid():
+        return render(
+            request, 'protocols/detail.html', _detail_context(request, protocol, form=form),
+            status=400,
+        )
+    try:
+        save_protocol_draft(protocol, request.user, form.cleaned)
+        send_protocol_for_approval(protocol, request.user)
+    except ProtocolWorkflowError as exc:
+        # The draft may already be stored — that is intended. The protocol
+        # stays in its editable status, so the page re-renders as the editor
+        # with the refusal above it.
+        protocol.refresh_from_db()
+        return render(
+            request, 'protocols/detail.html',
+            _detail_context(request, protocol, save_error=str(exc)), status=400,
+        )
+    protocol.refresh_from_db()
+    if protocol.status == Protocol.Status.ARCHIVED:
+        # Nobody had to sign, so the same transaction archived it: say so
+        # instead of sending the author to an empty «0 из 0» panel.
+        messages.success(request, 'Протокол не требовал согласования и помещён в архив.')
+    else:
+        messages.success(
+            request,
+            f'Протокол отправлен на согласование (редакция {protocol.revision}).',
+        )
+    return redirect('protocols:detail', pk=protocol.pk)
+
+
+@login_required
+def protocol_approve(request, pk):
+    if request.method != 'POST':
+        return redirect('protocols:detail', pk=pk)
+    protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
+    try:
+        approve_protocol(protocol, request.user)
+    except ProtocolWorkflowError as exc:
+        protocol.refresh_from_db()
+        return render(
+            request, 'protocols/detail.html',
+            _detail_context(request, protocol, save_error=str(exc)), status=400,
+        )
+    messages.success(request, 'Протокол согласован.')
+    return redirect('protocols:detail', pk=protocol.pk)
+
+
+@login_required
+def protocol_return_for_revision(request, pk):
+    if request.method != 'POST':
+        return redirect('protocols:detail', pk=pk)
+    protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
+    try:
+        return_protocol_for_revision(protocol, request.user, request.POST.get('comment', ''))
+    except ProtocolWorkflowError as exc:
+        protocol.refresh_from_db()
+        return render(
+            request, 'protocols/detail.html',
+            _detail_context(request, protocol, save_error=str(exc)), status=400,
+        )
+    messages.success(request, 'Протокол возвращён на доработку.')
+    return redirect('protocols:detail', pk=protocol.pk)
+
+
 def _detail_context(request, protocol, form=None, save_error=''):
     can_edit = can_edit_protocol(protocol, request.user)
     tab = request.GET.get('tab') or request.POST.get('tab') or 'protocol'
@@ -119,6 +231,15 @@ def _detail_context(request, protocol, form=None, save_error=''):
         'save_error': save_error,
         'history_groups': get_protocol_history_groups(protocol),
         'author_participant': protocol.participants.filter(user_id=protocol.author_id).first(),
+        # Approval read side. `can_send`/`can_decide` only decide what is
+        # rendered; every one of the three endpoints re-checks its own rule.
+        'can_send_for_approval': can_send_protocol_for_approval(protocol, request.user),
+        'can_decide_approval': can_decide_protocol_approval(protocol, request.user),
+        'approval_progress': get_approval_progress(protocol),
+        'current_approvals': get_current_approval_rows(protocol),
+        'approval_revisions': get_approval_revision_groups(protocol),
+        'user_approval': get_user_approval(protocol, request.user),
+        'is_under_approval': protocol.status == Protocol.Status.APPROVAL,
     }
     if can_edit:
         directory = get_editor_directory()

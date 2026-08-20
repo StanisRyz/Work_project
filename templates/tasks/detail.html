@@ -3,6 +3,11 @@
 {% block title %}Задача {{ task.pk }}{% endblock %}
 
 {% block content %}
+{% comment %}
+The ordinary task page, used by `ACT` and `PROTOCOL_ACTION` tasks alike. A
+`PROTOCOL_APPROVAL` task never reaches it — the view redirects it to the
+protocol — so no approval decision control lives here.
+{% endcomment %}
 <section class="task-detail-heading">
     <a class="act-back-link" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}" aria-label="К списку задач">←</a>
     <div class="task-detail-heading__title">
@@ -13,8 +18,15 @@
 
 <div class="task-detail-columns">
     <section class="task-detail-info-card">
-        <div class="task-detail-info-row"><dt>Статус</dt><dd>{{ task.status }}</dd></div>
-        {% if task.act_id %}<div class="task-detail-info-row"><dt>Исходный акт</dt><dd><a class="table-link" href="{% url 'acts:detail' task.act.pk %}">{{ task.act.number }}</a></dd></div>{% endif %}
+        <div class="task-detail-info-row"><dt>Тип задачи</dt><dd>{{ task_type_label }}</dd></div>
+        <div class="task-detail-info-row"><dt>Статус</dt><dd>{% if task_state.variant %}<span class="approval-status approval-status--{{ task_state.variant }}">{{ task_state.label }}</span>{% else %}{{ task_state.label }}{% endif %}</dd></div>
+        {% comment %}
+        One source row for every origin: `describe_task_source()` already
+        resolved the label and the `reverse()`d link, so the template does not
+        branch on which relation happens to be filled.
+        {% endcomment %}
+        {% if task_source.url %}<div class="task-detail-info-row"><dt>Источник</dt><dd><a class="table-link" href="{{ task_source.url }}">{{ task_source.label }}</a></dd></div>{% endif %}
+        <div class="task-detail-info-row"><dt>Подразделение</dt><dd>{{ task.department }}</dd></div>
         <div class="task-detail-info-row"><dt>Срок</dt><dd><span class="{% if task.status.code != 'COMPLETED' and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></dd></div>
     </section>
 
@@ -55,7 +67,12 @@
 </div>
 
 <div class="task-detail-analysis-columns">
-    {% if task.root_analysis_id %}
+    {% comment %}
+    Корневая причина is an act-only section and is keyed on the source type,
+    not merely on the relation being present: a protocol task has no root
+    analysis and must not be shown an empty one.
+    {% endcomment %}
+    {% if task.is_act_task and task.root_analysis_id %}
     <section class="task-detail-analysis-card">
         <span class="task-detail-eyebrow">Анализ ТО</span>
         <h2>Корневая причина</h2>
@@ -63,7 +80,7 @@
     </section>
     {% endif %}
     <section class="task-detail-analysis-card">
-        <span class="task-detail-eyebrow">Корректирующее мероприятие</span>
+        <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% else %}Решение протокола{% endif %}</span>
         <h2>Задача</h2>
         <div class="task-comment-block">{{ task.task_text|linebreaksbr }}</div>
     </section>

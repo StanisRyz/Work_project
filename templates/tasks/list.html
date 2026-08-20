@@ -12,8 +12,13 @@
 <form class="filter-form act-filter-panel task-filter-panel" method="get">
     <input type="hidden" name="tab" value="{{ tab }}">
     <label><span>№ задачи</span><input type="search" name="number" value="{{ selected.number }}" inputmode="numeric"></label>
-    <label><span>Источник</span><input type="search" name="source" value="{{ selected.source }}" placeholder="Номер акта"></label>
-    <label><span>Статус</span><select name="status"><option value="">Все</option><option value="act"{% if selected.status == 'act' %} selected{% endif %}>По акту</option></select></label>
+    <label><span>Источник</span><input type="search" name="source" value="{{ selected.source }}" placeholder="Номер акта или протокола"></label>
+    {% comment %}
+    «Тип задачи» is the task's origin, built from `Task.SourceType` so a new
+    source type never needs a template change. The task's own workflow status
+    is a separate column in the results — the two are not the same thing.
+    {% endcomment %}
+    <label><span>Тип задачи</span><select name="source_type"><option value="">Все</option>{% for value, label in source_type_options %}<option value="{{ value }}"{% if selected.source_type == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
     <label><span>Срок</span><select name="due"><option value="">Все</option><option value="overdue"{% if selected.due == 'overdue' %} selected{% endif %}>Просроченные</option><option value="not_overdue"{% if selected.due == 'not_overdue' %} selected{% endif %}>Не просроченные</option></select></label>
     <input type="hidden" name="sort" value="{{ selected.sort }}">
     <button class="link-button" type="submit">Применить</button>

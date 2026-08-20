@@ -1,0 +1,69 @@
+{% comment %}
+The current approval round.
+
+Everything shown here comes from `ProtocolApproval` snapshots taken when the
+revision was submitted — never from the profile as it stands today — and from
+`protocols/selectors.py`, so no approval query is rebuilt in the template. The
+two decision buttons are presentation only: `approve_protocol()` and
+`return_protocol_for_revision()` re-check the pending row under the lock.
+{% endcomment %}
+<section class="detail-section protocol-approval-panel">
+    <div class="protocol-approval-panel__head">
+        <h2>Согласование</h2>
+        <span class="act-badge act-badge--status">Редакция {{ approval_progress.revision }}</span>
+        <span class="protocol-approval-progress">Согласовано: {{ approval_progress.approved }} из {{ approval_progress.total }}</span>
+    </div>
+
+    <ul class="protocol-approval-list">
+        {% for row in current_approvals %}
+            <li class="protocol-approval-item protocol-approval-item--{{ row.variant }}">
+                <div class="protocol-approval-item__who">
+                    <strong>{{ row.approval.display_name }}</strong>
+                    <span>{{ row.approval.department_name|default:'—' }}{% if row.approval.position %} · {{ row.approval.position }}{% endif %}</span>
+                    {% if row.reason %}<span class="protocol-approval-item__reason">{{ row.reason }}</span>{% endif %}
+                </div>
+                <div class="protocol-approval-item__state">
+                    <span class="approval-status approval-status--{{ row.variant }}">{{ row.status_label }}</span>
+                    {% if row.approval.decided_at %}
+                        <time datetime="{{ row.approval.decided_at|date:'c' }}">{{ row.approval.decided_at|date:'d.m.Y H:i' }}</time>
+                    {% else %}
+                        <span class="protocol-approval-item__waiting">Решение не принято</span>
+                    {% endif %}
+                    {% if row.approval.return_comment %}
+                        <p class="protocol-approval-item__comment">Причина возврата: {{ row.approval.return_comment|linebreaksbr }}</p>
+                    {% endif %}
+                </div>
+            </li>
+        {% endfor %}
+    </ul>
+
+    {% if can_decide_approval %}
+        <div class="protocol-approval-panel__actions">
+            {% comment %}
+            Both decisions live on the protocol page, never on the task
+            completion form: an approval task is a queue entry, and the
+            document is what is being decided.
+            {% endcomment %}
+            <button class="link-button link-button--secondary" type="button"
+                    data-confirm
+                    data-confirm-url="{% url 'protocols:return_for_revision' protocol.pk %}"
+                    data-confirm-title="Вернуть протокол на доработку?"
+                    data-confirm-text="Протокол вернётся автору со статусом «На доработке». Согласования остальных участников по этой редакции будут отменены, а следующая отправка потребует полного нового круга согласования."
+                    data-confirm-label="Вернуть"
+                    data-confirm-variant="warning"
+                    data-confirm-comment="required"
+                    data-confirm-comment-label="Причина возврата"
+                    data-confirm-comment-name="comment"
+                    data-confirm-comment-placeholder="Что нужно исправить в протоколе"
+                    data-confirm-comment-error="Укажите причину возврата на доработку.">Вернуть на доработку</button>
+            <button class="link-button" type="button"
+                    data-confirm
+                    data-confirm-url="{% url 'protocols:approve' protocol.pk %}"
+                    data-confirm-title="Согласовать протокол?"
+                    data-confirm-text="Согласование будет зафиксировано в протоколе с указанием вашего имени, даты и времени. Комментарий не требуется."
+                    data-confirm-label="Согласовать">Согласовать</button>
+        </div>
+    {% elif user_approval %}
+        <p class="protocol-approval-panel__own">Ваше решение по этой редакции: {{ user_approval.get_status_display }}{% if user_approval.decided_at %}, {{ user_approval.decided_at|date:'d.m.Y H:i' }}{% endif %}.</p>
+    {% endif %}
+</section>

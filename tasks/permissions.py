@@ -8,7 +8,11 @@ from .models import Task
 # back as NULL. Read-side code must therefore never assume `task.act` or
 # `task.root_analysis` is present — ask `task.source_type` instead.
 _SOURCE_AWARE_SELECT_RELATED = (
-    'status', 'department', 'completed_by', 'act', 'root_analysis', 'protocol',
+    'status', 'department', 'completed_by', 'act', 'root_analysis',
+    # The protocol type carries the label «Качество №7», and the reverse
+    # one-to-one `protocol_approval` carries the real outcome of an approval
+    # queue entry; both are read for every registry row.
+    'protocol__protocol_type', 'protocol_action', 'protocol_approval',
 )
 
 

@@ -10,7 +10,7 @@ from django.utils import timezone
 from accounts.models import Department, UserProfile
 from acts.models import Act, ActCorrectiveAction, ActCorrectiveActionAssignee, ActRootAnalysis
 from protocols.models import (
-    QUALITY_PROTOCOL_TYPE_CODE, Protocol, ProtocolAction, ProtocolType,
+    QUALITY_PROTOCOL_TYPE_CODE, Protocol, ProtocolAction, ProtocolApproval, ProtocolType,
 )
 from realtime.sync import build_sync_state
 from references.models import ActStatus, DefectType, Operation, TaskStatus
@@ -82,7 +82,9 @@ class TaskViewsTests(TestCase):
         self.assertContains(response, reverse('acts:detail', args=[self.act.pk]))
         self.assertNotContains(response, future.task_text)
         self.assertNotContains(response, 'Исполнители</th>')
-        self.assertContains(response, '№ задачи</th><th>Статус</th><th>Источник</th><th>Срок <a class="task-sort-link"')
+        # «Тип задачи» is the source type; «Статус» is the task's own workflow
+        # status. They are separate columns and never the same value.
+        self.assertContains(response, '№ задачи</th><th>Тип задачи</th><th>Источник</th><th>Статус</th><th>Срок <a class="task-sort-link"')
 
     def test_every_employee_can_read_other_tasks_but_cannot_complete_them(self):
         own_task = self._task(self.employee, timezone.localdate())
@@ -269,7 +271,8 @@ class TaskViewsTests(TestCase):
         self.assertNotContains(response, '<section class="task-detail-card">\n    <h1>')
         self.assertContains(response, 'Статус')
         self.assertContains(response, str(task.status))
-        self.assertNotContains(response, 'По акту')
+        self.assertContains(response, 'Тип задачи')
+        self.assertContains(response, 'По акту')
         self.assertContains(response, 'Корневая причина')
         self.assertContains(response, 'Исполнители')
         self.assertContains(response, self.other_employee.username)
@@ -412,3 +415,148 @@ class TaskSourceTests(TestCase):
             complete_task(approval_task, self.user, 'Согласовано.')
         approval_task.refresh_from_db()
         self.assertEqual(approval_task.status.code, 'IN_PROGRESS')
+
+
+class TaskRegistrySourceTests(TestCase):
+    """The shared registry with all three sources side by side.
+
+    One scenario rather than a filter matrix: what the source-aware stage can
+    get wrong is the registry conflating «тип задачи» with «статус», a protocol
+    task pointing at the wrong page, «Источник» failing to find a protocol, and
+    a `PROTOCOL_ACTION` task quietly losing the ordinary completion flow it is
+    supposed to keep.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.department = Department.objects.create(code='TO', name='ТО')
+        cls.employee = User.objects.create_user(username='reg_employee', password='demo12345')
+        cls.employee.userprofile.department = cls.department
+        cls.employee.userprofile.role = UserProfile.Role.TO
+        cls.employee.userprofile.save(update_fields=['department', 'role'])
+        cls.in_progress = TaskStatus.objects.get(code='IN_PROGRESS')
+
+        cls.act = Act.objects.create(
+            created_by=cls.employee, number='АОК-2026-00034', nomenclature='Изделие',
+            status=ActStatus.objects.get(code='ARCHIVED'),
+        )
+        root_analysis = ActRootAnalysis.objects.create(act=cls.act, root_cause='Причина')
+        corrective_action = ActCorrectiveAction.objects.create(
+            root_analysis=root_analysis, comment='Мероприятие',
+            department=cls.department, due_date=timezone.localdate(),
+        )
+        cls.protocol = Protocol.objects.create(
+            protocol_type=ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE),
+            number=7, author=cls.employee,
+        )
+        protocol_action = ProtocolAction.objects.create(
+            protocol=cls.protocol, task_text='Проверить оснастку',
+            department=cls.department, due_date=timezone.localdate(),
+        )
+
+        cls.act_task = cls._task(
+            source_type=Task.SourceType.ACT, act=cls.act,
+            root_analysis=root_analysis, source_action=corrective_action,
+        )
+        cls.approval_task = cls._task(
+            source_type=Task.SourceType.PROTOCOL_APPROVAL, protocol=cls.protocol,
+        )
+        cls.action_task = cls._task(
+            source_type=Task.SourceType.PROTOCOL_ACTION, protocol=cls.protocol,
+            protocol_action=protocol_action,
+        )
+
+    @classmethod
+    def _task(cls, **overrides):
+        task = Task.objects.create(
+            task_text='Задача', department=cls.department, due_date=timezone.localdate(),
+            created_by=cls.employee, status=cls.in_progress, **overrides,
+        )
+        TaskAssignee.objects.create(task=task, user=cls.employee)
+        return task
+
+    def setUp(self):
+        self.client.force_login(self.employee)
+
+    def _rows(self, **params):
+        response = self.client.get(reverse('tasks:list'), {'tab': 'all', **params})
+        return response, {row['task'].pk: row for row in response.context['rows']}
+
+    def test_registry_is_source_aware_and_protocol_action_stays_completable(self):
+        response, rows = self._rows()
+        self.assertEqual(
+            set(rows), {self.act_task.pk, self.approval_task.pk, self.action_task.pk}
+        )
+
+        # «Тип задачи» is the origin; «Статус» is the workflow state. The two
+        # are separate values, and the act keeps pointing at the act.
+        self.assertEqual(rows[self.act_task.pk]['type_label'], 'По акту')
+        self.assertEqual(rows[self.act_task.pk]['state']['label'], 'В работе')
+        self.assertEqual(
+            rows[self.act_task.pk]['source'],
+            {'label': 'АОК-2026-00034', 'url': reverse('acts:detail', args=[self.act.pk])},
+        )
+        # Both protocol sources name the protocol and link to it, never to an act.
+        protocol_url = reverse('protocols:detail', args=[self.protocol.pk])
+        for task in (self.approval_task, self.action_task):
+            self.assertEqual(rows[task.pk]['source']['label'], 'Качество №7')
+            self.assertEqual(rows[task.pk]['source']['url'], protocol_url)
+        self.assertEqual(rows[self.action_task.pk]['type_label'], 'По протоколу')
+        self.assertEqual(rows[self.approval_task.pk]['type_label'], 'Согласование протокола')
+
+        # «Тип задачи» filters on the source type, one value at a time.
+        for value, expected in (
+            ('ACT', {self.act_task.pk}),
+            ('PROTOCOL_APPROVAL', {self.approval_task.pk}),
+            ('PROTOCOL_ACTION', {self.action_task.pk}),
+        ):
+            self.assertEqual(set(self._rows(source_type=value)[1]), expected)
+        # An unknown value is ignored rather than filtering everything away.
+        self.assertEqual(len(self._rows(source_type='hack')[1]), 3)
+
+        # «Источник» finds acts as before, and now protocols by name and number.
+        self.assertEqual(set(self._rows(source='АОК-2026')[1]), {self.act_task.pk})
+        protocol_tasks = {self.approval_task.pk, self.action_task.pk}
+        for term in ('ачеств', 'Качество №7', '№7', '7'):
+            self.assertEqual(set(self._rows(source=term)[1]), protocol_tasks, term)
+        self.assertEqual(self._rows(source='нет такого')[1], {})
+
+        # A `PROTOCOL_ACTION` task is an ordinary task: its page opens, shows
+        # the protocol as the source, hides the act-only root analysis, and
+        # completes through the normal flow.
+        detail = self.client.get(reverse('tasks:detail', args=[self.action_task.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, 'По протоколу')
+        self.assertContains(detail, protocol_url)
+        self.assertNotContains(detail, 'Корневая причина')
+        self.assertTrue(detail.context['can_complete'])
+        self.client.post(
+            reverse('tasks:complete', args=[self.action_task.pk]),
+            {'execution_comment': 'Оснастка проверена.'},
+        )
+        self.action_task.refresh_from_db()
+        self.assertEqual(self.action_task.status.code, 'COMPLETED')
+
+    def test_archived_approval_task_shows_the_real_decision_not_the_queue_state(self):
+        # The queue row is closed either way; only `ProtocolApproval` says
+        # whether the person approved or their round was cancelled.
+        cancelled = ProtocolApproval.objects.create(
+            protocol=self.protocol, revision=1, user=self.employee,
+            status=ProtocolApproval.Status.CANCELLED, task=self.approval_task,
+            display_name='Сотрудник',
+        )
+        self.approval_task.status = TaskStatus.objects.get(code='COMPLETED')
+        self.approval_task.completed_at = timezone.now()
+        self.approval_task.save(update_fields=['status', 'completed_at'])
+
+        rows = self._rows(tab='archive')[1]
+        state = rows[self.approval_task.pk]['state']
+        self.assertEqual(state['label'], 'Отменено')
+        self.assertEqual(state['variant'], 'cancelled')
+        self.assertNotEqual(state['label'], str(self.approval_task.status))
+
+        cancelled.status = ProtocolApproval.Status.APPROVED
+        cancelled.save(update_fields=['status'])
+        self.assertEqual(
+            self._rows(tab='archive')[1][self.approval_task.pk]['state']['label'], 'Согласовано'
+        )
