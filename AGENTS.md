@@ -267,6 +267,12 @@ tasks never live inside `acts`.
   in the same transaction. `ARCHIVED` is terminal — not editable, not
   deletable. Numbering stays per `ProtocolType`, smallest free number,
   released by deleting a draft and never by archiving.
+- **A protocol decision is not asked for its department.**
+  `ProtocolAction.department` is derived by `ProtocolDraftForm` from the
+  department chosen next to the decision's *first assignee* — already validated
+  against that employee's profile — and it is what becomes `Task.department`
+  when the protocol archives. The column stays on the model; only the duplicate
+  question was removed, because two selectors for one fact could disagree.
 - **Protocol tasks are ordinary tasks with a protocol source.** Archiving
   creates one `PROTOCOL_ACTION` task per decision, linked one-to-one to its
   `ProtocolAction`, and `describe_task_source()` links it back to the
@@ -274,6 +280,19 @@ tasks never live inside `acts`.
   no decision, is never a second assignment, redirects from the task page to
   the protocol, and is closed by the approval decision rather than by
   «Завершить». Act task behaviour is untouched.
+- **The protocol page is an accordion of `<details>` sections.** A document
+  card that never collapses (identity, status, three-step workflow indicator
+  from `describe_protocol_workflow()`), then Участники, Повестка, Слушали,
+  Задачи and Согласование, each a section whose header carries a count —
+  «4/5» for approval. Native `<details>` on purpose: collapsing needs no
+  JavaScript, survives a live fragment replacement and stays keyboard
+  accessible. Sections open by default, because a `required` field the browser
+  cannot focus blocks submission silently; `protocol_editor.js` re-opens a
+  section on its field's `invalid` event as the safety net, keeps the count
+  badges in step, and suppresses the summary toggle when the header's add
+  button is clicked. The editor keeps every existing hook — `[data-block]`,
+  `[data-row-list]`, `[data-row-template]`, the `*-TOTAL_FORMS` names — so the
+  restructuring changed markup only, never the form contract or a rule.
 - **The official document has one description.**
   `selectors.build_protocol_document()` returns plain data — header,
   participants, agenda, «Слушали», decisions, generated tasks, the approval

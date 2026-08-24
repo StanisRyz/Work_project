@@ -304,7 +304,7 @@ class ProtocolFragmentEndpointTests(ProtocolRealtimeMixin, TestCase):
         approval = self.client.get(
             reverse('protocols:approval_fragment', args=[protocol.pk])
         ).json()
-        self.assertIn('protocol-approval-panel', approval['html'])
+        self.assertIn('protocol-section--approval', approval['html'])
         history = self.client.get(
             reverse('protocols:history_fragment', args=[protocol.pk])
         ).json()

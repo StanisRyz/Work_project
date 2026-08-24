@@ -56,20 +56,47 @@
 .protocol-type-card strong { color: var(--color-primary-dark); font-size: 16px; }
 .protocol-type-card span { color: var(--color-muted); font-size: 13px; }
 
-/* Detail heading --------------------------------------------------------- */
+/* Document card ---------------------------------------------------------
+   The one block that never collapses: identity, status and workflow step. */
 
-.protocol-detail-heading {
+.protocol-document-card {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 10px 18px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+.protocol-document-card__back { margin: 0; }
+
+.protocol-document-card__mark {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: #eef4ff;
+    color: var(--color-primary-dark);
+}
+
+.protocol-document-card__mark .ui-icon { width: 22px; height: 22px; }
+
+.protocol-document-card__identity { display: grid; gap: 4px; min-width: 0; }
+
+.protocol-document-card__title {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px 16px;
-    margin-bottom: 16px;
+    gap: 10px;
 }
 
-.protocol-detail-heading__title { display: flex; align-items: center; gap: 12px; }
-.protocol-detail-heading__title h1 { margin: 0; font-size: 22px; }
+.protocol-document-card__title h1 { margin: 0; font-size: 21px; }
 
-.protocol-detail-heading__meta {
+.protocol-document-card__meta {
     display: flex;
     flex-wrap: wrap;
     gap: 4px 16px;
@@ -77,98 +104,202 @@
     font-size: 14px;
 }
 
-/* The document links close the row; «Удалить черновик» follows them when the
-   protocol is still a draft, so only one element carries the auto margin. */
-.protocol-detail-heading__documents {
+.protocol-document-card__actions {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-left: auto;
 }
 
-/* Editor ----------------------------------------------------------------- */
+/* Workflow progress ------------------------------------------------------ */
 
-.protocol-editor { display: grid; gap: 16px; }
+.protocol-workflow {
+    display: flex;
+    align-items: flex-start;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.protocol-workflow__step {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    position: relative;
+    min-width: 96px;
+    font-size: 13px;
+}
+
+/* The connector is drawn by the step itself, so no extra markup is needed. */
+.protocol-workflow__step + .protocol-workflow__step::before {
+    content: '';
+    position: absolute;
+    top: 13px;
+    right: 50%;
+    left: -50%;
+    height: 2px;
+    background: var(--color-border);
+}
+
+.protocol-workflow__step--done + .protocol-workflow__step::before,
+.protocol-workflow__step--current + .protocol-workflow__step::before {
+    background: var(--color-primary);
+}
+
+.protocol-workflow__dot {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--color-bg);
+    border: 2px solid var(--color-border);
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.protocol-workflow__label { color: var(--color-muted); text-align: center; }
+
+.protocol-workflow__step--done .protocol-workflow__dot,
+.protocol-workflow__step--current .protocol-workflow__dot {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #ffffff;
+}
+
+.protocol-workflow__step--done .protocol-workflow__dot {
+    background: var(--color-primary-dark);
+    border-color: var(--color-primary-dark);
+}
+
+.protocol-workflow__step--current .protocol-workflow__label {
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+/* Accordion sections -----------------------------------------------------
+   Native `<details>`: collapsing needs no JavaScript, survives a live fragment
+   replacement and stays keyboard-accessible. */
+
+.protocol-sections,
+.protocol-editor { display: grid; gap: 12px; }
+.protocol-sections + .protocol-sections { margin-top: 12px; }
 .protocol-editor__error { margin: 0 0 12px; }
 
-.protocol-block { display: grid; gap: 12px; }
-
-.protocol-block__head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-}
-
-.protocol-block__head h2 { margin: 0; font-size: 17px; }
-.protocol-block__hint { margin: 0; color: var(--color-muted); font-size: 13px; }
-
-.protocol-row-list { display: grid; gap: 12px; }
-
-.protocol-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
-    align-items: end;
-    gap: 12px;
-    padding: 12px;
+.protocol-section {
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
 }
 
-.protocol-row--author { background: #f7f9ff; }
-.protocol-row--agenda,
-.protocol-row--speech { grid-template-columns: minmax(0, 1fr) auto; }
-.protocol-row--speech { grid-template-columns: minmax(0, 240px) minmax(0, 1fr) auto; }
+.protocol-section--accent { border-left: 3px solid var(--color-primary); }
+.protocol-section--approval { border-left: 3px solid #16a34a; }
 
-.protocol-row label { display: grid; gap: 6px; color: var(--color-muted); font-size: 14px; }
+.protocol-section__summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
 
-.protocol-row select,
-.protocol-row input,
-.protocol-row textarea,
-.protocol-action-card select,
-.protocol-action-card input,
-.protocol-action-card textarea {
+/* Safari renders its own disclosure triangle without this. */
+.protocol-section__summary::-webkit-details-marker { display: none; }
+.protocol-section__summary:hover { background: #f7f9ff; border-radius: var(--radius); }
+
+.protocol-section__summary:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+}
+
+.protocol-section__icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    background: #eef4ff;
+    color: var(--color-primary-dark);
+}
+
+.protocol-section__icon .ui-icon { width: 18px; height: 18px; }
+
+.protocol-section__title { font-size: 17px; font-weight: 700; }
+
+.protocol-section__count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.protocol-section__state { color: var(--color-muted); font-size: 13px; }
+
+/* Whichever of these comes first takes the free space, so the controls sit at
+   the right edge whether or not the section has an add button. */
+.protocol-section__add { margin-left: auto; }
+.protocol-section__chevron { margin-left: auto; display: grid; place-items: center; color: var(--color-muted); }
+.protocol-section__add + .protocol-section__chevron { margin-left: 0; }
+.protocol-section__chevron .ui-icon { width: 18px; height: 18px; transition: transform 0.15s ease; }
+.protocol-section[open] .protocol-section__chevron .ui-icon { transform: rotate(180deg); }
+
+.protocol-section__body {
+    display: grid;
+    gap: 12px;
+    padding: 14px 18px 16px;
+    border-top: 1px solid var(--color-border);
+}
+
+.protocol-section__hint { margin: 0; color: var(--color-muted); font-size: 13px; }
+
+/* One vertical rhythm for every list of cards, so a section grows downwards
+   and never sideways however many rows it holds. */
+.protocol-card-grid { display: grid; gap: 10px; counter-reset: protocol-item; }
+
+/* Shared card chrome ----------------------------------------------------- */
+
+.protocol-participant-card,
+.protocol-agenda-card,
+.protocol-speech-card,
+.protocol-action-card,
+.protocol-task-card {
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.protocol-section label { display: grid; gap: 6px; color: var(--color-muted); font-size: 14px; }
+
+.protocol-section select,
+.protocol-section input[type='date'],
+.protocol-section textarea {
     width: 100%;
-    padding: 10px 12px;
+    padding: 9px 12px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
 }
 
-.protocol-row textarea,
-.protocol-action-card textarea { resize: vertical; }
-
-.protocol-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding-bottom: 10px;
-    white-space: nowrap;
-}
-
-.protocol-checkbox input { width: auto; }
-
-.protocol-readonly-field { display: grid; gap: 6px; font-size: 14px; }
-.protocol-readonly-field span { color: var(--color-muted); }
-.protocol-readonly-field strong { color: var(--color-text); }
-
-.protocol-author-mark {
-    align-self: center;
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: #eef4ff;
-    color: var(--color-primary-dark);
-    font-size: 13px;
-    font-weight: 700;
-    white-space: nowrap;
-}
+.protocol-section textarea { resize: vertical; }
 
 .protocol-remove-button {
     align-self: center;
-    width: 32px;
-    height: 32px;
+    flex: none;
+    width: 30px;
+    height: 30px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -181,33 +312,164 @@
 .protocol-remove-button:hover,
 .protocol-remove-button:focus-visible { border-color: #c0392b; color: #c0392b; }
 
-/* Task drafts ------------------------------------------------------------ */
+/* Participants ----------------------------------------------------------- */
 
-.protocol-action-card {
+.protocol-participant-card {
     display: grid;
-    gap: 12px;
-    padding: 14px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 10px 14px;
 }
+
+.protocol-participant-card--author { background: #f7f9ff; }
+
+.protocol-participant-card__fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+}
+
+.protocol-participant-card__who { display: grid; gap: 2px; min-width: 0; }
+.protocol-participant-card__who span { color: var(--color-muted); font-size: 13px; }
+
+.protocol-participant-card__flags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.protocol-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.protocol-checkbox input { width: auto; }
+
+.protocol-author-mark {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #eef4ff;
+    color: var(--color-primary-dark);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.protocol-auto-approval-hint {
+    color: var(--color-muted);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.protocol-auto-approval-hint[hidden] { display: none; }
+
+/* Agenda ----------------------------------------------------------------- */
+
+.protocol-agenda-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 12px;
+}
+
+.protocol-agenda-card--static { align-items: center; }
+.protocol-agenda-card p { margin: 0; }
+
+/* Numbered by CSS, so adding or removing a row never renumbers markup. */
+.protocol-agenda-card__number,
+.protocol-action-card__number,
+.protocol-task-card__number {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #eef4ff;
+    color: var(--color-primary-dark);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.protocol-agenda-card__number::before,
+.protocol-action-card__number::before,
+.protocol-task-card__number::before {
+    counter-increment: protocol-item;
+    content: counter(protocol-item);
+}
+
+.protocol-agenda-card__number { margin-top: 4px; }
+.protocol-agenda-card--static .protocol-agenda-card__number { margin-top: 0; }
+
+/* Kept for screen readers where the card number and shape already say what
+   the field is. */
+.visually-hidden-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* Speeches --------------------------------------------------------------- */
+
+.protocol-speech-card { display: grid; gap: 10px; }
+
+.protocol-speech-card__head {
+    display: grid;
+    grid-template-columns: minmax(0, 280px) auto;
+    align-items: end;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.protocol-speech-card--static { gap: 4px; }
+.protocol-speech-card--static p { margin: 0; }
+
+/* Tasks ------------------------------------------------------------------ */
+
+.protocol-action-card { display: grid; gap: 12px; }
 
 .protocol-action-card__head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 10px;
 }
 
 .protocol-action-card__head h3 { margin: 0; font-size: 15px; }
-.protocol-action-card label { display: grid; gap: 6px; color: var(--color-muted); font-size: 14px; }
+.protocol-action-card__head .protocol-remove-button { margin-left: auto; }
 
+/* The deadline is the only field on this row — «Подразделение» comes from the
+   first assignee, so it is not asked for again. */
 .protocol-action-card__fields {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
+    grid-template-columns: minmax(0, 220px);
     gap: 12px;
 }
 
-.protocol-assignee-list { display: grid; gap: 10px; }
+.protocol-action-card__assignees {
+    display: grid;
+    justify-items: start;
+    gap: 10px;
+    padding: 12px;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.protocol-action-card__assignees-label {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.protocol-assignee-list { display: grid; gap: 10px; width: 100%; }
 
 .protocol-assignee-row {
     display: grid;
@@ -216,44 +478,45 @@
     gap: 12px;
 }
 
+/* The read-only task card: the decision plus the real task it became. */
+.protocol-task-card { display: grid; gap: 10px; }
+
+.protocol-task-card__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.protocol-task-card__text { margin: 0; flex: 1 1 auto; font-weight: 700; }
+.protocol-task-card__link { flex: none; white-space: nowrap; }
+
+.protocol-task-card__facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px 16px;
+    margin: 0;
+}
+
+.protocol-task-card__facts dt { color: var(--color-muted); font-size: 12px; }
+.protocol-task-card__facts dd { margin: 0; font-size: 14px; }
+
 .protocol-editor__actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 10px;
+    padding-top: 2px;
 }
-
-/* Read-only view --------------------------------------------------------- */
-
-.protocol-readonly-list,
-.protocol-readonly-ordered { display: grid; gap: 12px; margin: 0; padding-left: 0; }
-.protocol-readonly-ordered { padding-left: 20px; }
-.protocol-readonly-list { list-style: none; }
-
-.protocol-readonly-list li { display: grid; gap: 4px; }
-.protocol-readonly-list li p { margin: 0; }
-.protocol-readonly-list li span { color: var(--color-muted); font-size: 14px; }
-.protocol-readonly-list li .status-badge,
-.protocol-readonly-list li .protocol-author-mark { justify-self: start; }
 
 /* Approval ---------------------------------------------------------------
-   Panel, per-approver rows and the by-revision history. The card, badge and
-   button styles themselves stay in the shared system; only the grids and the
-   four decision colours are here. */
+   Per-approver rows and the by-revision history. The card, badge and button
+   styles themselves stay in the shared system; only the grids and the four
+   decision colours are here. */
 
-.protocol-approval-panel,
 .protocol-approval-history { display: grid; gap: 12px; }
 
-.protocol-approval-panel__head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 14px;
-}
-
-.protocol-approval-panel__head h2 { margin: 0; font-size: 17px; }
-
 .protocol-approval-progress {
+    margin: 0;
     color: var(--color-primary-dark);
     font-size: 14px;
     font-weight: 700;
@@ -269,10 +532,10 @@
 
 .protocol-approval-item {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 260px);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 240px);
     align-items: start;
     gap: 10px 16px;
-    padding: 12px;
+    padding: 12px 14px;
     border: 1px solid var(--color-border);
     border-left-width: 3px;
     border-radius: var(--radius);
@@ -285,7 +548,7 @@
 
 .protocol-approval-item__who,
 .protocol-approval-item__state { display: grid; gap: 4px; }
-.protocol-approval-item__state { justify-items: start; }
+.protocol-approval-item__state { justify-items: start; align-content: start; }
 
 .protocol-approval-item__who span,
 .protocol-approval-item__state time,
@@ -330,26 +593,30 @@
     border-left-color: var(--color-border);
 }
 
-.protocol-auto-approval-hint {
-    color: var(--color-muted);
-    font-size: 12px;
-    font-style: italic;
-    white-space: normal;
-}
-
-.protocol-auto-approval-hint[hidden] { display: none; }
-
 /* Narrow screens --------------------------------------------------------- */
 
+@media (max-width: 1100px) {
+    .protocol-document-card { grid-template-columns: auto auto minmax(0, 1fr); }
+
+    /* Progress and actions drop to their own full-width rows rather than
+       squeezing the title. */
+    .protocol-workflow,
+    .protocol-document-card__actions { grid-column: 1 / -1; }
+    .protocol-document-card__actions { justify-content: flex-start; }
+}
+
 @media (max-width: 900px) {
-    .protocol-row,
-    .protocol-row--speech,
+    .protocol-participant-card,
+    .protocol-participant-card__fields,
+    .protocol-speech-card__head,
     .protocol-action-card__fields,
     .protocol-assignee-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
 
     .protocol-approval-item { grid-template-columns: minmax(0, 1fr); }
 
+    .protocol-participant-card__flags { justify-content: flex-start; }
     .protocol-remove-button { justify-self: end; }
-    .protocol-checkbox { flex-wrap: wrap; padding-bottom: 0; }
-    .protocol-detail-heading__documents { margin-left: 0; }
+    .protocol-section__summary { flex-wrap: wrap; }
+    .protocol-section__add { order: 1; margin-left: 0; }
+    .protocol-workflow__step { min-width: 78px; }
 }

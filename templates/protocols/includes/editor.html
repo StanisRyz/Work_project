@@ -1,98 +1,135 @@
 {% comment %}
 The whole protocol in one form, saved by one explicit «Сохранить черновик».
-There is no autosave. Every block is a plain repeatable list of rows;
-`static/js/protocol_editor.js` only adds, removes and renumbers them and keeps
-the dependent selectors in step — every rule is re-checked on the server.
+There is no autosave.
+
+Each block is a `<details>` section: native disclosure, so collapsing needs no
+JavaScript, survives a live fragment replacement and stays keyboard-accessible.
+The sections open by default — this is a form being filled in, and a required
+field the browser cannot focus is worse than a tall page. `protocol_editor.js`
+only adds, removes and renumbers rows, keeps the dependent selectors in step
+and re-opens a section whose field failed validation; every rule is re-checked
+on the server.
 {% endcomment %}
 <form class="protocol-editor" id="protocol-editor-form" method="post" action="{% url 'protocols:save_draft' protocol.pk %}" data-protocol-editor data-author-id="{{ protocol.author_id }}" data-author-name="{{ author_participant.display_name|default:protocol.author }}">
     {% csrf_token %}
 
     {% for error in form.non_field_errors %}<p class="field-error protocol-editor__error">{{ error }}</p>{% endfor %}
 
-    <section class="detail-section protocol-block" data-block="participants">
-        <div class="protocol-block__head">
-            <h2>Участники</h2>
-            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-row>+ Участник</button>
-        </div>
-        <input type="hidden" name="participants-TOTAL_FORMS" value="{{ form.participant_rows|length }}" data-total>
+    <details class="protocol-section" data-block="participants" open>
+        <summary class="protocol-section__summary">
+            <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M21 19v-1a4 4 0 0 0-3-3.9M16.5 3.7a4 4 0 0 1 0 7.6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
+            <span class="protocol-section__title">Участники</span>
+            {% comment %}
+            The author counts: they are a participant row like any other, just
+            a fixed one. `protocol_editor.js` keeps this in step as rows move.
+            {% endcomment %}
+            <span class="protocol-section__count" data-section-count>{{ form.participant_rows|length|add:1 }}</span>
+            <button class="link-button link-button--secondary link-button--compact protocol-section__add" type="button" data-add-row>+ Участник</button>
+            <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+        </summary>
+        <div class="protocol-section__body">
+            <input type="hidden" name="participants-TOTAL_FORMS" value="{{ form.participant_rows|length }}" data-total>
 
-        {% comment %}
-        The author is fixed: no department or employee selector, no approval
-        checkbox and no delete. `Protocol.author` stays the only authority.
-        {% endcomment %}
-        <div class="protocol-row protocol-row--author">
-            <div class="protocol-readonly-field"><span>Подразделение</span><strong>{{ author_participant.department_name|default:'—' }}</strong></div>
-            <div class="protocol-readonly-field"><span>Сотрудник</span><strong>{{ author_participant.display_name|default:protocol.author }}</strong></div>
-            <span class="protocol-author-mark">Автор протокола</span>
-        </div>
+            <div class="protocol-card-grid">
+                {% comment %}
+                The author is fixed: no department or employee selector, no
+                approval checkbox and no delete. `Protocol.author` stays the
+                only authority.
+                {% endcomment %}
+                <div class="protocol-participant-card protocol-participant-card--author">
+                    <div class="protocol-participant-card__who">
+                        <strong>{{ author_participant.display_name|default:protocol.author }}</strong>
+                        <span>{{ author_participant.department_name|default:'—' }}</span>
+                    </div>
+                    <div class="protocol-participant-card__flags">
+                        <span class="protocol-author-mark">Автор</span>
+                    </div>
+                </div>
 
-        <div class="protocol-row-list" data-row-list>
-            {% for row in form.participant_rows %}
-                {% include 'protocols/includes/participant_row.html' %}
-            {% endfor %}
+                <div class="protocol-card-grid" data-row-list>
+                    {% for row in form.participant_rows %}
+                        {% include 'protocols/includes/participant_row.html' %}
+                    {% endfor %}
+                </div>
+            </div>
+            <template data-row-template>
+                {% include 'protocols/includes/participant_row.html' with row=empty_row %}
+            </template>
         </div>
-        <template data-row-template>
-            {% include 'protocols/includes/participant_row.html' with row=empty_row %}
-        </template>
-    </section>
+    </details>
 
-    <section class="detail-section protocol-block" data-block="agenda">
-        <div class="protocol-block__head">
-            <h2>Повестка</h2>
-            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-row>+ Вопрос</button>
+    <details class="protocol-section" data-block="agenda" open>
+        <summary class="protocol-section__summary">
+            <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
+            <span class="protocol-section__title">Повестка</span>
+            <span class="protocol-section__count" data-section-count>{{ form.agenda_rows|length }}</span>
+            <button class="link-button link-button--secondary link-button--compact protocol-section__add" type="button" data-add-row>+ Вопрос</button>
+            <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+        </summary>
+        <div class="protocol-section__body">
+            <input type="hidden" name="agenda-TOTAL_FORMS" value="{{ form.agenda_rows|length }}" data-total>
+            <div class="protocol-card-grid" data-row-list>
+                {% for row in form.agenda_rows %}
+                    {% include 'protocols/includes/agenda_row.html' %}
+                {% endfor %}
+            </div>
+            <template data-row-template>
+                {% include 'protocols/includes/agenda_row.html' with row=empty_row %}
+            </template>
         </div>
-        <input type="hidden" name="agenda-TOTAL_FORMS" value="{{ form.agenda_rows|length }}" data-total>
-        <div class="protocol-row-list" data-row-list>
-            {% for row in form.agenda_rows %}
-                {% include 'protocols/includes/agenda_row.html' %}
-            {% endfor %}
-        </div>
-        <template data-row-template>
-            {% include 'protocols/includes/agenda_row.html' with row=empty_row %}
-        </template>
-    </section>
+    </details>
 
-    <section class="detail-section protocol-block" data-block="speeches">
-        <div class="protocol-block__head">
-            <h2>Слушали</h2>
-            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-row>+ Выступление</button>
+    <details class="protocol-section" data-block="speeches" open>
+        <summary class="protocol-section__summary">
+            <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
+            <span class="protocol-section__title">Слушали</span>
+            <span class="protocol-section__count" data-section-count>{{ form.speech_rows|length }}</span>
+            <button class="link-button link-button--secondary link-button--compact protocol-section__add" type="button" data-add-row>+ Выступление</button>
+            <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+        </summary>
+        <div class="protocol-section__body">
+            <input type="hidden" name="speeches-TOTAL_FORMS" value="{{ form.speech_rows|length }}" data-total>
+            <div class="protocol-card-grid" data-row-list>
+                {% for row in form.speech_rows %}
+                    {% include 'protocols/includes/speech_row.html' %}
+                {% endfor %}
+            </div>
+            <template data-row-template>
+                {% include 'protocols/includes/speech_row.html' with row=empty_row %}
+            </template>
         </div>
-        <input type="hidden" name="speeches-TOTAL_FORMS" value="{{ form.speech_rows|length }}" data-total>
-        <div class="protocol-row-list" data-row-list>
-            {% for row in form.speech_rows %}
-                {% include 'protocols/includes/speech_row.html' %}
-            {% endfor %}
-        </div>
-        <template data-row-template>
-            {% include 'protocols/includes/speech_row.html' with row=empty_row %}
-        </template>
-    </section>
+    </details>
 
-    <section class="detail-section protocol-block" data-block="actions">
-        <div class="protocol-block__head">
-            <h2>Задачи</h2>
-            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-row>+ Задача</button>
+    <details class="protocol-section protocol-section--accent" data-block="actions" open>
+        <summary class="protocol-section__summary">
+            <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
+            <span class="protocol-section__title">Задачи</span>
+            <span class="protocol-section__count" data-section-count>{{ form.action_rows|length }}</span>
+            <button class="link-button link-button--secondary link-button--compact protocol-section__add" type="button" data-add-row>+ Задача</button>
+            <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+        </summary>
+        <div class="protocol-section__body">
+            <p class="protocol-section__hint">Протокол может не содержать задач. Заполненная задача требует формулировки, подразделения, срока и хотя бы одного исполнителя.</p>
+            {% comment %}
+            Presentation only. `collect_required_approvers()` on the server
+            stays the authority on who must sign; this sentence and the
+            per-participant hint merely say out loud what it will decide.
+            {% endcomment %}
+            <p class="protocol-section__hint">Исполнители задач протокола автоматически становятся согласующими — кроме автора протокола.</p>
+            <input type="hidden" name="actions-TOTAL_FORMS" value="{{ form.action_rows|length }}" data-total>
+            <div class="protocol-card-grid" data-row-list>
+                {% for row in form.action_rows %}
+                    {% include 'protocols/includes/action_row.html' %}
+                {% endfor %}
+            </div>
+            <template data-row-template>
+                {% include 'protocols/includes/action_row.html' with row=empty_action_row %}
+            </template>
+            <template data-assignee-template>
+                {% include 'protocols/includes/assignee_row.html' with assignee=empty_assignee action_index=0 %}
+            </template>
         </div>
-        <p class="protocol-block__hint">Протокол может не содержать задач. Заполненная задача требует формулировки, подразделения, срока и хотя бы одного исполнителя.</p>
-        {% comment %}
-        Presentation only. `collect_required_approvers()` on the server stays
-        the authority on who must sign; this sentence and the per-participant
-        hint below merely say out loud what it will decide.
-        {% endcomment %}
-        <p class="protocol-block__hint">Исполнители задач протокола автоматически становятся согласующими — кроме автора протокола.</p>
-        <input type="hidden" name="actions-TOTAL_FORMS" value="{{ form.action_rows|length }}" data-total>
-        <div class="protocol-row-list protocol-row-list--actions" data-row-list>
-            {% for row in form.action_rows %}
-                {% include 'protocols/includes/action_row.html' %}
-            {% endfor %}
-        </div>
-        <template data-row-template>
-            {% include 'protocols/includes/action_row.html' with row=empty_action_row %}
-        </template>
-        <template data-assignee-template>
-            {% include 'protocols/includes/assignee_row.html' with assignee=empty_assignee action_index=0 %}
-        </template>
-    </section>
+    </details>
 
     <div class="protocol-editor__actions">
         <a class="link-button link-button--secondary" href="{% url 'protocols:list' %}">К списку протоколов</a>

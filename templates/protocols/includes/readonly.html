@@ -1,66 +1,121 @@
 {% comment %}
-The protocol as every other authenticated user sees it. Reading is open to
-everyone; it never carries an editing control, and the backend refuses the
-save and delete routes regardless of what is rendered here.
+The protocol as every other authenticated user sees it — and as its author sees
+it once it is being signed or archived.
+
+Same accordion sections as the editor, same counts in the same places: only the
+controls are gone. Reading is open to everyone; this never carries an editing
+control, and the backend refuses the save and delete routes regardless of what
+is rendered here.
 {% endcomment %}
-<section class="detail-section protocol-block">
-    <h2>Участники</h2>
-    {% if participants %}
-        <ul class="protocol-readonly-list">
-            {% for participant in participants %}
-                <li>
-                    <strong>{{ participant.display_name }}</strong>
-                    <span>{{ participant.department_name|default:'—' }}{% if participant.position %} · {{ participant.position }}{% endif %}</span>
-                    {% if participant.user_id == protocol.author_id %}<span class="protocol-author-mark">Автор протокола</span>{% endif %}
-                    {% if participant.requires_approval %}<span class="status-badge">Требует согласования</span>{% endif %}
-                </li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <p class="placeholder-text">—</p>
-    {% endif %}
-</section>
+<details class="protocol-section" open>
+    <summary class="protocol-section__summary">
+        <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M21 19v-1a4 4 0 0 0-3-3.9M16.5 3.7a4 4 0 0 1 0 7.6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
+        <span class="protocol-section__title">Участники</span>
+        <span class="protocol-section__count">{{ participants|length }}</span>
+        <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+    </summary>
+    <div class="protocol-section__body">
+        {% if participants %}
+            <div class="protocol-card-grid">
+                {% for participant in participants %}
+                    <div class="protocol-participant-card protocol-participant-card--static{% if participant.user_id == protocol.author_id %} protocol-participant-card--author{% endif %}">
+                        <div class="protocol-participant-card__who">
+                            <strong>{{ participant.display_name }}</strong>
+                            <span>{{ participant.department_name|default:'—' }}{% if participant.position %} · {{ participant.position }}{% endif %}</span>
+                        </div>
+                        <div class="protocol-participant-card__flags">
+                            {% if participant.user_id == protocol.author_id %}<span class="protocol-author-mark">Автор</span>{% endif %}
+                            {% if participant.requires_approval %}<span class="status-badge">Требует согласования</span>{% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="placeholder-text">Участники не добавлены.</p>
+        {% endif %}
+    </div>
+</details>
 
-<section class="detail-section protocol-block">
-    <h2>Повестка</h2>
-    {% if agenda_items %}
-        <ol class="protocol-readonly-ordered">
-            {% for item in agenda_items %}<li>{{ item.text|linebreaksbr }}</li>{% endfor %}
-        </ol>
-    {% else %}
-        <p class="placeholder-text">—</p>
-    {% endif %}
-</section>
+<details class="protocol-section" open>
+    <summary class="protocol-section__summary">
+        <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
+        <span class="protocol-section__title">Повестка</span>
+        <span class="protocol-section__count">{{ agenda_items|length }}</span>
+        <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+    </summary>
+    <div class="protocol-section__body">
+        {% if agenda_items %}
+            <div class="protocol-card-grid">
+                {% for item in agenda_items %}
+                    <div class="protocol-agenda-card protocol-agenda-card--static">
+                        <span class="protocol-agenda-card__number" aria-hidden="true"></span>
+                        <p>{{ item.text|linebreaksbr }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="placeholder-text">Вопросы повестки не добавлены.</p>
+        {% endif %}
+    </div>
+</details>
 
-<section class="detail-section protocol-block">
-    <h2>Слушали</h2>
-    {% if speeches %}
-        <ul class="protocol-readonly-list">
-            {% for speech in speeches %}
-                <li>
-                    <strong>{{ speech.speaker.display_name }}</strong>
-                    <p>{{ speech.text|linebreaksbr }}</p>
-                </li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <p class="placeholder-text">—</p>
-    {% endif %}
-</section>
+<details class="protocol-section" open>
+    <summary class="protocol-section__summary">
+        <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
+        <span class="protocol-section__title">Слушали</span>
+        <span class="protocol-section__count">{{ speeches|length }}</span>
+        <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+    </summary>
+    <div class="protocol-section__body">
+        {% if speeches %}
+            <div class="protocol-card-grid">
+                {% for speech in speeches %}
+                    <div class="protocol-speech-card protocol-speech-card--static">
+                        <strong>{{ speech.speaker.display_name }}</strong>
+                        <p>{{ speech.text|linebreaksbr }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="placeholder-text">Выступления не добавлены.</p>
+        {% endif %}
+    </div>
+</details>
 
-<section class="detail-section protocol-block">
-    <h2>Задачи</h2>
-    {% if actions %}
-        <ul class="protocol-readonly-list">
-            {% for action in actions %}
-                <li>
-                    <p>{{ action.task_text|linebreaksbr }}</p>
-                    <span>{{ action.department.name }} · срок {{ action.due_date|date:'d.m.Y' }}</span>
-                    <span>{% for assignee in action.assignees.all %}{{ assignee.user.get_full_name|default:assignee.user.username }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
-                </li>
-            {% endfor %}
-        </ul>
-    {% else %}
-        <p class="placeholder-text">—</p>
-    {% endif %}
-</section>
+<details class="protocol-section protocol-section--accent" open>
+    <summary class="protocol-section__summary">
+        <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
+        <span class="protocol-section__title">Задачи</span>
+        <span class="protocol-section__count">{{ actions|length }}</span>
+        <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+    </summary>
+    <div class="protocol-section__body">
+        {% if actions %}
+            <div class="protocol-card-grid">
+                {% for action in actions %}
+                    {% comment %}
+                    `action.task` is the real `tasks.Task` an archived protocol
+                    produced, resolved by the view. Until then the card shows
+                    the decision alone — there is no task to link to yet.
+                    {% endcomment %}
+                    <div class="protocol-task-card">
+                        <div class="protocol-task-card__head">
+                            <span class="protocol-task-card__number" aria-hidden="true"></span>
+                            <p class="protocol-task-card__text">{{ action.task_text|linebreaksbr }}</p>
+                            {% if action.task %}
+                                <a class="status-badge protocol-task-card__link" href="{% url 'tasks:detail' action.task.pk %}">Задача {{ action.task.pk }} · {{ action.task.status }}</a>
+                            {% endif %}
+                        </div>
+                        <dl class="protocol-task-card__facts">
+                            <div><dt>Исполнители</dt><dd>{% for assignee in action.assignees.all %}{{ assignee.user.get_full_name|default:assignee.user.username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd></div>
+                            <div><dt>Подразделение</dt><dd>{{ action.department.name|default:'—' }}</dd></div>
+                            <div><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y'|default:'—' }}</dd></div>
+                        </dl>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="placeholder-text">Задачи по протоколу не поставлены.</p>
+        {% endif %}
+    </div>
+</details>

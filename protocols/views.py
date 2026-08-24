@@ -28,6 +28,7 @@ from .pdf import ProtocolPdfUnavailable, protocol_pdf_filename, render_protocol_
 from .selectors import (
     build_protocol_document,
     build_protocol_list_state,
+    describe_protocol_workflow,
     get_active_protocol_types,
     get_approval_progress,
     get_approval_revision_groups,
@@ -406,6 +407,7 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
         'can_delete': can_delete_draft_protocol(protocol, request.user),
         'save_error': save_error,
         'history_groups': get_protocol_history_groups(protocol),
+        'workflow_steps': describe_protocol_workflow(protocol),
         'author_participant': protocol.participants.filter(user_id=protocol.author_id).first(),
         # Approval read side. `can_send`/`can_decide` only decide what is
         # rendered; every one of the three endpoints re-checks its own rule.
@@ -435,17 +437,19 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
             'speaker': '', 'requires_approval': False, 'errors': {},
         }
         context['empty_action_row'] = {
-            'index': 0, 'text': '', 'department': '', 'due_date': '',
-            'assignees': [], 'errors': {},
+            'index': 0, 'text': '', 'due_date': '', 'assignees': [], 'errors': {},
         }
         context['empty_assignee'] = {'user': '', 'department': ''}
     else:
         context['participants'] = protocol.participants.all()
         context['agenda_items'] = protocol.agenda_items.all()
         context['speeches'] = protocol.speeches.select_related('speaker')
-        context['actions'] = protocol.actions.select_related('department').prefetch_related(
-            'assignees__user'
-        )
+        # `task` is the reverse one-to-one to the real `tasks.Task` an archived
+        # protocol produced; joined here so the read-only cards can link to it
+        # without a query per decision.
+        context['actions'] = protocol.actions.select_related(
+            'department', 'task__status'
+        ).prefetch_related('assignees__user')
     return context
 
 

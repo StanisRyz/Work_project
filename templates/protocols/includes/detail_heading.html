@@ -1,47 +1,69 @@
 {% comment %}
-Heading, status badge and the draft-only «Удалить черновик» control. Shared by
-the full page and by `protocols:heading_fragment`, so a live refresh renders
-exactly what a reload would — including the disappearance of the delete button
-once the protocol leaves «Черновик».
+The document card: identity, status and where the protocol is in its workflow.
+Always visible — it is the one block that never collapses.
+
+Shared by the full page and by `protocols:heading_fragment`, so a live refresh
+renders exactly what a reload would, including the disappearance of «Удалить
+черновик» once the protocol leaves «Черновик» and the progress moving on.
 {% endcomment %}
-<section class="protocol-detail-heading">
-    <a class="act-back-link" href="{% url 'protocols:list' %}" aria-label="К списку протоколов">←</a>
-    <div class="protocol-detail-heading__title">
-        <h1>{{ protocol.protocol_type.name }} №{{ protocol.number }}</h1>
-        <span class="act-badge act-badge--status">{{ protocol.get_status_display }}</span>
+<section class="protocol-document-card">
+    <a class="act-back-link protocol-document-card__back" href="{% url 'protocols:list' %}" aria-label="К списку протоколов">←</a>
+
+    <span class="protocol-document-card__mark" aria-hidden="true">
+        <svg class="ui-icon" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg>
+    </span>
+
+    <div class="protocol-document-card__identity">
+        <div class="protocol-document-card__title">
+            <h1>{{ protocol.protocol_type.name }} №{{ protocol.number }}</h1>
+            <span class="act-badge act-badge--status">{{ protocol.get_status_display }}</span>
+        </div>
+        <div class="protocol-document-card__meta">
+            <span>{{ protocol.created_at|date:'d.m.Y' }}</span>
+            <span>Автор: {{ protocol.author.get_full_name|default:protocol.author.username }}</span>
+            {% comment %}
+            Revision 0 means «никогда не отправлялся»: showing it would say less
+            than nothing, so it appears only once a round has actually opened.
+            {% endcomment %}
+            {% if protocol.revision %}<span>Редакция {{ protocol.revision }}</span>{% endif %}
+        </div>
     </div>
-    <div class="protocol-detail-heading__meta">
-        <span>Создан {{ protocol.created_at|date:'d.m.Y H:i' }}</span>
-        <span>Автор: {{ protocol.author.get_full_name|default:protocol.author.username }}</span>
-        {% comment %}
-        Revision 0 means «никогда не отправлялся»: showing it would say less
-        than nothing, so it appears only once a round has actually opened.
-        {% endcomment %}
-        {% if protocol.revision %}<span>Редакция {{ protocol.revision }}</span>{% endif %}
-    </div>
+
     {% comment %}
-    The official document, available to every reader of the protocol: the
-    printable page and the same document as a PDF download. Both are GET and
-    change nothing, so they sit next to the heading rather than among the
-    workflow actions.
+    Three steps, computed from the stored status by
+    `describe_protocol_workflow()`. «На доработке» shares the first step with
+    «Черновик» — the badge above says which of the two it is.
     {% endcomment %}
-    <div class="protocol-detail-heading__documents">
-        <a class="link-button link-button--secondary" href="{% url 'protocols:print' protocol.pk %}">Печатная форма</a>
-        <a class="link-button link-button--secondary" href="{% url 'protocols:pdf' protocol.pk %}">Скачать PDF</a>
-    </div>
-    {% if can_delete %}
+    <ol class="protocol-workflow" aria-label="Этап протокола">
+        {% for step in workflow_steps %}
+            <li class="protocol-workflow__step protocol-workflow__step--{{ step.state }}"{% if step.state == 'current' %} aria-current="step"{% endif %}>
+                <span class="protocol-workflow__dot">{{ step.number }}</span>
+                <span class="protocol-workflow__label">{{ step.label }}</span>
+            </li>
+        {% endfor %}
+    </ol>
+
+    <div class="protocol-document-card__actions">
         {% comment %}
-        Author-only while the protocol is a draft, and confirmed through the one
-        application modal — never a browser `confirm()`. The service re-checks
-        the author and the status under a lock.
+        The official document, available to every reader: the printable page
+        and the same document as a PDF. Both are GET and change nothing.
         {% endcomment %}
-        <button class="link-button link-button--danger" type="button"
-                data-protocol-workflow-submit
-                data-confirm
-                data-confirm-url="{% url 'protocols:delete' protocol.pk %}"
-                data-confirm-title="Удалить черновик протокола?"
-                data-confirm-text="Протокол «{{ protocol.protocol_type.name }} №{{ protocol.number }}» будет удалён без возможности восстановления, а его номер освободится."
-                data-confirm-label="Удалить"
-                data-confirm-variant="danger">Удалить черновик</button>
-    {% endif %}
+        <a class="link-button link-button--secondary link-button--compact" href="{% url 'protocols:print' protocol.pk %}">Печать</a>
+        <a class="link-button link-button--secondary link-button--compact" href="{% url 'protocols:pdf' protocol.pk %}">PDF</a>
+        {% if can_delete %}
+            {% comment %}
+            Author-only while the protocol is a draft, and confirmed through the
+            one application modal — never a browser `confirm()`. The service
+            re-checks the author and the status under a lock.
+            {% endcomment %}
+            <button class="link-button link-button--danger link-button--compact" type="button"
+                    data-protocol-workflow-submit
+                    data-confirm
+                    data-confirm-url="{% url 'protocols:delete' protocol.pk %}"
+                    data-confirm-title="Удалить черновик протокола?"
+                    data-confirm-text="Протокол «{{ protocol.protocol_type.name }} №{{ protocol.number }}» будет удалён без возможности восстановления, а его номер освободится."
+                    data-confirm-label="Удалить"
+                    data-confirm-variant="danger">Удалить</button>
+        {% endif %}
+    </div>
 </section>

@@ -79,7 +79,6 @@ class ProtocolDraftForm:
             {
                 'index': index,
                 'text': action.task_text,
-                'department': str(action.department_id),
                 'due_date': action.due_date.isoformat(),
                 'assignees': [
                     {
@@ -242,7 +241,6 @@ class ProtocolDraftForm:
             row = {
                 'index': index,
                 'text': self.data.get(f'{prefix}-text', '').strip(),
-                'department': self.data.get(f'{prefix}-department', '').strip(),
                 'due_date': self.data.get(f'{prefix}-due_date', '').strip(),
                 'assignees': [
                     {'user': user, 'department': department}
@@ -253,15 +251,18 @@ class ProtocolDraftForm:
             self.action_rows.append(row)
             if not row['text']:
                 row['errors']['text'] = 'Укажите задачу.'
-            department = self._department(row['department'])
-            if department is None:
-                row['errors']['department'] = 'Выберите подразделение.'
             due_date = None
             try:
                 due_date = date.fromisoformat(row['due_date'])
             except (TypeError, ValueError):
                 row['errors']['due_date'] = 'Выберите срок.'
             assignees = []
+            # `ProtocolAction.department` is not asked for separately: it is the
+            # department of the first assignee, which is already chosen next to
+            # them and already checked against their profile below. Asking twice
+            # only made it possible to state two different answers, and the one
+            # that reaches the real task is this one.
+            department = None
             if len(assignee_users) != len(assignee_departments):
                 row['errors']['assignees'] = 'Для каждого исполнителя выберите подразделение.'
             elif not assignee_users:
@@ -289,6 +290,8 @@ class ProtocolDraftForm:
                         continue
                     seen.add(assignee.pk)
                     assignees.append(assignee)
+                    if department is None:
+                        department = assignee_department
             if row['errors']:
                 continue
             cleaned.append(

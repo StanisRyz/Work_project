@@ -39,6 +39,36 @@ def build_protocol_list_state(params):
     }
 
 
+# The three steps the document card shows. «На доработке» is deliberately not a
+# step of its own: a returned protocol is back with its author, which is the
+# first step — the status badge next to the title is what says it was returned.
+WORKFLOW_STEPS = (
+    (1, 'Черновик', (Protocol.Status.DRAFT, Protocol.Status.REVISION)),
+    (2, 'Согласование', (Protocol.Status.APPROVAL,)),
+    (3, 'Архив', (Protocol.Status.ARCHIVED,)),
+)
+
+
+def describe_protocol_workflow(protocol):
+    """`[{number, label, state}]` for the progress indicator.
+
+    `state` is `done`, `current` or `upcoming`; presentation only, derived from
+    the stored status. No transition rule is restated here.
+    """
+    current = next(
+        (number for number, _label, statuses in WORKFLOW_STEPS if protocol.status in statuses),
+        1,
+    )
+    return [
+        {
+            'number': number,
+            'label': label,
+            'state': 'current' if number == current else ('done' if number < current else 'upcoming'),
+        }
+        for number, label, _statuses in WORKFLOW_STEPS
+    ]
+
+
 def get_active_protocol_types():
     return ProtocolType.objects.filter(is_active=True).order_by('display_order', 'name')
 

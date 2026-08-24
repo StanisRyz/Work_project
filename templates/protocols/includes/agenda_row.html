@@ -1,6 +1,11 @@
-<div class="protocol-row protocol-row--agenda" data-row>
+{% comment %}
+One agenda question. The visible number comes from CSS counters, so adding or
+removing a row never has to renumber anything in the markup.
+{% endcomment %}
+<div class="protocol-agenda-card" data-row>
+    <span class="protocol-agenda-card__number" aria-hidden="true"></span>
     <label>
-        <span>Вопрос повестки</span>
+        <span class="visually-hidden-label">Вопрос повестки</span>
         <textarea name="agenda-{{ row.index }}-text" rows="2" placeholder="Сформулируйте вопрос">{{ row.text }}</textarea>
         {% if row.errors.text %}<span class="field-error">{{ row.errors.text }}</span>{% endif %}
     </label>

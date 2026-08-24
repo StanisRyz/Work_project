@@ -42,11 +42,24 @@
 
         const rowsOf = (block) => [...block.querySelector('[data-row-list]').children];
 
+        /**
+         * Keep the section header's count badge in step with its rows.
+         *
+         * Participants include the author, whose card is fixed and lives
+         * outside `[data-row-list]`, so that block counts one more.
+         */
+        const refreshCount = (block, rowCount) => {
+            const badge = block.querySelector('[data-section-count]');
+            if (!badge) return;
+            badge.textContent = block.dataset.block === 'participants' ? rowCount + 1 : rowCount;
+        };
+
         /** Renumber one block's field names and refresh its `TOTAL_FORMS`. */
         const renumber = (block) => {
             const name = block.dataset.block;
             const rows = rowsOf(block);
             block.querySelector('[data-total]').value = rows.length;
+            refreshCount(block, rows.length);
             const pattern = new RegExp(`^${name}-\\d+`);
             rows.forEach((row, index) => {
                 row.querySelectorAll('[name]').forEach((field) => {
@@ -149,7 +162,13 @@
         form.addEventListener('click', (event) => {
             const target = event.target;
             if (target.matches('[data-add-row]')) {
-                addRow(target.closest('[data-block]'));
+                const block = target.closest('[data-block]');
+                // The add button lives inside the section's `<summary>`, where a
+                // click would otherwise toggle the disclosure shut on the row
+                // that was just added.
+                event.preventDefault();
+                if (block.tagName === 'DETAILS') block.open = true;
+                addRow(block);
                 return;
             }
             if (target.matches('[data-remove-row]')) {
@@ -193,6 +212,21 @@
             // approval hint is refreshed from one place.
             syncAutoApprovalHints();
         });
+
+        /**
+         * A required field inside a collapsed section cannot be focused, and
+         * the browser then refuses to submit without saying why. Opening its
+         * section during the `invalid` event — before validity is reported —
+         * puts the field back on screen with the native message on it.
+         */
+        form.addEventListener(
+            'invalid',
+            (event) => {
+                const section = event.target.closest('details');
+                if (section) section.open = true;
+            },
+            true,
+        );
 
         blocks.forEach(renumber);
         syncAllPairs();

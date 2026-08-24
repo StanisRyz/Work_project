@@ -4,7 +4,7 @@
 {% block title %}{{ protocol.protocol_type.name }} №{{ protocol.number }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260824-2">
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260824-3">
 {% endblock %}
 
 {% block content %}
@@ -58,17 +58,23 @@ server render and is therefore already current.
         {% include 'protocols/includes/detail_history.html' %}
     </div>
 {% else %}
-    <div data-live-protocol-approval>
-        {% include 'protocols/includes/detail_approval.html' %}
-    </div>
-    <div data-live-protocol-content>
+    {% comment %}
+    Content first, approval last: the accordion reads in document order —
+    участники, повестка, «Слушали», задачи, согласование. The two live
+    fragments stay separate blocks so a decision refreshes the approval
+    section without touching an editor that may hold unsaved input.
+    {% endcomment %}
+    <div class="protocol-sections" data-live-protocol-content>
         {% include 'protocols/includes/detail_content.html' %}
+    </div>
+    <div class="protocol-sections" data-live-protocol-approval>
+        {% include 'protocols/includes/detail_approval.html' %}
     </div>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
 {% if detail_tab == 'protocol' and can_edit %}
-    <script src="{% static 'js/protocol_editor.js' %}?v=20260824-1"></script>
+    <script src="{% static 'js/protocol_editor.js' %}?v=20260824-2"></script>
 {% endif %}
 {% endblock %}
