@@ -241,17 +241,27 @@ class ProtocolProductionTests(TestCase):
         page = self.client.get(print_url)
         self.assertEqual(page.status_code, 200)
         body = page.content.decode()
+        # The official paper document, section by section — no status badge and
+        # no workflow control anywhere on it.
         for expected in (
-            f'{self.quality.name} №{protocol.number}',      # header
-            'Иван Петров',                                  # author
+            f'№ {protocol.number} / {self.quality.name}',   # header
+            'Присутствовали:',
+            'Иван Петров',                                  # author, as a participant
+            'Повестка:',
             'О качестве партии',                            # agenda
-            'Доложил о результатах контроля.',              # listened
-            'Проверить оснастку',                           # decision and task
-            'Пётр Сидоров',                                 # approver
-            'Согласовано',                                  # approval outcome
-            'В архиве',                                     # final workflow state
+            'Слушали:',
+            'Доложил о результатах контроля.',
+            'Решили:',
+            'Проверить оснастку',                           # decision
+            'Ответственный: Анна Кузнецова',                # its assignee
+            'Срок:',
+            'Протокол согласован:',
+            'Пётр Сидоров',                                 # approver signature line
+            'Подготовил:',
         ):
             self.assertIn(expected, body)
+        self.assertNotIn('act-badge', body)
+        self.assertNotIn('protocol-section', body)
 
         response = self.client.get(pdf_url)
         self.assertEqual(response.status_code, 200)
@@ -262,9 +272,36 @@ class ProtocolProductionTests(TestCase):
         # The page and the PDF render one structure, so the document cannot
         # differ between them.
         document = build_protocol_document(protocol)
-        self.assertEqual(document['status_label'], 'В архиве')
-        self.assertEqual(len(document['tasks']), 1)
-        self.assertEqual(
-            [row['status_label'] for row in document['approvals']],
-            ['Согласовано', 'Согласовано'],
+        self.assertEqual(len(document['decisions']), 1)
+        self.assertEqual(document['decisions'][0]['assignees'], ['Анна Кузнецова'])
+        self.assertEqual(len(document['approvals']), 2)
+
+    def test_a_bare_protocol_still_produces_a_document_and_a_pdf(self):
+        """Empty optional sections must render, not raise.
+
+        A protocol nobody had to approve, with no decisions and no speeches, is
+        a valid document — the printable form and the PDF have to say so
+        instead of failing on an empty list.
+        """
+        protocol = create_protocol(self.quality, self.author)
+        ProtocolAgendaItem.objects.create(
+            protocol=protocol, text='Единственный вопрос', display_order=0
         )
+
+        document = build_protocol_document(protocol)
+        self.assertEqual(document['decisions'], [])
+        self.assertEqual(document['speeches'], [])
+        self.assertEqual(document['approvals'], [])
+
+        self.client.force_login(self.reader)
+        page = self.client.get(reverse('protocols:print', args=[protocol.pk]))
+        self.assertEqual(page.status_code, 200)
+        body = page.content.decode()
+        self.assertIn('Единственный вопрос', body)
+        self.assertIn('Решения не приняты.', body)
+        # Nobody has to sign, so there is no signature block to print at all.
+        self.assertNotIn('Протокол согласован:', body)
+
+        response = self.client.get(reverse('protocols:pdf', args=[protocol.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.content.startswith(b'%PDF'))

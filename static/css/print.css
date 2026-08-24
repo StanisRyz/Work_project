@@ -94,3 +94,88 @@
         background: #ffffff;
     }
 }
+
+/* Protocol: the official paper document ----------------------------------
+   Serif, black on white, no borders and no cards — the plant's existing Word
+   protocol, not a web page export. Scoped to `.protocol-print`, so the act
+   printable form above is untouched. */
+
+.protocol-print {
+    font-family: 'Times New Roman', Times, serif;
+    color: #000000;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.protocol-print__title {
+    margin: 0 0 18px;
+    font-size: 17px;
+    font-weight: 700;
+    text-align: center;
+}
+
+/* Date on the left, «№ 14 / Качество» on the right, on one line. */
+.protocol-print__line {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 18px;
+}
+
+.protocol-print__heading {
+    margin: 16px 0 6px;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.protocol-print__people { margin: 0; }
+
+.protocol-print__list {
+    margin: 0;
+    padding-left: 26px;
+}
+
+.protocol-print__list li { margin-bottom: 6px; }
+
+/* «Ответственный» and «Срок» sit under their decision, indented with it. */
+.protocol-print__fact { display: block; }
+
+.protocol-print__speaker { margin: 10px 0 2px; text-indent: 24px; }
+.protocol-print__speech { margin: 0; text-align: justify; text-indent: 24px; }
+
+.protocol-print__empty { margin: 0; }
+
+.protocol-print__signatures {
+    width: 100%;
+    margin-top: 6px;
+    border-collapse: collapse;
+}
+
+.protocol-print__signatures td {
+    padding: 8px 0;
+    border: 0;
+    vertical-align: bottom;
+}
+
+.protocol-print__signature-line {
+    width: 150px;
+    border-bottom: 1px solid #000000;
+}
+
+.protocol-print__prepared {
+    margin-top: 26px;
+    font-size: 12px;
+}
+
+.protocol-print__prepared p { margin: 0; }
+
+@media print {
+    .protocol-print { font-size: 12pt; }
+    .protocol-print__title { font-size: 14pt; }
+    .protocol-print__heading { font-size: 12pt; }
+    .protocol-print__prepared { font-size: 10pt; }
+
+    /* A signature block split across a page break is unusable. */
+    .protocol-print__signatures,
+    .protocol-print__prepared { break-inside: avoid; }
+}

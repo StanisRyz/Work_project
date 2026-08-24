@@ -343,6 +343,9 @@ def build_protocol_document(protocol):
         'protocol_type_name': protocol.protocol_type.name,
         'number': protocol.number,
         'created_at': protocol.created_at,
+        # The date under «Подготовил»: when the author last touched the
+        # document, which on paper is later than the meeting itself.
+        'prepared_at': protocol.updated_at,
         'author_name': _person_label(protocol.author),
         'status_label': protocol.get_status_display(),
         'revision': protocol.revision,

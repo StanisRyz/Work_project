@@ -10,12 +10,18 @@ Two rules shape this module:
   Linux and Windows, so a renderer needing GTK/Pango is not an option.
   ReportLab is a wheel with no system dependencies.
 
+The layout is the plant's existing paper protocol: a centred «ПРОТОКОЛ», the
+date and number on one line, Присутствовали, Повестка, Слушали, Решили,
+signature lines and «Подготовил». Flowing serif text on white — no tables of
+fields, no borders, no badges.
+
 Cyrillic needs a real TrueType font: ReportLab's built-in Type1 faces are
 Latin-only, and the fonts it ships (Bitstream Vera) have no Cyrillic block.
-The font is therefore resolved from configuration first and from the usual
-Linux/Windows locations second, and a missing one is a controlled refusal —
-never a PDF full of black squares. `ecosystem.checks` turns the same
-resolution into a deployment check, so this is caught before a user clicks.
+A serif face is preferred because the document is a serif document; the font is
+resolved from configuration first and from the usual Linux/Windows locations
+second, and a missing one is a controlled refusal — never a PDF full of black
+squares. `ecosystem.checks` turns the same resolution into a deployment check,
+so this is caught before a user clicks.
 """
 
 import io
@@ -29,8 +35,16 @@ class ProtocolPdfUnavailable(RuntimeError):
 
 
 # Fonts that actually contain Cyrillic, in the places distributions put them.
-# Order matters only in that the first readable file wins.
+# Serif first — the document is a serif document — then the sans faces, which
+# are only a fallback so a machine without a serif face still produces a file.
 FONT_CANDIDATES = (
+    ('C:/Windows/Fonts/times.ttf', 'C:/Windows/Fonts/timesbd.ttf'),
+    ('/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf',
+     '/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf'),
+    ('/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf',
+     '/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf'),
+    ('/usr/share/fonts/dejavu/DejaVuSerif.ttf',
+     '/usr/share/fonts/dejavu/DejaVuSerif-Bold.ttf'),
     ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
      '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'),
     ('/usr/share/fonts/dejavu/DejaVuSans.ttf',
@@ -38,11 +52,15 @@ FONT_CANDIDATES = (
     ('/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
      '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf'),
     ('C:/Windows/Fonts/arial.ttf', 'C:/Windows/Fonts/arialbd.ttf'),
-    ('C:/Windows/Fonts/calibri.ttf', 'C:/Windows/Fonts/calibrib.ttf'),
 )
 
 REGULAR_FONT = 'ProtocolBody'
 BOLD_FONT = 'ProtocolBodyBold'
+
+MONTHS = (
+    'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+)
 
 _fonts_registered = False
 
@@ -104,72 +122,65 @@ def _register_fonts():
 
 
 def _styles():
+    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
     from reportlab.lib.styles import ParagraphStyle
 
-    body = ParagraphStyle(
-        'ProtocolBody', fontName=REGULAR_FONT, fontSize=9, leading=12
-    )
+    body = ParagraphStyle('Body', fontName=REGULAR_FONT, fontSize=11, leading=14)
     return {
+        'body': body,
         'title': ParagraphStyle(
-            'ProtocolTitle', parent=body, fontName=BOLD_FONT, fontSize=16, leading=20,
-            spaceAfter=2,
-        ),
-        'eyebrow': ParagraphStyle(
-            'ProtocolEyebrow', parent=body, fontSize=9, textColor='#667085', spaceAfter=10,
+            'Title', parent=body, fontName=BOLD_FONT, fontSize=13, leading=16,
+            alignment=TA_CENTER, spaceAfter=14,
         ),
         'heading': ParagraphStyle(
-            'ProtocolHeading', parent=body, fontName=BOLD_FONT, fontSize=12, leading=15,
-            spaceBefore=14, spaceAfter=6,
+            'Heading', parent=body, fontName=BOLD_FONT, spaceBefore=12, spaceAfter=4,
         ),
-        'body': body,
-        'cell': ParagraphStyle('ProtocolCell', parent=body),
-        'header_cell': ParagraphStyle('ProtocolHeaderCell', parent=body, fontName=BOLD_FONT),
-        'empty': ParagraphStyle('ProtocolEmpty', parent=body, textColor='#667085'),
+        'person': ParagraphStyle('Person', parent=body, spaceAfter=1),
+        'speaker': ParagraphStyle('Speaker', parent=body, firstLineIndent=18, spaceBefore=6),
+        'speech': ParagraphStyle(
+            'Speech', parent=body, firstLineIndent=18, alignment=TA_JUSTIFY, spaceAfter=4,
+        ),
+        # Numbered items: the number is drawn in the gutter by `bulletText`.
+        'item': ParagraphStyle(
+            'Item', parent=body, leftIndent=24, bulletIndent=6, spaceAfter=3,
+        ),
+        'fact': ParagraphStyle('Fact', parent=body, leftIndent=24, spaceAfter=2),
+        'prepared': ParagraphStyle('Prepared', parent=body, fontSize=9, leading=12),
     }
 
 
-def _date(value, fmt='%d.%m.%Y %H:%M'):
+def _localdate(value):
     if not value:
-        return '—'
+        return None
     from django.utils import timezone as django_timezone
 
     if hasattr(value, 'tzinfo') and value.tzinfo is not None:
-        value = django_timezone.localtime(value)
-    return value.strftime(fmt)
+        return django_timezone.localtime(value).date()
+    return value
 
 
-def _table(styles, header, rows, widths):
-    """One bordered table in the same visual language as the printable page."""
-    from reportlab.lib import colors
-    from reportlab.platypus import Paragraph, Table, TableStyle
-
-    data = [[Paragraph(str(cell), styles['header_cell']) for cell in header]]
-    data += [[Paragraph(str(cell), styles['cell']) for cell in row] for row in rows]
-    table = Table(data, colWidths=widths, repeatRows=1, hAlign='LEFT')
-    table.setStyle(
-        TableStyle(
-            [
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d9dee8')),
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f6f7f9')),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 5),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-                ('TOPPADDING', (0, 0), (-1, -1), 4),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ]
-        )
-    )
-    return table
+def _long_date(value):
+    """«22 июля 2026» — the form the paper protocol uses in its header."""
+    moment = _localdate(value)
+    if moment is None:
+        return ''
+    return f'{moment.day} {MONTHS[moment.month - 1]} {moment.year}'
 
 
-def _section(story, styles, heading, table_or_none, empty_message):
-    from reportlab.platypus import Paragraph
+def _short_date(value):
+    moment = _localdate(value)
+    return moment.strftime('%d.%m.%Y') if moment else '—'
 
-    story.append(Paragraph(heading, styles['heading']))
-    if table_or_none is None:
-        story.append(Paragraph(empty_message, styles['empty']))
-    else:
-        story.append(table_or_none)
+
+def _escape(text):
+    """ReportLab paragraphs are mini-HTML, so business text must be escaped.
+
+    Line breaks are kept as `<br/>`: a decision or a speech written as several
+    lines has to print as several lines.
+    """
+    from xml.sax.saxutils import escape
+
+    return escape(str(text or '')).replace('\n', '<br/>')
 
 
 def render_protocol_pdf(document):
@@ -179,9 +190,16 @@ def render_protocol_pdf(document):
     so the caller answers with a clear message instead of a broken file.
     """
     try:
+        from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.units import mm
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+        from reportlab.platypus import (
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
     except ImportError as exc:  # pragma: no cover - exercised through the view
         raise ProtocolPdfUnavailable('Библиотека reportlab не установлена.') from exc
 
@@ -192,200 +210,132 @@ def render_protocol_pdf(document):
     page = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        leftMargin=14 * mm,
-        rightMargin=14 * mm,
-        topMargin=14 * mm,
-        bottomMargin=14 * mm,
+        leftMargin=20 * mm,
+        rightMargin=15 * mm,
+        topMargin=15 * mm,
+        bottomMargin=15 * mm,
         title=document['title'],
         author=document['author_name'],
     )
     width = page.width
 
-    story = [
-        Paragraph('Протокол совещания', styles['eyebrow']),
-        Paragraph(document['title'], styles['title']),
-        Spacer(1, 6),
-    ]
+    story = [Paragraph('Протокол', styles['title'])]
 
-    _section(
-        story, styles, 'Данные протокола',
-        _table(
-            styles,
-            ['Поле', 'Значение'],
-            [
-                ['Тип протокола', document['protocol_type_name']],
-                ['Номер', f"№{document['number']}"],
-                ['Дата создания', _date(document['created_at'])],
-                ['Автор', document['author_name']],
-                ['Статус', document['status_label']],
-                ['Редакция', document['revision'] or '—'],
-            ],
-            [width * 0.28, width * 0.72],
-        ),
-        '',
-    )
-
-    _section(
-        story, styles, 'Участники',
-        _table(
-            styles,
-            ['№', 'Подразделение', 'Сотрудник', 'Должность', 'Согласование'],
-            [
-                [
-                    index,
-                    participant['department_name'] or '—',
-                    participant['display_name']
-                    + (' (автор)' if participant['is_author'] else ''),
-                    participant['position'] or '—',
-                    'Требуется' if participant['requires_approval'] else '—',
-                ]
-                for index, participant in enumerate(document['participants'], start=1)
-            ],
-            [width * 0.06, width * 0.22, width * 0.3, width * 0.26, width * 0.16],
-        ) if document['participants'] else None,
-        'Участники не добавлены.',
-    )
-
-    _section(
-        story, styles, 'Повестка',
-        _table(
-            styles,
-            ['№', 'Вопрос'],
-            [[index, text] for index, text in enumerate(document['agenda'], start=1)],
-            [width * 0.06, width * 0.94],
-        ) if document['agenda'] else None,
-        'Вопросы повестки не добавлены.',
-    )
-
-    _section(
-        story, styles, 'Слушали',
-        _table(
-            styles,
-            ['Выступающий', 'Содержание'],
-            [[speech['speaker'], speech['text']] for speech in document['speeches']],
-            [width * 0.28, width * 0.72],
-        ) if document['speeches'] else None,
-        'Выступления не добавлены.',
-    )
-
-    _section(
-        story, styles, 'Решили',
-        _table(
-            styles,
-            ['№', 'Решение', 'Подразделение', 'Исполнители', 'Срок'],
-            [
-                [
-                    index,
-                    decision['text'],
-                    decision['department_name'] or '—',
-                    ', '.join(decision['assignees']) or '—',
-                    _date(decision['due_date'], '%d.%m.%Y'),
-                ]
-                for index, decision in enumerate(document['decisions'], start=1)
-            ],
-            [width * 0.06, width * 0.36, width * 0.18, width * 0.26, width * 0.14],
-        ) if document['decisions'] else None,
-        'Решения не приняты.',
-    )
-
-    if document['tasks']:
-        _section(
-            story, styles, 'Созданные задачи',
-            _table(
-                styles,
-                ['№ задачи', 'Задача', 'Подразделение', 'Исполнители', 'Срок', 'Статус'],
-                [
-                    [
-                        task['id'],
-                        task['text'],
-                        task['department_name'] or '—',
-                        ', '.join(task['assignees']) or '—',
-                        _date(task['due_date'], '%d.%m.%Y'),
-                        task['status_label'],
-                    ]
-                    for task in document['tasks']
-                ],
-                [
-                    width * 0.09, width * 0.29, width * 0.16,
-                    width * 0.2, width * 0.12, width * 0.14,
-                ],
+    # Date left, «№ 14 / Качество» right, on one line. A borderless two-column
+    # table is the only way ReportLab aligns both edges of a single line.
+    header = Table(
+        [[
+            Paragraph(_long_date(document['created_at']), styles['body']),
+            Paragraph(
+                f"№ {document['number']} / {_escape(document['protocol_type_name'])}",
+                styles['body'],
             ),
-            '',
+        ]],
+        colWidths=[width * 0.5, width * 0.5],
+        hAlign='LEFT',
+    )
+    header.setStyle(
+        TableStyle(
+            [
+                ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ]
         )
+    )
+    story.append(header)
 
-    progress = document['approval_progress']
+    # -- Присутствовали
+    story.append(Paragraph('Присутствовали:', styles['heading']))
+    if document['participants']:
+        last = len(document['participants']) - 1
+        for index, participant in enumerate(document['participants']):
+            line = _escape(participant['display_name'])
+            if participant['position']:
+                line += f" – {_escape(participant['position'])}"
+            story.append(Paragraph(line + ('.' if index == last else ';'), styles['person']))
+    else:
+        story.append(Paragraph('—', styles['body']))
+
+    # -- Повестка
+    story.append(Paragraph('Повестка:', styles['heading']))
+    if document['agenda']:
+        for index, item in enumerate(document['agenda'], start=1):
+            story.append(Paragraph(_escape(item), styles['item'], bulletText=f'{index}.'))
+    else:
+        story.append(Paragraph('—', styles['body']))
+
+    # -- Слушали
+    story.append(Paragraph('Слушали:', styles['heading']))
+    if document['speeches']:
+        for speech in document['speeches']:
+            story.append(Paragraph(f"{_escape(speech['speaker'])}:", styles['speaker']))
+            story.append(Paragraph(_escape(speech['text']), styles['speech']))
+    else:
+        story.append(Paragraph('—', styles['body']))
+
+    # -- Решили
+    story.append(Paragraph('Решили:', styles['heading']))
+    if document['decisions']:
+        for index, decision in enumerate(document['decisions'], start=1):
+            story.append(
+                Paragraph(_escape(decision['text']), styles['item'], bulletText=f'{index}.')
+            )
+            if decision['assignees']:
+                story.append(
+                    Paragraph(
+                        f"Ответственный: {_escape(', '.join(decision['assignees']))}",
+                        styles['fact'],
+                    )
+                )
+            if decision['due_date']:
+                story.append(
+                    Paragraph(f"Срок: {_short_date(decision['due_date'])}", styles['fact'])
+                )
+    else:
+        story.append(Paragraph('Решения не приняты.', styles['body']))
+
+    # -- Протокол согласован
+    #
+    # Signature lines, as on the paper original: who has to sign and in which
+    # role. The electronic decision, its date and the round it belongs to stay
+    # on the protocol page — a printed form is something people sign.
     if document['approvals']:
-        _section(
-            story, styles, 'Согласование',
-            _table(
-                styles,
-                ['Согласующий', 'Подразделение', 'Основание', 'Решение', 'Дата и время'],
+        story.append(Paragraph('Протокол согласован:', styles['heading']))
+        rows = []
+        for approval in document['approvals']:
+            line = _escape(approval['display_name'])
+            if approval['position']:
+                line += f" – {_escape(approval['position'])}"
+            rows.append([Paragraph(line, styles['body']), ''])
+        signatures = Table(rows, colWidths=[width - 45 * mm, 45 * mm], hAlign='LEFT')
+        signatures.setStyle(
+            TableStyle(
                 [
-                    [
-                        approval['display_name']
-                        + (f", {approval['position']}" if approval['position'] else ''),
-                        approval['department_name'] or '—',
-                        approval['reason'] or '—',
-                        approval['status_label']
-                        + (
-                            f" — {approval['return_comment']}"
-                            if approval['return_comment']
-                            else ''
-                        ),
-                        _date(approval['decided_at']),
-                    ]
-                    for approval in document['approvals']
-                ],
-                [width * 0.26, width * 0.16, width * 0.22, width * 0.22, width * 0.14],
-            ),
-            '',
-        )
-        story.append(Spacer(1, 6))
-        story.append(
-            _table(
-                styles,
-                ['Итог', 'Значение'],
-                [
-                    [
-                        'Согласовано',
-                        f"{progress['approved']} из {progress['total']}, "
-                        f"редакция {progress['revision']}",
-                    ],
-                    ['Состояние протокола', document['status_label']],
-                ],
-                [width * 0.28, width * 0.72],
+                    ('LINEBELOW', (1, 0), (1, -1), 0.7, colors.black),
+                    ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                    ('TOPPADDING', (0, 0), (-1, -1), 7),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ]
             )
         )
-    else:
-        _section(
-            story, styles, 'Согласование', None,
-            f"Протокол не требовал согласования. Состояние: {document['status_label']}.",
-        )
+        story.append(signatures)
 
-    _section(
-        story, styles, 'История',
-        _table(
-            styles,
-            ['Дата', 'Событие', 'Пользователь', 'Комментарий'],
-            [
-                [
-                    _date(event['created_at']),
-                    event['event_label'],
-                    event['actor_name'],
-                    event['message'],
-                ]
-                for event in document['history']
-            ],
-            [width * 0.15, width * 0.24, width * 0.21, width * 0.4],
-        ) if document['history'] else None,
-        'История протокола пока пуста.',
-    )
+    # -- Подготовил
+    story.append(Spacer(1, 18))
+    story.append(Paragraph('Подготовил:', styles['prepared']))
+    story.append(Paragraph(_escape(document['author_name']), styles['prepared']))
+    story.append(Paragraph(_short_date(document['prepared_at']), styles['prepared']))
 
     page.build(story)
     return buffer.getvalue()
 
 
 def protocol_pdf_filename(document):
-    """A safe ASCII-free-of-surprises file name: type code, number, revision."""
+    """A safe file name: type code, number."""
     code = document['protocol'].protocol_type.code.lower()
     return f"protocol-{code}-{document['number']}.pdf"

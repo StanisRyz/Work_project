@@ -299,11 +299,18 @@ tasks never live inside `acts`.
   block with dates and the final state, history — and both targets render it:
   `templates/protocols/print.html` (act print styling) and `protocols/pdf.py`
   (ReportLab). Neither restates a business rule, and the page and the file
-  cannot drift apart. ReportLab is deliberately pure Python — the application
-  is deployed on Windows too — and Cyrillic needs a real TTF, resolved from
-  `PROTOCOL_PDF_FONT_PATH` or the usual DejaVu/Liberation/Arial locations. A
-  missing renderer or font is a 503 with a readable message and a production
-  `manage.py check` error (`ecosystem.E028`), never a broken file.
+  cannot drift apart. Both lay it out as the plant's paper protocol —
+  «Протокол», date and «№ N / тип» on one line, Присутствовали, Повестка,
+  Слушали, Решили, signature lines and «Подготовил» — flowing serif text on
+  white, no cards, badges, borders or workflow controls. The approval block
+  prints blank signature lines: the electronic decision and its date stay on
+  the protocol page, because a printed form is something people sign.
+  ReportLab is deliberately pure Python — the application is deployed on
+  Windows too — and Cyrillic needs a real TTF, resolved from
+  `PROTOCOL_PDF_FONT_PATH` or the usual Times/Liberation/DejaVu locations,
+  serif preferred. A missing renderer or font is a 503 with a readable message
+  and a production `manage.py check` error (`ecosystem.E028`), never a broken
+  file.
 - **Protocol realtime reuses the act architecture, not a second one.** Five
   event types (`protocol.created`, `protocol.updated`, `protocol.deleted`,
   `protocol.status_changed`, `protocol.approval_changed`) are emitted from
