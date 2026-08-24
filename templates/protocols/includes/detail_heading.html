@@ -1,0 +1,37 @@
+{% comment %}
+Heading, status badge and the draft-only «Удалить черновик» control. Shared by
+the full page and by `protocols:heading_fragment`, so a live refresh renders
+exactly what a reload would — including the disappearance of the delete button
+once the protocol leaves «Черновик».
+{% endcomment %}
+<section class="protocol-detail-heading">
+    <a class="act-back-link" href="{% url 'protocols:list' %}" aria-label="К списку протоколов">←</a>
+    <div class="protocol-detail-heading__title">
+        <h1>{{ protocol.protocol_type.name }} №{{ protocol.number }}</h1>
+        <span class="act-badge act-badge--status">{{ protocol.get_status_display }}</span>
+    </div>
+    <div class="protocol-detail-heading__meta">
+        <span>Создан {{ protocol.created_at|date:'d.m.Y H:i' }}</span>
+        <span>Автор: {{ protocol.author.get_full_name|default:protocol.author.username }}</span>
+        {% comment %}
+        Revision 0 means «никогда не отправлялся»: showing it would say less
+        than nothing, so it appears only once a round has actually opened.
+        {% endcomment %}
+        {% if protocol.revision %}<span>Редакция {{ protocol.revision }}</span>{% endif %}
+    </div>
+    {% if can_delete %}
+        {% comment %}
+        Author-only while the protocol is a draft, and confirmed through the one
+        application modal — never a browser `confirm()`. The service re-checks
+        the author and the status under a lock.
+        {% endcomment %}
+        <button class="link-button link-button--danger" type="button"
+                data-protocol-workflow-submit
+                data-confirm
+                data-confirm-url="{% url 'protocols:delete' protocol.pk %}"
+                data-confirm-title="Удалить черновик протокола?"
+                data-confirm-text="Протокол «{{ protocol.protocol_type.name }} №{{ protocol.number }}» будет удалён без возможности восстановления, а его номер освободится."
+                data-confirm-label="Удалить"
+                data-confirm-variant="danger">Удалить черновик</button>
+    {% endif %}
+</section>

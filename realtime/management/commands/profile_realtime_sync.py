@@ -47,6 +47,9 @@ def _scenarios():
     def activities_revision(user):
         return sync_service._activities_revision(user)
 
+    def protocols_revision(user):
+        return sync_service._protocols_revision(user)
+
     def task_list(user):
         from django.http import QueryDict
 
@@ -68,6 +71,7 @@ def _scenarios():
         ('revision_acts', acts_revision),
         ('revision_comments', comments_revision),
         ('revision_activities', activities_revision),
+        ('revision_protocols', protocols_revision),
         ('task_list', task_list),
         ('act_registry', act_registry),
     ]

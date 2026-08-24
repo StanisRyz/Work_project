@@ -96,7 +96,7 @@ the dependent selectors in step — every rule is re-checked on the server.
 
     <div class="protocol-editor__actions">
         <a class="link-button link-button--secondary" href="{% url 'protocols:list' %}">К списку протоколов</a>
-        <button class="link-button link-button--secondary" type="submit">Сохранить черновик</button>
+        <button class="link-button link-button--secondary" type="submit" data-protocol-workflow-submit>Сохранить черновик</button>
         {% if can_send_for_approval %}
             {% comment %}
             Author-only, and it posts *this* form — the same fields «Сохранить
@@ -106,6 +106,7 @@ the dependent selectors in step — every rule is re-checked on the server.
             re-check status and author under the row lock.
             {% endcomment %}
             <button class="link-button" type="button"
+                    data-protocol-workflow-submit
                     data-confirm
                     data-confirm-form="protocol-editor-form"
                     data-confirm-form-action="{% url 'protocols:send_for_approval' protocol.pk %}"

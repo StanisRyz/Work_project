@@ -45,6 +45,7 @@ two decision buttons are presentation only: `approve_protocol()` and
             document is what is being decided.
             {% endcomment %}
             <button class="link-button link-button--secondary" type="button"
+                    data-protocol-workflow-submit
                     data-confirm
                     data-confirm-url="{% url 'protocols:return_for_revision' protocol.pk %}"
                     data-confirm-title="Вернуть протокол на доработку?"
@@ -57,6 +58,7 @@ two decision buttons are presentation only: `approve_protocol()` and
                     data-confirm-comment-placeholder="Что нужно исправить в протоколе"
                     data-confirm-comment-error="Укажите причину возврата на доработку.">Вернуть на доработку</button>
             <button class="link-button" type="button"
+                    data-protocol-workflow-submit
                     data-confirm
                     data-confirm-url="{% url 'protocols:approve' protocol.pk %}"
                     data-confirm-title="Согласовать протокол?"

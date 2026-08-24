@@ -19,6 +19,11 @@ from .factories import (
     comment_created_event,
     notification_created_event,
     notification_read_event,
+    protocol_approval_changed_event,
+    protocol_created_event,
+    protocol_deleted_event,
+    protocol_status_changed_event,
+    protocol_updated_event,
     task_completed_event,
     task_created_event,
     task_updated_event,
@@ -34,6 +39,7 @@ from .recipients import (
     comment_targets,
     notification_read_targets,
     notification_targets,
+    protocol_targets,
     task_targets,
     workup_targets,
 )
@@ -127,6 +133,65 @@ def emit_act_status_changed(act, history_event):
         return None
     event = act_status_changed_event(act, history_event)
     publish_after_commit(event, act_status_changed_targets(act, history_event))
+    return event
+
+
+def emit_protocol_created(protocol):
+    """Call inside the atomic block, after the protocol and its author row exist."""
+    if not realtime_enabled():
+        return None
+    event = protocol_created_event(protocol)
+    publish_after_commit(event, protocol_targets(protocol))
+    return event
+
+
+def emit_protocol_updated(protocol):
+    """Call only when a save actually changed the stored document.
+
+    A submission that stored nothing new produces no `EDITED` history event,
+    and it must not produce an event here either.
+    """
+    if not realtime_enabled():
+        return None
+    event = protocol_updated_event(protocol)
+    publish_after_commit(event, protocol_targets(protocol))
+    return event
+
+
+def emit_protocol_deleted(protocol_id):
+    """Call with the primary key of a draft that was actually removed.
+
+    The row is already gone by then, so the audience cannot be derived from it
+    — and it does not need to be: every reader could see the protocol, and
+    every reader has to learn it disappeared from the registry.
+    """
+    if not realtime_enabled():
+        return None
+    event = protocol_deleted_event(protocol_id)
+    publish_after_commit(event, protocol_targets())
+    return event
+
+
+def emit_protocol_status_changed(protocol, from_status):
+    """One event per observable transition, built on the locked protocol.
+
+    Called once at the end of a transition, not at each internal step: a
+    submission that archives itself in the same transaction never passed
+    through a state any user could observe, so it is one event.
+    """
+    if not realtime_enabled():
+        return None
+    event = protocol_status_changed_event(protocol, from_status)
+    publish_after_commit(event, protocol_targets(protocol))
+    return event
+
+
+def emit_protocol_approval_changed(protocol, approval):
+    """Call after an approval row was persisted with its decision."""
+    if not realtime_enabled():
+        return None
+    event = protocol_approval_changed_event(protocol, approval)
+    publish_after_commit(event, protocol_targets(protocol))
     return event
 
 

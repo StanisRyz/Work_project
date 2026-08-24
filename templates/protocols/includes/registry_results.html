@@ -1,0 +1,26 @@
+{% comment %}
+The registry rows for one tab. Shared by the full page and by
+`protocols:list_fragment`, so a live refresh can never render a different
+table than a reload would.
+{% endcomment %}
+{% if protocols %}
+<section class="table-card act-table-card">
+    <table class="data-table protocol-table">
+        <thead><tr><th>№</th><th>Тип протокола</th><th>Автор</th><th>Дата создания</th><th>Статус</th></tr></thead>
+        <tbody>
+        {% for protocol in protocols %}
+            <tr>
+                {# The link covers the whole row through `::after` in protocols.css. #}
+                <td><a class="table-link protocol-row-link" href="{% url 'protocols:detail' protocol.pk %}">№{{ protocol.number }}</a></td>
+                <td>{{ protocol.protocol_type.name }}</td>
+                <td>{{ protocol.author.get_full_name|default:protocol.author.username }}</td>
+                <td>{{ protocol.created_at|date:'d.m.Y' }}</td>
+                <td><span class="status-badge">{{ protocol.get_status_display }}</span></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% else %}
+    {% include 'acts/includes/empty_state.html' with title='Протоколы не найдены' message='Создайте протокол или выберите другую вкладку.' %}
+{% endif %}

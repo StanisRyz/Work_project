@@ -104,6 +104,42 @@ def act_status_changed_targets(act, history_event):
     return [*user_targets(_active_ids(user_ids)), act_target(act.pk)]
 
 
+def _every_reader_targets():
+    """Every account that may read a globally readable page.
+
+    Inactive users and inactive profiles are dropped as everywhere else; a
+    genuine superuser is kept even without a profile, mirroring the
+    profile-independent fallbacks in `calculator.permissions.can_manage_workup`
+    and `protocols.permissions.is_protocol_admin`.
+
+    Resolved by the database rather than by loading users into Python, exactly
+    like `act_created_targets`, so one write costs the same regardless of how
+    large the user table is.
+    """
+    return user_targets(
+        get_user_model()
+        .objects.filter(Q(userprofile__is_active=True) | Q(is_superuser=True), is_active=True)
+        .order_by('pk')
+        .values_list('pk', flat=True)
+    )
+
+
+def protocol_targets(protocol=None):
+    """Everyone `protocols.permissions.can_view_protocol` already lets in.
+
+    That rule is «any authenticated user», so the audience is every active
+    account and the event says nothing a reader could not already fetch from
+    the ordinary protocol endpoints. The rule itself is not restated here — if
+    `can_view_protocol` ever narrows, this function is the single place that
+    follows it.
+
+    `protocol` is accepted and ignored on purpose: it keeps the signature
+    uniform with the other recipient functions, and it is what a narrower
+    visibility rule would need.
+    """
+    return _every_reader_targets()
+
+
 def workup_targets():
     """Everyone who may open Calculator → «Проработка».
 
@@ -122,12 +158,7 @@ def workup_targets():
     the SSE stream a client may subscribe to is not, and no client-selectable
     public channel is introduced for it.
     """
-    return user_targets(
-        get_user_model()
-        .objects.filter(Q(userprofile__is_active=True) | Q(is_superuser=True), is_active=True)
-        .order_by('pk')
-        .values_list('pk', flat=True)
-    )
+    return _every_reader_targets()
 
 
 def comment_targets(comment):

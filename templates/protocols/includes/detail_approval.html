@@ -1,0 +1,13 @@
+{% comment %}
+The current approval round. Shared by the full page and by
+`protocols:approval_fragment`.
+
+The panel is keyed on there actually being approvals: a protocol that has never
+been sent has none, and neither has one that required nobody and was archived
+by the submission itself — an empty «0 из 0» panel would describe a round that
+never existed. The wrapper around this include always exists, so the panel can
+appear live the moment the first round opens.
+{% endcomment %}
+{% if current_approvals %}
+    {% include 'protocols/includes/approval_panel.html' %}
+{% endif %}

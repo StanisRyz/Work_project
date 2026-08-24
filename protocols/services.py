@@ -18,6 +18,13 @@ from django.db import transaction
 from django.utils import timezone
 
 from ecosystem.workdays import add_working_days
+from realtime.emitters import (
+    emit_protocol_approval_changed,
+    emit_protocol_created,
+    emit_protocol_deleted,
+    emit_protocol_status_changed,
+    emit_protocol_updated,
+)
 
 from .models import (
     Protocol,
@@ -134,6 +141,9 @@ def create_protocol(protocol_type, author):
         revision=protocol.revision,
         message=f'Протокол «{locked_type.name} №{protocol.number}» создан.',
     )
+    # Inside the atomic block, after the author participant and the history
+    # event exist: `publish_after_commit` keeps a rolled-back creation silent.
+    emit_protocol_created(protocol)
     return protocol
 
 
@@ -153,7 +163,11 @@ def delete_draft_protocol(protocol, user):
     # cascaded away with the protocol, so they go first — the same fixed order
     # the rest of the project uses for dependent rows.
     locked.speeches.all().delete()
+    # The identifier has to be read before the row goes: after `delete()`
+    # Django clears the primary key on the instance.
+    deleted_id = locked.pk
     locked.delete()
+    emit_protocol_deleted(deleted_id)
 
 
 def _document_snapshot(protocol):
@@ -319,6 +333,9 @@ def save_protocol_draft(protocol, user, data):
         revision=locked.revision,
         message=f'Протокол «{locked.protocol_type.name} №{locked.number}» отредактирован.',
     )
+    # Only on the path that actually stored something: an unchanged submission
+    # returned above and produced neither a history event nor an event here.
+    emit_protocol_updated(locked)
     return locked
 
 
@@ -517,6 +534,11 @@ def send_protocol_for_approval(protocol, actor):
     if locked.status not in (Protocol.Status.DRAFT, Protocol.Status.REVISION):
         raise ProtocolWorkflowError('Протокол уже отправлен на согласование или заархивирован.')
     resent = locked.status == Protocol.Status.REVISION
+    # The status readers were actually looking at. One event is emitted at the
+    # end of the transition against this value, so a submission that requires
+    # nobody and finalizes below is announced as the `DRAFT → ARCHIVED` the
+    # user observes, never as an `APPROVAL` state that never existed for them.
+    previous_status = locked.status
 
     approvers = validate_protocol_for_approval(locked)
 
@@ -566,6 +588,7 @@ def send_protocol_for_approval(protocol, actor):
 
     if not approvers:
         _finalize_protocol(locked, actor)
+    emit_protocol_status_changed(locked, previous_status)
     return locked
 
 
@@ -611,8 +634,12 @@ def approve_protocol(protocol, actor):
         revision=locked.revision,
         status=ProtocolApproval.Status.PENDING,
     ).exists()
+    # One decision is one approval event, whether or not it happens to be the
+    # last one; the archive it may trigger is a second, separate fact.
+    emit_protocol_approval_changed(locked, approval)
     if not still_pending:
         _finalize_protocol(locked, actor)
+        emit_protocol_status_changed(locked, Protocol.Status.APPROVAL)
     return locked
 
 
@@ -674,6 +701,11 @@ def return_protocol_for_revision(protocol, actor, comment):
     # notification claiming a return that never happened. The reason itself is
     # not copied into it — it stays authoritative on the approval row.
     notify_protocol_returned(locked, actor)
+    # The returning decision and the transition it caused. The cancelled
+    # approvals of the same round are not announced one by one: the client
+    # refetches the whole approval block from the ordinary endpoint anyway.
+    emit_protocol_approval_changed(locked, approval)
+    emit_protocol_status_changed(locked, Protocol.Status.APPROVAL)
     return locked
 
 

@@ -246,9 +246,12 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
 #   8. activities: linked-task totals, timestamps and assignment fingerprint
 #   9. activities: linked-task status distribution
 #  10. workup: journal totals, confirmed count and max(updated_at)
+#  11. protocols: totals, timestamps and the revision sum
+#  12. protocols: status distribution
+#  13. protocols: approval totals, pending count and decision timestamps
 # Session authentication and the one cached `user.userprofile` lookup are not
 # counted here — they belong to the request, not to this service.
-FIXED_SYNC_QUERIES = 10
+FIXED_SYNC_QUERIES = 13
 
 
 class SyncEndpointTests(SyncStateMixin, TestCase):

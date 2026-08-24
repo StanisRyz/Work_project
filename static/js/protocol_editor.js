@@ -20,168 +20,188 @@
 (() => {
     'use strict';
 
-    const form = document.querySelector('[data-protocol-editor]');
-    if (!form) return;
-
-    const authorId = form.dataset.authorId || '';
-    const authorName = form.dataset.authorName || '';
-    const blocks = [...form.querySelectorAll('[data-block]')];
-    const blockByName = (name) => blocks.find((block) => block.dataset.block === name);
-
-    const rowsOf = (block) => [...block.querySelector('[data-row-list]').children];
-
-    /** Renumber one block's field names and refresh its `TOTAL_FORMS`. */
-    const renumber = (block) => {
-        const name = block.dataset.block;
-        const rows = rowsOf(block);
-        block.querySelector('[data-total]').value = rows.length;
-        const pattern = new RegExp(`^${name}-\\d+`);
-        rows.forEach((row, index) => {
-            row.querySelectorAll('[name]').forEach((field) => {
-                field.name = field.name.replace(pattern, `${name}-${index}`);
-            });
-        });
-    };
-
-    /** Employee options are filtered by the department chosen next to them. */
-    const syncPair = (pair) => {
-        const department = pair.querySelector('[data-department-select]');
-        const employee = pair.querySelector('[data-employee-select]');
-        if (!department || !employee) return;
-        const departmentId = department.value;
-        const taken = pair.dataset.excludeUsers ? pair.dataset.excludeUsers.split(',') : [];
-        employee.disabled = !departmentId;
-        [...employee.options].forEach((option) => {
-            if (!option.value) return;
-            const available = option.dataset.departmentId === departmentId
-                && !(option.value !== employee.value && taken.includes(option.value));
-            option.hidden = !available;
-            option.disabled = !available;
-            if (!available && option.selected) employee.value = '';
-        });
-    };
-
     /**
-     * The same person may not be added to the protocol twice, so every
-     * participant selector hides the author and whoever the other rows chose.
+     * One editor instance, bound to one `[data-protocol-editor]` form.
+     *
+     * Written as a repeatable initialiser rather than a one-shot script: a
+     * real-time refresh replaces the whole content block, and the new markup has
+     * to work again. `qualityFragments.claim()` is what keeps a second call from
+     * binding the same form twice, so no logic below had to change.
      */
-    const syncParticipants = () => {
-        const block = blockByName('participants');
-        if (!block) return;
-        const selects = [...block.querySelectorAll('[data-participant-user]')];
-        const chosen = selects.map((select) => select.value).filter(Boolean);
-        selects.forEach((select) => {
-            const pair = select.closest('[data-employee-pair]');
-            pair.dataset.excludeUsers = [authorId, ...chosen].filter(Boolean).join(',');
-            syncPair(pair);
-        });
-        syncSpeakers();
-    };
+    const initProtocolEditor = (root) => {
+        const scope = root && root.querySelector ? root : document;
+        const form = scope.querySelector('[data-protocol-editor]')
+            || document.querySelector('[data-protocol-editor]');
+        if (!form) return;
+        if (window.qualityFragments && !window.qualityFragments.claim(form)) return;
 
-    /** The speaker list is exactly «автор + текущие участники». */
-    const syncSpeakers = () => {
-        const block = blockByName('participants');
-        const options = [{ value: authorId, label: authorName }];
-        if (block) {
-            block.querySelectorAll('[data-participant-user]').forEach((select) => {
-                if (!select.value) return;
-                const option = select.options[select.selectedIndex];
-                options.push({ value: select.value, label: option ? option.textContent : select.value });
+        const authorId = form.dataset.authorId || '';
+        const authorName = form.dataset.authorName || '';
+        const blocks = [...form.querySelectorAll('[data-block]')];
+        const blockByName = (name) => blocks.find((block) => block.dataset.block === name);
+
+        const rowsOf = (block) => [...block.querySelector('[data-row-list]').children];
+
+        /** Renumber one block's field names and refresh its `TOTAL_FORMS`. */
+        const renumber = (block) => {
+            const name = block.dataset.block;
+            const rows = rowsOf(block);
+            block.querySelector('[data-total]').value = rows.length;
+            const pattern = new RegExp(`^${name}-\\d+`);
+            rows.forEach((row, index) => {
+                row.querySelectorAll('[name]').forEach((field) => {
+                    field.name = field.name.replace(pattern, `${name}-${index}`);
+                });
             });
-        }
-        form.querySelectorAll('[data-speaker-select]').forEach((select) => {
-            const current = select.value;
-            select.textContent = '';
-            const placeholder = new Option('Выберите выступающего', '');
-            select.append(placeholder);
-            options.forEach((item) => select.append(new Option(item.label, item.value)));
-            select.value = options.some((item) => item.value === current) ? current : '';
+        };
+
+        /** Employee options are filtered by the department chosen next to them. */
+        const syncPair = (pair) => {
+            const department = pair.querySelector('[data-department-select]');
+            const employee = pair.querySelector('[data-employee-select]');
+            if (!department || !employee) return;
+            const departmentId = department.value;
+            const taken = pair.dataset.excludeUsers ? pair.dataset.excludeUsers.split(',') : [];
+            employee.disabled = !departmentId;
+            [...employee.options].forEach((option) => {
+                if (!option.value) return;
+                const available = option.dataset.departmentId === departmentId
+                    && !(option.value !== employee.value && taken.includes(option.value));
+                option.hidden = !available;
+                option.disabled = !available;
+                if (!available && option.selected) employee.value = '';
+            });
+        };
+
+        /**
+         * The same person may not be added to the protocol twice, so every
+         * participant selector hides the author and whoever the other rows chose.
+         */
+        const syncParticipants = () => {
+            const block = blockByName('participants');
+            if (!block) return;
+            const selects = [...block.querySelectorAll('[data-participant-user]')];
+            const chosen = selects.map((select) => select.value).filter(Boolean);
+            selects.forEach((select) => {
+                const pair = select.closest('[data-employee-pair]');
+                pair.dataset.excludeUsers = [authorId, ...chosen].filter(Boolean).join(',');
+                syncPair(pair);
+            });
+            syncSpeakers();
+        };
+
+        /** The speaker list is exactly «автор + текущие участники». */
+        const syncSpeakers = () => {
+            const block = blockByName('participants');
+            const options = [{ value: authorId, label: authorName }];
+            if (block) {
+                block.querySelectorAll('[data-participant-user]').forEach((select) => {
+                    if (!select.value) return;
+                    const option = select.options[select.selectedIndex];
+                    options.push({ value: select.value, label: option ? option.textContent : select.value });
+                });
+            }
+            form.querySelectorAll('[data-speaker-select]').forEach((select) => {
+                const current = select.value;
+                select.textContent = '';
+                const placeholder = new Option('Выберите выступающего', '');
+                select.append(placeholder);
+                options.forEach((item) => select.append(new Option(item.label, item.value)));
+                select.value = options.some((item) => item.value === current) ? current : '';
+            });
+        };
+
+        /**
+         * Mark the participants who will be required to approve because a protocol
+         * task names them. Read-only: it toggles a hint and nothing else, so a
+         * participant's own «Требует согласования» value survives untouched.
+         */
+        const syncAutoApprovalHints = () => {
+            const assigned = new Set(
+                [...form.querySelectorAll('[data-assignee-row] [data-employee-select]')]
+                    .map((select) => select.value)
+                    .filter(Boolean),
+            );
+            form.querySelectorAll('[data-block="participants"] [data-row]').forEach((row) => {
+                const hint = row.querySelector('[data-auto-approval-hint]');
+                const user = row.querySelector('[data-participant-user]');
+                if (!hint || !user) return;
+                // The author never approves their own protocol, even when a task
+                // names them, so their row is never hinted.
+                hint.hidden = !user.value || user.value === authorId || !assigned.has(user.value);
+            });
+        };
+
+        const syncAllPairs = () => {
+            form.querySelectorAll('[data-employee-pair]').forEach(syncPair);
+            syncParticipants();
+            syncAutoApprovalHints();
+        };
+
+        const addRow = (block) => {
+            const list = block.querySelector('[data-row-list]');
+            const template = block.querySelector('[data-row-template]');
+            list.append(template.content.cloneNode(true));
+            renumber(block);
+            syncAllPairs();
+        };
+
+        form.addEventListener('click', (event) => {
+            const target = event.target;
+            if (target.matches('[data-add-row]')) {
+                addRow(target.closest('[data-block]'));
+                return;
+            }
+            if (target.matches('[data-remove-row]')) {
+                const block = target.closest('[data-block]');
+                target.closest('[data-row]').remove();
+                renumber(block);
+                syncAllPairs();
+                return;
+            }
+            if (target.matches('[data-add-assignee]')) {
+                const action = target.closest('[data-row]');
+                const template = form.querySelector('[data-assignee-template]');
+                action.querySelector('[data-assignee-list]').append(template.content.cloneNode(true));
+                renumber(target.closest('[data-block]'));
+                syncAllPairs();
+                return;
+            }
+            if (target.matches('[data-remove-assignee]')) {
+                const list = target.closest('[data-assignee-list]');
+                // The server requires at least one assignee on a task that exists,
+                // so the last row stays and is simply cleared.
+                if (list.querySelectorAll('[data-assignee-row]').length > 1) {
+                    target.closest('[data-assignee-row]').remove();
+                } else {
+                    list.querySelectorAll('select').forEach((select) => { select.value = ''; });
+                }
+                syncAllPairs();
+            }
         });
-    };
 
-    /**
-     * Mark the participants who will be required to approve because a protocol
-     * task names them. Read-only: it toggles a hint and nothing else, so a
-     * participant's own «Требует согласования» value survives untouched.
-     */
-    const syncAutoApprovalHints = () => {
-        const assigned = new Set(
-            [...form.querySelectorAll('[data-assignee-row] [data-employee-select]')]
-                .map((select) => select.value)
-                .filter(Boolean),
-        );
-        form.querySelectorAll('[data-block="participants"] [data-row]').forEach((row) => {
-            const hint = row.querySelector('[data-auto-approval-hint]');
-            const user = row.querySelector('[data-participant-user]');
-            if (!hint || !user) return;
-            // The author never approves their own protocol, even when a task
-            // names them, so their row is never hinted.
-            hint.hidden = !user.value || user.value === authorId || !assigned.has(user.value);
+        form.addEventListener('change', (event) => {
+            const target = event.target;
+            if (target.matches('[data-participant-user]') || target.closest('[data-block]')?.dataset.block === 'participants') {
+                syncParticipants();
+            } else if (target.matches('[data-department-select]') || target.matches('[data-employee-select]')) {
+                syncPair(target.closest('[data-employee-pair]'));
+            } else {
+                return;
+            }
+            // Both branches can change who a protocol task names, so the derived
+            // approval hint is refreshed from one place.
+            syncAutoApprovalHints();
         });
-    };
 
-    const syncAllPairs = () => {
-        form.querySelectorAll('[data-employee-pair]').forEach(syncPair);
-        syncParticipants();
-        syncAutoApprovalHints();
-    };
-
-    const addRow = (block) => {
-        const list = block.querySelector('[data-row-list]');
-        const template = block.querySelector('[data-row-template]');
-        list.append(template.content.cloneNode(true));
-        renumber(block);
+        blocks.forEach(renumber);
         syncAllPairs();
     };
 
-    form.addEventListener('click', (event) => {
-        const target = event.target;
-        if (target.matches('[data-add-row]')) {
-            addRow(target.closest('[data-block]'));
-            return;
-        }
-        if (target.matches('[data-remove-row]')) {
-            const block = target.closest('[data-block]');
-            target.closest('[data-row]').remove();
-            renumber(block);
-            syncAllPairs();
-            return;
-        }
-        if (target.matches('[data-add-assignee]')) {
-            const action = target.closest('[data-row]');
-            const template = form.querySelector('[data-assignee-template]');
-            action.querySelector('[data-assignee-list]').append(template.content.cloneNode(true));
-            renumber(target.closest('[data-block]'));
-            syncAllPairs();
-            return;
-        }
-        if (target.matches('[data-remove-assignee]')) {
-            const list = target.closest('[data-assignee-list]');
-            // The server requires at least one assignee on a task that exists,
-            // so the last row stays and is simply cleared.
-            if (list.querySelectorAll('[data-assignee-row]').length > 1) {
-                target.closest('[data-assignee-row]').remove();
-            } else {
-                list.querySelectorAll('select').forEach((select) => { select.value = ''; });
-            }
-            syncAllPairs();
-        }
-    });
-
-    form.addEventListener('change', (event) => {
-        const target = event.target;
-        if (target.matches('[data-participant-user]') || target.closest('[data-block]')?.dataset.block === 'participants') {
-            syncParticipants();
-        } else if (target.matches('[data-department-select]') || target.matches('[data-employee-select]')) {
-            syncPair(target.closest('[data-employee-pair]'));
-        } else {
-            return;
-        }
-        // Both branches can change who a protocol task names, so the derived
-        // approval hint is refreshed from one place.
-        syncAutoApprovalHints();
-    });
-
-    blocks.forEach(renumber);
-    syncAllPairs();
+    // Registered before the first run, so a live replacement of the content
+    // block re-wires the new editor through the very same initialiser.
+    if (window.qualityFragments) {
+        window.qualityFragments.register('protocolEditor', initProtocolEditor);
+    }
+    initProtocolEditor(document);
 })();

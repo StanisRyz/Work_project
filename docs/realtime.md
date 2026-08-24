@@ -33,7 +33,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
   закрывает попытку подсунуть в событие target или имя канала;
 - `data` содержит только JSON-скаляры, списки и словари: до 20 ключей и до 3
   уровней вложенности. Модель, `datetime`, `set` или `Decimal` отклоняются;
-- `resource_type` — одно из `act`, `comment`, `notification`, `task`, `user`;
+- `resource_type` — одно из `act`, `comment`, `notification`, `protocol`, `task`, `user`;
 - размер сериализованного события ограничен `REALTIME_MAX_EVENT_BYTES`
   (по умолчанию 16 КБ) и проверяется дважды: перед публикацией и перед записью
   в поток;
@@ -56,6 +56,11 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `act.updated` | `act` | `status_code` |
 | `act.status_changed` | `act` | `from_status_code`, `to_status_code`, `history_event_id`, `actor_id` |
 | `comment.created` | `comment` | `act_id`, `author_id` |
+| `protocol.created` | `protocol` | `status`, `author_id`, `protocol_type_id` |
+| `protocol.updated` | `protocol` | `status`, `revision` |
+| `protocol.deleted` | `protocol` | — (только идентификатор) |
+| `protocol.status_changed` | `protocol` | `from_status`, `to_status`, `revision` |
+| `protocol.approval_changed` | `protocol` | `approval_id`, `approval_status`, `revision`, `status`, `actor_id` |
 
 Значения строк — часть контракта. Новый тип добавляется только в
 `RealtimeEventType`; отдельный тип на каждый статус акта не заводится —
@@ -63,6 +68,14 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 
 `notification.read` при `scope=all` сообщает только счётчики: отметка всей
 истории прочитанной не должна порождать неограниченный список идентификаторов.
+
+`protocol.status_changed` описывает **наблюдаемое** состояние: отправка
+протокола, которому никто не требуется для согласования, архивирует его в той же
+транзакции и даёт одно событие `DRAFT → ARCHIVED`, а не пару с промежуточным
+`APPROVAL`, которого пользователь никогда не видел. Ресурсом
+`protocol.approval_changed` намеренно является протокол, а не строка
+согласования: открытая страница фильтрует события по `resource_id`, а сам текст
+причины возврата остаётся за обычными endpoint'ами.
 
 ## 3. Явные эмиттеры
 
@@ -81,6 +94,11 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_task_completed` | `tasks.services.complete_task`, внутри блокировки |
 | `emit_notification_created` | `notifications.services.create_notifications`, только для действительно созданной строки |
 | `emit_notification_read` | `notifications.services.mark_notifications_read`, одно агрегированное событие на операцию |
+| `emit_protocol_created` | `protocols.services.create_protocol`, после строки автора и события истории |
+| `emit_protocol_updated` | `protocols.services.save_protocol_draft` — только когда сохранение действительно что-то изменило |
+| `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
+| `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
+| `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.
@@ -158,7 +176,8 @@ Publisher сериализует событие один раз и пишет в
 
 Модули лежат в `static/js/realtime/`: `core.js` (EventSource, шина событий,
 конечный автомат состояний), `tabs.js`, `sync.js` и функциональные модули
-`notifications.js`, `tasks.js`, `acts.js`, плюс `start.js`. Ни фреймворка, ни
+`notifications.js`, `tasks.js`, `acts.js`, `workup.js`, `protocols.js`, плюс
+`start.js`. Ни фреймворка, ни
 сборщика, ни сторонней зависимости.
 
 `EventSource` создаётся **только** из серверной конфигурации в `base.html`. Он
@@ -212,6 +231,11 @@ Django, клиент подставляет уже готовый фрагмен
 | История акта | `/quality/acts/<pk>/history-fragment/` | `comments` |
 | Комментарии акта | `/quality/acts/<pk>/comments-fragment/` | `comments` |
 | Связанные мероприятия | `/quality/acts/<pk>/activities-fragment/` | `activities` |
+| Реестр протоколов | `/quality/protocols/list-fragment/` | `protocols` |
+| Шапка протокола | `/quality/protocols/<pk>/heading-fragment/` | `protocols` |
+| Согласование протокола | `/quality/protocols/<pk>/approval-fragment/` | `protocols` |
+| Содержимое протокола | `/quality/protocols/<pk>/content-fragment/` | `protocols` |
+| История протокола | `/quality/protocols/<pk>/history-fragment/` | `protocols` |
 
 Каждый фрагмент заново загружает объект, заново проверяет `request.user` и
 права, не принимает идентификатор пользователя, ничего не меняет на GET и
@@ -227,7 +251,8 @@ Django, клиент подставляет уже готовый фрагмен
   "schema_version": 1,
   "generated_at": "…",
   "revisions": {"notifications": "…", "tasks": "…", "acts": "…",
-                "comments": "…", "activities": "…"},
+                "comments": "…", "activities": "…", "workup": "…",
+                "protocols": "…"},
   "unread_notifications": 3
 }
 ```
@@ -239,6 +264,11 @@ read-only набор авторизованного пользователя, д
 Стоимость — фиксированное небольшое число агрегатных запросов: сверка не
 загружает строки и не материализует идентификаторы в Python, поэтому не растёт
 вместе с объёмом видимых данных.
+
+Токен `protocols` строится из трёх агрегатов: итоги и метки времени протоколов,
+распределение статусов с суммой редакций и агрегат строк согласования. Третий
+обязателен: согласование одной позиции оставляет протокол в `APPROVAL` и не
+трогает саму строку протокола, поэтому без него сверка не заметила бы решения.
 
 Клиент сравнивает токены и обновляет только те блоки, чей токен сдвинулся.
 Одинаковые токены не стоят ни одного запроса фрагмента.

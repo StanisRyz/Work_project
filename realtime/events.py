@@ -34,6 +34,11 @@ class RealtimeEventType(StrEnum):
     ACT_CREATED = 'act.created'
     ACT_UPDATED = 'act.updated'
     ACT_STATUS_CHANGED = 'act.status_changed'
+    PROTOCOL_CREATED = 'protocol.created'
+    PROTOCOL_UPDATED = 'protocol.updated'
+    PROTOCOL_DELETED = 'protocol.deleted'
+    PROTOCOL_STATUS_CHANGED = 'protocol.status_changed'
+    PROTOCOL_APPROVAL_CHANGED = 'protocol.approval_changed'
     COMMENT_CREATED = 'comment.created'
     WORKUP_CREATED = 'workup.created'
     WORKUP_UPDATED = 'workup.updated'
@@ -45,6 +50,7 @@ class RealtimeEventType(StrEnum):
 RESOURCE_ACT = 'act'
 RESOURCE_COMMENT = 'comment'
 RESOURCE_NOTIFICATION = 'notification'
+RESOURCE_PROTOCOL = 'protocol'
 RESOURCE_TASK = 'task'
 RESOURCE_USER = 'user'
 RESOURCE_WORKUP = 'workup'
@@ -54,6 +60,7 @@ RESOURCE_TYPES = frozenset(
         RESOURCE_ACT,
         RESOURCE_COMMENT,
         RESOURCE_NOTIFICATION,
+        RESOURCE_PROTOCOL,
         RESOURCE_TASK,
         RESOURCE_USER,
         RESOURCE_WORKUP,

@@ -23,7 +23,7 @@ Three rules shape everything here:
 import hashlib
 from datetime import datetime, timezone as dt_timezone
 
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Q, Sum
 from django.utils import timezone
 
 
@@ -36,6 +36,7 @@ REVISION_ACTS = 'acts'
 REVISION_COMMENTS = 'comments'
 REVISION_ACTIVITIES = 'activities'
 REVISION_WORKUP = 'workup'
+REVISION_PROTOCOLS = 'protocols'
 
 REVISION_KEYS = (
     REVISION_NOTIFICATIONS,
@@ -44,6 +45,7 @@ REVISION_KEYS = (
     REVISION_COMMENTS,
     REVISION_ACTIVITIES,
     REVISION_WORKUP,
+    REVISION_PROTOCOLS,
 )
 
 TOKEN_LENGTH = 16
@@ -254,6 +256,63 @@ def _workup_revision(user):
     )
 
 
+def _protocols_revision(user):
+    """The protocol registry and every open protocol page, in one token.
+
+    `protocols.permissions.can_view_protocol` lets every authenticated user
+    read every protocol, so the token takes no `user` filter — the argument is
+    there only to keep every revision function the same shape. If that rule
+    ever narrows, this is where the visible queryset goes.
+
+    Three aggregates, no rows loaded and no identifiers materialised in Python:
+
+    * the protocol totals and timestamps — a creation moves `total` and
+      `last_created`, a deletion moves `total`, an edit moves `last_updated`;
+    * the status distribution and the revision sum, so a transition and a
+      resubmission move the token even when the row count did not change;
+    * the approval rows, because approving one position while the protocol
+      stays in `APPROVAL` touches nothing on the protocol itself.
+    """
+    from protocols.models import Protocol, ProtocolApproval
+
+    aggregate = Protocol.objects.aggregate(
+        total=Count('pk'),
+        last_created=Max('created_at'),
+        last_updated=Max('updated_at'),
+        revisions=Sum('revision'),
+    )
+    # `.order_by()` clears `Protocol.Meta.ordering` for the same reason
+    # `_status_counts` does: an ordering column would join the GROUP BY.
+    # `status` is a plain TextChoices column here, not a reference table, so
+    # this cannot reuse `_status_counts`.
+    statuses = tuple(
+        sorted(
+            Protocol.objects.order_by()
+            .values_list('status')
+            .annotate(count=Count('pk'))
+            .values_list('status', 'count')
+        )
+    )
+    approvals = ProtocolApproval.objects.aggregate(
+        total=Count('pk'),
+        pending=Count('pk', filter=Q(status=ProtocolApproval.Status.PENDING)),
+        last_created=Max('created_at'),
+        last_decided=Max('decided_at'),
+    )
+    return _token(
+        'p',
+        aggregate['total'],
+        aggregate['last_created'],
+        aggregate['last_updated'],
+        aggregate['revisions'],
+        statuses,
+        approvals['total'],
+        approvals['pending'],
+        approvals['last_created'],
+        approvals['last_decided'],
+    )
+
+
 def build_sync_state(user):
     """Return the user's current revision snapshot.
 
@@ -273,6 +332,7 @@ def build_sync_state(user):
             REVISION_COMMENTS: _comments_revision(user),
             REVISION_ACTIVITIES: _activities_revision(user),
             REVISION_WORKUP: _workup_revision(user),
+            REVISION_PROTOCOLS: _protocols_revision(user),
         },
         'unread_notifications': unread,
     }

@@ -13,6 +13,7 @@ from .events import (
     RESOURCE_ACT,
     RESOURCE_COMMENT,
     RESOURCE_NOTIFICATION,
+    RESOURCE_PROTOCOL,
     RESOURCE_TASK,
     RESOURCE_USER,
     RESOURCE_WORKUP,
@@ -157,6 +158,95 @@ def act_status_changed_event(act, history_event):
             'to_status_code': _status_code(history_event, 'to_status'),
             'history_event_id': history_event.pk,
             'actor_id': history_event.user_id,
+        },
+    )
+
+
+# --------------------------------------------------------------------------
+# Protocols
+#
+# A protocol status is a plain `TextChoices` value on the row, not a related
+# reference table, so it travels as its own code rather than through
+# `_status_code()`. Everything else follows the act factories exactly:
+# identifiers, status codes and the revision number — never «Повестка»,
+# «Слушали», a decision text, a participant name or a return comment.
+# --------------------------------------------------------------------------
+
+
+def protocol_created_event(protocol):
+    return RealtimeEvent(
+        event_type=RealtimeEventType.PROTOCOL_CREATED,
+        resource_type=RESOURCE_PROTOCOL,
+        resource_id=protocol.pk,
+        data={
+            'status': str(protocol.status),
+            'author_id': protocol.author_id,
+            'protocol_type_id': protocol.protocol_type_id,
+        },
+    )
+
+
+def protocol_updated_event(protocol):
+    """The document content changed while the protocol stayed where it was."""
+    return RealtimeEvent(
+        event_type=RealtimeEventType.PROTOCOL_UPDATED,
+        resource_type=RESOURCE_PROTOCOL,
+        resource_id=protocol.pk,
+        data={
+            'status': str(protocol.status),
+            'revision': int(protocol.revision),
+        },
+    )
+
+
+def protocol_deleted_event(protocol_id):
+    """A deleted draft: only the identifier survives, the row itself is gone."""
+    return RealtimeEvent(
+        event_type=RealtimeEventType.PROTOCOL_DELETED,
+        resource_type=RESOURCE_PROTOCOL,
+        resource_id=int(protocol_id),
+    )
+
+
+def protocol_status_changed_event(protocol, from_status):
+    """One event type for every transition — never one type per status.
+
+    `from_status` is the status the protocol was observed in *before* the
+    transaction started; `to_status` is where it actually ended up. A
+    submission that required nobody and archived itself in the same
+    transaction is therefore one `DRAFT → ARCHIVED` event, not a pair
+    describing an `APPROVAL` state no user could ever see.
+    """
+    return RealtimeEvent(
+        event_type=RealtimeEventType.PROTOCOL_STATUS_CHANGED,
+        resource_type=RESOURCE_PROTOCOL,
+        resource_id=protocol.pk,
+        data={
+            'from_status': str(from_status or ''),
+            'to_status': str(protocol.status),
+            'revision': int(protocol.revision),
+        },
+    )
+
+
+def protocol_approval_changed_event(protocol, approval):
+    """One person's decision on one revision. The resource is the protocol.
+
+    The client refreshes protocol blocks, so keying the event on the protocol
+    is what lets an open page filter by `resource_id` without a second lookup.
+    The return comment is deliberately absent: it is business text and stays
+    behind the ordinary permission-checked fragment endpoints.
+    """
+    return RealtimeEvent(
+        event_type=RealtimeEventType.PROTOCOL_APPROVAL_CHANGED,
+        resource_type=RESOURCE_PROTOCOL,
+        resource_id=protocol.pk,
+        data={
+            'approval_id': approval.pk,
+            'approval_status': str(approval.status),
+            'revision': int(approval.revision),
+            'status': str(protocol.status),
+            'actor_id': approval.user_id,
         },
     )
 

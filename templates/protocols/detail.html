@@ -4,40 +4,43 @@
 {% block title %}{{ protocol.protocol_type.name }} №{{ protocol.number }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260820-2">
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260824-1">
 {% endblock %}
 
 {% block content %}
-<section class="protocol-detail-heading">
-    <a class="act-back-link" href="{% url 'protocols:list' %}" aria-label="К списку протоколов">←</a>
-    <div class="protocol-detail-heading__title">
-        <h1>{{ protocol.protocol_type.name }} №{{ protocol.number }}</h1>
-        <span class="act-badge act-badge--status">{{ protocol.get_status_display }}</span>
+{# Server-built fragment URLs: the client never assembles a URL from an id. #}
+<div hidden data-live-protocol-config
+     data-live-protocol-id="{{ protocol.pk }}"
+     data-heading-url="{% url 'protocols:heading_fragment' protocol.pk %}"
+     data-approval-url="{% url 'protocols:approval_fragment' protocol.pk %}"
+     data-content-url="{% url 'protocols:content_fragment' protocol.pk %}"
+     data-history-url="{% url 'protocols:history_fragment' protocol.pk %}"
+     data-can-edit="{% if can_edit %}true{% else %}false{% endif %}"></div>
+
+<div data-live-protocol-heading>
+    {% include 'protocols/includes/detail_heading.html' %}
+</div>
+
+{% comment %}
+Shown instead of replacing the editor when the protocol moved on while the
+author has unsaved input. Nothing typed is ever discarded — the user reloads
+when they are ready.
+{% endcomment %}
+<div class="act-conflict-banner" data-protocol-conflict-banner hidden role="alert">
+    <div>
+        <strong>Протокол изменён.</strong>
+        <p>Перед сохранением загрузите актуальную версию — введённые данные сохранены и их можно скопировать.</p>
     </div>
-    <div class="protocol-detail-heading__meta">
-        <span>Создан {{ protocol.created_at|date:'d.m.Y H:i' }}</span>
-        <span>Автор: {{ protocol.author.get_full_name|default:protocol.author.username }}</span>
-        {% comment %}
-        Revision 0 means «никогда не отправлялся»: showing it would say less
-        than nothing, so it appears only once a round has actually opened.
-        {% endcomment %}
-        {% if protocol.revision %}<span>Редакция {{ protocol.revision }}</span>{% endif %}
+    <button class="link-button" type="button" data-protocol-conflict-reload>Обновить страницу</button>
+</div>
+
+<div class="act-access-banner" data-protocol-access-banner hidden role="alert">
+    <div>
+        <strong>Протокол удалён или больше недоступен.</strong>
+        <p>Обновление этой страницы остановлено.</p>
     </div>
-    {% if can_delete %}
-        {% comment %}
-        Author-only while the protocol is a draft, and confirmed through the one
-        application modal — never a browser `confirm()`. The service re-checks
-        the author and the status under a lock.
-        {% endcomment %}
-        <button class="link-button link-button--danger" type="button"
-                data-confirm
-                data-confirm-url="{% url 'protocols:delete' protocol.pk %}"
-                data-confirm-title="Удалить черновик протокола?"
-                data-confirm-text="Протокол «{{ protocol.protocol_type.name }} №{{ protocol.number }}» будет удалён без возможности восстановления, а его номер освободится."
-                data-confirm-label="Удалить"
-                data-confirm-variant="danger">Удалить черновик</button>
-    {% endif %}
-</section>
+    <a class="link-button" href="{% url 'protocols:list' %}">К списку протоколов</a>
+</div>
 
 <nav class="act-detail-tabs" aria-label="Разделы протокола">
     <a class="act-detail-tabs__link{% if detail_tab == 'protocol' %} act-detail-tabs__link--active{% endif %}" href="?tab=protocol">Протокол</a>
@@ -46,31 +49,26 @@
 
 {% if save_error %}<p class="field-error protocol-editor__error">{{ save_error }}</p>{% endif %}
 
+{% comment %}
+Only the blocks of the current tab exist; opening the other tab is an ordinary
+server render and is therefore already current.
+{% endcomment %}
 {% if detail_tab == 'history' %}
-    {% include 'protocols/includes/history_timeline.html' %}
-    {% include 'protocols/includes/approval_history.html' %}
+    <div data-live-protocol-history>
+        {% include 'protocols/includes/detail_history.html' %}
+    </div>
 {% else %}
-    {% comment %}
-    The current round is shown above the document itself while the protocol is
-    being signed, and for an archived or returned protocol it stays as the
-    record of the last round. The panel is keyed on there actually being
-    approvals: a protocol that has never been sent has none, and neither has
-    one that required nobody and was archived by the submission itself — an
-    empty «0 из 0» panel would describe a round that never existed.
-    {% endcomment %}
-    {% if current_approvals %}
-        {% include 'protocols/includes/approval_panel.html' %}
-    {% endif %}
-    {% if can_edit %}
-        {% include 'protocols/includes/editor.html' %}
-    {% else %}
-        {% include 'protocols/includes/readonly.html' %}
-    {% endif %}
+    <div data-live-protocol-approval>
+        {% include 'protocols/includes/detail_approval.html' %}
+    </div>
+    <div data-live-protocol-content>
+        {% include 'protocols/includes/detail_content.html' %}
+    </div>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
 {% if detail_tab == 'protocol' and can_edit %}
-    <script src="{% static 'js/protocol_editor.js' %}?v=20260820-2"></script>
+    <script src="{% static 'js/protocol_editor.js' %}?v=20260824-1"></script>
 {% endif %}
 {% endblock %}

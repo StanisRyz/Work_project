@@ -127,7 +127,7 @@ class DeserializationValidationTests(SimpleTestCase):
 
     def test_an_unknown_resource_type_is_rejected(self):
         with self.assertRaisesMessage(RealtimeEventError, 'Неизвестный resource_type'):
-            RealtimeEvent.from_dict(self._payload(resource_type='protocol'))
+            RealtimeEvent.from_dict(self._payload(resource_type='invoice'))
 
     def test_an_invalid_resource_id_is_rejected(self):
         for invalid in (0, -3, '11', None):

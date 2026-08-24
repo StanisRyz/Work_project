@@ -7,7 +7,13 @@ and renders — no protocol content is written here.
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
+from django.utils import timezone
+from django.views.decorators.http import require_GET
+
+from realtime.auth import realtime_login_required
 
 from .forms import ProtocolDraftForm
 from .models import Protocol, ProtocolType
@@ -16,6 +22,7 @@ from .permissions import (
     can_delete_draft_protocol,
     can_edit_protocol,
     can_send_protocol_for_approval,
+    can_view_protocol,
 )
 from .selectors import (
     build_protocol_list_state,
@@ -45,6 +52,121 @@ def protocol_list(request):
     return render(request, 'protocols/list.html', {
         'active_page': 'protocols', 'header_title': 'Протоколы', **state,
     })
+
+
+# --------------------------------------------------------------------------
+# Live fragments
+#
+# One rule: a fragment renders through the very same state builder and the very
+# same partial as the full page, so a refreshed block can never disagree with a
+# reload. Each one re-loads the protocol, re-checks `request.user`, accepts no
+# user parameter, changes nothing on GET and is never cached.
+# --------------------------------------------------------------------------
+
+
+def _fragment_response(payload):
+    """JSON fragment response: never cached, always scoped to the session."""
+    response = JsonResponse({**payload, 'generated_at': timezone.now().isoformat()})
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+    response['Vary'] = 'Cookie'
+    return response
+
+
+def _get_live_protocol(request, pk):
+    """Re-load the protocol and re-check visibility for every live fragment.
+
+    A user who may not read it — or a draft that has since been deleted — gets
+    a plain 404 with no object data at all, not a hint that it ever existed.
+    """
+    protocol = get_readable_protocols_queryset().filter(pk=pk).first()
+    if protocol is None or not can_view_protocol(protocol, request.user):
+        raise Http404('No Protocol matches the given query.')
+    return protocol
+
+
+@realtime_login_required
+@require_GET
+def protocol_list_fragment(request):
+    """The registry rows for the current tab, for the live client.
+
+    Same builder, same partial and the same query parameters as the full page.
+    """
+    state = build_protocol_list_state(request.GET)
+    return _fragment_response(
+        {
+            'results_html': render_to_string(
+                'protocols/includes/registry_results.html', state, request=request
+            ),
+            'tab': state['tab'],
+        }
+    )
+
+
+@realtime_login_required
+@require_GET
+def protocol_heading_fragment(request, pk):
+    protocol = _get_live_protocol(request, pk)
+    context = _detail_context(request, protocol, include_document=False)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'protocols/includes/detail_heading.html', context, request=request
+            ),
+            'status': protocol.status,
+            'revision': protocol.revision,
+        }
+    )
+
+
+@realtime_login_required
+@require_GET
+def protocol_approval_fragment(request, pk):
+    protocol = _get_live_protocol(request, pk)
+    context = _detail_context(request, protocol, include_document=False)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'protocols/includes/detail_approval.html', context, request=request
+            ),
+            'status': protocol.status,
+        }
+    )
+
+
+@realtime_login_required
+@require_GET
+def protocol_content_fragment(request, pk):
+    """The document block — the editor or the read-only rendering.
+
+    Which of the two comes out is decided by `_detail_context`, exactly as on
+    the full page, so the fragment can never hand someone an editor the page
+    would not have given them.
+    """
+    protocol = _get_live_protocol(request, pk)
+    context = _detail_context(request, protocol)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'protocols/includes/detail_content.html', context, request=request
+            ),
+            'status': protocol.status,
+            'can_edit': context['can_edit'],
+        }
+    )
+
+
+@realtime_login_required
+@require_GET
+def protocol_history_fragment(request, pk):
+    protocol = _get_live_protocol(request, pk)
+    context = _detail_context(request, protocol, include_document=False)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'protocols/includes/detail_history.html', context, request=request
+            )
+        }
+    )
 
 
 @login_required
@@ -218,7 +340,15 @@ def protocol_return_for_revision(request, pk):
     return redirect('protocols:detail', pk=protocol.pk)
 
 
-def _detail_context(request, protocol, form=None, save_error=''):
+def _detail_context(request, protocol, form=None, save_error='', include_document=True):
+    """Everything the protocol page and its live fragments render.
+
+    `include_document=False` is what the heading, approval and history
+    fragments pass: they need the status, the permissions and the approval read
+    side, but not the editor directory or the read-only document blocks, and
+    building those would be work no rendered partial would use. It changes
+    nothing about *what* the shared blocks show.
+    """
     can_edit = can_edit_protocol(protocol, request.user)
     tab = request.GET.get('tab') or request.POST.get('tab') or 'protocol'
     context = {
@@ -241,6 +371,8 @@ def _detail_context(request, protocol, form=None, save_error=''):
         'user_approval': get_user_approval(protocol, request.user),
         'is_under_approval': protocol.status == Protocol.Status.APPROVAL,
     }
+    if not include_document:
+        return context
     if can_edit:
         directory = get_editor_directory()
         context['form'] = form or ProtocolDraftForm(protocol)

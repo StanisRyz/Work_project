@@ -24,7 +24,7 @@ const {
 
 const CLIENT_DIR = path.join(__dirname, '..', '..', '..', 'static', 'js', 'realtime');
 // The very order base.html loads them in.
-const MODULES = ['core.js', 'tabs.js', 'sync.js', 'notifications.js', 'tasks.js', 'acts.js', 'workup.js', 'start.js'];
+const MODULES = ['core.js', 'tabs.js', 'sync.js', 'notifications.js', 'tasks.js', 'acts.js', 'workup.js', 'protocols.js', 'start.js'];
 const SOURCES = MODULES.map((name) => [name, fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8')]);
 const DEFAULT_COORDINATION_EPOCH = 'test-session-epoch-000000000001';
 const coordinationChannelName = (epoch = DEFAULT_COORDINATION_EPOCH) =>

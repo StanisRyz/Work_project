@@ -251,13 +251,26 @@ tasks never live inside `acts`.
   one, and `notify_protocol_task_assigned()` refuses any task that is not
   `PROTOCOL_ACTION`. `notify_protocol_approved()` uses `exclude_actor=False` on
   purpose: a protocol nobody had to approve is archived by its own author.
-- **No protocol email and no protocol realtime.** The protocol event types are
-  deliberately absent from `EMAIL_ELIGIBLE_EVENTS`, so no `NotificationDelivery`
-  is ever created for them; act email behaviour is unchanged. `notification.created`
-  carries identifiers only — recipient, actor, `source_type`, the nullable
+- **No protocol email.** The protocol event types are deliberately absent from
+  `EMAIL_ELIGIBLE_EVENTS`, so no `NotificationDelivery` is ever created for
+  them; act email behaviour is unchanged. `notification.created` carries
+  identifiers only — recipient, actor, `source_type`, the nullable
   act/protocol/task ids and the event type — and never protocol text, a return
-  comment, a task description, a name or an address. There are no
-  `protocol.*` realtime events and no protocol revision in `/realtime/sync/`.
+  comment, a task description, a name or an address.
+- **Protocol realtime reuses the act architecture, not a second one.** Five
+  event types (`protocol.created`, `protocol.updated`, `protocol.deleted`,
+  `protocol.status_changed`, `protocol.approval_changed`) are emitted from
+  `protocols/services.py` inside the workflow transaction; recipients come from
+  `realtime.recipients.protocol_targets()`, which follows `can_view_protocol`
+  («любой аутентифицированный») rather than inventing a rule. **An event
+  describes committed observable state:** a submission that requires nobody and
+  archives itself in the same transaction is one `DRAFT → ARCHIVED` event, never
+  a pair naming an `APPROVAL` no reader could see, and a save that stored
+  nothing new emits nothing. `/realtime/sync/` carries a `protocols` revision
+  built from three aggregates — protocol totals, the status mix and the approval
+  rows — because approving one position leaves the protocol row untouched. The
+  approval and decision tasks the workflow creates keep emitting their own
+  `task.*` events from `tasks/services.py`; that behaviour is unchanged.
 - **Калькулятор рубки пластин is a page and nothing else.** The seventeen
   length bands and the `0.95 s` hole coefficient live only in
   `plate_cutting/constants.py`; the view renders them into the `<select>` of
@@ -578,7 +591,10 @@ tasks never live inside `acts`.
   controller; realtime never renders the table or carries journal values.
 - A live refresh never replaces a form holding unsaved input: only read-only
   blocks are swapped, and a dirty form gets the conflict banner with the typed
-  text intact. Recovery has one owner per authenticated session — every periodic request is gated
+  text intact. The protocol page follows the act page exactly: `protocols.js`
+  guards the content block, and `protocol_editor.js` is a repeatable
+  initialiser registered with `qualityFragments` so replaced markup re-binds
+  through the same code — no business rule moved into the browser. Recovery has one owner per authenticated session — every periodic request is gated
   on the leader tab when tabs are coordinated.
 
 ## Logging

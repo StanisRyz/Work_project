@@ -38,6 +38,11 @@ class EventTypeContractTests(SimpleTestCase):
                 'ACT_CREATED': 'act.created',
                 'ACT_UPDATED': 'act.updated',
                 'ACT_STATUS_CHANGED': 'act.status_changed',
+                'PROTOCOL_CREATED': 'protocol.created',
+                'PROTOCOL_UPDATED': 'protocol.updated',
+                'PROTOCOL_DELETED': 'protocol.deleted',
+                'PROTOCOL_STATUS_CHANGED': 'protocol.status_changed',
+                'PROTOCOL_APPROVAL_CHANGED': 'protocol.approval_changed',
                 'COMMENT_CREATED': 'comment.created',
                 'WORKUP_CREATED': 'workup.created',
                 'WORKUP_UPDATED': 'workup.updated',
@@ -154,7 +159,7 @@ class EventValidationTests(SimpleTestCase):
         self.assertEqual(build_event(occurred_at=moment).occurred_at, moment)
 
     def test_resource_type_cannot_be_empty_or_unknown(self):
-        for invalid in ('', '   ', 'protocol'):
+        for invalid in ('', '   ', 'invoice'):
             with self.subTest(resource_type=invalid):
                 with self.assertRaises(RealtimeEventError):
                     build_event(resource_type=invalid)

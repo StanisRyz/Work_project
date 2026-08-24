@@ -1,0 +1,11 @@
+{% comment %}
+The document itself: the editor for whoever may change it right now, the
+read-only rendering for everybody else. Shared by the full page and by
+`protocols:content_fragment`, so the fragment can never offer an action the
+page would not — `can_edit` is answered by the same context builder in both.
+{% endcomment %}
+{% if can_edit %}
+    {% include 'protocols/includes/editor.html' %}
+{% else %}
+    {% include 'protocols/includes/readonly.html' %}
+{% endif %}
