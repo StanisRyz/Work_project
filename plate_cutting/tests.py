@@ -17,7 +17,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from .constants import HOLE_SECONDS, PLATE_LENGTH_RANGES
-from .models import PlateCuttingPreset
+from .models import MAX_HOLE_COUNT, MAX_PLATE_COUNT, PlateCuttingPreset
 
 
 class PlateCuttingConstantsTests(TestCase):
@@ -143,4 +143,35 @@ class PlateCuttingPresetTests(TestCase):
             self.post_preset({'name': '   ', 'packages': [{'range': '1', 'plates': 1, 'holes': 0}]}).status_code,
             400,
         )
+        self.assertFalse(PlateCuttingPreset.objects.exists())
+
+    def test_a_count_above_the_limit_is_refused_before_the_insert(self):
+        """The `integer` ceiling of PostgreSQL is never reached: it is a 400.
+
+        Without the upper bound the same payload is stored on SQLite and
+        aborts the transaction on PostgreSQL, i.e. the defect only appears in
+        production. Both counters are checked; neither leaves a row behind.
+        """
+        for field, limit in (('plates', MAX_PLATE_COUNT), ('holes', MAX_HOLE_COUNT)):
+            with self.subTest(field=field):
+                package = {'range': '1', 'plates': 10, 'holes': 0}
+                package[field] = limit + 1
+                response = self.post_preset({'name': 'Набор', 'packages': [package]})
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(str(limit), response.json()['detail'])
+
+        self.assertFalse(PlateCuttingPreset.objects.exists())
+
+    def test_malformed_numbers_are_a_validation_error_and_not_a_crash(self):
+        """Strings `str.isdigit()` accepts but `int()` refuses used to be a 500."""
+        for plates in ('--5', '²', '', '  ', 'пять', '1.5', None, [1]):
+            with self.subTest(plates=plates):
+                response = self.post_preset({
+                    'name': 'Набор', 'packages': [{'range': '1', 'plates': plates, 'holes': 0}],
+                })
+
+                self.assertEqual(response.status_code, 400)
+                self.assertTrue(response.json()['detail'])
+
         self.assertFalse(PlateCuttingPreset.objects.exists())

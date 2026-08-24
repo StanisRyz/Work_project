@@ -351,6 +351,18 @@ tasks never live inside `acts`.
   `/calculators/plate-cutting/presets/` save, search (`?q=`, substring over
   `search_name`) and load; the modals reuse the application's `.app-modal`, and
   there is no rename, delete or edit of a saved set.
+- **`plate_count` and `hole_count` are bounded on all three sides.**
+  `models.MAX_PLATE_COUNT` / `MAX_HOLE_COUNT` (1 000 000 each) are the single
+  source of the limit: `services._integer()` enforces it, the view hands it to
+  the `max=` attribute of both `<input type="number">`, and two
+  `CheckConstraint`s keep it at the database level beside the existing
+  `plate_cutting_preset_package_plates_positive`. Both fields stay
+  `PositiveIntegerField`, i.e. PostgreSQL `integer`: an unbounded value does not
+  fail validation there, it aborts the whole `INSERT` — and SQLite stores it
+  silently, so the defect would only ever appear in production. `_integer()`
+  converts with `int()` inside `try/except` rather than pre-checking
+  `str.isdigit()`, which accepts strings `int()` refuses (`'--5'`, `'²'`); every
+  malformed value is a 400 with the modal's message, never a 500.
 
 - **The calculator was integrated from `StanisRyz/calculate` at commit
   `d32eae0e5d7b66bdd41214cc7ba9601534c4f254`** and this repository is now the

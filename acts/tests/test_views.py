@@ -1022,16 +1022,20 @@ class ActViewTests(TestCase):
                 self.assertNotContains(response, '>Справочники</a>', html=False)
                 self.assertNotContains(response, '>Пользователи и роли</a>', html=False)
 
-    def test_admin_navigation_keeps_all_sections_and_profile_link(self):
+    def test_admin_navigation_shows_the_same_sections_as_everyone_else(self):
+        # «Главная», «Справочники» and «Пользователи и роли» went with the
+        # dashboard application; the sidebar an administrator sees is the same
+        # one everybody else sees. The check that they are gone stays.
         self.client.force_login(self.admin_user)
 
         response = self.client.get(reverse('acts:list'))
 
-        self.assertContains(response, '>Главная</a>', html=False)
         self.assertContains(response, '>Акты</a>', html=False)
         self.assertContains(response, '>Задачи</a>', html=False)
-        self.assertContains(response, '>Справочники</a>', html=False)
-        self.assertContains(response, '>Пользователи и роли</a>', count=2, html=False)
+        self.assertContains(response, '>Протоколы</a>', html=False)
+        self.assertNotContains(response, '>Главная</a>', html=False)
+        self.assertNotContains(response, '>Справочники</a>', html=False)
+        self.assertNotContains(response, '>Пользователи и роли</a>', html=False)
 
     def test_readonly_to_analysis_compacts_columns_and_lists_multiple_assignees(self):
         act = self._create_act(self.status_otk_review)

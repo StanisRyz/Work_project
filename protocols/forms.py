@@ -83,8 +83,18 @@ class ProtocolDraftForm:
                 'assignees': [
                     {
                         'user': str(assignee.user_id),
+                        # The profile row can be missing — it is deletable in
+                        # the admin on its own, while the User behind it is
+                        # held by PROTECT from ProtocolActionAssignee. The
+                        # outer getattr must therefore guard `userprofile`
+                        # itself: reading it raises RelatedObjectDoesNotExist,
+                        # so a single getattr over `department_id` would never
+                        # reach its default and the editor would answer 500.
                         'department': str(
-                            getattr(assignee.user.userprofile, 'department_id', '') or ''
+                            getattr(
+                                getattr(assignee.user, 'userprofile', None),
+                                'department_id', '',
+                            ) or ''
                         ),
                     }
                     for assignee in action.assignees.select_related('user__userprofile')

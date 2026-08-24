@@ -2,7 +2,8 @@
 
 Everything the browser sends is re-checked here against the same rules the
 page enforces for immediate feedback — a non-empty name, at least one package,
-a band that exists in `constants.PLATE_LENGTH_RANGES`, plates > 0 and holes >= 0.
+a band that exists in `constants.PLATE_LENGTH_RANGES`, plates > 0 and holes >= 0,
+and both counters within `models.MAX_PLATE_COUNT` / `models.MAX_HOLE_COUNT`.
 `create_preset()` writes the set and all of its packages in one transaction, so
 an invalid package leaves nothing behind at all.
 
@@ -15,7 +16,9 @@ from django.utils import timezone
 
 from .constants import find_range
 from .models import (
+    MAX_HOLE_COUNT,
     MAX_PACKAGES_PER_PRESET,
+    MAX_PLATE_COUNT,
     PRESET_NAME_MAX_LENGTH,
     PlateCuttingPreset,
     PlateCuttingPresetPackage,
@@ -36,20 +39,36 @@ def _author_name(user):
     return user.get_full_name() or user.get_username()
 
 
-def _integer(value, label, minimum):
-    """A whole number from JSON, refusing floats, blanks and negative values."""
+def _integer(value, label, minimum, maximum):
+    """A whole number from JSON, within *minimum*..*maximum*.
+
+    The conversion itself is the check: `str.isdigit()` cannot be used as a
+    guard because it answers True for strings `int()` refuses — `'--5'` after
+    stripping signs, and superscripts such as `'²'` — which turned malformed
+    input into an uncaught `ValueError` and an HTTP 500 instead of the
+    message the modal shows.
+
+    *maximum* is not optional. Both stored counters are `PositiveIntegerField`,
+    i.e. PostgreSQL `integer`: a value above its ceiling aborts the insert
+    rather than being rejected, and only in production. See `MAX_PLATE_COUNT`.
+    """
     if isinstance(value, bool):
         raise PlateCuttingValidationError(f'{label}: введите целое число.')
     if isinstance(value, int):
         number = value
     else:
         text = str(value if value is not None else '').strip()
-        if not text.lstrip('-').isdigit():
+        try:
+            number = int(text)
+        except (TypeError, ValueError):
             raise PlateCuttingValidationError(f'{label}: введите целое число.')
-        number = int(text)
     if number < minimum:
         raise PlateCuttingValidationError(
             f'{label}: значение должно быть не меньше {minimum}.'
+        )
+    if number > maximum:
+        raise PlateCuttingValidationError(
+            f'{label}: значение должно быть не больше {maximum}.'
         )
     return number
 
@@ -85,8 +104,12 @@ def _clean_packages(raw_packages):
             )
         cleaned.append({
             'range_value': band.value,
-            'plate_count': _integer(raw.get('plates'), f'Пакет {index}: количество пластин', 1),
-            'hole_count': _integer(raw.get('holes'), f'Пакет {index}: количество отверстий', 0),
+            'plate_count': _integer(
+                raw.get('plates'), f'Пакет {index}: количество пластин', 1, MAX_PLATE_COUNT,
+            ),
+            'hole_count': _integer(
+                raw.get('holes'), f'Пакет {index}: количество отверстий', 0, MAX_HOLE_COUNT,
+            ),
             'display_order': index - 1,
         })
     return cleaned

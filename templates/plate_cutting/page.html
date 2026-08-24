@@ -74,11 +74,11 @@ Every class is namespaced under `.plate-cutting-module`.
                 </label>
                 <label>
                     <span>Количество пластин</span>
-                    <input data-field="plates" type="number" min="1" step="1" inputmode="numeric" placeholder="Например, 500">
+                    <input data-field="plates" type="number" min="1" max="{{ max_plate_count }}" step="1" inputmode="numeric" placeholder="Например, 500">
                 </label>
                 <label>
                     <span>Количество отверстий, всего</span>
-                    <input data-field="holes" type="number" min="0" step="1" inputmode="numeric" value="0">
+                    <input data-field="holes" type="number" min="0" max="{{ max_hole_count }}" step="1" inputmode="numeric" value="0">
                 </label>
                 <div class="pcut-package__result">
                     <span class="pcut-package__result-label">Время пакета</span>

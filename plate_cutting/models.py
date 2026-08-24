@@ -21,6 +21,20 @@ MAX_PACKAGES_PER_PRESET = 50
 
 PRESET_NAME_MAX_LENGTH = 120
 
+#: The upper bound of `plate_count` and `hole_count`.
+#:
+#: `PositiveIntegerField` maps to PostgreSQL `integer`, whose ceiling is
+#: 2 147 483 647 — a value past it is not rejected, it aborts the whole
+#: `INSERT` with `NumericValueOutOfRange` and the user loses the set. SQLite
+#: stores the same number silently, so the defect only ever shows in
+#: production. A hand-filled package never comes near a million; anything
+#: above it is a slip on the number pad, and it is refused with a message
+#: instead of a 500. Enforced in `services._integer()`, by the `max`
+#: attribute of both `<input type="number">` and by the check constraints
+#: below.
+MAX_PLATE_COUNT = 1_000_000
+MAX_HOLE_COUNT = 1_000_000
+
 
 def build_search_name(name):
     """The normalized name the modal's search field matches against.
@@ -95,6 +109,16 @@ class PlateCuttingPresetPackage(models.Model):
             models.CheckConstraint(
                 condition=models.Q(plate_count__gte=1),
                 name='plate_cutting_preset_package_plates_positive',
+            ),
+            # The upper bound of the same rule. Without it a typo reaches
+            # PostgreSQL's `integer` ceiling and aborts the transaction.
+            models.CheckConstraint(
+                condition=models.Q(plate_count__lte=MAX_PLATE_COUNT),
+                name='plate_cutting_preset_package_plates_within_limit',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(hole_count__lte=MAX_HOLE_COUNT),
+                name='plate_cutting_preset_package_holes_within_limit',
             ),
         ]
 

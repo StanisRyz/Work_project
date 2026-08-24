@@ -91,8 +91,14 @@
    */
   function readPackage(element) {
     var range = readRange(element.querySelector('[data-field="range"]'));
-    var platesText = element.querySelector('[data-field="plates"]').value.trim();
-    var holesText = element.querySelector('[data-field="holes"]').value.trim();
+    var platesEl = element.querySelector('[data-field="plates"]');
+    var holesEl = element.querySelector('[data-field="holes"]');
+    var platesText = platesEl.value.trim();
+    var holesText = holesEl.value.trim();
+    // The server enforces the same ceiling; it is on the input as `max=`, so
+    // the message here names the very number the field allows.
+    var platesMax = Number(platesEl.getAttribute('max'));
+    var holesMax = Number(holesEl.getAttribute('max'));
 
     if (!range) {
       return { error: 'Выберите диапазон длины пластины.' };
@@ -103,11 +109,17 @@
     if (!INTEGER.test(platesText) || Number(platesText) <= 0) {
       return { error: 'Количество пластин — целое число больше 0.' };
     }
+    if (platesMax && Number(platesText) > platesMax) {
+      return { error: 'Количество пластин — не больше ' + platesMax + '.' };
+    }
     if (!holesText) {
       return { incomplete: true };
     }
     if (!INTEGER.test(holesText)) {
       return { error: 'Количество отверстий, всего — целое число от 0.' };
+    }
+    if (holesMax && Number(holesText) > holesMax) {
+      return { error: 'Количество отверстий, всего — не больше ' + holesMax + '.' };
     }
     return { result: calculatePackage(range, Number(platesText), Number(holesText)) };
   }

@@ -494,7 +494,7 @@ class NotificationEmailTests(NotificationTestMixin, TestCase):
         self.assertEqual(len(mail.outbox), 1)
         message = mail.outbox[0]
         self.assertIn(act.number, message.subject)
-        self.assertIn(f'https://quality.example.test/acts/{act.pk}/', message.body)
+        self.assertIn(f'https://quality.example.test/quality/acts/{act.pk}/', message.body)
         self.assertIn('Требуемое действие', message.body)
         self.assertNotIn(self.DEFECT_DESCRIPTION, message.body)
         self.assertEqual(message.alternatives[0].mimetype, 'text/html')

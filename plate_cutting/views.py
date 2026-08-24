@@ -18,7 +18,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
 from .constants import HOLE_SECONDS, PLATE_LENGTH_RANGES
-from .models import PlateCuttingPreset
+from .models import MAX_HOLE_COUNT, MAX_PLATE_COUNT, PlateCuttingPreset
 from .services import (
     PlateCuttingValidationError,
     create_preset,
@@ -38,6 +38,11 @@ def plate_cutting_page(request):
         'header_title': 'Калькулятор рубки пластин',
         'length_ranges': PLATE_LENGTH_RANGES,
         'hole_seconds': HOLE_SECONDS,
+        # The same ceiling `services._integer()` enforces, handed to the
+        # `max=` attribute of both number inputs so the browser refuses a
+        # slip on the number pad before it is ever sent.
+        'max_plate_count': MAX_PLATE_COUNT,
+        'max_hole_count': MAX_HOLE_COUNT,
     })
 
 
