@@ -212,3 +212,126 @@ def get_approval_revision_groups(protocol):
         }
         for group in get_approvals_by_revision(protocol)
     ]
+
+
+# --------------------------------------------------------------------------
+# The official document
+#
+# `build_protocol_document()` is the single description of what the protocol
+# *says* as a document. The printable HTML page and the PDF both render this
+# one structure, so the two can never drift apart, and neither of them
+# restates a business rule: numbering, the approval reasons and the generated
+# tasks are read from what the workflow already stored.
+#
+# Deliberately plain values — strings, dates, booleans, lists — rather than
+# model instances: the PDF renderer has no template engine to lazily follow a
+# relation, and a document that renders identically in both targets is the
+# whole point.
+# --------------------------------------------------------------------------
+
+
+def _person_label(user):
+    return user.get_full_name() or user.get_username()
+
+
+def build_protocol_document(protocol):
+    """Everything the official protocol document shows, as plain data."""
+    from tasks.models import Task
+
+    participants = [
+        {
+            'display_name': participant.display_name,
+            # The frozen snapshot first: an archived protocol keeps saying in
+            # which role someone took part, whatever the profile did later.
+            'department_name': participant.department_name
+            or getattr(participant.department, 'name', '')
+            or '',
+            'position': participant.position,
+            'requires_approval': participant.requires_approval,
+            'is_author': participant.user_id == protocol.author_id,
+        }
+        for participant in protocol.participants.select_related('department')
+    ]
+
+    speeches = [
+        {'speaker': speech.speaker.display_name, 'text': speech.text}
+        for speech in protocol.speeches.select_related('speaker')
+    ]
+
+    decisions = [
+        {
+            'text': action.task_text,
+            'department_name': getattr(action.department, 'name', '') or '',
+            'due_date': action.due_date,
+            'assignees': [
+                _person_label(assignment.user) for assignment in action.assignees.all()
+            ],
+        }
+        for action in protocol.actions.select_related('department').prefetch_related(
+            'assignees__user'
+        )
+    ]
+
+    approvals = [
+        {
+            'display_name': approval.display_name,
+            'position': approval.position,
+            'department_name': approval.department_name,
+            'status_label': approval.get_status_display(),
+            'decided_at': approval.decided_at,
+            'reason': describe_approval_reason(approval),
+            'return_comment': approval.return_comment,
+        }
+        for approval in get_current_revision_approvals(protocol)
+    ]
+
+    # The real tasks the archive produced, if it has. `PROTOCOL_ACTION` only:
+    # an approval task is a work-queue entry for the signing round, not
+    # something the document records as a decision.
+    tasks = [
+        {
+            'id': task.pk,
+            'text': task.task_text,
+            'department_name': getattr(task.department, 'name', '') or '',
+            'due_date': task.due_date,
+            'status_label': str(task.status),
+            'assignees': [
+                _person_label(assignment.user) for assignment in task.assignees.all()
+            ],
+        }
+        for task in Task.objects.filter(
+            protocol=protocol, source_type=Task.SourceType.PROTOCOL_ACTION
+        )
+        .select_related('department', 'status')
+        .prefetch_related('assignees__user')
+        .order_by('pk')
+    ]
+
+    return {
+        'protocol': protocol,
+        'title': f'{protocol.protocol_type.name} №{protocol.number}',
+        'protocol_type_name': protocol.protocol_type.name,
+        'number': protocol.number,
+        'created_at': protocol.created_at,
+        'author_name': _person_label(protocol.author),
+        'status_label': protocol.get_status_display(),
+        'revision': protocol.revision,
+        'is_archived': protocol.status == Protocol.Status.ARCHIVED,
+        'participants': participants,
+        'agenda': [item.text for item in protocol.agenda_items.all()],
+        'speeches': speeches,
+        'decisions': decisions,
+        'tasks': tasks,
+        'approvals': approvals,
+        'approval_progress': get_approval_progress(protocol),
+        'history': [
+            {
+                'created_at': event.created_at,
+                'event_label': event.get_event_type_display(),
+                'actor_name': _person_label(event.actor) if event.actor else 'Система',
+                'message': event.message,
+                'revision': event.revision,
+            }
+            for event in protocol.history_events.select_related('actor')
+        ],
+    }

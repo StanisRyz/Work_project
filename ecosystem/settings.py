@@ -695,6 +695,23 @@ REALTIME_LIVE_SYNC_SECONDS = env_number(
 
 
 # --------------------------------------------------------------------------
+# Protocol PDF
+#
+# The printable protocol is also downloadable as a PDF, rendered by ReportLab
+# — a pure-Python wheel, because the application is deployed on both Linux and
+# Windows and a renderer needing GTK/Pango is not installable on one of them.
+#
+# ReportLab's built-in faces are Latin-only, so a TrueType font with Cyrillic
+# is required. Leave these empty to use the usual DejaVu/Liberation/Arial
+# locations; set them when the installation ships its own font. A missing font
+# is reported by `manage.py check` in production and refuses the download with
+# a readable message — it never produces a file full of black squares.
+# --------------------------------------------------------------------------
+
+PROTOCOL_PDF_FONT_PATH = os.getenv('PROTOCOL_PDF_FONT_PATH', '').strip()
+PROTOCOL_PDF_FONT_BOLD_PATH = os.getenv('PROTOCOL_PDF_FONT_BOLD_PATH', '').strip()
+
+# --------------------------------------------------------------------------
 # Logging
 #
 # **The rotating text file is the primary diagnostic record for the pilot.**

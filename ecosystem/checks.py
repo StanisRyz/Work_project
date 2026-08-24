@@ -54,6 +54,7 @@ def check_deployment_configuration(app_configs, **kwargs):
     problems.extend(_check_demo_reset())
     problems.extend(_check_email())
     problems.extend(_check_realtime())
+    problems.extend(_check_protocol_pdf())
     problems.extend(_check_backup())
     return problems
 
@@ -473,6 +474,29 @@ def _check_realtime():
             )
         )
     return problems
+
+
+def _check_protocol_pdf():
+    """«Скачать PDF» must not be a button that answers 503 in production.
+
+    Configuration only, like every check here: it imports the renderer and
+    looks for a readable font file, and never builds a document.
+    """
+    from protocols.pdf import describe_availability
+
+    available, reason = describe_availability()
+    if available:
+        return []
+    return [
+        Error(
+            f'PDF протоколов недоступен: {reason}',
+            hint=(
+                'Установите зависимости из requirements.txt и укажите шрифт с '
+                'кириллицей через PROTOCOL_PDF_FONT_PATH, если системного нет.'
+            ),
+            id='ecosystem.E028',
+        )
+    ]
 
 
 def _check_backup():

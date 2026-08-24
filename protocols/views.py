@@ -7,7 +7,7 @@ and renders — no protocol content is written here.
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -24,7 +24,9 @@ from .permissions import (
     can_send_protocol_for_approval,
     can_view_protocol,
 )
+from .pdf import ProtocolPdfUnavailable, protocol_pdf_filename, render_protocol_pdf
 from .selectors import (
+    build_protocol_document,
     build_protocol_list_state,
     get_active_protocol_types,
     get_approval_progress,
@@ -192,6 +194,50 @@ def protocol_create(request):
 def protocol_detail(request, pk):
     protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
     return render(request, 'protocols/detail.html', _detail_context(request, protocol))
+
+
+# --------------------------------------------------------------------------
+# The official document
+#
+# Both endpoints render `build_protocol_document()`: the page prints it and the
+# PDF downloads it, so the two cannot say different things. Reading is open to
+# every authenticated user, exactly as `can_view_protocol` already allows —
+# neither endpoint changes anything.
+# --------------------------------------------------------------------------
+
+
+@login_required
+def protocol_print(request, pk):
+    protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
+    if not can_view_protocol(protocol, request.user):
+        raise Http404('No Protocol matches the given query.')
+    return render(request, 'protocols/print.html', {
+        'document': build_protocol_document(protocol),
+    })
+
+
+@login_required
+def protocol_pdf(request, pk):
+    """The same document as a downloadable PDF.
+
+    An installation without the renderer or without a Cyrillic font answers
+    503 with a readable message instead of streaming a broken file; the same
+    condition is reported by `manage.py check` in production.
+    """
+    protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
+    if not can_view_protocol(protocol, request.user):
+        raise Http404('No Protocol matches the given query.')
+    document = build_protocol_document(protocol)
+    try:
+        content = render_protocol_pdf(document)
+    except ProtocolPdfUnavailable as exc:
+        return HttpResponse(f'PDF недоступен: {exc}', status=503, content_type='text/plain; charset=utf-8')
+    response = HttpResponse(content, content_type='application/pdf')
+    response['Content-Disposition'] = (
+        f'attachment; filename="{protocol_pdf_filename(document)}"'
+    )
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+    return response
 
 
 @login_required

@@ -77,7 +77,14 @@
     font-size: 14px;
 }
 
-.protocol-detail-heading .link-button--danger { margin-left: auto; }
+/* The document links close the row; «Удалить черновик» follows them when the
+   protocol is still a draft, so only one element carries the auto margin. */
+.protocol-detail-heading__documents {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-left: auto;
+}
 
 /* Editor ----------------------------------------------------------------- */
 
@@ -344,5 +351,5 @@
 
     .protocol-remove-button { justify-self: end; }
     .protocol-checkbox { flex-wrap: wrap; padding-bottom: 0; }
-    .protocol-detail-heading .link-button--danger { margin-left: 0; }
+    .protocol-detail-heading__documents { margin-left: 0; }
 }

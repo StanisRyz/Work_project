@@ -1,0 +1,202 @@
+{% load static %}
+<!doctype html>
+<html lang="ru">
+{% comment %}
+The official protocol document, in the same shape and the same stylesheet as
+the act printable form. Everything below comes from `build_protocol_document()`
+— the very same structure the PDF renders — so the printed page and the
+downloaded file can never say different things.
+{% endcomment %}
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Печатная форма {{ document.title }}</title>
+    <link rel="stylesheet" href="{% static 'css/base.css' %}">
+    <link rel="stylesheet" href="{% static 'css/components.css' %}">
+    <link rel="stylesheet" href="{% static 'css/print.css' %}">
+</head>
+<body class="print-page">
+    <main class="print-document">
+        <div class="print-actions">
+            <button class="link-button" type="button" onclick="window.print()">Печать</button>
+            <a class="link-button link-button--secondary" href="{% url 'protocols:pdf' document.protocol.pk %}">Скачать PDF</a>
+            <a class="link-button link-button--secondary" href="{% url 'protocols:detail' document.protocol.pk %}">К протоколу</a>
+        </div>
+
+        <header class="print-header">
+            <p>Протокол совещания</p>
+            <h1>{{ document.title }}</h1>
+        </header>
+
+        <section class="print-section">
+            <h2>Данные протокола</h2>
+            <table>
+                <tr><th>Тип протокола</th><td>{{ document.protocol_type_name }}</td></tr>
+                <tr><th>Номер</th><td>№{{ document.number }}</td></tr>
+                <tr><th>Дата создания</th><td>{{ document.created_at|date:'d.m.Y H:i' }}</td></tr>
+                <tr><th>Автор</th><td>{{ document.author_name }}</td></tr>
+                <tr><th>Статус</th><td>{{ document.status_label }}</td></tr>
+                {% if document.revision %}<tr><th>Редакция</th><td>{{ document.revision }}</td></tr>{% endif %}
+            </table>
+        </section>
+
+        <section class="print-section">
+            <h2>Участники</h2>
+            {% if document.participants %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>№</th>
+                            <th>Подразделение</th>
+                            <th>Сотрудник</th>
+                            <th>Должность</th>
+                            <th>Согласование</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for participant in document.participants %}
+                            <tr>
+                                <td>{{ forloop.counter }}</td>
+                                <td>{{ participant.department_name|default:'—' }}</td>
+                                <td>{{ participant.display_name }}{% if participant.is_author %} (автор){% endif %}</td>
+                                <td>{{ participant.position|default:'—' }}</td>
+                                <td>{% if participant.requires_approval %}Требуется{% else %}—{% endif %}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>Участники не добавлены.</p>
+            {% endif %}
+        </section>
+
+        <section class="print-section">
+            <h2>Повестка</h2>
+            {% if document.agenda %}
+                <ol>
+                    {% for item in document.agenda %}<li>{{ item }}</li>{% endfor %}
+                </ol>
+            {% else %}
+                <p>Вопросы повестки не добавлены.</p>
+            {% endif %}
+        </section>
+
+        <section class="print-section">
+            <h2>Слушали</h2>
+            {% if document.speeches %}
+                <table>
+                    <thead><tr><th>Выступающий</th><th>Содержание</th></tr></thead>
+                    <tbody>
+                        {% for speech in document.speeches %}
+                            <tr><td>{{ speech.speaker }}</td><td>{{ speech.text }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>Выступления не добавлены.</p>
+            {% endif %}
+        </section>
+
+        <section class="print-section">
+            <h2>Решили</h2>
+            {% if document.decisions %}
+                <table>
+                    <thead>
+                        <tr><th>№</th><th>Решение</th><th>Подразделение</th><th>Исполнители</th><th>Срок</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for decision in document.decisions %}
+                            <tr>
+                                <td>{{ forloop.counter }}</td>
+                                <td>{{ decision.text }}</td>
+                                <td>{{ decision.department_name|default:'—' }}</td>
+                                <td>{{ decision.assignees|join:', '|default:'—' }}</td>
+                                <td>{{ decision.due_date|date:'d.m.Y'|default:'—' }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>Решения не приняты.</p>
+            {% endif %}
+        </section>
+
+        {% comment %}
+        Only an archived protocol has real tasks: they are created by the same
+        transaction that archives it, so the section stays out of the document
+        until it can actually say something.
+        {% endcomment %}
+        {% if document.tasks %}
+        <section class="print-section">
+            <h2>Созданные задачи</h2>
+            <table>
+                <thead>
+                    <tr><th>№ задачи</th><th>Задача</th><th>Подразделение</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr>
+                </thead>
+                <tbody>
+                    {% for task in document.tasks %}
+                        <tr>
+                            <td>{{ task.id }}</td>
+                            <td>{{ task.text }}</td>
+                            <td>{{ task.department_name|default:'—' }}</td>
+                            <td>{{ task.assignees|join:', '|default:'—' }}</td>
+                            <td>{{ task.due_date|date:'d.m.Y'|default:'—' }}</td>
+                            <td>{{ task.status_label }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        {% endif %}
+
+        <section class="print-section">
+            <h2>Согласование</h2>
+            {% if document.approvals %}
+                <table>
+                    <thead>
+                        <tr><th>Согласующий</th><th>Подразделение</th><th>Основание</th><th>Решение</th><th>Дата и время</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for approval in document.approvals %}
+                            <tr>
+                                <td>{{ approval.display_name }}{% if approval.position %}, {{ approval.position }}{% endif %}</td>
+                                <td>{{ approval.department_name|default:'—' }}</td>
+                                <td>{{ approval.reason|default:'—' }}</td>
+                                <td>{{ approval.status_label }}{% if approval.return_comment %} — {{ approval.return_comment }}{% endif %}</td>
+                                <td>{{ approval.decided_at|date:'d.m.Y H:i'|default:'—' }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <table>
+                    <tr><th>Итог согласования</th><td>Согласовано {{ document.approval_progress.approved }} из {{ document.approval_progress.total }}, редакция {{ document.approval_progress.revision }}</td></tr>
+                    <tr><th>Состояние протокола</th><td>{{ document.status_label }}</td></tr>
+                </table>
+            {% else %}
+                <p>Протокол не требовал согласования. Состояние: {{ document.status_label }}.</p>
+            {% endif %}
+        </section>
+
+        <section class="print-section">
+            <h2>История</h2>
+            {% if document.history %}
+                <table>
+                    <thead><tr><th>Дата</th><th>Событие</th><th>Пользователь</th><th>Комментарий</th></tr></thead>
+                    <tbody>
+                        {% for event in document.history %}
+                            <tr>
+                                <td>{{ event.created_at|date:'d.m.Y H:i' }}</td>
+                                <td>{{ event.event_label }}</td>
+                                <td>{{ event.actor_name }}</td>
+                                <td>{{ event.message }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>История протокола пока пуста.</p>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

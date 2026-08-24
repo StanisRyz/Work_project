@@ -17,6 +17,9 @@ urlpatterns = [
     path('<int:pk>/content-fragment/', views.protocol_content_fragment, name='content_fragment'),
     path('<int:pk>/history-fragment/', views.protocol_history_fragment, name='history_fragment'),
     path('<int:pk>/delete/', views.protocol_delete, name='delete'),
+    # The official document: the printable page and the same document as PDF.
+    path('<int:pk>/print/', views.protocol_print, name='print'),
+    path('<int:pk>/pdf/', views.protocol_pdf, name='pdf'),
     # Workflow transitions: POST only, one endpoint each. A GET on any of
     # them redirects to the protocol and changes nothing.
     path(

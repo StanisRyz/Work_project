@@ -257,6 +257,34 @@ tasks never live inside `acts`.
   identifiers only — recipient, actor, `source_type`, the nullable
   act/protocol/task ids and the event type — and never protocol text, a return
   comment, a task description, a name or an address.
+- **The protocol lifecycle is `DRAFT → APPROVAL → REVISION → ARCHIVED`, and
+  every transition lives in `protocols/services.py` under the protocol row
+  lock.** Submission is author-only and opens a *new* revision with a full
+  fresh round; an author never approves their own protocol
+  (`collect_required_approvers()` subtracts them, as a participant and as a
+  decision assignee alike); a return needs a reason, cancels the rest of the
+  round and makes the document editable again; the last approval archives it
+  in the same transaction. `ARCHIVED` is terminal — not editable, not
+  deletable. Numbering stays per `ProtocolType`, smallest free number,
+  released by deleting a draft and never by archiving.
+- **Protocol tasks are ordinary tasks with a protocol source.** Archiving
+  creates one `PROTOCOL_ACTION` task per decision, linked one-to-one to its
+  `ProtocolAction`, and `describe_task_source()` links it back to the
+  protocol. A `PROTOCOL_APPROVAL` task is a work-queue entry only: it carries
+  no decision, is never a second assignment, redirects from the task page to
+  the protocol, and is closed by the approval decision rather than by
+  «Завершить». Act task behaviour is untouched.
+- **The official document has one description.**
+  `selectors.build_protocol_document()` returns plain data — header,
+  participants, agenda, «Слушали», decisions, generated tasks, the approval
+  block with dates and the final state, history — and both targets render it:
+  `templates/protocols/print.html` (act print styling) and `protocols/pdf.py`
+  (ReportLab). Neither restates a business rule, and the page and the file
+  cannot drift apart. ReportLab is deliberately pure Python — the application
+  is deployed on Windows too — and Cyrillic needs a real TTF, resolved from
+  `PROTOCOL_PDF_FONT_PATH` or the usual DejaVu/Liberation/Arial locations. A
+  missing renderer or font is a 503 with a readable message and a production
+  `manage.py check` error (`ecosystem.E028`), never a broken file.
 - **Protocol realtime reuses the act architecture, not a second one.** Five
   event types (`protocol.created`, `protocol.updated`, `protocol.deleted`,
   `protocol.status_changed`, `protocol.approval_changed`) are emitted from

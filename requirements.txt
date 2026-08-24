@@ -5,3 +5,8 @@ psycopg[binary]==3.2.10
 # ASGI application. Neither is contacted while REALTIME_ENABLED=false.
 redis==8.1.0
 uvicorn==0.52.1
+# Protocol PDF. A pure-Python wheel on purpose: the application is deployed on
+# both Linux and Windows, and an HTML-to-PDF renderer needing GTK/Pango is not
+# installable on one of them. Cyrillic needs a TrueType font — see
+# PROTOCOL_PDF_FONT_PATH.
+reportlab==5.0.1

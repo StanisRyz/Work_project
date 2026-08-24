@@ -19,6 +19,16 @@ once the protocol leaves «Черновик».
         {% endcomment %}
         {% if protocol.revision %}<span>Редакция {{ protocol.revision }}</span>{% endif %}
     </div>
+    {% comment %}
+    The official document, available to every reader of the protocol: the
+    printable page and the same document as a PDF download. Both are GET and
+    change nothing, so they sit next to the heading rather than among the
+    workflow actions.
+    {% endcomment %}
+    <div class="protocol-detail-heading__documents">
+        <a class="link-button link-button--secondary" href="{% url 'protocols:print' protocol.pk %}">Печатная форма</a>
+        <a class="link-button link-button--secondary" href="{% url 'protocols:pdf' protocol.pk %}">Скачать PDF</a>
+    </div>
     {% if can_delete %}
         {% comment %}
         Author-only while the protocol is a draft, and confirmed through the one
