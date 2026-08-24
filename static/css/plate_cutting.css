@@ -241,6 +241,86 @@
     color: #b42318;
 }
 
+/* ------------------------------------------------- saved package sets -- */
+
+/* «+ Дополнительный пакет», «Сохранить» and «Загрузить» on one line; on a
+   narrow screen they wrap instead of shrinking. */
+.plate-cutting-module .pcut-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.plate-cutting-module .pcut-feedback {
+    margin: 12px 0 0;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.plate-cutting-module .pcut-feedback--error {
+    color: #b42318;
+}
+
+.plate-cutting-module .pcut-feedback[hidden] {
+    display: none;
+}
+
+/* Both dialogs reuse `.app-modal` from `components.css`; only the width and
+   the list's own scrolling are set here. */
+.plate-cutting-module .pcut-modal {
+    width: min(560px, calc(100% - 32px));
+}
+
+.plate-cutting-module .pcut-preset-list {
+    display: grid;
+    gap: 8px;
+    /* The library grows: the list scrolls inside the dialog instead of
+       pushing it off the screen. */
+    max-height: min(46vh, 320px);
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.plate-cutting-module .pcut-preset-list__empty {
+    margin: 0;
+    padding: 12px 0;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.plate-cutting-module .pcut-preset {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.plate-cutting-module .pcut-preset__info {
+    min-width: 0;
+}
+
+.plate-cutting-module .pcut-preset__name {
+    margin: 0;
+    color: var(--color-text);
+    font-size: 14px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.plate-cutting-module .pcut-preset__meta {
+    margin: 2px 0 0;
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.plate-cutting-module .pcut-preset .link-button {
+    flex: none;
+}
+
 @media (max-width: 900px) {
     .plate-cutting-module .pcut-fields {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -262,5 +342,10 @@
         left: 0;
         width: 100%;
         max-width: none;
+    }
+
+    .plate-cutting-module .pcut-preset {
+        flex-direction: column;
+        align-items: stretch;
     }
 }

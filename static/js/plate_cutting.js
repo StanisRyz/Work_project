@@ -1,14 +1,21 @@
 /**
  * Калькулятор рубки пластин.
  *
- * Entirely client-side once the page is rendered: no fetch, no storage, no
- * shared state. The coefficients are not restated here — a package reads the
- * seconds-per-plate off its selected `<option>` and the hole coefficient off
- * the module's root, both rendered from `plate_cutting/constants.py`.
+ * The arithmetic is entirely client-side: the coefficients are not restated
+ * here — a package reads the seconds-per-plate off its selected `<option>` and
+ * the hole coefficient off the module's root, both rendered from
+ * `plate_cutting/constants.py`.
  *
  * `calculatePackage()` is the only implementation of the formula: the visible
  * «Время пакета», the calculation popup and the «Итого» all render from the
  * object it returns.
+ *
+ * The saved package sets («Сохранить»/«Загрузить») are the one thing that
+ * talks to the server, and they carry inputs only — the band, the plates and
+ * the holes of every package, in order. Nothing calculated is ever sent or
+ * received: a loaded set is rebuilt from the same `<template>` the «+
+ * Дополнительный пакет» button uses and then goes through `refresh()`, so the
+ * times on screen always come from the formula above.
  */
 (function () {
   var root = document.querySelector('[data-plate-cutting]');
@@ -21,6 +28,7 @@
   var totalHoursEl = root.querySelector('[data-total-hours]');
   var totalSecondsEl = root.querySelector('[data-total-seconds]');
   var totalSkippedEl = root.querySelector('[data-total-skipped]');
+  var feedbackEl = root.querySelector('[data-feedback]');
   if (!packagesEl || !template || !addButton) return;
 
   var INTEGER = /^\d+$/;
@@ -185,13 +193,326 @@
       : '';
   }
 
+  /**
+   * One package row from the page's own `<template>`, optionally pre-filled.
+   * The single way a row is created — «+ Дополнительный пакет» and a loaded
+   * preset both come through here, so there is no second row implementation.
+   */
+  function createPackage(values) {
+    packagesEl.appendChild(template.content.cloneNode(true));
+    var element = packageElements().pop();
+    if (values) {
+      element.querySelector('[data-field="range"]').value = String(values.range);
+      element.querySelector('[data-field="plates"]').value = values.plates;
+      element.querySelector('[data-field="holes"]').value = values.holes;
+    }
+    return element;
+  }
+
   function addPackage() {
     var isFirst = packageElements().length === 0;
-    packagesEl.appendChild(template.content.cloneNode(true));
+    var added = createPackage(null);
     refresh();
     if (isFirst) return;
-    var added = packageElements().pop();
     added.querySelector('[data-field="plates"]').focus();
+  }
+
+  /* -------------------------------------------------------- saved package sets */
+
+  /*
+   * Everything below is the «Сохранить»/«Загрузить» library. It reads and
+   * writes package *inputs* and nothing else: no seconds, no hours and no
+   * formula text ever leaves or enters the page, so a set saved a year ago is
+   * recalculated by today's `calculatePackage()`.
+   */
+
+  var saveModal = root.querySelector('[data-save-modal]');
+  var loadModal = root.querySelector('[data-load-modal]');
+  var saveButton = root.querySelector('[data-open-save]');
+  var loadButton = root.querySelector('[data-open-load]');
+  var presetsUrl = root.dataset.presetsUrl || '';
+  var presetCreateUrl = root.dataset.presetCreateUrl || '';
+  var SEARCH_DELAY_MS = 250;
+  var FEEDBACK_MS = 6000;
+  var feedbackTimer = null;
+
+  /** A short controlled message under the actions — never an alert(). */
+  function showFeedback(message, isError) {
+    if (!feedbackEl) return;
+    feedbackEl.textContent = message;
+    feedbackEl.classList.toggle('pcut-feedback--error', Boolean(isError));
+    feedbackEl.hidden = false;
+    window.clearTimeout(feedbackTimer);
+    feedbackTimer = window.setTimeout(function () {
+      feedbackEl.hidden = true;
+      feedbackEl.textContent = '';
+    }, FEEDBACK_MS);
+  }
+
+  function csrfToken() {
+    var match = document.cookie.match(/(?:^|; )csrftoken=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }
+
+  /** One request, with the server's own explanation preserved on a refusal. */
+  async function request(url, options) {
+    var response;
+    try {
+      response = await fetch(url, Object.assign({ credentials: 'same-origin' }, options));
+    } catch (error) {
+      throw new Error('Нет связи с сервером. Проверьте подключение и повторите.');
+    }
+    var payload = null;
+    try { payload = await response.json(); } catch (error) { payload = null; }
+    if (response.redirected || response.status === 401 || response.status === 403) {
+      throw new Error('Сессия завершена. Обновите страницу и войдите заново.');
+    }
+    if (!response.ok) {
+      throw new Error((payload && payload.detail) || 'Не удалось выполнить запрос. Повторите попытку.');
+    }
+    return payload;
+  }
+
+  /**
+   * The packages on screen, as the backend wants them: band identifier, plates
+   * and holes, in the order they are displayed. A package that cannot be
+   * calculated cannot be saved either — the same rules `readPackage()` applies.
+   */
+  function serializePackages() {
+    var elements = packageElements();
+    if (!elements.length) {
+      return { error: 'Добавьте хотя бы один пакет.' };
+    }
+    var packages = [];
+    for (var index = 0; index < elements.length; index += 1) {
+      var state = readPackage(elements[index]);
+      if (!state.result) {
+        return {
+          error: 'Пакет ' + (index + 1) + ': '
+            + (state.error || 'заполните количество пластин и отверстий.'),
+        };
+      }
+      packages.push({
+        range: elements[index].querySelector('[data-field="range"]').value,
+        plates: state.result.plates,
+        holes: state.result.holes,
+      });
+    }
+    return { packages: packages };
+  }
+
+  /**
+   * Replace — never extend — the calculator with a saved set, then recalculate.
+   * The rows come from the page's own `<template>` through `createPackage()`,
+   * and `refresh()` fills in every time from the current formula.
+   */
+  function applyPreset(preset) {
+    var saved = (preset && preset.packages) || [];
+    packagesEl.textContent = '';
+    saved.forEach(function (values) { createPackage(values); });
+    if (!packageElements().length) createPackage(null);
+    refresh();
+  }
+
+  /* ---------------------------------------------------------- save modal */
+
+  function wireSaveModal() {
+    if (!saveButton) return;
+    if (!saveModal || typeof saveModal.showModal !== 'function') {
+      saveButton.hidden = true;
+      return;
+    }
+    var form = saveModal.querySelector('[data-save-form]');
+    var nameInput = saveModal.querySelector('[data-save-name]');
+    var errorEl = saveModal.querySelector('[data-save-error]');
+    var cancel = saveModal.querySelector('[data-save-cancel]');
+    var submit = saveModal.querySelector('[data-save-submit]');
+
+    function showError(message) {
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    }
+
+    function clearError() {
+      errorEl.textContent = '';
+      errorEl.hidden = true;
+    }
+
+    saveButton.addEventListener('click', function () {
+      // Refuse before the dialog opens: an incomplete package is a page-level
+      // problem, and its own red text already says which one.
+      var serialized = serializePackages();
+      if (serialized.error) {
+        showFeedback(serialized.error, true);
+        return;
+      }
+      clearError();
+      nameInput.value = '';
+      submit.disabled = false;
+      saveModal.showModal();
+      nameInput.focus();
+    });
+
+    cancel.addEventListener('click', function () { saveModal.close(); });
+    nameInput.addEventListener('input', function () {
+      if (nameInput.value.trim()) clearError();
+    });
+
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var name = nameInput.value.trim();
+      if (!name) {
+        showError('Укажите название набора.');
+        nameInput.focus();
+        return;
+      }
+      var serialized = serializePackages();
+      if (serialized.error) {
+        showError(serialized.error);
+        return;
+      }
+      submit.disabled = true;
+      try {
+        await request(presetCreateUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
+          body: JSON.stringify({ name: name, packages: serialized.packages }),
+        });
+      } catch (error) {
+        submit.disabled = false;
+        showError(error.message);
+        return;
+      }
+      // The calculator itself is deliberately left exactly as it was.
+      saveModal.close();
+      showFeedback('Набор «' + name + '» сохранён.', false);
+    });
+  }
+
+  /* ---------------------------------------------------------- load modal */
+
+  function wireLoadModal() {
+    if (!loadButton) return;
+    if (!loadModal || typeof loadModal.showModal !== 'function') {
+      loadButton.hidden = true;
+      return;
+    }
+    var searchInput = loadModal.querySelector('[data-load-search]');
+    var listEl = loadModal.querySelector('[data-preset-list]');
+    var errorEl = loadModal.querySelector('[data-load-error]');
+    var cancel = loadModal.querySelector('[data-load-cancel]');
+    var searchTimer = null;
+    // Only the newest search may paint the list: a slow earlier answer that
+    // arrives afterwards is dropped instead of overwriting it.
+    var searchToken = 0;
+
+    function showError(message) {
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    }
+
+    function clearError() {
+      errorEl.textContent = '';
+      errorEl.hidden = true;
+    }
+
+    function message(text) {
+      var paragraph = document.createElement('p');
+      paragraph.className = 'pcut-preset-list__empty';
+      paragraph.textContent = text;
+      listEl.textContent = '';
+      listEl.appendChild(paragraph);
+    }
+
+    /** Built with DOM nodes, so a preset name is text and never markup. */
+    function renderPresets(presets, query) {
+      if (!presets.length) {
+        message(query
+          ? 'Ничего не найдено. Измените запрос.'
+          : 'Сохранённых наборов пока нет. Сохраните первый набор кнопкой «Сохранить».');
+        return;
+      }
+      listEl.textContent = '';
+      presets.forEach(function (preset) {
+        var row = document.createElement('div');
+        row.className = 'pcut-preset';
+
+        var info = document.createElement('div');
+        info.className = 'pcut-preset__info';
+        var name = document.createElement('p');
+        name.className = 'pcut-preset__name';
+        name.textContent = preset.name;
+        var meta = document.createElement('p');
+        meta.className = 'pcut-preset__meta';
+        meta.textContent = preset.author + ' · ' + preset.created_at
+          + ' · пакетов: ' + preset.package_count;
+        info.appendChild(name);
+        info.appendChild(meta);
+
+        var button = document.createElement('button');
+        button.className = 'link-button link-button--compact';
+        button.type = 'button';
+        button.dataset.loadPreset = String(preset.id);
+        button.textContent = 'Загрузить';
+
+        row.appendChild(info);
+        row.appendChild(button);
+        listEl.appendChild(row);
+      });
+    }
+
+    async function search(query) {
+      var token = (searchToken += 1);
+      clearError();
+      message('Загрузка…');
+      var payload;
+      try {
+        payload = await request(presetsUrl + '?q=' + encodeURIComponent(query), { method: 'GET' });
+      } catch (error) {
+        if (token !== searchToken) return;
+        listEl.textContent = '';
+        showError(error.message);
+        return;
+      }
+      if (token !== searchToken) return;
+      renderPresets(payload.presets || [], query);
+    }
+
+    loadButton.addEventListener('click', function () {
+      searchInput.value = '';
+      clearError();
+      loadModal.showModal();
+      searchInput.focus();
+      search('');
+    });
+
+    cancel.addEventListener('click', function () { loadModal.close(); });
+
+    searchInput.addEventListener('input', function () {
+      window.clearTimeout(searchTimer);
+      var query = searchInput.value.trim();
+      searchTimer = window.setTimeout(function () { search(query); }, SEARCH_DELAY_MS);
+    });
+
+    listEl.addEventListener('click', async function (event) {
+      var button = event.target.closest('[data-load-preset]');
+      if (!button || button.disabled) return;
+      button.disabled = true;
+      var payload;
+      try {
+        payload = await request(
+          presetsUrl + encodeURIComponent(button.dataset.loadPreset) + '/',
+          { method: 'GET' },
+        );
+      } catch (error) {
+        button.disabled = false;
+        showError(error.message);
+        return;
+      }
+      loadModal.close();
+      applyPreset(payload.preset);
+      showFeedback('Набор «' + payload.preset.name + '» загружен.', false);
+    });
   }
 
   /* ---------------------------------------------------------------- wiring */
@@ -226,6 +547,9 @@
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') closeDetails(null);
   });
+
+  wireSaveModal();
+  wireLoadModal();
 
   addPackage();
 })();

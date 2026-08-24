@@ -58,3 +58,20 @@ PLATE_LENGTH_RANGES = tuple(
         (2721, 2890, '3.55'),
     )
 )
+
+
+#: The bands by their `<select>` value — the single lookup used when a stored
+#: preset package is validated. Nothing outside this module keeps its own copy
+#: of the identifiers.
+RANGES_BY_VALUE = {band.value: band for band in PLATE_LENGTH_RANGES}
+
+#: Widest identifier the table can produce, so the column that stores one is
+#: sized from the constants instead of from a guess.
+RANGE_VALUE_MAX_LENGTH = max(len(value) for value in RANGES_BY_VALUE)
+
+
+def find_range(value):
+    """The band a stored/posted identifier names, or `None` if unsupported."""
+    if value is None:
+        return None
+    return RANGES_BY_VALUE.get(str(value).strip())

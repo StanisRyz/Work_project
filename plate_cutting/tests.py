@@ -1,10 +1,15 @@
-"""The two things worth pinning down: the agreed numbers and the page itself.
+"""The agreed numbers, the page, and the saved package sets.
 
 The arithmetic runs in the browser, so what a Python test can protect is the
 source the browser reads — the seventeen coefficients and the page that hands
 them over. The reference case from the specification is checked against those
 same constants, not against a second copy of them.
+
+The preset tests protect the other half: that a saved set keeps its packages
+in order, that search and load hand back exactly what was stored, and that an
+invalid package leaves nothing behind.
 """
+import json
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -12,6 +17,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from .constants import HOLE_SECONDS, PLATE_LENGTH_RANGES
+from .models import PlateCuttingPreset
 
 
 class PlateCuttingConstantsTests(TestCase):
@@ -52,3 +58,89 @@ class PlateCuttingPageTests(TestCase):
             self.assertContains(response, band.label)
         # The submenu leaf sits next to the winding calculator.
         self.assertContains(response, 'Калькулятор рубки пластин')
+
+
+class PlateCuttingPresetTests(TestCase):
+    """Saving, searching and loading a set of packages."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='cutter', password='demo12345', first_name='Иван', last_name='Петров',
+        )
+        self.client.login(username='cutter', password='demo12345')
+
+    def post_preset(self, payload):
+        return self.client.post(
+            reverse('plate_cutting:preset_create'),
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+    def test_saving_keeps_every_package_in_the_order_it_was_sent(self):
+        response = self.post_preset({
+            'name': '  Январь  ',
+            'packages': [
+                {'range': '341', 'plates': 120, 'holes': 40},
+                {'range': '1', 'plates': 500, 'holes': 1000},
+                {'range': '2721', 'plates': 7, 'holes': 0},
+            ],
+        })
+
+        self.assertEqual(response.status_code, 201)
+        preset = PlateCuttingPreset.objects.get()
+        self.assertEqual(preset.name, 'Январь')
+        self.assertEqual(preset.author, self.user)
+        self.assertEqual(
+            [(p.display_order, p.range_value, p.plate_count, p.hole_count)
+             for p in preset.packages.all()],
+            [(0, '341', 120, 40), (1, '1', 500, 1000), (2, '2721', 7, 0)],
+        )
+
+    def test_search_is_case_insensitive_and_load_returns_the_saved_inputs(self):
+        self.post_preset({'name': 'Февраль', 'packages': [{'range': '171', 'plates': 9, 'holes': 3}]})
+        self.post_preset({
+            'name': 'Мартовский заказ',
+            'packages': [
+                {'range': '511', 'plates': 200, 'holes': 15},
+                {'range': '1', 'plates': 30, 'holes': 0},
+            ],
+        })
+
+        found = self.client.get(reverse('plate_cutting:preset_list'), {'q': 'мАрт'})
+        self.assertEqual(found.status_code, 200)
+        presets = found.json()['presets']
+        self.assertEqual([p['name'] for p in presets], ['Мартовский заказ'])
+        self.assertEqual(presets[0]['author'], 'Иван Петров')
+        self.assertEqual(presets[0]['package_count'], 2)
+
+        detail = self.client.get(
+            reverse('plate_cutting:preset_load', args=[presets[0]['id']])
+        )
+        self.assertEqual(detail.status_code, 200)
+        preset = detail.json()['preset']
+        self.assertEqual(preset['packages'], [
+            {'range': '511', 'plates': 200, 'holes': 15},
+            {'range': '1', 'plates': 30, 'holes': 0},
+        ])
+        # Inputs only: no calculated value is ever persisted or returned.
+        for package in preset['packages']:
+            self.assertEqual(set(package), {'range', 'plates', 'holes'})
+
+    def test_an_invalid_package_saves_nothing_at_all(self):
+        for packages in (
+            [{'range': '1', 'plates': 10, 'holes': 0}, {'range': '999', 'plates': 5, 'holes': 0}],
+            [{'range': '1', 'plates': 10, 'holes': 0}, {'range': '171', 'plates': 0, 'holes': 0}],
+            [],
+        ):
+            with self.subTest(packages=packages):
+                response = self.post_preset({'name': 'Набор', 'packages': packages})
+                self.assertEqual(response.status_code, 400)
+                self.assertTrue(response.json()['detail'])
+
+        self.assertFalse(PlateCuttingPreset.objects.exists())
+        # A blank name is refused the same way.
+        self.assertEqual(
+            self.post_preset({'name': '   ', 'packages': [{'range': '1', 'plates': 1, 'holes': 0}]}).status_code,
+            400,
+        )
+        self.assertFalse(PlateCuttingPreset.objects.exists())

@@ -25,7 +25,7 @@ model without explicit approval.
 | `tasks` | tasks created on approval, their assignees and completion |
 | `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
-| `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/` and the agreed coefficients in `plate_cutting/constants.py`. No models, no migrations, no endpoints |
+| `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -325,16 +325,32 @@ tasks never live inside `acts`.
   rows — because approving one position leaves the protocol row untouched. The
   approval and decision tasks the workflow creates keep emitting their own
   `task.*` events from `tasks/services.py`; that behaviour is unchanged.
-- **Калькулятор рубки пластин is a page and nothing else.** The seventeen
-  length bands and the `0.95 s` hole coefficient live only in
-  `plate_cutting/constants.py`; the view renders them into the `<select>` of
+- **Калькулятор рубки пластин calculates in the browser and stores inputs
+  only.** The seventeen length bands and the `0.95 s` hole coefficient live only
+  in `plate_cutting/constants.py`; the view renders them into the `<select>` of
   `templates/plate_cutting/page.html`, and `static/js/plate_cutting.js` reads a
   coefficient off the selected option instead of carrying a copy. One package is
   `range_seconds × plates + 0.95 × holes`, converted to hours (`/ 3600`) only
   afterwards and rounded to two decimals for display alone; `calculatePackage()`
   is the single implementation, and the visible result, the breakdown popup and
-  «Итого» all render from what it returns. No model, migration, endpoint, Redis
-  channel or persistence is involved — adding any would be a change of design.
+  «Итого» all render from what it returns. There is no journal and no Redis
+  channel here.
+- **A saved package set is inputs and order, never a result.**
+  `PlateCuttingPreset` (name, normalized `search_name`, author, timestamps) owns
+  an ordered `PlateCuttingPresetPackage` list (`range_value`, `plate_count`,
+  `hole_count`, `display_order`); `range_value` is the `<select>` identifier of a
+  band from `constants.PLATE_LENGTH_RANGES`, validated against those constants,
+  so there is no second cutting-time table. Seconds, hours, totals and the
+  expanded formula text are never persisted — a loaded set is rebuilt from the
+  page's own package `<template>` and recalculated by the current formula, which
+  is what keeps old sets valid when a constant changes. `plate_cutting/services.py`
+  is the only place a set is written: it validates the trimmed name, at least one
+  package, the band and the plate/hole counts, and creates the preset and all of
+  its packages in one `@transaction.atomic` call, so an invalid package saves
+  nothing at all. The three `login_required` endpoints under
+  `/calculators/plate-cutting/presets/` save, search (`?q=`, substring over
+  `search_name`) and load; the modals reuse the application's `.app-modal`, and
+  there is no rename, delete or edit of a saved set.
 
 - **The calculator was integrated from `StanisRyz/calculate` at commit
   `d32eae0e5d7b66bdd41214cc7ba9601534c4f254`** and this repository is now the
