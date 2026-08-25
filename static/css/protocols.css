@@ -367,6 +367,18 @@
 
 .protocol-auto-approval-hint[hidden] { display: none; }
 
+/* A saved employee who no longer matches the chosen department. Spans the
+   whole row of either pair block, under the selectors it is about. */
+.protocol-pair-warning {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: #b45309;
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.protocol-pair-warning[hidden] { display: none; }
+
 /* Agenda ----------------------------------------------------------------- */
 
 .protocol-agenda-card {

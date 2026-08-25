@@ -12,7 +12,12 @@ protocol — so no approval decision control lives here.
     <a class="act-back-link" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}" aria-label="К списку задач">←</a>
     <div class="task-detail-heading__title">
         <h1>Задача {{ task.pk }}</h1>
-        <span class="act-badge act-badge--status">{{ task.status }}</span>
+        {% comment %}
+        The same answer the «Статус» row gives, not the raw queue status: an
+        approval task whose round was cancelled is closed as «Выполнено» in the
+        queue, and the badge must not contradict the card below it.
+        {% endcomment %}
+        <span class="act-badge act-badge--status">{{ task_state.label }}</span>
     </div>
 </section>
 

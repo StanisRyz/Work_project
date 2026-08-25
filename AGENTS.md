@@ -293,6 +293,16 @@ tasks never live inside `acts`.
   button is clicked. The editor keeps every existing hook — `[data-block]`,
   `[data-row-list]`, `[data-row-template]`, the `*-TOTAL_FORMS` names — so the
   restructuring changed markup only, never the form contract or a rule.
+- **The editor never clears a selection the author did not clear.** The
+  department selector next to a person filters the employee list, but
+  `syncPair()` in `protocol_editor.js` leaves an already stored employee
+  visible, enabled and selected however badly it matches — an employee moved
+  to another department after the draft was saved, or a department since
+  deactivated and therefore absent from `get_editor_directory()`. The row
+  raises `[data-pair-warning]` instead, and changing or removing the person is
+  the author's own explicit action. This covers both `[data-employee-pair]`
+  blocks — участники and the исполнители of a protocol decision — because a
+  redraw that empties a row is a save that silently deletes that participant.
 - **The official document has one description.**
   `selectors.build_protocol_document()` returns plain data — header,
   participants, agenda, «Слушали», decisions, generated tasks, the approval
@@ -351,6 +361,12 @@ tasks never live inside `acts`.
   `/calculators/plate-cutting/presets/` save, search (`?q=`, substring over
   `search_name`) and load; the modals reuse the application's `.app-modal`, and
   there is no rename, delete or edit of a saved set.
+- **Loading a set is confirmed before it overwrites anything.** `applyPreset()`
+  replaces every package unconditionally, so the load handler asks
+  `confirmReplace()` first: an untouched calculator (one package, no plates,
+  the default zero holes) loads in one click, and anything else opens the
+  page's own `[data-replace-modal]` `<dialog>` — «Отмена» puts the picker back
+  with its list and query intact, never a browser `confirm()`.
 - **`plate_count` and `hole_count` are bounded on all three sides.**
   `models.MAX_PLATE_COUNT` / `MAX_HOLE_COUNT` (1 000 000 each) are the single
   source of the limit: `services._integer()` enforces it, the view hands it to
@@ -615,6 +631,14 @@ tasks never live inside `acts`.
   the uploader, a manager or an administrator.
 - An inactive `UserProfile` grants no application role; only Django's genuine
   `is_superuser` fallback remains independent of the profile.
+- **A `UserProfile` may be absent, and reading one is always guarded.** The row
+  is deletable in Admin on its own while the `User` behind it is held by
+  `PROTECT` from `ProtocolActionAssignee`, so `user.userprofile` can raise
+  `RelatedObjectDoesNotExist`. Reach it through
+  `getattr(user, 'userprofile', None)` — the guard belongs on `userprofile`
+  itself, never only on the attribute after it — and treat a missing profile as
+  an empty department and no role. A page must degrade to a blank department,
+  never to a 500.
 - `AUTH_PASSWORD_VALIDATORS` is intentionally empty: this is an internal system
   whose accounts an administrator creates in Django Admin, and a password may
   equal the surname it belongs to. Only *strength* validation is off — hashing,

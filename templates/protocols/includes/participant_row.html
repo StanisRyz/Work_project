@@ -34,4 +34,10 @@ here — the author card is fixed and lives directly in the editor.
         <span class="protocol-auto-approval-hint" data-auto-approval-hint hidden>Согласует как исполнитель задачи</span>
     </div>
     <button class="protocol-remove-button" type="button" data-remove-row aria-label="Удалить участника" title="Удалить участника">×</button>
+    {% comment %}
+    Filled by `protocol_editor.js` when the saved employee no longer belongs to
+    the chosen department. The selection itself is never cleared for them — the
+    warning is what asks the author to decide.
+    {% endcomment %}
+    <p class="protocol-pair-warning" data-pair-warning role="status" hidden></p>
 </div>

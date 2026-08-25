@@ -116,6 +116,22 @@ Every class is namespaced under `.plate-cutting-module`.
         </form>
     </dialog>
 
+    {% comment %}
+    Asked before a saved set overwrites the packages on screen, and only when
+    there is something to overwrite — an untouched calculator loads straight
+    away. `plate_cutting.js` resolves it; nothing is posted from here.
+    {% endcomment %}
+    <dialog class="app-modal pcut-modal" data-replace-modal aria-labelledby="pcut-replace-title">
+        <div class="app-modal__form">
+            <h2 id="pcut-replace-title">Заменить текущие пакеты?</h2>
+            <p>Данные пакетов на экране будут заменены загружаемым набором. Отменить замену нельзя — сохраните текущие пакеты, если они нужны.</p>
+            <div class="app-modal__actions">
+                <button class="link-button link-button--secondary" type="button" data-replace-cancel>Отмена</button>
+                <button class="link-button link-button--warning" type="button" data-replace-accept>Загрузить набор</button>
+            </div>
+        </div>
+    </dialog>
+
     <dialog class="app-modal pcut-modal" data-load-modal aria-labelledby="pcut-load-title">
         <div class="app-modal__form">
             <h2 id="pcut-load-title">Загрузить набор</h2>
@@ -139,5 +155,5 @@ Every class is namespaced under `.plate-cutting-module`.
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'js/plate_cutting.js' %}?v=20260824-1"></script>
+<script src="{% static 'js/plate_cutting.js' %}?v=20260824-2"></script>
 {% endblock %}

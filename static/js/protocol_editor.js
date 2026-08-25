@@ -68,22 +68,61 @@
             });
         };
 
-        /** Employee options are filtered by the department chosen next to them. */
+        /**
+         * Employee options are filtered by the department chosen next to them.
+         *
+         * The one thing this never does is clear a choice that is already
+         * there. An employee moved to another department after the draft was
+         * saved — or a department that has since been deactivated, whose
+         * `<option>` `get_editor_directory()` no longer renders — used to make
+         * the row redraw itself empty, and the next save silently dropped that
+         * participant or assignee. A stored selection therefore stays visible,
+         * enabled and selected however badly it matches, and the row shows a
+         * warning instead; changing it is the author's own explicit action.
+         *
+         * Both blocks that pair a department with a person — участники and the
+         * исполнители of a protocol task — are `[data-employee-pair]`, so this
+         * protection covers them together.
+         */
         const syncPair = (pair) => {
             const department = pair.querySelector('[data-department-select]');
             const employee = pair.querySelector('[data-employee-select]');
             if (!department || !employee) return;
             const departmentId = department.value;
             const taken = pair.dataset.excludeUsers ? pair.dataset.excludeUsers.split(',') : [];
-            employee.disabled = !departmentId;
+            const selected = employee.value;
+            // A disabled `<select>` is left out of the POST entirely, so a row
+            // that already names someone keeps its field enabled even while
+            // the department next to it is blank.
+            employee.disabled = !departmentId && !selected;
+            let mismatched = '';
             [...employee.options].forEach((option) => {
                 if (!option.value) return;
+                if (option.value === selected) {
+                    // The saved choice: never hidden, never disabled, never
+                    // dropped — only reported when it no longer fits.
+                    option.hidden = false;
+                    option.disabled = false;
+                    if (option.dataset.departmentId !== departmentId) {
+                        mismatched = option.textContent.trim();
+                    }
+                    return;
+                }
                 const available = option.dataset.departmentId === departmentId
-                    && !(option.value !== employee.value && taken.includes(option.value));
+                    && !taken.includes(option.value);
                 option.hidden = !available;
                 option.disabled = !available;
-                if (!available && option.selected) employee.value = '';
             });
+            const warning = pair.querySelector('[data-pair-warning]');
+            if (!warning) return;
+            warning.hidden = !mismatched;
+            warning.textContent = mismatched
+                ? (departmentId
+                    ? `«${mismatched}» больше не относится к выбранному подразделению. `
+                        + 'Выбор сохранён — измените подразделение или выберите другого сотрудника.'
+                    : `Подразделение сотрудника «${mismatched}» недоступно. `
+                        + 'Выбор сохранён — укажите подразделение или выберите другого сотрудника.')
+                : '';
         };
 
         /**

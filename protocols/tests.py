@@ -221,6 +221,57 @@ class ProtocolDraftEditorTests(TestCase):
             2,
         )
 
+    def test_editor_opens_when_an_assignee_has_no_profile_row(self):
+        """A missing `UserProfile` is an empty department, never a 500.
+
+        `UserProfile` is deletable in the admin on its own, while the `User`
+        behind it is held by `PROTECT` from `ProtocolActionAssignee`. Reading
+        `user.userprofile` then raises `RelatedObjectDoesNotExist`, and the
+        editor used to answer 500 every time that protocol was reopened.
+        """
+        protocol = create_protocol(self.quality, self.author)
+        self.client.post(reverse('protocols:save_draft', args=[protocol.pk]), self._payload())
+        UserProfile.objects.filter(user=self.executor).delete()
+
+        response = self.client.get(reverse('protocols:detail', args=[protocol.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        row = response.context['form'].action_rows[0]
+        self.assertEqual(row['assignees'][0]['user'], str(self.executor.pk))
+        # The person is still named; only their department came back empty.
+        self.assertEqual(row['assignees'][0]['department'], '')
+
+    def test_editor_keeps_a_participant_who_changed_department(self):
+        """The saved choice survives being reopened, and the row can warn.
+
+        The employee filtering is the browser's, but it can only preserve what
+        the server rendered: the stored user must still come back as the
+        selected `<option>` of a row whose department is the stored one, and
+        every pair must carry the `[data-pair-warning]` the script reports the
+        mismatch in instead of clearing the field.
+        """
+        protocol = create_protocol(self.quality, self.author)
+        self.client.post(reverse('protocols:save_draft', args=[protocol.pk]), self._payload())
+        # The participant moves after the draft was saved.
+        self.member.userprofile.department = self.department
+        self.member.userprofile.save(update_fields=['department'])
+
+        response = self.client.get(reverse('protocols:detail', args=[protocol.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        editor = response.context['form']
+        row = editor.participant_rows[0]
+        self.assertEqual(row['user'], str(self.member.pk))
+        # The row still carries the department it was saved with, so the
+        # mismatch is visible rather than resolved by dropping the person.
+        self.assertEqual(row['department'], str(self.other_department.pk))
+        self.assertContains(
+            response,
+            f'<option value="{self.member.pk}" data-department-id="{self.department.pk}" selected>',
+            html=False,
+        )
+        self.assertContains(response, 'data-pair-warning')
+
 
 class ProtocolAccessTests(TestCase):
     """Who may read, edit and delete — enforced on the backend, not by hiding."""

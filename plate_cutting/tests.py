@@ -12,6 +12,7 @@ invalid package leaves nothing behind.
 import json
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
@@ -58,6 +59,41 @@ class PlateCuttingPageTests(TestCase):
             self.assertContains(response, band.label)
         # The submenu leaf sits next to the winding calculator.
         self.assertContains(response, 'Калькулятор рубки пластин')
+
+    def test_loading_a_set_asks_before_it_replaces_entered_packages(self):
+        """A saved set may only overwrite the screen after an explicit «да».
+
+        A source-level check rather than a browser one: the project has no
+        JavaScript test runner and a reliability patch is not the place to add
+        one. What it pins down is the shape of the fix — the page owns a real
+        confirmation `<dialog>`, the load handler goes through it before
+        `applyPreset()` replaces anything, and an untouched calculator is
+        exempt — so a regression to «replace on click» is caught here instead
+        of by a user losing eight filled packages.
+        """
+        User.objects.create_user(username='cutter', password='demo12345')
+        self.client.login(username='cutter', password='demo12345')
+        response = self.client.get(self.url)
+
+        # The confirmation is the page's own modal, with both answers.
+        for hook in ('data-replace-modal', 'data-replace-cancel', 'data-replace-accept'):
+            self.assertContains(response, hook)
+
+        script = (settings.BASE_DIR / 'static' / 'js' / 'plate_cutting.js').read_text(
+            encoding='utf-8'
+        )
+        # Nothing is replaced until the confirmation resolves true, and the
+        # picker comes back untouched when it does not.
+        load_block = script.split("listEl.addEventListener('click'")[1]
+        self.assertIn('await confirmReplace()', load_block)
+        self.assertLess(
+            load_block.index('confirmReplace()'), load_block.index('applyPreset('),
+        )
+        # An empty calculator still loads in one click.
+        confirm_block = script.split('function confirmReplace()')[1].split('function applyPreset')[0]
+        self.assertIn('if (!hasEnteredData()) return Promise.resolve(true);', confirm_block)
+        # The answer is the page's own dialog, not a browser prompt.
+        self.assertIn('replaceModal.showModal()', confirm_block)
 
 
 class PlateCuttingPresetTests(TestCase):

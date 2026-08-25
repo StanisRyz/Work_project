@@ -19,4 +19,6 @@ in parallel and paired positionally on the server.
         </select>
     </label>
     <button class="protocol-remove-button" type="button" data-remove-assignee aria-label="Удалить исполнителя" title="Удалить исполнителя">×</button>
+    {# Same protection as a participant row: the choice stays, the row warns. #}
+    <p class="protocol-pair-warning" data-pair-warning role="status" hidden></p>
 </div>

@@ -240,6 +240,7 @@
 
   var saveModal = root.querySelector('[data-save-modal]');
   var loadModal = root.querySelector('[data-load-modal]');
+  var replaceModal = root.querySelector('[data-replace-modal]');
   var saveButton = root.querySelector('[data-open-save]');
   var loadButton = root.querySelector('[data-open-load]');
   var presetsUrl = root.dataset.presetsUrl || '';
@@ -314,9 +315,65 @@
   }
 
   /**
+   * Whether the calculator holds work that replacing it would throw away.
+   *
+   * The state the page opens in — one package, no plates, the default zero
+   * holes — is not work, so the ordinary «открыл страницу, загрузил набор»
+   * path is never interrupted. Anything else is: an added package, a typed
+   * quantity, or a set loaded a minute ago.
+   */
+  function hasEnteredData() {
+    var elements = packageElements();
+    if (elements.length > 1) return true;
+    return elements.some(function (element) {
+      var plates = element.querySelector('[data-field="plates"]').value.trim();
+      var holes = element.querySelector('[data-field="holes"]').value.trim();
+      return plates !== '' || (holes !== '' && holes !== '0');
+    });
+  }
+
+  /**
+   * Ask before a saved set overwrites what is on screen.
+   *
+   * Resolves `true` straight away when there is nothing to lose, so an empty
+   * calculator still loads in one click. The confirmation is the page's own
+   * `<dialog>`, like «Сохранить» and «Загрузить» — never a browser confirm().
+   */
+  function confirmReplace() {
+    if (!hasEnteredData()) return Promise.resolve(true);
+    var accept = replaceModal && replaceModal.querySelector('[data-replace-accept]');
+    var cancel = replaceModal && replaceModal.querySelector('[data-replace-cancel]');
+    if (!replaceModal || typeof replaceModal.showModal !== 'function' || !accept || !cancel) {
+      // No dialog to ask with: behave exactly as the page did before.
+      return Promise.resolve(true);
+    }
+    return new Promise(function (resolve) {
+      var accepted = false;
+      function onAccept() { accepted = true; replaceModal.close(); }
+      function onCancel() { replaceModal.close(); }
+      // Resolved from `close` alone, so Escape and the backdrop count as a
+      // cancel and no path can resolve the promise twice.
+      function onClose() {
+        accept.removeEventListener('click', onAccept);
+        cancel.removeEventListener('click', onCancel);
+        replaceModal.removeEventListener('close', onClose);
+        resolve(accepted);
+      }
+      accept.addEventListener('click', onAccept);
+      cancel.addEventListener('click', onCancel);
+      replaceModal.addEventListener('close', onClose);
+      replaceModal.showModal();
+      cancel.focus();
+    });
+  }
+
+  /**
    * Replace — never extend — the calculator with a saved set, then recalculate.
    * The rows come from the page's own `<template>` through `createPackage()`,
    * and `refresh()` fills in every time from the current formula.
+   *
+   * Callers ask `confirmReplace()` first: this function itself is the
+   * unconditional replacement it always was.
    */
   function applyPreset(preset) {
     var saved = (preset && preset.packages) || [];
@@ -521,7 +578,16 @@
         showError(error.message);
         return;
       }
+      button.disabled = false;
+      // Two `<dialog>`s must not stand open over one another, so the picker
+      // steps aside before the confirmation is asked.
       loadModal.close();
+      if (!(await confirmReplace())) {
+        // Nothing was touched. Put the picker back, list and query intact.
+        loadModal.showModal();
+        searchInput.focus();
+        return;
+      }
       applyPreset(payload.preset);
       showFeedback('Набор «' + payload.preset.name + '» загружен.', false);
     });
