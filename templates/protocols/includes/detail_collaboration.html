@@ -1,0 +1,61 @@
+{% comment %}
+«Вложения и комментарии» — the same two blocks, the same components and the
+same order as the act page: files first, discussion second. The generic
+`.attachment-*` and `.comment-*` components come from `components.css` and are
+reused as they are, so the two pages do not drift into looking different.
+
+Both forms appear only while `can_contribute` — i.e. until the protocol is
+archived. Archived protocols keep their files downloadable and their feed
+readable; they simply stop accepting new ones. Both endpoints re-check that.
+
+The two lists are separate live blocks and the forms sit outside them, so a
+refresh triggered by somebody else's comment can never clear a textarea
+somebody is typing into.
+{% endcomment %}
+<section class="detail-section act-attachments-section">
+    <div class="act-collaboration-section__header"><h2>Вложения</h2><span class="act-collaboration-section__hint">Файлы по протоколу</span></div>
+    {% if can_contribute %}
+    <form class="attachment-form" method="post" action="{% url 'protocols:add_attachment' protocol.pk %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ attachment_form.non_field_errors }}
+        <div class="attachment-picker">
+            {{ attachment_form.file }}
+            <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>
+            <span data-attachment-file-name>Выберите файл для загрузки</span>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-attachment-file-trigger>Выбрать файл</button>
+        </div>
+        {{ attachment_form.file.errors }}
+        <div class="attachment-description">
+            <span>{{ attachment_form.description.label }}</span>
+            {{ attachment_form.description }}
+            {{ attachment_form.description.errors }}
+        </div>
+        <button class="link-button link-button--compact" type="submit"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Добавить вложение</button>
+    </form>
+    {% endif %}
+
+    <div data-live-protocol-attachments>
+        {% include 'protocols/includes/attachments_list.html' %}
+    </div>
+</section>
+
+<section class="detail-section act-comments-section">
+    <div class="act-collaboration-section__header"><h2>Комментарии</h2><span class="act-collaboration-section__hint">Обсуждение протокола</span></div>
+    {% if can_contribute %}
+    <form class="comment-form" method="post" action="{% url 'protocols:add_comment' protocol.pk %}">
+        {% csrf_token %}
+        {{ comment_form.non_field_errors }}
+        <div class="comment-form__field">
+            {{ comment_form.text }}
+            {{ comment_form.text.errors }}
+        </div>
+        <button class="link-button link-button--compact" type="submit"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14-7-4 14-3-6-7-1Z"/></svg>Добавить комментарий</button>
+    </form>
+    {% else %}
+    <p class="act-collaboration-empty">Протокол в архиве: обсуждение доступно только для чтения.</p>
+    {% endif %}
+
+    <div data-live-protocol-comments>
+        {% include 'protocols/includes/comments_list.html' %}
+    </div>
+</section>

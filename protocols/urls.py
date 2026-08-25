@@ -16,6 +16,17 @@ urlpatterns = [
     path('<int:pk>/approval-fragment/', views.protocol_approval_fragment, name='approval_fragment'),
     path('<int:pk>/content-fragment/', views.protocol_content_fragment, name='content_fragment'),
     path('<int:pk>/history-fragment/', views.protocol_history_fragment, name='history_fragment'),
+    path('<int:pk>/comments-fragment/', views.protocol_comments_fragment, name='comments_fragment'),
+    path(
+        '<int:pk>/attachments-fragment/',
+        views.protocol_attachments_fragment,
+        name='attachments_fragment',
+    ),
+    path(
+        '<int:pk>/activities-fragment/',
+        views.protocol_activities_fragment,
+        name='activities_fragment',
+    ),
     path('<int:pk>/delete/', views.protocol_delete, name='delete'),
     # The official document: the printable page and the same document as PDF.
     path('<int:pk>/print/', views.protocol_print, name='print'),
@@ -32,5 +43,20 @@ urlpatterns = [
         '<int:pk>/return-for-revision/',
         views.protocol_return_for_revision,
         name='return_for_revision',
+    ),
+    # Collaboration: comments and attachments. POST for the two mutations, GET
+    # for the download, which streams through the view and never from a public
+    # media URL.
+    path('<int:pk>/comments/add/', views.protocol_add_comment, name='add_comment'),
+    path('<int:pk>/attachments/add/', views.protocol_add_attachment, name='add_attachment'),
+    path(
+        '<int:pk>/attachments/<int:attachment_id>/download/',
+        views.protocol_download_attachment,
+        name='download_attachment',
+    ),
+    path(
+        '<int:pk>/attachments/<int:attachment_id>/delete/',
+        views.protocol_delete_attachment,
+        name='delete_attachment',
     ),
 ]

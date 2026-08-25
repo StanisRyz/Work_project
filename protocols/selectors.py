@@ -368,3 +368,61 @@ def build_protocol_document(protocol):
             for event in protocol.history_events.select_related('actor')
         ],
     }
+
+
+# --------------------------------------------------------------------------
+# Collaboration and related activities
+# --------------------------------------------------------------------------
+
+
+def get_protocol_comments(protocol):
+    """The feed, newest first — the model's own ordering, as the acts feed is."""
+    return protocol.comments.select_related('author')
+
+
+def get_protocol_attachments(protocol, user):
+    """Attachment cards, each already knowing whether *this* user may delete it.
+
+    The answer is computed here rather than in the template so the page and the
+    live fragment cannot disagree about which delete button exists — and the
+    button is presentation anyway: `delete_protocol_attachment()` re-checks the
+    same rule under the row lock.
+    """
+    from ecosystem.attachments import format_file_size
+
+    from .permissions import can_delete_protocol_attachment
+
+    return [
+        {
+            'object': attachment,
+            'formatted_size': format_file_size(attachment.file_size),
+            'can_delete': can_delete_protocol_attachment(attachment, user),
+        }
+        for attachment in protocol.attachments.select_related('uploaded_by')
+    ]
+
+
+def get_related_protocol_tasks(protocol, user):
+    """The real working tasks this protocol produced, for «Связанные мероприятия».
+
+    `PROTOCOL_ACTION` only. A `PROTOCOL_APPROVAL` task is a queue entry for the
+    signing round — it is not work anybody performs and it is not a related
+    activity, so it is filtered out here rather than hidden in the template.
+
+    One decision can own several of these: a `ProtocolAction` marked
+    `split_for_assignees` archived into one independent task per assignee, and
+    every one of them is its own row with its own id and status. Collapsing
+    them back into one would misreport three real tasks as one.
+
+    Access goes through the ordinary task queryset, so protocol pages never
+    invent a second answer to who may read a task.
+    """
+    from tasks.models import Task
+    from tasks.permissions import get_readable_tasks_queryset
+
+    return (
+        get_readable_tasks_queryset(user)
+        .filter(protocol=protocol, source_type=Task.SourceType.PROTOCOL_ACTION)
+        .select_related('department', 'status', 'protocol_action', 'individual_assignee')
+        .order_by('protocol_action__display_order', 'pk')
+    )

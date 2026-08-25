@@ -11,6 +11,8 @@ is recorded inside the protocol; turning one into a real task is a later stage
 and a separate model, so the two schemas stay independent.
 """
 
+from uuid import uuid4
+
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -227,6 +229,20 @@ class ProtocolSpeech(models.Model):
             )
 
 
+def protocol_attachment_upload_to(instance, filename):
+    """`protocols/attachments/<protocol_id>/<uuid>.<ext>` — never the real name.
+
+    The stored path carries no user-supplied text at all: the browser's name is
+    kept in `original_name` for the download, and the file on disk is a UUID, so
+    a crafted filename cannot escape the directory or collide with another
+    upload. Deliberately a separate tree from `acts/attachments/`.
+    """
+    parts = (filename or '').rsplit('.', 1)
+    extension = f'.{parts[1].lower()}' if len(parts) == 2 else ''
+    protocol_id = instance.protocol_id or 'unassigned'
+    return f'protocols/attachments/{protocol_id}/{uuid4().hex}{extension}'
+
+
 class ProtocolAction(models.Model):
     """A decision recorded in the protocol as a future task.
 
@@ -322,6 +338,14 @@ class ProtocolHistoryEvent(models.Model):
         )
         ARCHIVED = 'ARCHIVED', 'Протокол помещён в архив'
         TASKS_CREATED = 'TASKS_CREATED', 'Задачи созданы'
+        # Collaboration. The history records that something was added or
+        # removed and by whom; the text of a comment and the contents of a
+        # file stay in their own tables, which the «Вложения и комментарии»
+        # tab reads. A return keeps its own `RETURNED_FOR_REVISION` event and
+        # deliberately does not add a `COMMENT_ADDED` one beside it.
+        COMMENT_ADDED = 'COMMENT_ADDED', 'Добавлен комментарий'
+        ATTACHMENT_ADDED = 'ATTACHMENT_ADDED', 'Добавлено вложение'
+        ATTACHMENT_DELETED = 'ATTACHMENT_DELETED', 'Вложение удалено'
 
     protocol = models.ForeignKey(
         Protocol,
@@ -433,3 +457,88 @@ class ProtocolApproval(models.Model):
     @property
     def is_pending(self):
         return self.status == self.Status.PENDING
+
+
+class ProtocolComment(models.Model):
+    """One message in the protocol's collaboration feed.
+
+    A real foreign key to `Protocol`, not a generic relation: a comment about a
+    protocol is not a comment about an act, and the two feeds share nothing but
+    their shape. `author` is nullable and `SET_NULL` for the same reason
+    `ActComment`'s is — a deleted account must not take the discussion with it.
+
+    The mandatory «вернуть на доработку» reason is stored here as well, in the
+    same transaction as the return, so the feed reads as the conversation it
+    is. That copy never replaces `ProtocolApproval.return_comment`, which stays
+    the authoritative record of the decision.
+    """
+
+    protocol = models.ForeignKey(
+        Protocol,
+        on_delete=models.CASCADE,
+        related_name='comments',
+        verbose_name='Протокол',
+    )
+    author = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='protocol_comments',
+        verbose_name='Автор',
+        blank=True,
+        null=True,
+    )
+    text = models.TextField('Комментарий')
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+    updated_at = models.DateTimeField('Обновлено', auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at', '-pk']
+        verbose_name = 'Комментарий к протоколу'
+        verbose_name_plural = 'Комментарии к протоколам'
+
+    def __str__(self):
+        author = self.author.get_username() if self.author else 'без автора'
+        return f'{self.protocol}: {author}'
+
+
+class ProtocolAttachment(models.Model):
+    """One file attached to a protocol.
+
+    Its own table and its own `protocols/attachments/` tree — never
+    `ActAttachment` and never a generic relation. `file` is served only through
+    `protocols:download_attachment`, which re-checks who may read the protocol;
+    nothing here is reachable from a public media URL in production.
+
+    `original_name`, `file_size` and `content_type` are copied at upload so the
+    card and the download work without touching storage, and so a file that
+    later disappears from disk is still an identifiable row rather than a 500.
+    """
+
+    protocol = models.ForeignKey(
+        Protocol,
+        on_delete=models.CASCADE,
+        related_name='attachments',
+        verbose_name='Протокол',
+    )
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='protocol_attachments',
+        verbose_name='Загрузил',
+        blank=True,
+        null=True,
+    )
+    file = models.FileField('Файл', upload_to=protocol_attachment_upload_to)
+    original_name = models.CharField('Исходное имя файла', max_length=255)
+    description = models.TextField('Описание', blank=True)
+    file_size = models.PositiveIntegerField('Размер файла', default=0)
+    content_type = models.CharField('Тип содержимого', max_length=120, blank=True)
+    uploaded_at = models.DateTimeField('Загружено', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at', '-pk']
+        verbose_name = 'Вложение протокола'
+        verbose_name_plural = 'Вложения протоколов'
+
+    def __str__(self):
+        return f'{self.protocol}: {self.original_name}'

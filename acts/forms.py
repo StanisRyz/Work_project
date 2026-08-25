@@ -25,21 +25,16 @@ from .workshops import (
     get_profile,
     universally_required_fields,
 )
+# The one file policy, shared with protocol attachments so the two can never
+# drift apart. Imported rather than restated, and still importable from here
+# under these names for the callers that already read them.
+from ecosystem.attachments import (  # noqa: F401
+    ALLOWED_ATTACHMENT_EXTENSIONS,
+    MAX_ATTACHMENT_SIZE,
+    validate_attachment_upload,
+)
 
 
-ALLOWED_ATTACHMENT_EXTENSIONS = {
-    '.pdf',
-    '.doc',
-    '.docx',
-    '.xls',
-    '.xlsx',
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.webp',
-    '.txt',
-}
-MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024
 NUMBER_PATTERN = re.compile(r'^[0-9/-]+$')
 PRODUCT_FIELD_PATTERN = re.compile(r'^[А-Яа-яЁё0-9.-]+$')
 PRODUCT_FIELD_ERROR = 'Допустимы только русские буквы, цифры, точки и тире.'
@@ -648,14 +643,7 @@ class ActAttachmentForm(forms.ModelForm):
         self.fields['description'].widget.attrs['aria-label'] = 'Описание вложения'
 
     def clean_file(self):
-        uploaded_file = self.cleaned_data['file']
-        extension = uploaded_file.name.rsplit('.', 1)
-        extension = f'.{extension[1].lower()}' if len(extension) == 2 else ''
-        if extension not in ALLOWED_ATTACHMENT_EXTENSIONS:
-            raise ValidationError('Недопустимый тип файла.')
-        if uploaded_file.size > MAX_ATTACHMENT_SIZE:
-            raise ValidationError('Размер файла превышает допустимый лимит.')
-        return uploaded_file
+        return validate_attachment_upload(self.cleaned_data['file'])
 
 
 class ActCloseForm(forms.ModelForm):

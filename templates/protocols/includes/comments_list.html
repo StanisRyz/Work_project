@@ -1,0 +1,21 @@
+{% comment %}
+The comment feed only. The new-comment form deliberately stays out of this
+partial, so a live refresh can never discard text the user is typing — the
+same split the act page uses.
+
+Newest first, straight from `ProtocolComment.Meta.ordering`. A mandatory
+«вернуть на доработку» reason appears here like any other message; the
+authoritative copy of that decision stays on the approval row.
+{% endcomment %}
+{% if comments %}
+    <div class="comment-list">
+        {% for comment in comments %}
+            <article class="comment-card">
+                <span class="comment-card__avatar" aria-hidden="true">{{ comment.author.first_name|first|default:comment.author.username|first|upper }}{{ comment.author.last_name|first|upper }}</span>
+                <div><div class="comment-card__meta"><strong>{{ comment.author.get_full_name|default:comment.author.username|default:'Без автора' }}</strong><time datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:'d.m.Y H:i' }}</time></div><p>{{ comment.text|linebreaksbr }}</p></div>
+            </article>
+        {% endfor %}
+    </div>
+{% else %}
+    <p class="act-collaboration-empty">Комментариев пока нет.</p>
+{% endif %}

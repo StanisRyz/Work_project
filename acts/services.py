@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import UserProfile
+from ecosystem.attachments import format_file_size  # noqa: F401
 from ecosystem.logging_utils import log_event
 from realtime.emitters import (
     emit_act_status_changed,
@@ -793,14 +794,6 @@ def clear_all_acts():
         except OSError:
             pass
     return deleted_count
-
-
-def format_file_size(size_bytes):
-    if size_bytes < 1024:
-        return f'{size_bytes} Б'
-    if size_bytes < 1024 * 1024:
-        return f'{size_bytes / 1024:.1f} КБ'
-    return f'{size_bytes / (1024 * 1024):.1f} МБ'
 
 
 def validate_act_can_be_closed(act):

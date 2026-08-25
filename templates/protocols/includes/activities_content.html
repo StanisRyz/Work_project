@@ -1,0 +1,33 @@
+{% comment %}
+«Связанные мероприятия»: the real `PROTOCOL_ACTION` tasks this protocol
+produced, read-only and permission-filtered by `get_related_protocol_tasks()`,
+so it is safe to replace live.
+
+Approval tasks are deliberately absent — a `PROTOCOL_APPROVAL` row is a queue
+entry for the signing round, not work anybody performs. And a decision that was
+split for its assignees appears here as the several independent tasks it really
+became, one row and one id each; the protocol itself, the printable form and
+the PDF still show it as the single decision it is.
+
+No «Причина» column: that one is the act's root-cause analysis and has no
+protocol counterpart.
+{% endcomment %}
+<header class="related-activities__header">
+    <div><h2>Связанные мероприятия</h2><p>Задачи, созданные по протоколу</p></div>
+    <span class="related-activities__count">Задач: {{ related_tasks|length }}</span>
+</header>
+{% if related_tasks %}
+    <div class="related-activities__table-wrap">
+        <table class="related-activities__table">
+            <colgroup><col class="related-activities__number"><col class="related-activities__action"><col class="related-activities__assignees"><col class="related-activities__due"><col class="related-activities__status"></colgroup>
+            <thead><tr><th>№ задачи</th><th>Задача</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
+            <tbody>{% for task in related_tasks %}<tr data-related-task="{{ task.pk }}">
+                <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
+                <td><strong>{{ task.task_text }}</strong></td>
+                <td>{% for assignee in task.assignees.all %}{{ assignee.user.get_full_name|default:assignee.user.username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
+                <td>{{ task.due_date|date:'d.m.Y' }}</td>
+                <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>
+            </tr>{% endfor %}</tbody>
+        </table>
+    </div>
+{% else %}<p class="related-activities__empty">Связанные мероприятия пока не созданы. Они появятся после полного согласования протокола.</p>{% endif %}

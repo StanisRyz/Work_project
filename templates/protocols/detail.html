@@ -15,6 +15,9 @@
      data-approval-url="{% url 'protocols:approval_fragment' protocol.pk %}"
      data-content-url="{% url 'protocols:content_fragment' protocol.pk %}"
      data-history-url="{% url 'protocols:history_fragment' protocol.pk %}"
+     data-comments-url="{% url 'protocols:comments_fragment' protocol.pk %}"
+     data-attachments-url="{% url 'protocols:attachments_fragment' protocol.pk %}"
+     data-activities-url="{% url 'protocols:activities_fragment' protocol.pk %}"
      data-can-edit="{% if can_edit %}true{% else %}false{% endif %}"></div>
 
 <div data-live-protocol-heading>
@@ -45,6 +48,8 @@ when they are ready.
 <nav class="act-detail-tabs" aria-label="Разделы протокола">
     <a class="act-detail-tabs__link{% if detail_tab == 'protocol' %} act-detail-tabs__link--active{% endif %}" href="?tab=protocol">Протокол</a>
     <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history">История</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'collaboration' %} act-detail-tabs__link--active{% endif %}" href="?tab=collaboration">Вложения и комментарии</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'activities' %} act-detail-tabs__link--active{% endif %}" href="?tab=activities">Связанные мероприятия</a>
 </nav>
 
 {% if save_error %}<p class="field-error protocol-editor__error">{{ save_error }}</p>{% endif %}
@@ -57,6 +62,15 @@ server render and is therefore already current.
     <div data-live-protocol-history>
         {% include 'protocols/includes/detail_history.html' %}
     </div>
+{% elif detail_tab == 'collaboration' %}
+    {# The act page's two-column collaboration layout, reused as it is. #}
+    <div class="act-collaboration-layout">
+        {% include 'protocols/includes/detail_collaboration.html' %}
+    </div>
+{% elif detail_tab == 'activities' %}
+    <section class="detail-section related-activities" data-live-protocol-activities>
+        {% include 'protocols/includes/activities_content.html' %}
+    </section>
 {% else %}
     {% comment %}
     Content first, approval last: the accordion reads in document order —
@@ -76,5 +90,9 @@ server render and is therefore already current.
 {% block scripts %}
 {% if detail_tab == 'protocol' and can_edit %}
     <script src="{% static 'js/protocol_editor.js' %}?v=20260825-1"></script>
+{% endif %}
+{% if detail_tab == 'collaboration' %}
+    {# The generic file picker, shared with the act page — no protocol copy. #}
+    <script src="{% static 'js/act_attachments.js' %}?v=20260730-1"></script>
 {% endif %}
 {% endblock %}

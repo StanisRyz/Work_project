@@ -7,19 +7,25 @@ and renders — no protocol content is written here.
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
+from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
 
-from .forms import ProtocolDraftForm
-from .models import Protocol, ProtocolType
+from .forms import ProtocolAttachmentForm, ProtocolCommentForm, ProtocolDraftForm
+from .models import Protocol, ProtocolAttachment, ProtocolType
 from .permissions import (
+    can_add_protocol_attachment,
+    can_contribute_to_protocol,
     can_decide_protocol_approval,
     can_delete_draft_protocol,
+    can_delete_protocol_attachment,
+    can_download_protocol_attachment,
     can_edit_protocol,
     can_send_protocol_for_approval,
     can_view_protocol,
@@ -34,15 +40,22 @@ from .selectors import (
     get_approval_revision_groups,
     get_current_approval_rows,
     get_editor_directory,
+    get_protocol_attachments,
+    get_protocol_comments,
     get_protocol_history_groups,
     get_readable_protocols_queryset,
+    get_related_protocol_tasks,
     get_user_approval,
 )
 from .services import (
     ProtocolWorkflowError,
+    add_protocol_attachment,
+    add_protocol_comment,
     approve_protocol,
+    attachment_logger,
     create_protocol,
     delete_draft_protocol,
+    delete_protocol_attachment,
     return_protocol_for_revision,
     save_protocol_draft,
     send_protocol_for_approval,
@@ -65,6 +78,11 @@ def protocol_list(request):
 # reload. Each one re-loads the protocol, re-checks `request.user`, accepts no
 # user parameter, changes nothing on GET and is never cached.
 # --------------------------------------------------------------------------
+
+
+# The detail page's tabs. An unknown `?tab=` falls back to «Протокол» rather
+# than rendering nothing, and the whitelist is the only place they are named.
+DETAIL_TABS = ('protocol', 'history', 'collaboration', 'activities')
 
 
 def _fragment_response(payload):
@@ -167,6 +185,64 @@ def protocol_history_fragment(request, pk):
         {
             'html': render_to_string(
                 'protocols/includes/detail_history.html', context, request=request
+            )
+        }
+    )
+
+
+@realtime_login_required
+@require_GET
+def protocol_comments_fragment(request, pk):
+    """The comment list only — never the textarea.
+
+    A live refresh must not be able to discard what somebody is typing, so the
+    new-comment form is deliberately outside this partial, exactly as it is on
+    the act page.
+    """
+    protocol = _get_live_protocol(request, pk)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'protocols/includes/comments_list.html',
+                {'comments': get_protocol_comments(protocol)},
+                request=request,
+            )
+        }
+    )
+
+
+@realtime_login_required
+@require_GET
+def protocol_attachments_fragment(request, pk):
+    """The attachment cards only, each with this reader's own delete right."""
+    protocol = _get_live_protocol(request, pk)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'protocols/includes/attachments_list.html',
+                {
+                    'protocol': protocol,
+                    'attachments': get_protocol_attachments(protocol, request.user),
+                },
+                request=request,
+            )
+        }
+    )
+
+
+@realtime_login_required
+@require_GET
+def protocol_activities_fragment(request, pk):
+    protocol = _get_live_protocol(request, pk)
+    return _fragment_response(
+        {
+            'html': render_to_string(
+                'protocols/includes/activities_content.html',
+                {
+                    'protocol': protocol,
+                    'related_tasks': get_related_protocol_tasks(protocol, request.user),
+                },
+                request=request,
             )
         }
     )
@@ -387,7 +463,182 @@ def protocol_return_for_revision(request, pk):
     return redirect('protocols:detail', pk=protocol.pk)
 
 
-def _detail_context(request, protocol, form=None, save_error='', include_document=True):
+# --------------------------------------------------------------------------
+# Collaboration endpoints
+#
+# POST for the two mutations, GET for the download. Each one re-loads the
+# protocol, asks `protocols/permissions.py`, and hands the work to
+# `protocols/services.py`, which checks the same rule again under the row lock.
+# A denied or missing file is an ordinary 404 that says nothing about what
+# exists — never a filesystem path and never a stored file name.
+# --------------------------------------------------------------------------
+
+
+@login_required
+def protocol_add_comment(request, pk):
+    protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
+    if request.method != 'POST':
+        return _redirect_to_tab(protocol, 'collaboration')
+    if not can_contribute_to_protocol(protocol, request.user):
+        messages.error(request, 'Комментировать этот протокол нельзя.')
+        return _redirect_to_tab(protocol, 'collaboration')
+
+    form = ProtocolCommentForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Проверьте текст комментария.')
+        return render(
+            request,
+            'protocols/detail.html',
+            _detail_context(request, protocol, comment_form=form, tab='collaboration'),
+            status=400,
+        )
+    try:
+        add_protocol_comment(protocol, request.user, form.cleaned_data['text'])
+    except ProtocolWorkflowError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Комментарий добавлен.')
+    return _redirect_to_tab(protocol, 'collaboration')
+
+
+@login_required
+def protocol_add_attachment(request, pk):
+    protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
+    if request.method != 'POST':
+        return _redirect_to_tab(protocol, 'collaboration')
+    if not can_add_protocol_attachment(protocol, request.user):
+        messages.error(request, 'Добавить вложение к этому протоколу нельзя.')
+        return _redirect_to_tab(protocol, 'collaboration')
+
+    form = ProtocolAttachmentForm(request.POST, request.FILES)
+    if not form.is_valid():
+        messages.error(request, 'Проверьте файл вложения.')
+        return render(
+            request,
+            'protocols/detail.html',
+            _detail_context(request, protocol, attachment_form=form, tab='collaboration'),
+            status=400,
+        )
+    try:
+        add_protocol_attachment(
+            protocol,
+            request.user,
+            form.cleaned_data['file'],
+            form.cleaned_data.get('description', ''),
+        )
+    except ProtocolWorkflowError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Вложение добавлено.')
+    return _redirect_to_tab(protocol, 'collaboration')
+
+
+@login_required
+def protocol_download_attachment(request, pk, attachment_id):
+    """Stream one attachment after re-checking who may read its protocol.
+
+    The file is never reachable by URL: the row is looked up scoped to the
+    protocol in the path, the read rule is asked again, and only then is
+    storage opened. A refusal and a missing file are the same 404 to the
+    client; the difference goes to the log, as identifiers only.
+    """
+    attachment = get_object_or_404(
+        ProtocolAttachment.objects.select_related('protocol', 'uploaded_by'),
+        pk=attachment_id,
+        protocol_id=pk,
+    )
+    if not can_download_protocol_attachment(attachment, request.user):
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.access_denied',
+            attachment_id=attachment.pk,
+            protocol_id=attachment.protocol_id,
+            user_id=request.user.pk,
+            operation='download',
+            outcome='denied',
+        )
+        raise Http404('No Protocol matches the given query.')
+    if not attachment.file:
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.storage_failed',
+            attachment_id=attachment.pk,
+            protocol_id=attachment.protocol_id,
+            user_id=request.user.pk,
+            operation='download',
+            outcome='missing_file',
+        )
+        raise Http404('Attachment file is missing.')
+    try:
+        handle = attachment.file.open('rb')
+    except OSError as exc:
+        log_event(
+            attachment_logger,
+            'ERROR',
+            'attachment.storage_failed',
+            attachment_id=attachment.pk,
+            protocol_id=attachment.protocol_id,
+            user_id=request.user.pk,
+            operation='download',
+            error_type=type(exc).__name__,
+            outcome='failed',
+            exc_info=True,
+        )
+        raise Http404('Attachment file is missing.') from exc
+
+    log_event(
+        attachment_logger,
+        'INFO',
+        'attachment.downloaded',
+        attachment_id=attachment.pk,
+        protocol_id=attachment.protocol_id,
+        user_id=request.user.pk,
+        size_bytes=attachment.file_size,
+        operation='download',
+        outcome='ok',
+    )
+    return FileResponse(
+        handle,
+        as_attachment=True,
+        filename=attachment.original_name,
+        content_type=attachment.content_type or 'application/octet-stream',
+    )
+
+
+@login_required
+def protocol_delete_attachment(request, pk, attachment_id):
+    attachment = get_object_or_404(
+        ProtocolAttachment.objects.select_related('protocol', 'uploaded_by'),
+        pk=attachment_id,
+        protocol_id=pk,
+    )
+    if request.method != 'POST':
+        return _redirect_to_tab(attachment.protocol, 'collaboration')
+    if not can_view_protocol(attachment.protocol, request.user):
+        raise Http404('No Protocol matches the given query.')
+    if not can_delete_protocol_attachment(attachment, request.user):
+        messages.error(request, 'Недостаточно прав для удаления вложения.')
+        return _redirect_to_tab(attachment.protocol, 'collaboration')
+
+    try:
+        deleted = delete_protocol_attachment(attachment, request.user)
+    except ProtocolWorkflowError as exc:
+        messages.error(request, str(exc))
+    else:
+        if deleted:
+            messages.success(request, 'Вложение удалено.')
+    return _redirect_to_tab(attachment.protocol, 'collaboration')
+
+
+def _redirect_to_tab(protocol, tab):
+    """Back to the protocol page with the tab that issued the action open."""
+    return redirect(f"{reverse('protocols:detail', args=[protocol.pk])}?tab={tab}")
+
+
+def _detail_context(request, protocol, form=None, save_error='', include_document=True,
+                    comment_form=None, attachment_form=None, tab=None):
     """Everything the protocol page and its live fragments render.
 
     `include_document=False` is what the heading, approval and history
@@ -397,13 +648,16 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
     nothing about *what* the shared blocks show.
     """
     can_edit = can_edit_protocol(protocol, request.user)
-    tab = request.GET.get('tab') or request.POST.get('tab') or 'protocol'
+    requested = tab or request.GET.get('tab') or request.POST.get('tab') or 'protocol'
+    detail_tab = requested if requested in DETAIL_TABS else 'protocol'
+    can_contribute = can_contribute_to_protocol(protocol, request.user)
     context = {
         'active_page': 'protocols',
         'header_title': f'{protocol.protocol_type.name} №{protocol.number}',
         'protocol': protocol,
-        'detail_tab': 'history' if tab == 'history' else 'protocol',
+        'detail_tab': detail_tab,
         'can_edit': can_edit,
+        'can_contribute': can_contribute,
         'can_delete': can_delete_draft_protocol(protocol, request.user),
         'save_error': save_error,
         'history_groups': get_protocol_history_groups(protocol),
@@ -421,6 +675,18 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
     }
     if not include_document:
         return context
+    # Collaboration, on the full page only. The heading, approval and history
+    # fragments pass `include_document=False` and render none of it, so reading
+    # the feed, the files and the generated tasks for them would be three
+    # queries no partial would use. The three collaboration fragments build
+    # their own context and do not come through here at all.
+    if detail_tab == 'collaboration':
+        context['comment_form'] = comment_form or ProtocolCommentForm()
+        context['attachment_form'] = attachment_form or ProtocolAttachmentForm()
+        context['comments'] = get_protocol_comments(protocol)
+        context['attachments'] = get_protocol_attachments(protocol, request.user)
+    elif detail_tab == 'activities':
+        context['related_tasks'] = get_related_protocol_tasks(protocol, request.user)
     if can_edit:
         directory = get_editor_directory()
         context['form'] = form or ProtocolDraftForm(protocol)

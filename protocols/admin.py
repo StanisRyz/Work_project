@@ -10,6 +10,8 @@ from django.contrib import admin
 from ecosystem.admin import ReadOnlyAdminMixin
 
 from .models import (
+    ProtocolAttachment,
+    ProtocolComment,
     Protocol,
     ProtocolAction,
     ProtocolAgendaItem,
@@ -79,3 +81,27 @@ class ProtocolApprovalAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     search_fields = ('display_name', 'user__username')
     list_filter = ('status', 'revision', 'protocol__protocol_type')
     readonly_fields = ('created_at',)
+
+
+@admin.register(ProtocolComment)
+class ProtocolCommentAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ('protocol', 'author', 'short_text', 'created_at', 'updated_at')
+    search_fields = ('text', 'author__username')
+    list_filter = ('created_at', 'updated_at')
+    readonly_fields = ('created_at', 'updated_at')
+
+    @admin.display(description='Комментарий')
+    def short_text(self, obj):
+        return obj.text[:80]
+
+
+@admin.register(ProtocolAttachment)
+class ProtocolAttachmentAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """Diagnostics only. Files are served by `protocols:download_attachment`."""
+
+    list_display = (
+        'protocol', 'original_name', 'uploaded_by', 'file_size', 'content_type', 'uploaded_at',
+    )
+    search_fields = ('original_name', 'description', 'uploaded_by__username')
+    list_filter = ('uploaded_at', 'content_type')
+    readonly_fields = ('file_size', 'content_type', 'uploaded_at')

@@ -78,9 +78,10 @@ tasks never live inside `acts`.
   endpoints. A full page and its fragment go through the same state builder and
   the same partials.
 - **Attachments are protected media**, served only by
-  `acts.views.act_download_attachment` with a per-request permission check.
-  `MEDIA_ROOT` is never published by the web server and is a different
-  directory from `STATIC_ROOT`.
+  `acts.views.act_download_attachment` and
+  `protocols.views.protocol_download_attachment`, each with a per-request
+  permission check. `MEDIA_ROOT` is never published by the web server and is a
+  different directory from `STATIC_ROOT`.
 - Django Templates and vanilla JavaScript only: no framework, bundler or npm.
 - **A live-replaced block and its initial server render share one markup
   contract.** The client swaps the whole contents of the container, so the
@@ -364,6 +365,42 @@ tasks never live inside `acts`.
   rows — because approving one position leaves the protocol row untouched. The
   approval and decision tasks the workflow creates keep emitting their own
   `task.*` events from `tasks/services.py`; that behaviour is unchanged.
+- **A protocol's collaboration is its own two tables, not the act's.**
+  `ProtocolComment` and `ProtocolAttachment` are real foreign keys to
+  `Protocol` — no `GenericForeignKey`, no shared table with `ActComment` /
+  `ActAttachment` — and files live under `protocols/attachments/<protocol_id>/
+  <uuid>.<ext>`, a UUID path that never contains the name the browser sent.
+  Every file is served by `protocols:download_attachment`, which re-loads the
+  row scoped to the protocol in the URL and asks `can_view_protocol` again; a
+  denial and a missing file are the same 404. `protocols/services.py` owns both
+  mutations, in protocol → attachment lock order, and writes the file before
+  the row so a failed insert leaves no orphan.
+- **Contributing stops at the archive; reading never does.**
+  `can_contribute_to_protocol()` is «any authenticated user, unless the
+  protocol is `ARCHIVED`» — deliberately wider than `can_edit_protocol()`,
+  because commenting is not editing, and deliberately *not* the act's
+  department-and-step rule, which the protocol workflow has no counterpart for.
+  An archived protocol accepts no comment and no upload and allows no deletion,
+  administrator included, but keeps handing out the files it already has.
+  Deleting an attachment is the uploader's or an administrator's.
+- **A return for revision writes the reason three times, on purpose.**
+  `ProtocolApproval.return_comment` is the decision, `ProtocolHistoryEvent` is
+  the workflow record, and a `ProtocolComment` created in the same transaction
+  is the message the author has to answer. That comment records no
+  `COMMENT_ADDED` history event — `RETURNED_FOR_REVISION` already *is* that
+  event — and produces no notification, because the approver's return
+  notification already exists. A rolled-back return leaves no comment.
+  Protocol comments never notify at all: the protocol notification set is the
+  approval one.
+- **«Связанные мероприятия» is real work only.**
+  `get_related_protocol_tasks()` returns `source_type=PROTOCOL_ACTION` through
+  `get_readable_tasks_queryset()`, so task access stays centralized;
+  `PROTOCOL_APPROVAL` rows are filtered out because a signing-round queue entry
+  is not a related activity. A decision split for its assignees appears as the
+  several independent tasks it became, one row and one id each — this is the
+  one place that deliberately shows generated tasks rather than the decision,
+  and the protocol page, the printable form and the PDF still render it as the
+  single `ProtocolAction` it is.
 - **Калькулятор рубки пластин calculates in the browser and stores inputs
   only.** The seventeen length bands and the `0.95 s` hole coefficient live only
   in `plate_cutting/constants.py`; the view renders them into the `<select>` of
@@ -656,8 +693,10 @@ tasks never live inside `acts`.
 - Secrets — `SECRET_KEY`, `DB_PASSWORD`, `EMAIL_HOST_PASSWORD`, the Redis URL —
   come only from the environment and never appear in an error message, a check
   message, the browser config or a log line.
-- Upload validation checks size and extension; attachment deletion is limited to
-  the uploader, a manager or an administrator.
+- Upload validation checks size and extension — one policy in
+  `ecosystem/attachments.py`, imported by acts and protocols alike, never a
+  second copy. Act attachment deletion is limited to the uploader, a manager or
+  an administrator; the protocol rule is its own, below.
 - An inactive `UserProfile` grants no application role; only Django's genuine
   `is_superuser` fallback remains independent of the profile.
 - **A `UserProfile` may be absent, and reading one is always guarded.** The row

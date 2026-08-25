@@ -13,9 +13,13 @@ Nothing here writes to the database, and nothing here decides permissions.
 
 from datetime import date
 
+from django import forms
 from django.contrib.auth.models import User
 
 from accounts.models import Department
+from ecosystem.attachments import validate_attachment_upload
+
+from .models import ProtocolAttachment, ProtocolComment
 
 
 # A protocol is a meeting record, not a bulk import: this cap only stops an
@@ -352,3 +356,46 @@ class ProtocolDraftForm:
         if isinstance(value, (list, tuple)):
             return [str(item).strip() for item in value]
         return [value.strip()] if value else []
+
+
+# --------------------------------------------------------------------------
+# Collaboration
+#
+# Ordinary `ModelForm`s, unlike `ProtocolDraftForm` above: one field each, no
+# rules that cross rows, nothing a `ModelForm` cannot already express. The file
+# policy is `ecosystem.attachments`, the same one act attachments use — there
+# is no second answer to «какой файл можно приложить».
+# --------------------------------------------------------------------------
+
+
+class ProtocolCommentForm(forms.ModelForm):
+    class Meta:
+        model = ProtocolComment
+        fields = ('text',)
+        labels = {'text': 'Комментарий'}
+        widgets = {
+            'text': forms.Textarea(
+                attrs={
+                    'rows': 2,
+                    'placeholder': 'Введите комментарий по протоколу...',
+                    'aria-label': 'Комментарий по протоколу',
+                }
+            ),
+        }
+
+
+class ProtocolAttachmentForm(forms.ModelForm):
+    class Meta:
+        model = ProtocolAttachment
+        fields = ('file', 'description')
+        labels = {'file': 'Файл', 'description': 'Описание'}
+        widgets = {'description': forms.Textarea(attrs={'rows': 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['description'].required = False
+        self.fields['file'].widget.attrs['aria-label'] = 'Выберите файл для загрузки'
+        self.fields['description'].widget.attrs['aria-label'] = 'Описание вложения'
+
+    def clean_file(self):
+        return validate_attachment_upload(self.cleaned_data['file'])

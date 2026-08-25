@@ -1,9 +1,10 @@
 """Who may read and change a protocol.
 
-Deliberately small: there is no Protocols UI yet, so this file answers only
-the three questions the next stage needs. It does not import `acts` —
-protocols are an independent domain and must not inherit the act workflow's
-role rules by accident.
+Deliberately small, and it does not import `acts` — protocols are an
+independent domain and must not inherit the act workflow's role rules by
+accident. Reading is open to every authenticated user; editing, submitting and
+deciding are the author's, the administrator's and the approver's; and
+contributing to the collaboration feed stops at the archive.
 """
 
 from accounts.models import UserProfile
@@ -87,6 +88,67 @@ def can_send_protocol_for_approval(protocol, user):
     if protocol.status not in EDITABLE_STATUSES:
         return False
     return bool(getattr(user, 'is_authenticated', False)) and protocol.author_id == user.id
+
+
+# --------------------------------------------------------------------------
+# Collaboration: comments and attachments
+#
+# Narrow on purpose. The act rules are *not* copied: an act's contribution
+# right depends on which department owns the current step, and the protocol
+# workflow has no such notion. What a protocol has instead is one line —
+# everybody reads it, everybody may contribute to it until it is archived —
+# and the archive is immutable, exactly as it is for the document itself.
+# --------------------------------------------------------------------------
+
+
+def can_contribute_to_protocol(protocol, user):
+    """Whether this user may add to the protocol's collaboration feed.
+
+    Every authenticated reader may, because everybody may read the protocol and
+    a discussion nobody may join is not one. The single exception is `ARCHIVED`:
+    an archived protocol is a finished document, and it does not acquire new
+    comments or new files afterwards. Deliberately wider than
+    `can_edit_protocol()` — commenting is not editing — and deliberately
+    unrelated to who has to approve.
+    """
+    if protocol.status == Protocol.Status.ARCHIVED:
+        return False
+    return can_view_protocol(protocol, user)
+
+
+def can_add_protocol_comment(protocol, user):
+    return can_contribute_to_protocol(protocol, user)
+
+
+def can_add_protocol_attachment(protocol, user):
+    return can_contribute_to_protocol(protocol, user)
+
+
+def can_download_protocol_attachment(attachment, user):
+    """Reading a file follows reading the protocol, archived ones included.
+
+    An archived protocol stops accepting attachments; it never stops handing
+    out the ones it already has.
+    """
+    return can_view_protocol(attachment.protocol, user)
+
+
+def can_delete_protocol_attachment(attachment, user):
+    """The uploader while the protocol still accepts contributions, or an admin.
+
+    Both go through `can_contribute_to_protocol()` first, so an archived
+    protocol's files are read-only for everyone — the administrator included.
+    Removing them afterwards is an Admin-site operation, not a page button.
+    """
+    if not can_contribute_to_protocol(attachment.protocol, user):
+        return False
+    if is_protocol_admin(user):
+        return True
+    return bool(
+        getattr(user, 'is_authenticated', False)
+        and attachment.uploaded_by_id is not None
+        and attachment.uploaded_by_id == user.id
+    )
 
 
 def can_decide_protocol_approval(protocol, user):

@@ -11,6 +11,11 @@
  * No markup is built here. Every block comes from the ordinary
  * permission-checked fragment endpoints, which render the very same partials
  * as a full page load.
+ *
+ * The collaboration blocks follow the same rule from the other side: the
+ * comment feed and the attachment list are live, and the textarea and the file
+ * picker beside them are not part of either fragment, so a refresh can never
+ * discard half-typed input.
  */
 (() => {
     'use strict';
@@ -194,13 +199,22 @@
         return { element, coordinator };
     };
 
-    // Only the blocks of the current tab exist; the other tab is an ordinary
-    // server render and is therefore already current when it is opened.
+    // Only the blocks of the current tab exist; the other tabs are an ordinary
+    // server render and are therefore already current when they are opened.
+    //
+    // `comments` and `attachments` are the *lists*, never the forms next to
+    // them: both partials deliberately exclude the textarea and the file
+    // picker, so somebody else's comment refreshes the feed without touching
+    // what this user is in the middle of typing. That is also why neither is
+    // `guardDirty` — there is nothing in them to lose.
     Object.assign(blocks, {
         heading: makeBlock('[data-live-protocol-heading]', 'headingUrl'),
         approval: makeBlock('[data-live-protocol-approval]', 'approvalUrl'),
         content: makeBlock('[data-live-protocol-content]', 'contentUrl', { guardDirty: true }),
         history: makeBlock('[data-live-protocol-history]', 'historyUrl'),
+        comments: makeBlock('[data-live-protocol-comments]', 'commentsUrl'),
+        attachments: makeBlock('[data-live-protocol-attachments]', 'attachmentsUrl'),
+        activities: makeBlock('[data-live-protocol-activities]', 'activitiesUrl'),
     });
 
     const refresh = (names) => {
@@ -211,7 +225,16 @@
         });
     };
 
-    const refreshAll = () => refresh(['heading', 'approval', 'content', 'history']);
+    const refreshAll = () =>
+        refresh([
+            'heading',
+            'approval',
+            'content',
+            'history',
+            'comments',
+            'attachments',
+            'activities',
+        ]);
 
     const isThisProtocol = (payload) => Number(payload.resource_id) === protocolId;
 
@@ -225,14 +248,30 @@
             ),
     });
 
+    // «Связанные мероприятия» follows tasks, not protocols: a task completed
+    // by its assignee never moves the `protocols` token. The `tasks` revision
+    // already covers every readable task, protocol ones included, so this needs
+    // no new aggregate — only its own adapter, so an unrelated task change
+    // refetches one block instead of the whole page.
+    if (blocks.activities) {
+        core.registerAdapter({
+            name: 'protocolActivities',
+            revisions: ['tasks'],
+            refresh: () => refresh(['activities']),
+            stop: () => blocks.activities.coordinator.stop(),
+        });
+    }
+
     core.onOpen(refreshAll);
 
     core.subscribe(core.EVENT_TYPES.PROTOCOL_UPDATED, (payload) => {
         if (!isThisProtocol(payload)) {
             return;
         }
-        // Somebody else stored a different document than the one on screen.
-        refresh(['heading', 'content', 'history']);
+        // Somebody else stored a different document than the one on screen —
+        // or added a comment or a file, which the collaboration services
+        // announce on this same event because they change what a reader sees.
+        refresh(['heading', 'content', 'history', 'comments', 'attachments']);
         if (dirty) {
             showConflictBanner();
         }
@@ -261,6 +300,21 @@
                 }
             }),
     );
+
+    // A task created, completed or reassigned elsewhere changes a row of
+    // «Связанные мероприятия». The tasks module owns those events; this only
+    // listens, and refetches through the protocol's own permission-checked
+    // fragment.
+    [
+        core.EVENT_TYPES.TASK_CREATED,
+        core.EVENT_TYPES.TASK_COMPLETED,
+        core.EVENT_TYPES.TASK_UPDATED,
+    ].forEach((eventType) => {
+        if (!eventType) {
+            return;
+        }
+        core.subscribe(eventType, () => refresh(['activities']));
+    });
 
     core.subscribe(core.EVENT_TYPES.PROTOCOL_DELETED, (payload) => {
         if (!isThisProtocol(payload)) {

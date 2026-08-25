@@ -13,9 +13,13 @@ Two rules shape this file:
   final integrity guarantee and is not the allocator.
 """
 
+import logging
+from functools import partial
+
 from django.db import transaction
 from django.utils import timezone
 
+from ecosystem.logging_utils import log_event
 from ecosystem.workdays import add_working_days
 from realtime.emitters import (
     emit_protocol_approval_changed,
@@ -31,12 +35,25 @@ from .models import (
     ProtocolActionAssignee,
     ProtocolAgendaItem,
     ProtocolApproval,
+    ProtocolAttachment,
+    ProtocolComment,
     ProtocolHistoryEvent,
     ProtocolParticipant,
     ProtocolSpeech,
     ProtocolType,
 )
-from .permissions import can_delete_draft_protocol, can_edit_protocol
+from .permissions import (
+    can_add_protocol_attachment,
+    can_delete_draft_protocol,
+    can_delete_protocol_attachment,
+    can_edit_protocol,
+    can_view_protocol,
+)
+
+
+# The same channel act attachments log to: one place to watch for refused
+# downloads and orphaned files, whatever the file was attached to.
+attachment_logger = logging.getLogger('ecosystem.attachments')
 
 
 class ProtocolWorkflowError(Exception):
@@ -709,6 +726,13 @@ def return_protocol_for_revision(protocol, actor, comment):
         ProtocolHistoryEvent.EventType.RETURNED_FOR_REVISION,
         f'Протокол возвращён на доработку (редакция {locked.revision}). Причина: {comment}',
     )
+    # The same reason, a third time and for a third purpose: the approval row
+    # keeps it as the decision, the history event as the workflow record, and
+    # the feed carries it as the message the author actually has to answer.
+    # Inside this transaction, so a refusal above leaves no comment behind, and
+    # `record_history=False` because `RETURNED_FOR_REVISION` above already *is*
+    # this event — a `COMMENT_ADDED` beside it would describe it twice.
+    add_protocol_comment(locked, actor, comment, record_history=False)
     # Inside this transaction, so a refusal anywhere above leaves no
     # notification claiming a return that never happened. The reason itself is
     # not copied into it — it stays authoritative on the approval row.
@@ -804,3 +828,213 @@ def _finalize_protocol(protocol, actor):
         f'По протоколу создано задач: {created}.',
     )
     return protocol
+
+
+# --------------------------------------------------------------------------
+# Collaboration: comments and attachments
+#
+# The protocol's discussion, not its document. Nothing here touches the
+# status, the revision or the approval round, and nothing here is a workflow
+# transition — but every write still goes through this module, records its own
+# history event and announces itself on the existing protocol channel, so a
+# reader's open page refreshes exactly as it does for a save.
+#
+# No notification is created for either: the protocol notification set is the
+# approval one, and a comment is not an approval duty.
+# --------------------------------------------------------------------------
+
+
+def add_protocol_comment(protocol, user, text, record_history=True):
+    """One comment in the feed, with its history event.
+
+    `record_history=False` is for the mandatory return comment, whose workflow
+    event is the return itself — see `return_protocol_for_revision()`. Every
+    other caller records `COMMENT_ADDED`, which says that a comment appeared
+    and by whom, never what it said.
+    """
+    text = (text or '').strip()
+    if not text:
+        raise ProtocolWorkflowError('Введите текст комментария.')
+    with transaction.atomic():
+        comment = ProtocolComment.objects.create(
+            protocol=protocol,
+            author=user if getattr(user, 'is_authenticated', False) else None,
+            text=text,
+        )
+        if record_history:
+            _record(
+                protocol,
+                user,
+                ProtocolHistoryEvent.EventType.COMMENT_ADDED,
+                'Добавлен комментарий к протоколу.',
+            )
+        # The existing protocol event, carrying an id and nothing else: the
+        # feed itself is refetched from the ordinary permission-checked
+        # fragment, so no comment text ever travels through Redis.
+        emit_protocol_updated(protocol)
+    return comment
+
+
+def _delete_attachment_file(storage, file_name, *, attachment_id, protocol_id, user_id, operation, failure_outcome):
+    """Best-effort storage cleanup. A failure is logged, never raised.
+
+    Storage is not transactional, so the file and the row can only be kept in
+    step by ordering: written before the row is committed, deleted after.
+    """
+    if not file_name:
+        return
+    try:
+        storage.delete(file_name)
+    except Exception as exc:  # noqa: BLE001 - storage cleanup is best-effort
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.storage_failed',
+            attachment_id=attachment_id,
+            protocol_id=protocol_id,
+            user_id=user_id,
+            operation=operation,
+            error_type=type(exc).__name__,
+            outcome=failure_outcome,
+        )
+
+
+def add_protocol_attachment(protocol, user, uploaded_file, description=''):
+    """Store one file against the protocol, or leave nothing behind.
+
+    The file is written to storage first and the row second, because storage
+    cannot join the transaction: if the database work fails, the orphan is
+    removed on the way out. The permission is re-checked under the protocol row
+    lock — an archive that happened between the click and the save must not
+    still accept the upload.
+    """
+    if not can_add_protocol_attachment(protocol, user):
+        raise ProtocolWorkflowError('Добавление вложения недоступно для этого протокола.')
+
+    attachment = ProtocolAttachment(
+        protocol=protocol,
+        uploaded_by=user if getattr(user, 'is_authenticated', False) else None,
+        original_name=uploaded_file.name,
+        description=description,
+        file_size=getattr(uploaded_file, 'size', 0) or 0,
+        content_type=getattr(uploaded_file, 'content_type', '') or '',
+    )
+    file_written = False
+    try:
+        attachment.file.save(uploaded_file.name, uploaded_file, save=False)
+        file_written = True
+        with transaction.atomic():
+            locked = _lock_protocol(protocol)
+            if not can_add_protocol_attachment(locked, user):
+                raise ProtocolWorkflowError('Добавление вложения недоступно для этого протокола.')
+            attachment.protocol = locked
+            attachment.save()
+            _record(
+                locked,
+                user,
+                ProtocolHistoryEvent.EventType.ATTACHMENT_ADDED,
+                f'Добавлено вложение: {attachment.original_name}.',
+            )
+            emit_protocol_updated(locked)
+    except Exception:
+        if file_written:
+            _delete_attachment_file(
+                attachment.file.storage,
+                attachment.file.name,
+                attachment_id=getattr(attachment, 'pk', None),
+                protocol_id=_pk_of(protocol),
+                user_id=_pk_of(user),
+                operation='upload_rollback',
+                failure_outcome='orphan_cleanup_failed',
+            )
+        raise
+
+    log_event(
+        attachment_logger,
+        'INFO',
+        'attachment.uploaded',
+        attachment_id=attachment.pk,
+        protocol_id=_pk_of(protocol),
+        user_id=_pk_of(user),
+        size_bytes=attachment.file_size,
+        operation='upload',
+        outcome='ok',
+    )
+    return attachment
+
+
+def delete_protocol_attachment(attachment, user):
+    """Remove one attachment, re-checking the right under the protocol lock.
+
+    Returns `False` when there was nothing left to delete — a double-submitted
+    form is not an error. The file itself is unlinked only `on_commit`, so a
+    rolled-back deletion cannot destroy a file whose row survived.
+    """
+    if not can_view_protocol(attachment.protocol, user) or not can_delete_protocol_attachment(
+        attachment, user
+    ):
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.access_denied',
+            attachment_id=_pk_of(attachment),
+            protocol_id=getattr(attachment, 'protocol_id', None),
+            user_id=_pk_of(user),
+            operation='delete',
+            outcome='denied',
+        )
+        raise ProtocolWorkflowError('Удаление вложения недоступно для этого протокола.')
+
+    protocol_id = attachment.protocol_id
+    attachment_id = attachment.pk
+    with transaction.atomic():
+        # Fixed lock order — protocol first, then its attachment — the same
+        # order every other protocol operation takes.
+        locked = Protocol.objects.select_for_update().filter(pk=protocol_id).first()
+        if locked is None:
+            return False
+        locked_attachment = (
+            ProtocolAttachment.objects.select_for_update()
+            .filter(pk=attachment_id, protocol_id=protocol_id)
+            .first()
+        )
+        if locked_attachment is None:
+            return False
+        if not can_delete_protocol_attachment(locked_attachment, user):
+            raise ProtocolWorkflowError('Удаление вложения недоступно для этого протокола.')
+
+        original_name = locked_attachment.original_name
+        file_name = locked_attachment.file.name
+        storage = locked_attachment.file.storage
+        locked_attachment.delete()
+        _record(
+            locked,
+            user,
+            ProtocolHistoryEvent.EventType.ATTACHMENT_DELETED,
+            f'Вложение удалено: {original_name}.',
+        )
+        emit_protocol_updated(locked)
+        transaction.on_commit(
+            partial(
+                _delete_attachment_file,
+                storage,
+                file_name,
+                attachment_id=attachment_id,
+                protocol_id=protocol_id,
+                user_id=_pk_of(user),
+                operation='delete_file',
+                failure_outcome='orphaned_file',
+            )
+        )
+
+    log_event(
+        attachment_logger,
+        'INFO',
+        'attachment.deleted',
+        attachment_id=attachment_id,
+        protocol_id=protocol_id,
+        user_id=_pk_of(user),
+        operation='delete',
+        outcome='ok',
+    )
+    return True
