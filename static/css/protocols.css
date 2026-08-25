@@ -483,6 +483,27 @@
 
 .protocol-assignee-list { display: grid; gap: 10px; width: 100%; }
 
+/* «Разбить задачу для участников»: an execution option, deliberately quieter
+   than the fields above it. Greys out whole when the row has fewer than two
+   исполнителя, so the disabled state reads as «not applicable yet». */
+.protocol-split-option {
+    display: grid;
+    gap: 4px;
+    justify-items: start;
+}
+
+.protocol-split-option:has(input:disabled) { opacity: 0.55; }
+
+.protocol-split-hint {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-style: italic;
+    line-height: 1.35;
+}
+
+.protocol-split-hint [hidden] { display: none; }
+
 .protocol-assignee-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;

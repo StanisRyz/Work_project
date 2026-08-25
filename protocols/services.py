@@ -13,7 +13,6 @@ Two rules shape this file:
   final integrity guarantee and is not the allocator.
 """
 
-from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
 
@@ -275,13 +274,26 @@ def _apply_speeches(protocol, speeches):
 
 def _apply_actions(protocol, actions):
     """Rewrite the protocol's task drafts. These are `ProtocolAction` rows only —
-    no `tasks.Task` is created, read or touched here."""
+    no `tasks.Task` is created, read or touched here.
+
+    The one rule applied on the way in is that `split_for_assignees` is stored
+    normalized: splitting a decision between one person has no meaning, so a
+    single assignee always stores `False` whatever the checkbox posted. This is
+    the single write point for the flag, which is why the browser's matching
+    behaviour can stay presentation.
+    """
     for order, item in enumerate(actions):
         action = ProtocolAction.objects.create(
             protocol=protocol,
             task_text=item['text'],
             department=item['department'],
             due_date=item['due_date'],
+            # `.get()`: the flag was added after this structure was, and a
+            # caller that does not mention it means the shared task every
+            # decision produced before — the same answer as the model default.
+            split_for_assignees=(
+                item.get('split_for_assignees', False) and len(item['assignees']) > 1
+            ),
             display_order=order,
         )
         ProtocolActionAssignee.objects.bulk_create(
@@ -749,31 +761,46 @@ def _finalize_protocol(protocol, actor):
 
     actions = list(
         protocol.actions.select_related('department')
-        .prefetch_related('assignees')
+        .prefetch_related('assignees__user')
         .order_by('display_order', 'pk')
     )
     if not actions:
         # No decisions, so no tasks and no `TASKS_CREATED`: the event states
         # that tasks were created, and an empty one would be audit noise.
         return protocol
-    # The `protocol_action` one-to-one already makes a second task impossible;
-    # this turns the resulting IntegrityError into a controlled refusal.
+    # The two unique constraints on `Task` already make a second task for the
+    # same decision — or for the same person within it — impossible; this turns
+    # the resulting IntegrityError into a controlled refusal.
     if Task.objects.filter(protocol_action__in=actions).exists():
         raise ProtocolWorkflowError('Задачи по этому протоколу уже созданы.')
+    created = 0
     for action in actions:
-        assignee_ids = [assignment.user_id for assignment in action.assignees.all()]
-        task = create_protocol_action_task(
-            protocol, action, assignee_ids, created_by=protocol.author
-        )
-        # After the task and its assignees exist, never before: a notification
-        # must not describe a task a later failure would roll back.
-        notify_protocol_task_assigned(
-            task, actor, list(User.objects.filter(pk__in=assignee_ids))
-        )
+        assignments = list(action.assignees.all())
+        # One decision, one or many tasks. `split_for_assignees` is stored
+        # already normalized, so the length check is only a second lock on the
+        # rule that splitting a single assignee means nothing.
+        if action.split_for_assignees and len(assignments) > 1:
+            batches = [([assignment.user], assignment.user_id) for assignment in assignments]
+        else:
+            batches = [([assignment.user for assignment in assignments], None)]
+        for users, individual_id in batches:
+            task = create_protocol_action_task(
+                protocol,
+                action,
+                [user.pk for user in users],
+                created_by=protocol.author,
+                individual_assignee_id=individual_id,
+            )
+            # After the task and its assignees exist, never before: a
+            # notification must not describe a task a later failure would roll
+            # back. One notification per task, so a split assignee is told
+            # about their own task exactly once and nobody is told twice.
+            notify_protocol_task_assigned(task, actor, users)
+            created += 1
     _record(
         protocol,
         actor,
         ProtocolHistoryEvent.EventType.TASKS_CREATED,
-        f'По протоколу создано задач: {len(actions)}.',
+        f'По протоколу создано задач: {created}.',
     )
     return protocol

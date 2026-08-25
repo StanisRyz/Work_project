@@ -7,11 +7,13 @@
  * filters the employee selectors by the chosen department and keeps the speaker
  * selectors in step with the participant rows.
  *
- * It also derives one purely presentational hint: a participant who is also an
+ * It also derives two purely presentational hints. A participant who is also an
  * assignee of a protocol task will have to approve the protocol whether or not
- * «Требует согласования» is ticked. The hint never changes the checkbox — the
+ * «Требует согласования» is ticked; that hint never changes the checkbox — the
  * manual flag is stored on its own, and `collect_required_approvers()` on the
- * server remains the only authority on who must sign.
+ * server remains the only authority on who must sign. And «Разбить задачу для
+ * участников» is offered only on a decision with two or more исполнителя,
+ * which is the rule `_apply_actions()` applies again when it stores the flag.
  *
  * No business rule lives here. The server re-parses and re-validates everything
  * — required fields, duplicate participants, the department an employee really
@@ -184,10 +186,43 @@
             });
         };
 
+        /**
+         * «Разбить задачу для участников» is offered only where it means
+         * something: a decision with at least two named исполнителя. Below
+         * that the checkbox is disabled and cleared, because one shared task
+         * and one personal task for the same single person are the same thing.
+         *
+         * Presentation only. The server stores the flag through
+         * `_apply_actions()`, which applies exactly this rule again and is the
+         * authority; this just keeps the row from offering a choice that would
+         * be normalized away on save. The hint under it says which of the two
+         * behaviours the current state produces.
+         */
+        const syncSplitOption = (action) => {
+            const toggle = action.querySelector('[data-split-checkbox]');
+            if (!toggle) return;
+            const named = [...action.querySelectorAll('[data-assignee-row] [data-employee-select]')]
+                .filter((select) => select.value).length;
+            const offered = named > 1;
+            toggle.disabled = !offered;
+            if (!offered) toggle.checked = false;
+            const off = action.querySelector('[data-split-hint-off]');
+            const on = action.querySelector('[data-split-hint-on]');
+            if (off) off.hidden = toggle.checked;
+            if (on) on.hidden = !toggle.checked;
+        };
+
+        const syncSplitOptions = () => {
+            const block = blockByName('actions');
+            if (!block) return;
+            block.querySelectorAll('[data-row]').forEach(syncSplitOption);
+        };
+
         const syncAllPairs = () => {
             form.querySelectorAll('[data-employee-pair]').forEach(syncPair);
             syncParticipants();
             syncAutoApprovalHints();
+            syncSplitOptions();
         };
 
         const addRow = (block) => {
@@ -240,10 +275,19 @@
 
         form.addEventListener('change', (event) => {
             const target = event.target;
+            if (target.matches('[data-split-checkbox]')) {
+                // Only the hint under it changes; nothing else in the editor
+                // depends on how a decision will be executed.
+                syncSplitOption(target.closest('[data-row]'));
+                return;
+            }
             if (target.matches('[data-participant-user]') || target.closest('[data-block]')?.dataset.block === 'participants') {
                 syncParticipants();
             } else if (target.matches('[data-department-select]') || target.matches('[data-employee-select]')) {
                 syncPair(target.closest('[data-employee-pair]'));
+                // Naming or clearing an исполнитель can cross the two-assignee
+                // threshold the option is offered above.
+                syncSplitOptions();
             } else {
                 return;
             }

@@ -4,7 +4,7 @@
 {% block title %}{{ protocol.protocol_type.name }} №{{ protocol.number }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260824-4">
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260825-1">
 {% endblock %}
 
 {% block content %}
@@ -75,6 +75,6 @@ server render and is therefore already current.
 
 {% block scripts %}
 {% if detail_tab == 'protocol' and can_edit %}
-    <script src="{% static 'js/protocol_editor.js' %}?v=20260824-3"></script>
+    <script src="{% static 'js/protocol_editor.js' %}?v=20260825-1"></script>
 {% endif %}
 {% endblock %}

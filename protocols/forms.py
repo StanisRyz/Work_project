@@ -80,6 +80,7 @@ class ProtocolDraftForm:
                 'index': index,
                 'text': action.task_text,
                 'due_date': action.due_date.isoformat(),
+                'split_for_assignees': action.split_for_assignees,
                 'assignees': [
                     {
                         'user': str(assignee.user_id),
@@ -252,6 +253,10 @@ class ProtocolDraftForm:
                 'index': index,
                 'text': self.data.get(f'{prefix}-text', '').strip(),
                 'due_date': self.data.get(f'{prefix}-due_date', '').strip(),
+                # Presentation only at this point: whether splitting means
+                # anything depends on how many assignees survive validation
+                # below, and `_apply_actions()` is what settles it.
+                'split_for_assignees': bool(self.data.get(f'{prefix}-split_for_assignees')),
                 'assignees': [
                     {'user': user, 'department': department}
                     for user, department in zip(assignee_users, assignee_departments)
@@ -310,6 +315,7 @@ class ProtocolDraftForm:
                     'department': department,
                     'due_date': due_date,
                     'assignees': assignees,
+                    'split_for_assignees': row['split_for_assignees'],
                 }
             )
         return cleaned

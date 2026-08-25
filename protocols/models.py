@@ -233,6 +233,12 @@ class ProtocolAction(models.Model):
     Not a `tasks.Task` and not linked to one: real tasks are created by a later
     stage from an archived protocol, and until then this table carries the
     wording, the department and the deadline on its own.
+
+    One decision stays one row however its execution is organised.
+    `split_for_assignees` changes only *how many* `tasks.Task` rows archiving
+    produces — one shared task for everybody, or one independent task each — and
+    never who must approve the protocol, how the official document reads, or how
+    many decisions the protocol has.
     """
 
     protocol = models.ForeignKey(
@@ -249,6 +255,14 @@ class ProtocolAction(models.Model):
         verbose_name='Подразделение',
     )
     due_date = models.DateField('Срок')
+    # Execution only, and meaningless below two assignees: `_apply_actions()`
+    # normalizes it back to False for a single assignee, so «split» never
+    # describes a decision that has nobody to split it between. `default=False`
+    # is also what keeps every row stored before this field existed in the
+    # shared-task mode it was created under.
+    split_for_assignees = models.BooleanField(
+        'Разбить задачу для участников', default=False
+    )
     display_order = models.PositiveIntegerField('Порядок отображения', default=0)
 
     class Meta:

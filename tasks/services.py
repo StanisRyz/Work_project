@@ -251,24 +251,40 @@ def create_protocol_approval_task(protocol, approver, *, department, due_date, c
     return _save_new_task(task, [approver.pk], actor=created_by)
 
 
-def create_protocol_action_task(protocol, action, assignee_ids, *, created_by):
-    """The real shared task a protocol decision becomes once the protocol archives.
+def create_protocol_action_task(
+    protocol, action, assignee_ids, *, created_by, individual_assignee_id=None
+):
+    """The real task a protocol decision becomes once the protocol archives.
 
-    The `protocol_action` one-to-one is the database-level guarantee that one
-    decision can never produce two tasks; this function does not re-check it,
-    it relies on it.
+    Two shapes of the same call. Without `individual_assignee_id` this is the
+    shared task the decision has always produced, carrying every assignee.
+    With one it is a task split off for that single person, and then the
+    assignee list must be exactly them: a split task whose `TaskAssignee` rows
+    disagreed with the name on the task would be completable by someone the
+    task does not represent.
+
+    Neither uniqueness rule is re-checked here — the two constraints on `Task`
+    are the guarantee that a decision has at most one shared task and at most
+    one task per assignee, and that the individual really is an assignee of the
+    decision is `Task.clean()`'s cross-table rule inside `_save_new_task()`.
     """
+    unique_ids = sorted(set(assignee_ids))
+    if individual_assignee_id is not None and unique_ids != [individual_assignee_id]:
+        raise TaskWorkflowError(
+            'Персональная задача протокола создаётся ровно на одного исполнителя.'
+        )
     task = Task(
         source_type=Task.SourceType.PROTOCOL_ACTION,
         protocol=protocol,
         protocol_action=action,
+        individual_assignee_id=individual_assignee_id,
         task_text=action.task_text,
         department=action.department,
         due_date=action.due_date,
         created_by=created_by,
         status=_active_status('IN_PROGRESS', 'В работе'),
     )
-    return _save_new_task(task, sorted(set(assignee_ids)), actor=created_by)
+    return _save_new_task(task, unique_ids, actor=created_by)
 
 
 def _close_approval_task(task, *, approver, decided_at, reason):

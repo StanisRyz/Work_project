@@ -437,7 +437,8 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
             'speaker': '', 'requires_approval': False, 'errors': {},
         }
         context['empty_action_row'] = {
-            'index': 0, 'text': '', 'due_date': '', 'assignees': [], 'errors': {},
+            'index': 0, 'text': '', 'due_date': '', 'assignees': [],
+            'split_for_assignees': False, 'errors': {},
         }
         context['empty_assignee'] = {'user': '', 'department': ''}
     else:
@@ -447,9 +448,11 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
         # `task` is the reverse one-to-one to the real `tasks.Task` an archived
         # protocol produced; joined here so the read-only cards can link to it
         # without a query per decision.
-        context['actions'] = protocol.actions.select_related(
-            'department', 'task__status'
-        ).prefetch_related('assignees__user')
+        # `tasks` is a list now, not a single task: a decision marked
+        # `split_for_assignees` archived into one task per assignee.
+        context['actions'] = protocol.actions.select_related('department').prefetch_related(
+            'assignees__user', 'tasks__status', 'tasks__individual_assignee'
+        )
     return context
 
 

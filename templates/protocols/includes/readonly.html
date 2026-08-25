@@ -94,20 +94,23 @@ is rendered here.
             <div class="protocol-card-grid">
                 {% for action in actions %}
                     {% comment %}
-                    `action.task` is the real `tasks.Task` an archived protocol
-                    produced, resolved by the view. Until then the card shows
-                    the decision alone — there is no task to link to yet.
+                    `action.tasks` are the real `tasks.Task` rows an archived
+                    protocol produced, resolved by the view — one shared task,
+                    or one per assignee when the decision was split. Until then
+                    the card shows the decision alone. One decision stays one
+                    card either way: this is the protocol, not the task list.
                     {% endcomment %}
                     <div class="protocol-task-card">
                         <div class="protocol-task-card__head">
                             <span class="protocol-task-card__number" aria-hidden="true"></span>
                             <p class="protocol-task-card__text">{{ action.task_text|linebreaksbr }}</p>
-                            {% if action.task %}
-                                <a class="status-badge protocol-task-card__link" href="{% url 'tasks:detail' action.task.pk %}">Задача {{ action.task.pk }} · {{ action.task.status }}</a>
-                            {% endif %}
+                            {% for task in action.tasks.all %}
+                                <a class="status-badge protocol-task-card__link" href="{% url 'tasks:detail' task.pk %}">Задача {{ task.pk }}{% if task.individual_assignee %} · {{ task.individual_assignee.get_full_name|default:task.individual_assignee.username }}{% endif %} · {{ task.status }}</a>
+                            {% endfor %}
                         </div>
                         <dl class="protocol-task-card__facts">
                             <div><dt>Исполнители</dt><dd>{% for assignee in action.assignees.all %}{{ assignee.user.get_full_name|default:assignee.user.username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd></div>
+                            {% if action.split_for_assignees %}<div><dt>Исполнение</dt><dd>Отдельная задача каждому исполнителю</dd></div>{% endif %}
                             <div><dt>Подразделение</dt><dd>{{ action.department.name|default:'—' }}</dd></div>
                             <div><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y'|default:'—' }}</dd></div>
                         </dl>

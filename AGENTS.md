@@ -274,12 +274,41 @@ tasks never live inside `acts`.
   when the protocol archives. The column stays on the model; only the duplicate
   question was removed, because two selectors for one fact could disagree.
 - **Protocol tasks are ordinary tasks with a protocol source.** Archiving
-  creates one `PROTOCOL_ACTION` task per decision, linked one-to-one to its
-  `ProtocolAction`, and `describe_task_source()` links it back to the
-  protocol. A `PROTOCOL_APPROVAL` task is a work-queue entry only: it carries
-  no decision, is never a second assignment, redirects from the task page to
-  the protocol, and is closed by the approval decision rather than by
-  «Завершить». Act task behaviour is untouched.
+  creates `PROTOCOL_ACTION` tasks from the decisions, and
+  `describe_task_source()` links each one back to the protocol. A
+  `PROTOCOL_APPROVAL` task is a work-queue entry only: it carries no decision,
+  is never a second assignment, redirects from the task page to the protocol,
+  and is closed by the approval decision rather than by «Завершить». Act task
+  behaviour is untouched.
+- **A decision is executed shared or split, and `Task.protocol_action` is a
+  foreign key because of it.** `ProtocolAction.split_for_assignees` is off by
+  default and archiving then behaves as it always has: one task carrying every
+  assignee, which any one of them completes for all. Turned on for a decision
+  with two or more assignees, archiving creates one independent task per
+  assignee instead — same wording, department, deadline, protocol,
+  `protocol_action` and author, one `TaskAssignee` each, completed separately.
+  `Task.individual_assignee` is the only thing that tells the two apart: NULL
+  for the shared task, the person for a split one. Splitting a single assignee
+  means nothing, so `_apply_actions()` stores the flag normalized off below two
+  assignees — the single write point, which is why the editor's matching
+  behaviour is presentation only.
+- **How many tasks a decision may own is stated by constraints, not by the
+  relation.** `unique_shared_protocol_action_task` (partial, on
+  `individual_assignee IS NULL`) allows at most one shared task per decision —
+  what the dropped one-to-one used to guarantee — and
+  `unique_individual_protocol_action_task` at most one per `(decision,
+  individual assignee)`. A repeated or concurrent finalization therefore cannot
+  duplicate a task, whatever a service check does. The two rules SQL cannot
+  express stay in `Task.clean()` and `create_protocol_action_task()`: the
+  individual must really be an assignee of that decision, and a split task's
+  assignee list must be exactly that one person.
+- **The split flag changes execution and nothing else.** Required approvers are
+  still `participants requiring approval ∪ every ProtocolAction assignee −
+  author`, so five assignees mean five signatures either way and no extra
+  `ProtocolApproval` row exists because execution was split. The decision stays
+  one `ProtocolAction`, one card on the protocol page and one row in the
+  printable form and the PDF, however many tasks it produced; only the sections
+  that deliberately list *real generated tasks* show them separately.
 - **The protocol page is an accordion of `<details>` sections.** A document
   card that never collapses (identity, status, three-step workflow indicator
   from `describe_protocol_workflow()`), then Участники, Повестка, Слушали,

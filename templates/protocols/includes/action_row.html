@@ -37,4 +37,23 @@ A task draft: `ProtocolAction` only. Nothing here creates or touches a
         {% if row.errors.assignees %}<span class="field-error">{{ row.errors.assignees }}</span>{% endif %}
         <button class="link-button link-button--secondary link-button--compact" type="button" data-add-assignee>+ Исполнитель</button>
     </div>
+    {% comment %}
+    Execution mode, and nothing else: it changes how many real tasks archiving
+    creates, never who must approve the protocol or how the document reads.
+    Meaningless below two исполнителя, so it is rendered disabled until the row
+    has two and `protocol_editor.js` keeps that in step as they are added and
+    removed — a disabled checkbox is not posted, and `_apply_actions()`
+    normalizes the flag off for a single assignee anyway. Both hints are
+    rendered here so the correct one is on screen before any script runs.
+    {% endcomment %}
+    <div class="protocol-split-option" data-split-option>
+        <label class="protocol-checkbox">
+            <input type="checkbox" name="actions-{{ row.index }}-split_for_assignees" data-split-checkbox{% if row.split_for_assignees %} checked{% endif %}{% if row.assignees|length < 2 %} disabled{% endif %}>
+            <span>Разбить задачу для участников</span>
+        </label>
+        <p class="protocol-split-hint">
+            <span data-split-hint-off{% if row.split_for_assignees %} hidden{% endif %}>Одна общая задача на всех: выполнение любым исполнителем закрывает её для остальных.</span>
+            <span data-split-hint-on{% if not row.split_for_assignees %} hidden{% endif %}>Каждый исполнитель получит собственную задачу и выполнит её независимо.</span>
+        </p>
+    </div>
 </div>

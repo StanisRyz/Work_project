@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -35,7 +36,7 @@ from protocols.services import (
     send_protocol_for_approval,
 )
 from tasks.models import Task
-from tasks.services import TaskWorkflowError, complete_task
+from tasks.services import TaskWorkflowError, complete_task, create_protocol_action_task
 
 
 class ProtocolCreationTests(TestCase):
@@ -559,6 +560,192 @@ class ProtocolApprovalWorkflowTests(TestCase):
         # The shared-task semantics are the ordinary ones: one assignee finishes it.
         completed = complete_task(tasks[action.pk], self.executor, 'Оснастка проверена.')
         self.assertEqual(completed.status.code, 'COMPLETED')
+
+
+class ProtocolActionSplitTests(TestCase):
+    """«Разбить задачу для участников»: execution only, one decision either way.
+
+    The shared mode is already covered end to end by
+    `ProtocolApprovalWorkflowTests`; what is exercised here is only what the
+    flag adds — where it may be stored, how many tasks archiving then creates,
+    and that those tasks are genuinely independent of one another.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.quality = ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE)
+        cls.otk = Department.objects.create(name='ОТК', code='OTK')
+        cls.to = Department.objects.create(name='ТО', code='TO')
+        cls.author = _employee('split_author', cls.otk, 'Иван', 'Петров')
+        cls.first = _employee('split_first', cls.to, 'Пётр', 'Сидоров')
+        cls.second = _employee('split_second', cls.to, 'Анна', 'Кузнецова')
+        cls.third = _employee('split_third', cls.to, 'Ольга', 'Смирнова')
+
+    def _archived_protocol(self, *, split, assignees):
+        """A protocol whose single decision names `assignees`, taken to ARCHIVED.
+
+        Every assignee has to approve — that is the ordinary formula, and it is
+        deliberately not adjusted for the split flag.
+        """
+        protocol = create_protocol(self.quality, self.author)
+        ProtocolAgendaItem.objects.create(
+            protocol=protocol, text='О качестве партии', display_order=0
+        )
+        add_speech(
+            protocol,
+            protocol.participants.get(user=self.author),
+            'Доложил о результатах контроля.',
+        )
+        action = ProtocolAction.objects.create(
+            protocol=protocol,
+            task_text='Изучение интерфейса',
+            department=self.to,
+            due_date=timezone.localdate() + timedelta(days=7),
+            split_for_assignees=split,
+            display_order=0,
+        )
+        for user in assignees:
+            ProtocolActionAssignee.objects.create(action=action, user=user)
+        send_protocol_for_approval(protocol, self.author)
+        protocol.refresh_from_db()
+        for user in assignees:
+            approve_protocol(protocol, user)
+            protocol.refresh_from_db()
+        return protocol, action
+
+    def test_the_draft_stores_the_flag_only_where_splitting_can_mean_anything(self):
+        """Two assignees keep the choice; one normalizes it away on the server.
+
+        The browser disables the checkbox below two исполнителя, but that is
+        presentation: this posts it ticked in both cases, the way a stale page
+        or a hand-made request would, and `_apply_actions()` is what decides.
+        """
+        protocol = create_protocol(self.quality, self.author)
+        self.client.force_login(self.author)
+        due = (timezone.localdate() + timedelta(days=7)).isoformat()
+
+        response = self.client.post(
+            reverse('protocols:save_draft', args=[protocol.pk]),
+            {
+                'participants-TOTAL_FORMS': '0',
+                'agenda-TOTAL_FORMS': '1',
+                'agenda-0-text': 'О качестве партии',
+                'speeches-TOTAL_FORMS': '1',
+                'speeches-0-speaker': str(self.author.pk),
+                'speeches-0-text': 'Доложил о результатах контроля.',
+                'actions-TOTAL_FORMS': '2',
+                'actions-0-text': 'Изучение интерфейса',
+                'actions-0-due_date': due,
+                'actions-0-assignee_departments': [str(self.to.pk), str(self.to.pk)],
+                'actions-0-assignees': [str(self.first.pk), str(self.second.pk)],
+                'actions-0-split_for_assignees': 'on',
+                'actions-1-text': 'Обновить инструкцию',
+                'actions-1-due_date': due,
+                'actions-1-assignee_departments': str(self.to.pk),
+                'actions-1-assignees': str(self.third.pk),
+                'actions-1-split_for_assignees': 'on',
+            },
+        )
+
+        self.assertRedirects(response, reverse('protocols:detail', args=[protocol.pk]))
+        split_action, single_action = list(protocol.actions.order_by('display_order'))
+        self.assertTrue(split_action.split_for_assignees)
+        # One assignee: splitting the work between them alone means nothing.
+        self.assertFalse(single_action.split_for_assignees)
+        # Reopening the editor offers the stored answer back.
+        rows = self.client.get(
+            reverse('protocols:detail', args=[protocol.pk])
+        ).context['form'].action_rows
+        self.assertEqual([row['split_for_assignees'] for row in rows], [True, False])
+
+    def test_archiving_splits_a_marked_decision_into_one_task_per_assignee(self):
+        assignees = [self.first, self.second, self.third]
+        protocol, action = self._archived_protocol(split=True, assignees=assignees)
+
+        self.assertEqual(protocol.status, Protocol.Status.ARCHIVED)
+        tasks = list(
+            Task.objects.filter(protocol=protocol, source_type=Task.SourceType.PROTOCOL_ACTION)
+            .order_by('individual_assignee_id')
+            .prefetch_related('assignees')
+        )
+        self.assertEqual(len(tasks), 3)
+        for task, user in zip(tasks, sorted(assignees, key=lambda item: item.pk)):
+            # Same decision, same wording, department, deadline and author…
+            self.assertEqual(task.protocol_action_id, action.pk)
+            self.assertEqual(task.task_text, 'Изучение интерфейса')
+            self.assertEqual(task.department, self.to)
+            self.assertEqual(task.due_date, action.due_date)
+            self.assertEqual(task.created_by, self.author)
+            # …and exactly one assignee, who is the person the task names.
+            self.assertEqual(task.individual_assignee_id, user.pk)
+            self.assertEqual([a.user_id for a in task.assignees.all()], [user.pk])
+
+        # One decision, one row, one history event — only execution was split.
+        self.assertEqual(protocol.actions.count(), 1)
+        self.assertEqual(
+            protocol.history_events.filter(
+                event_type=ProtocolHistoryEvent.EventType.TASKS_CREATED
+            ).count(),
+            1,
+        )
+        # And the approval formula is untouched: three assignees, three
+        # signatures, whether or not their execution was split.
+        self.assertEqual(
+            ProtocolApproval.objects.filter(protocol=protocol, revision=protocol.revision).count(),
+            3,
+        )
+
+        # The shared mode is unchanged beside it: one task, every assignee on it.
+        shared_protocol, _ = self._archived_protocol(split=False, assignees=assignees)
+        shared_task = Task.objects.get(
+            protocol=shared_protocol, source_type=Task.SourceType.PROTOCOL_ACTION
+        )
+        self.assertIsNone(shared_task.individual_assignee_id)
+        self.assertEqual(
+            sorted(a.user_id for a in shared_task.assignees.all()),
+            sorted(user.pk for user in assignees),
+        )
+
+    def test_a_split_task_finishes_alone_and_can_never_be_created_twice(self):
+        assignees = [self.first, self.second, self.third]
+        protocol, action = self._archived_protocol(split=True, assignees=assignees)
+        tasks = {
+            task.individual_assignee_id: task
+            for task in Task.objects.filter(
+                protocol=protocol, source_type=Task.SourceType.PROTOCOL_ACTION
+            )
+        }
+
+        completed = complete_task(tasks[self.first.pk], self.first, 'Интерфейс изучен.')
+
+        self.assertEqual(completed.status.code, 'COMPLETED')
+        for user in (self.second, self.third):
+            tasks[user.pk].refresh_from_db()
+            # Nobody else's work was closed by someone else finishing theirs.
+            self.assertEqual(tasks[user.pk].status.code, 'IN_PROGRESS')
+            self.assertIsNone(tasks[user.pk].completed_by_id)
+
+        # A repeated or faulty generation cannot hand the same person a second
+        # copy, nor add a shared task beside the split ones. The database says
+        # so, not a service check a concurrent caller could race past.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            create_protocol_action_task(
+                protocol,
+                action,
+                [self.first.pk],
+                created_by=self.author,
+                individual_assignee_id=self.first.pk,
+            )
+        shared_protocol, shared_action = self._archived_protocol(
+            split=False, assignees=assignees
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            create_protocol_action_task(
+                shared_protocol,
+                shared_action,
+                [user.pk for user in assignees],
+                created_by=self.author,
+            )
 
 
 class ProtocolApprovalUiTests(TestCase):
