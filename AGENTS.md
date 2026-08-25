@@ -164,8 +164,30 @@ tasks never live inside `acts`.
   read-only views render the neutral `—`.
 - Structured TO analysis is atomic and read-only after submission; each
   corrective action needs text, a department, a due date and at least one active
-  assignee. Approval revalidates it all under lock and creates exactly one
-  `tasks.Task` per corrective action.
+  assignee. Approval revalidates it all under lock and creates the tasks.
+- **A corrective action is executed shared or split, and `Task.source_action`
+  is a foreign key because of it.** `ActCorrectiveAction.split_for_assignees`
+  is off by default and approval then behaves as it always has: one task
+  carrying every assignee, which any one of them completes for all. Turned on
+  for an action with two or more assignees, approval creates one independent
+  task per assignee instead — same act, root analysis, corrective action,
+  wording, department and deadline, one `TaskAssignee` each, completed
+  separately. Splitting a single assignee means nothing, so
+  `apply_structured_to_analysis()` stores the flag normalized off below two
+  assignees; that is the single write point, which is why the editor's matching
+  behaviour is presentation only. The flag is execution metadata: the root
+  analysis, the corrective action row and the printed act are unchanged by it,
+  and «Анализ ТО» stays one line per corrective action — a shared one shows its
+  task's status, a split one shows «2 из 5 выполнено», and the individual tasks
+  are listed in «Связанные мероприятия».
+- **`tasks.services.create_act_action_task()` owns the act task, not the
+  decision to make one.** It reads the act, the root analysis, the wording, the
+  department and the deadline off the corrective action, validates, saves,
+  attaches assignees, emits `task.created` and logs — the same shape as
+  `create_protocol_action_task()`. How many to create, and whether the act may
+  be approved at all, stay in `acts/services.py`, inside its approval
+  transaction, so a refusal on one individual task rolls back its siblings and
+  the approval together.
 - A shared task is completed **once** by any assignee and requires a
   non-whitespace execution result; assignee changes go only through
   `tasks.services.replace_task_assignees()`. Every authenticated user may read
@@ -179,15 +201,32 @@ tasks never live inside `acts`.
   | `source_type` | required | must be NULL |
   | --- | --- | --- |
   | `ACT` | `act`, `root_analysis`, `source_action` | `protocol`, `protocol_action` |
-  | `PROTOCOL_APPROVAL` | `protocol` | `act`, `root_analysis`, `source_action`, `protocol_action` |
+  | `PROTOCOL_APPROVAL` | `protocol` | `act`, `root_analysis`, `source_action`, `protocol_action`, `individual_assignee` |
   | `PROTOCOL_ACTION` | `protocol`, `protocol_action` | `act`, `root_analysis`, `source_action` |
 
   The act relations are nullable *only* so the other shapes can exist; for an
-  `ACT` task all three stay required. `source_action` and `protocol_action` are
-  one-to-one, so neither a corrective action nor a protocol decision can ever
-  produce a second task. `protocol_action.protocol == task.protocol` is checked
-  in `Task.clean()` and must be re-checked in any service that writes one — a
-  single-row check constraint cannot span two tables.
+  `ACT` task all three stay required.
+- **`Task.individual_assignee` is the one field that tells a split task from a
+  shared one, for both domains.** NULL is the task everybody shares; set is the
+  task split off for that person, whose `TaskAssignee` rows are exactly them.
+  It is optional on the two split-capable sources — `ACT` and `PROTOCOL_ACTION`
+  — and forbidden on an approval task, which is one person's queue entry and
+  has nothing to split. There is no second, act-specific field.
+- **How many tasks a source may own is stated by constraints, not by the
+  relation.** `source_action` and `protocol_action` are both foreign keys, and
+  four unique constraints replace what their one-to-ones used to guarantee:
+  `unique_shared_act_action_task` / `unique_shared_protocol_action_task`
+  (partial, on `individual_assignee IS NULL`) allow at most one shared task per
+  source, and `unique_individual_act_action_task` /
+  `unique_individual_protocol_action_task` at most one per `(source, individual
+  assignee)`. A repeated or concurrent approval therefore cannot duplicate a
+  task, whatever a service check does.
+- The rules SQL cannot express stay in `Task.clean()` and must be re-checked in
+  any service that writes a task — a single-row check constraint cannot span
+  two tables. They are: `protocol_action.protocol == task.protocol`;
+  `source_action.root_analysis == task.root_analysis` and
+  `root_analysis.act == task.act`; and, for a split task, the individual
+  assignee really being an assignee of the source it was split off from.
 - Every writer states `source_type` explicitly; the `ACT` default exists only
   so the column could be added to the existing production table and is never a
   substitute for saying so. Read-side code must not assume `task.act` or

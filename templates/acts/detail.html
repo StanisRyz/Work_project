@@ -90,23 +90,93 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
         }
         return button;
     };
-    const syncActionAssignees = (action) => {
-        const assigneeSelects = [...action.querySelectorAll('[data-assignees-select]')];
-        const selectedAssigneeIds = assigneeSelects.map((select) => select.value).filter(Boolean);
-        assigneeSelects.forEach((assigneeSelect) => {
-            const fields = assigneeSelect.closest('.corrective-action-card__fields');
-            const departmentId = fields.querySelector('[data-assignee-department-select]').value;
-            assigneeSelect.disabled = !departmentId;
-            [...assigneeSelect.options].forEach((option) => {
-                if (!option.value) return;
-                const isSelectedInAnotherRow = option.value !== assigneeSelect.value
-                    && selectedAssigneeIds.includes(option.value);
-                const isAvailable = option.dataset.departmentId === departmentId && !isSelectedInAnotherRow;
-                option.hidden = !isAvailable;
-                option.disabled = !isAvailable;
-                if (!isAvailable && option.selected) assigneeSelect.value = '';
-            });
+
+    /**
+     * Filter one assignee row's employee list by the department beside it.
+     *
+     * The one thing this never does is clear a choice that is already there.
+     * An employee moved to another department after the analysis was saved —
+     * or a department since deactivated, whose `<option>` the act form no
+     * longer renders — used to make the row redraw itself empty, and the next
+     * save silently dropped that executor. A stored selection therefore stays
+     * visible, enabled and selected however badly it matches, and the row
+     * shows a warning instead; changing it is the author's own action. The
+     * server re-validates the pair either way.
+     */
+    const syncAssigneeRow = (row, takenIds) => {
+        const departmentSelect = row.querySelector('[data-assignee-department-select]');
+        const assigneeSelect = row.querySelector('[data-assignees-select]');
+        if (!departmentSelect || !assigneeSelect) return;
+        const departmentId = departmentSelect.value;
+        const selected = assigneeSelect.value;
+        // A disabled field is left out of the POST entirely, so a row that
+        // already names somebody keeps its employee selector enabled even
+        // while the department next to it is blank.
+        assigneeSelect.disabled = !departmentId && !selected;
+        let mismatched = '';
+        [...assigneeSelect.options].forEach((option) => {
+            if (!option.value) return;
+            if (option.value === selected) {
+                option.hidden = false;
+                option.disabled = false;
+                if (option.dataset.departmentId !== departmentId) {
+                    mismatched = option.textContent.trim();
+                }
+                return;
+            }
+            const available = option.dataset.departmentId === departmentId
+                && !takenIds.includes(option.value);
+            option.hidden = !available;
+            option.disabled = !available;
         });
+        const warning = row.querySelector('[data-pair-warning]');
+        if (!warning) return;
+        warning.hidden = !mismatched;
+        warning.textContent = mismatched
+            ? (departmentId
+                ? `«${mismatched}» больше не относится к выбранному отделу. Выбор сохранён — измените отдел или выберите другого исполнителя.`
+                : `Отдел исполнителя «${mismatched}» недоступен. Выбор сохранён — укажите отдел или выберите другого исполнителя.`)
+            : '';
+    };
+
+    /**
+     * «Разбить задачу для исполнителей» is offered only where it means
+     * something: a corrective action naming at least two executors. Below that
+     * the checkbox is disabled and cleared, because one shared task and one
+     * personal task for the same single person are the same thing.
+     *
+     * Presentation only — `apply_structured_to_analysis()` applies exactly this
+     * rule again when it stores the flag, and is the authority.
+     */
+    const syncSplitOption = (action) => {
+        const toggle = action.querySelector('[data-split-checkbox]');
+        if (!toggle) return;
+        const named = [...action.querySelectorAll('[data-assignee-row] [data-assignees-select]')]
+            .filter((select) => select.value).length;
+        const offered = named > 1;
+        toggle.disabled = !offered;
+        if (!offered) toggle.checked = false;
+        const off = action.querySelector('[data-split-hint-off]');
+        const on = action.querySelector('[data-split-hint-on]');
+        if (off) off.hidden = toggle.checked;
+        if (on) on.hidden = !toggle.checked;
+    };
+
+    /** Every row of one corrective action, plus its split option. */
+    const syncActionAssignees = (action) => {
+        const rows = [...action.querySelectorAll('[data-assignee-row]')];
+        const chosen = rows
+            .map((row) => row.querySelector('[data-assignees-select]').value)
+            .filter(Boolean);
+        rows.forEach((row) => {
+            const own = row.querySelector('[data-assignees-select]').value;
+            syncAssigneeRow(row, chosen.filter((value) => value !== own));
+            // The last remaining row keeps its × hidden: a filled corrective
+            // action must always offer somewhere to name an executor.
+            const remove = row.querySelector('[data-remove-assignee]');
+            if (remove) remove.hidden = rows.length < 2;
+        });
+        syncSplitOption(action);
     };
     const syncAssigneeSelect = (departmentSelect) => {
         syncActionAssignees(departmentSelect.closest('[data-corrective-action]'));
@@ -114,6 +184,32 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
     const syncAssigneeSelects = () => {
         form.querySelectorAll('[data-corrective-action]').forEach(syncActionAssignees);
     };
+
+    /**
+     * Re-apply the department field's name across one action's rows.
+     *
+     * The first assignee's department *is* the corrective action's own
+     * `department` column and the rest post as `assignee_departments` — the
+     * stored data model, which this patch does not change. Doing it here, after
+     * every add and every removal, is what lets any row be deleted: whichever
+     * row ends up first becomes the action's department again.
+     */
+    const renameAssigneeFields = (action, rootIndex, actionIndex) => {
+        const prefix = `root-${rootIndex}-actions-${actionIndex}`;
+        [...action.querySelectorAll('[data-assignee-row]')].forEach((row, rowIndex) => {
+            const department = row.querySelector('[data-assignee-department-select]');
+            const assignee = row.querySelector('[data-assignees-select]');
+            if (department) {
+                department.name = rowIndex === 0
+                    ? `${prefix}-department`
+                    : `${prefix}-assignee_departments`;
+            }
+            if (assignee) assignee.name = `${prefix}-assignees`;
+        });
+        const split = action.querySelector('[data-split-checkbox]');
+        if (split) split.name = `${prefix}-split_for_assignees`;
+    };
+
     const renumber = () => {
         const roots = [...form.querySelectorAll('[data-root-analysis]')];
         rootTotal.value = roots.length;
@@ -122,15 +218,21 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
             if (rootTitle) rootTitle.lastChild.textContent = `Корневая причина ${rootIndex + 1}`;
             root.querySelectorAll('[name]').forEach((field) => {
                 field.name = field.name.replace(/^root-\d+/, `root-${rootIndex}`);
-                field.name = field.name.replace(/actions-\d+/, (match, offset, value) => match);
             });
             const actions = [...root.querySelectorAll('[data-corrective-action]')];
             const actionsTotal = root.querySelector('[data-actions-total]');
             actionsTotal.name = `root-${rootIndex}-actions-TOTAL_FORMS`;
             actionsTotal.value = actions.length;
-            actions.forEach((action, actionIndex) => action.querySelectorAll('[name]').forEach((field) => {
-                field.name = field.name.replace(/^root-\d+-actions-\d+/, `root-${rootIndex}-actions-${actionIndex}`);
-            }));
+            actions.forEach((action, actionIndex) => {
+                action.querySelectorAll('[name]').forEach((field) => {
+                    field.name = field.name.replace(/^root-\d+-actions-\d+/, `root-${rootIndex}-actions-${actionIndex}`);
+                });
+                // After the bulk rename, because it is the one rule the plain
+                // index substitution above cannot express.
+                renameAssigneeFields(action, rootIndex, actionIndex);
+                const actionTitle = action.querySelector('[data-corrective-action-title]');
+                if (actionTitle) actionTitle.textContent = `Мероприятие ${actionIndex + 1}`;
+            });
             const rootRemove = root.querySelector('[data-remove-root-analysis]');
             if (roots.length > 1 && rootIndex === roots.length - 1) {
                 addRemoveButton(root, '[data-root-analysis-header]', 'data-remove-root-analysis', 'Удалить корневую проработку');
@@ -149,7 +251,11 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
         syncAssigneeSelects();
     };
     const clearCard = (card) => {
-        card.querySelectorAll('textarea, input').forEach((field) => { if (field.type !== 'hidden') field.value = ''; });
+        card.querySelectorAll('textarea, input').forEach((field) => {
+            if (field.type === 'hidden') return;
+            if (field.type === 'checkbox') { field.checked = false; return; }
+            field.value = '';
+        });
         card.querySelectorAll('select').forEach((field) => { field.value = ''; });
         card.querySelectorAll('.field-error, .errorlist').forEach((element) => element.remove());
     };
@@ -158,37 +264,35 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
         if (event.target.matches('[data-add-corrective-action]')) {
             const list = root.querySelector('[data-corrective-action-list]');
             const action = list.querySelector('[data-corrective-action]').cloneNode(true);
+            // A new card starts with one empty assignee row, whatever the card
+            // it was cloned from held.
+            const rows = [...action.querySelectorAll('[data-assignee-row]')];
+            rows.slice(1).forEach((row) => row.remove());
             clearCard(action); list.append(action); renumber();
         }
-        if (event.target.matches('[data-add-additional-assignee]')) {
+        if (event.target.matches('[data-add-assignee]')) {
             const action = event.target.closest('[data-corrective-action]');
-            const row = action.querySelector('.corrective-action-card__fields').cloneNode(true);
-            row.querySelector('input[type="date"]').closest('label').remove();
-            row.querySelectorAll('.field-error, .errorlist').forEach((element) => element.remove());
-            const departmentSelect = row.querySelector('[data-department-select]');
-            departmentSelect.name = departmentSelect.name.replace(/-department$/, '-assignee_departments');
-            departmentSelect.removeAttribute('data-department-select');
-            departmentSelect.value = '';
-            row.querySelector('[data-assignees-select]').value = '';
-            row.dataset.additionalAssignee = '';
-            row.classList.add('corrective-action-card__fields--additional');
-            const remove = document.createElement('button');
-            remove.type = 'button'; remove.className = 'link-button link-button--danger';
-            remove.dataset.removeAdditionalAssignee = ''; remove.textContent = 'Удалить исполнителя';
-            row.append(remove);
-            action.querySelector('[data-additional-assignee-list]').append(row);
-            syncAssigneeSelect(departmentSelect);
+            const list = action.querySelector('[data-assignee-list]');
+            // Cloned from the row that is already there, so there is exactly
+            // one assignee-row implementation and it lives in the template.
+            const row = list.querySelector('[data-assignee-row]').cloneNode(true);
+            clearCard(row);
+            const warning = row.querySelector('[data-pair-warning]');
+            if (warning) { warning.hidden = true; warning.textContent = ''; }
+            list.append(row);
+            renumber();
         }
-        if (event.target.matches('[data-assignee-department-select]')) {
-            syncAssigneeSelect(event.target);
-        }
-        if (event.target.matches('[data-assignees-select]')) {
-            syncActionAssignees(event.target.closest('[data-corrective-action]'));
-        }
-        if (event.target.matches('[data-remove-additional-assignee]')) {
+        if (event.target.matches('[data-remove-assignee]')) {
             const action = event.target.closest('[data-corrective-action]');
-            event.target.closest('[data-additional-assignee]').remove();
-            syncActionAssignees(action);
+            const list = action.querySelector('[data-assignee-list]');
+            // The server requires at least one executor on a corrective action
+            // that exists, so the last row stays and is simply cleared.
+            if (list.querySelectorAll('[data-assignee-row]').length > 1) {
+                event.target.closest('[data-assignee-row]').remove();
+            } else {
+                list.querySelectorAll('select').forEach((select) => { select.value = ''; });
+            }
+            renumber();
         }
         if (event.target.matches('[data-remove-corrective-action]')) {
             const action = event.target.closest('[data-corrective-action]');
@@ -201,12 +305,28 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
             renumber();
         }
     });
+    form.addEventListener('change', (event) => {
+        if (event.target.matches('[data-split-checkbox]')) {
+            // Only the hint under it changes; nothing else depends on how a
+            // corrective action will be executed.
+            syncSplitOption(event.target.closest('[data-corrective-action]'));
+            return;
+        }
+        if (event.target.matches('[data-assignee-department-select]')) {
+            syncAssigneeSelect(event.target);
+        }
+        if (event.target.matches('[data-assignees-select]')) {
+            syncActionAssignees(event.target.closest('[data-corrective-action]'));
+        }
+    });
     const addRoot = document.querySelector('[data-add-root-analysis]');
     if (addRoot) {
         addRoot.addEventListener('click', () => {
             const rootCard = form.querySelector('[data-root-analysis]').cloneNode(true);
             const actions = [...rootCard.querySelectorAll('[data-corrective-action]')];
             actions.slice(1).forEach((action) => action.remove());
+            const rows = [...rootCard.querySelectorAll('[data-assignee-row]')];
+            rows.slice(1).forEach((row) => row.remove());
             clearCard(rootCard); form.append(rootCard); renumber();
         });
     }

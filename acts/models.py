@@ -335,6 +335,15 @@ class ActCorrectiveAction(models.Model):
     comment = models.TextField('Корректирующее мероприятие')
     department = models.ForeignKey(Department, on_delete=models.PROTECT, verbose_name='Подразделение')
     due_date = models.DateField('Срок')
+    # Execution only, and meaningless below two assignees:
+    # `apply_structured_to_analysis()` normalizes it back to False for a single
+    # assignee. `default=False` is also what keeps every row stored before this
+    # field existed in the shared-task mode it was created under. The
+    # corrective action itself stays one row, one entry in «Анализ ТО» and one
+    # line in the printed act however its execution is organised.
+    split_for_assignees = models.BooleanField(
+        'Разбить задачу для исполнителей', default=False
+    )
     display_order = models.PositiveIntegerField('Порядок отображения', default=0)
 
     class Meta:
@@ -344,6 +353,29 @@ class ActCorrectiveAction(models.Model):
 
     def __str__(self):
         return f'{self.root_analysis.act.number}: {self.comment[:60]}'
+
+    @property
+    def task_state_label(self):
+        """What the read-only «Анализ ТО» status cell says for this action.
+
+        One corrective action, one cell — whether it produced one shared task
+        or one per assignee. A shared action shows that task's own status; a
+        split one shows how far the set has got («2 из 5 выполнено»), because
+        listing five rows here would turn the analysis table into a task list.
+        The individual tasks belong in «Связанные мероприятия», which shows
+        every one of them.
+
+        Reads `self.tasks`, so a caller that prefetched it costs no query;
+        `Task` is imported lazily because `tasks.models` already imports this
+        module.
+        """
+        tasks = list(self.tasks.all())
+        if not tasks:
+            return '—'
+        if len(tasks) == 1 and tasks[0].individual_assignee_id is None:
+            return str(tasks[0].status)
+        done = sum(1 for task in tasks if task.status.code == 'COMPLETED')
+        return f'{done} из {len(tasks)} выполнено'
 
 
 class ActCorrectiveActionAssignee(models.Model):

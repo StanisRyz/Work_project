@@ -14,7 +14,6 @@ from realtime.emitters import (
     emit_act_status_changed,
     emit_act_updated,
     emit_comment_created,
-    emit_task_created,
 )
 
 from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActHistoryEvent, ActRootAnalysis, get_act_status
@@ -362,6 +361,18 @@ def apply_structured_to_analysis(act, user, analysis_data):
                     comment=action_data['comment'],
                     department=action_data['department'],
                     due_date=action_data['due_date'],
+                    # Stored normalized: splitting a corrective action between
+                    # one person has no meaning, so a single assignee always
+                    # stores False whatever the checkbox posted. This is the
+                    # single write point for the flag, which is why the
+                    # browser's matching behaviour can stay presentation.
+                    # `.get()`: the flag was added after this structure was, so
+                    # a caller that does not mention it means the shared task
+                    # every corrective action produced before.
+                    split_for_assignees=(
+                        action_data.get('split_for_assignees', False)
+                        and len(action_data['assignees']) > 1
+                    ),
                     display_order=action_index,
                 )
                 ActCorrectiveActionAssignee.objects.bulk_create(
@@ -473,54 +484,47 @@ def approve_act(act, user):
             ).filter(pk__in=action_ids).order_by('pk')
         )
         _validate_corrective_actions_for_approval(corrective_actions)
-        from tasks.models import Task, TaskAssignee
-        from references.models import TaskStatus
+        from tasks.models import Task
+        from tasks.services import TaskWorkflowError, create_act_action_task
 
+        # The two unique constraints on `Task` already make a second task for
+        # the same corrective action — or for the same person within it —
+        # impossible; this turns the resulting IntegrityError into a controlled
+        # refusal, and it is inside the approval transaction, so a partial set
+        # of tasks can never outlive a failed approval.
         if Task.objects.filter(source_action__in=corrective_actions).exists():
             raise ActWorkflowError('Для корректирующих мероприятий этого акта уже созданы задачи.')
-        try:
-            new_task_status = TaskStatus.objects.get(code='IN_PROGRESS', is_active=True)
-        except TaskStatus.DoesNotExist as exc:
-            raise ActWorkflowError('Не найден активный статус задачи «В работе».') from exc
         approval_date = timezone.localdate()
         for action in corrective_actions:
             if action.due_date < approval_date:
                 raise ActWorkflowError('Срок корректирующего мероприятия не может быть раньше даты утверждения.')
         for action in corrective_actions:
-            task = Task.objects.create(
-                # Stated, not inferred: the source type is what the task
-                # registry, the completion guard and the source constraint
-                # read, and act approval is the only writer of `ACT` tasks.
-                source_type=Task.SourceType.ACT,
-                source_action=action,
-                act=act,
-                root_analysis=action.root_analysis,
-                task_text=action.comment,
-                department=action.department,
-                due_date=action.due_date,
-                created_by=user,
-                status=new_task_status,
-            )
-            assignee_ids = [assignment.user_id for assignment in action.assignees.all()]
-            TaskAssignee.objects.bulk_create(
-                [TaskAssignee(task=task, user_id=user_id) for user_id in assignee_ids]
-            )
-            # Emitted only once the task and all its assignees exist, so the
-            # event can never describe a half-built task.
-            emit_task_created(task, assignee_ids)
-            # Ids and a count: the task text is the corrective action's own
-            # wording and the assignees are people, so neither is logged.
-            log_event(
-                logger,
-                'INFO',
-                'task.created',
-                task_id=task.pk,
-                act_id=act.pk,
-                actor_user_id=_pk_of(user),
-                assignee_count=len(assignee_ids),
-                next_status=new_task_status.code,
-                outcome='ok',
-            )
+            assignments = list(action.assignees.all())
+            # One corrective action, one or many tasks. `split_for_assignees`
+            # is stored already normalized, so the length check is only a
+            # second lock on the rule that splitting a single assignee means
+            # nothing. Everything else about the task — the act, the root
+            # analysis, the wording, the department, the deadline — is read
+            # from the corrective action by the tasks service.
+            if action.split_for_assignees and len(assignments) > 1:
+                batches = [[assignment.user_id] for assignment in assignments]
+                individuals = [assignment.user_id for assignment in assignments]
+            else:
+                batches = [[assignment.user_id for assignment in assignments]]
+                individuals = [None]
+            for assignee_ids, individual_id in zip(batches, individuals):
+                try:
+                    create_act_action_task(
+                        action,
+                        assignee_ids,
+                        created_by=user,
+                        individual_assignee_id=individual_id,
+                    )
+                except TaskWorkflowError as exc:
+                    # A refusal from the tasks service is an act workflow
+                    # refusal here: the surrounding transaction rolls the whole
+                    # approval back, siblings included.
+                    raise ActWorkflowError(str(exc)) from exc
         from_status = act.status
         to_status = _get_required_status('ARCHIVED')
         log_state['act_id'] = act.pk

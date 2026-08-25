@@ -1,0 +1,40 @@
+{% comment %}
+One assignee of one corrective action — the same markup for the first and for
+every one after it, which is the whole point of this partial.
+
+The two rows differ only in the *name* of the department field, and that is the
+stored data model, not a design choice: the first assignee's department is the
+corrective action's own `department` column, and the others are posted as
+`assignee_departments`. `to_analysis.js` re-applies exactly this rule after any
+add or removal, so the POST contract the Act form parses is unchanged whichever
+row the user deletes.
+
+`data-assignee-row` and `data-employee-pair` are what the script drives:
+filtering the employee list by the department beside it, keeping the split
+checkbox in step with how many executors are named, and — never — clearing a
+selection that is already there.
+{% endcomment %}
+<div class="to-assignee-row" data-assignee-row data-employee-pair>
+    <label>
+        <span>Отдел</span>
+        <select name="root-{{ root_index }}-actions-{{ action_index }}-{% if is_first %}department{% else %}assignee_departments{% endif %}" required data-department-select data-assignee-department-select>
+            <option value="">Выберите отдел</option>
+            {% for department in analysis_departments %}<option value="{{ department.pk }}"{% if assignee.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}
+        </select>
+    </label>
+    <label>
+        <span>Исполнитель</span>
+        <select name="root-{{ root_index }}-actions-{{ action_index }}-assignees" required data-assignees-select data-employee-select>
+            <option value="">Выберите исполнителя</option>
+            {% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if assignee.user == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}</option>{% endfor %}
+        </select>
+    </label>
+    <button class="analysis-remove-button" type="button" data-remove-assignee aria-label="Удалить исполнителя" title="Удалить исполнителя">×</button>
+    {% comment %}
+    Filled by the script when the saved employee no longer matches the chosen
+    department — moved to another one, or a department that has since been
+    deactivated. The selection is never cleared for them: the warning is what
+    asks the author to decide.
+    {% endcomment %}
+    <p class="to-pair-warning" data-pair-warning role="status" hidden></p>
+</div>

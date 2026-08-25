@@ -48,21 +48,63 @@ user has no unsaved input; a dirty form is never touched.
                         <label class="root-analysis-card__cause"><span>Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="2" required>{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
                         <div class="corrective-action-list" data-corrective-action-list>
                             {% for action in root.actions %}
+                            {% comment %}
+                            One corrective action, laid out like a protocol task
+                            card: title and a compact remove, the wording, the
+                            deadline, then a clearly separated «Исполнители»
+                            block of identical rows and the execution mode under
+                            it. The act's own structure is untouched — this card
+                            still lives inside its root cause, still posts the
+                            same nested `root-N-actions-M-*` names, and still
+                            carries the act's department field on its first
+                            assignee row.
+                            {% endcomment %}
                             <section class="corrective-action-card" data-corrective-action>
-                                <div class="corrective-action-row">
                                 <div class="analysis-card-header" data-corrective-action-header>
-                                    <label><span>Корректирующее мероприятие</span><textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="2" required>{{ action.comment }}</textarea>{% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}</label>
+                                    <span class="corrective-action-card__title" data-corrective-action-title>Мероприятие {{ forloop.counter }}</span>
                                     {% if root.actions|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-corrective-action aria-label="Удалить мероприятие" title="Удалить мероприятие">×</button>{% endif %}
                                 </div>
+                                <label class="corrective-action-card__comment">
+                                    <span>Корректирующее мероприятие</span>
+                                    <textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="2" required>{{ action.comment }}</textarea>
+                                    {% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}
+                                </label>
                                 <div class="corrective-action-card__fields">
-                                    <label><span>Отдел</span><select name="root-{{ root.index }}-actions-{{ action.index }}-department" required data-department-select data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if action.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select>{% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}</label>
-                                    <label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select disabled><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if action.assignees.0 == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select>{% if action.errors.assignees %}<span class="field-error">{{ action.errors.assignees }}</span>{% endif %}</label>
-                                    <label><span>Срок</span><input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>{% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}</label>
+                                    <label>
+                                        <span>Срок</span>
+                                        <input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>
+                                        {% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}
+                                    </label>
                                 </div>
+                                <div class="corrective-action-card__assignees">
+                                    <span class="corrective-action-card__assignees-label">Исполнители</span>
+                                    <div class="to-assignee-list" data-assignee-list>
+                                        {% for assignee in action.assignee_rows %}{% include 'acts/includes/to_analysis_assignee_row.html' with assignee=assignee root_index=root.index action_index=action.index is_first=forloop.first %}{% endfor %}
+                                    </div>
+                                    {% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}
+                                    {% if action.errors.assignees %}<span class="field-error">{{ action.errors.assignees }}</span>{% endif %}
+                                    <button class="link-button link-button--secondary link-button--compact" type="button" data-add-assignee>+ Исполнитель</button>
                                 </div>
-                                <div class="corrective-action-additional-list" data-additional-assignee-list>{% for assignee in action.additional_assignees %}<div class="corrective-action-card__fields corrective-action-card__fields--additional" data-additional-assignee><label><span>Отдел</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignee_departments" required data-assignee-department-select><option value="">Выберите отдел</option>{% for department in analysis_departments %}<option value="{{ department.pk }}"{% if assignee.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select></label><label><span>Исполнитель</span><select name="root-{{ root.index }}-actions-{{ action.index }}-assignees" required data-assignees-select disabled><option value="">Выберите исполнителя</option>{% for employee in analysis_users %}<option value="{{ employee.pk }}" data-department-id="{{ employee.userprofile.department_id|default:'' }}"{% if assignee.user == employee.pk|stringformat:'s' %} selected{% endif %}>{{ employee.get_full_name|default:employee.username }}{% if employee.userprofile.department %} — {{ employee.userprofile.department }}{% endif %}</option>{% endfor %}</select></label><button class="link-button link-button--danger" type="button" data-remove-additional-assignee>Удалить исполнителя</button></div>{% endfor %}</div>
-                                <div class="act-inline-actions" data-corrective-action-actions>
-                                    <button class="link-button link-button--success" type="button" data-add-additional-assignee>Добавить исполнителя</button>
+                                {% comment %}
+                                Execution mode, and nothing else: it changes how
+                                many real tasks approving the act creates, never
+                                the root cause, the corrective action itself or
+                                the printed document. Meaningless below two
+                                исполнителя, so it is rendered disabled until the
+                                card has two and the script keeps that in step —
+                                a disabled checkbox is not posted, and
+                                `apply_structured_to_analysis()` normalizes the
+                                flag off for a single assignee anyway.
+                                {% endcomment %}
+                                <div class="to-split-option" data-split-option>
+                                    <label class="to-checkbox">
+                                        <input type="checkbox" name="root-{{ root.index }}-actions-{{ action.index }}-split_for_assignees" data-split-checkbox{% if action.split_for_assignees %} checked{% endif %}{% if action.assignee_rows|length < 2 %} disabled{% endif %}>
+                                        <span>Разбить задачу для исполнителей</span>
+                                    </label>
+                                    <p class="to-split-hint">
+                                        <span data-split-hint-off{% if action.split_for_assignees %} hidden{% endif %}>Одна общая задача на всех: выполнение любым исполнителем закрывает её для остальных.</span>
+                                        <span data-split-hint-on{% if not action.split_for_assignees %} hidden{% endif %}>Каждый исполнитель получит собственную задачу и выполнит её независимо.</span>
+                                    </p>
                                 </div>
                             </section>
                             {% endfor %}
@@ -84,7 +126,7 @@ user has no unsaved input; a dirty form is never touched.
                         <div class="to-analysis-readonly__rail" aria-label="Корневая причина {{ forloop.counter }}">{{ forloop.counter }}</div>
                         <div class="to-analysis-readonly__cause"><span>Корневая причина</span><p>{{ root.root_cause|linebreaksbr }}</p></div>
                         <div class="to-analysis-readonly__actions">
-                            <div class="act-defects-table-wrap"><table class="data-table to-analysis-table"><colgroup><col class="to-analysis-table__number"><col class="to-analysis-table__action"><col class="to-analysis-table__assignee"><col class="to-analysis-table__due"><col class="to-analysis-table__status"></colgroup><thead><tr><th>№</th><th>Мероприятие</th><th>Исполнитель(и)</th><th>Срок</th><th>Статус</th></tr></thead><tbody>{% for action in root.corrective_actions.all %}<tr><td>{{ forloop.counter }}</td><td>{{ action.comment }}</td><td>{% include 'acts/includes/to_analysis_assignees_readonly.html' with assignees=action.assignees.all %}</td><td>{{ action.due_date|date:'d.m.Y' }}</td><td>{% if action.task %}{{ action.task.status }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+                            <div class="act-defects-table-wrap"><table class="data-table to-analysis-table"><colgroup><col class="to-analysis-table__number"><col class="to-analysis-table__action"><col class="to-analysis-table__assignee"><col class="to-analysis-table__due"><col class="to-analysis-table__status"></colgroup><thead><tr><th>№</th><th>Мероприятие</th><th>Исполнитель(и)</th><th>Срок</th><th>Статус</th></tr></thead><tbody>{% for action in root.corrective_actions.all %}<tr><td>{{ forloop.counter }}</td><td>{{ action.comment }}</td><td>{% include 'acts/includes/to_analysis_assignees_readonly.html' with assignees=action.assignees.all %}</td><td>{{ action.due_date|date:'d.m.Y' }}</td><td>{{ action.task_state_label }}</td></tr>{% endfor %}</tbody></table></div>
                         </div>
                     </section>
                 {% endfor %}

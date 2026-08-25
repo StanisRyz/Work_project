@@ -237,6 +237,48 @@ def _save_new_task(task, assignee_ids, *, actor):
     return task
 
 
+def create_act_action_task(action, assignee_ids, *, created_by, individual_assignee_id=None):
+    """The real task an act corrective action becomes once the act is approved.
+
+    Two shapes of the same call, exactly as `create_protocol_action_task()` has:
+    without `individual_assignee_id` this is the shared task the corrective
+    action has always produced, carrying every assignee; with one it is a task
+    split off for that single person, and then the assignee list must be
+    exactly them — a split task whose `TaskAssignee` rows disagreed with the
+    name on the task would be completable by someone the task does not
+    represent.
+
+    The act, the root analysis, the wording, the department and the deadline
+    are read from the corrective action itself, so a caller cannot pair a task
+    with the wrong act; `Task.clean()` inside `_save_new_task()` then re-checks
+    that whole chain and that the individual really is an assignee of it. The
+    two uniqueness rules are the constraints on `Task`, not a check here.
+
+    This owns the task, not the decision to make one: how many to create, and
+    whether the act may be approved at all, stay in `acts/services.py`.
+    """
+    unique_ids = sorted(set(assignee_ids))
+    if individual_assignee_id is not None and unique_ids != [individual_assignee_id]:
+        raise TaskWorkflowError(
+            'Персональная задача по акту создаётся ровно на одного исполнителя.'
+        )
+    task = Task(
+        # Stated, not inferred: the source type is what the task registry, the
+        # completion guard and the source constraint read.
+        source_type=Task.SourceType.ACT,
+        act=action.root_analysis.act,
+        root_analysis=action.root_analysis,
+        source_action=action,
+        individual_assignee_id=individual_assignee_id,
+        task_text=action.comment,
+        department=action.department,
+        due_date=action.due_date,
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    return _save_new_task(task, unique_ids, actor=created_by)
+
+
 def create_protocol_approval_task(protocol, approver, *, department, due_date, created_by, task_text):
     """One `PROTOCOL_APPROVAL` task: one protocol, one approver, no action."""
     task = Task(

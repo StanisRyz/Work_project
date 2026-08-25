@@ -438,13 +438,8 @@ class ToAnalysisStructureForm:
                             'comment': action.comment,
                             'department': str(action.department_id),
                             'assignees': [str(assignee.user_id) for assignee in action.assignees.all()],
-                            'additional_assignees': [
-                                {
-                                    'user': str(assignee.user_id),
-                                    'department': str(assignee.user.userprofile.department_id or ''),
-                                }
-                                for assignee in list(action.assignees.all())[1:]
-                            ],
+                            'assignee_rows': cls._assignee_rows_from_action(action),
+                            'split_for_assignees': action.split_for_assignees,
                             'due_date': action.due_date.isoformat(),
                             'errors': {},
                         }
@@ -454,6 +449,32 @@ class ToAnalysisStructureForm:
                 }
             )
         return rows
+
+    @staticmethod
+    def _assignee_rows_from_action(action):
+        """Every assignee as the same `{user, department}` row.
+
+        The first row's department is the corrective action's own — the act's
+        department field, which doubles as that assignee's — and the rest read
+        their profile. That asymmetry is the stored data model and is left
+        exactly as it is; what the rows do is give the template one shape to
+        render, so the first executor and the others stop looking different.
+
+        `userprofile` is reached through `getattr`, not as an attribute: the
+        profile row is deletable in Admin on its own while the `User` behind it
+        is held by `PROTECT`, and reading it directly would raise
+        `RelatedObjectDoesNotExist` and answer 500 instead of an empty
+        department.
+        """
+        rows = []
+        for position, assignee in enumerate(action.assignees.all()):
+            if position == 0:
+                department = str(action.department_id or '')
+            else:
+                profile = getattr(assignee.user, 'userprofile', None)
+                department = str(getattr(profile, 'department_id', '') or '')
+            rows.append({'user': str(assignee.user_id), 'department': department})
+        return rows or [{'user': '', 'department': ''}]
 
     @staticmethod
     def _empty_root(index):
@@ -467,7 +488,8 @@ class ToAnalysisStructureForm:
                     'comment': '',
                     'department': '',
                     'assignees': [],
-                    'additional_assignees': [],
+                    'assignee_rows': [{'user': '', 'department': ''}],
+                    'split_for_assignees': False,
                     'due_date': '',
                     'errors': {},
                 }
@@ -520,16 +542,21 @@ class ToAnalysisStructureForm:
                         self.data.get(f'{action_prefix}-department', ''),
                         *self._getlist(f'{action_prefix}-assignee_departments'),
                     ],
-                    'additional_assignees': [
-                        {'user': user, 'department': department}
-                        for user, department in zip(
-                            self._getlist(f'{action_prefix}-assignees')[1:],
-                            self._getlist(f'{action_prefix}-assignee_departments'),
-                        )
-                    ],
+                    # Presentation only at this point: whether splitting means
+                    # anything depends on how many assignees survive validation
+                    # below, and `apply_structured_to_analysis()` settles it.
+                    'split_for_assignees': bool(
+                        self.data.get(f'{action_prefix}-split_for_assignees')
+                    ),
                     'due_date': self.data.get(f'{action_prefix}-due_date', ''),
                     'errors': {},
                 }
+                action['assignee_rows'] = [
+                    {'user': user, 'department': department}
+                    for user, department in zip(
+                        action['assignees'], action['assignee_departments']
+                    )
+                ] or [{'user': '', 'department': ''}]
                 if not action['comment']:
                     action['errors']['comment'] = 'Укажите корректирующее мероприятие.'
                     valid = False
@@ -590,6 +617,7 @@ class ToAnalysisStructureForm:
                             'department': department,
                             'assignees': assignees,
                             'due_date': due_date,
+                            'split_for_assignees': action['split_for_assignees'],
                         }
                     )
             self.root_rows.append(root)

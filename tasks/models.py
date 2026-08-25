@@ -9,8 +9,9 @@ absent origin from a wrong one.
 
 Exactly one shape is valid per source type, enforced both by `clean()` (with
 readable messages) and by a database check constraint (the last line of
-defence). Only `ACT` tasks are produced by production code today; the protocol
-shapes are structural preparation, and nothing creates them yet.
+defence). Two of those shapes come in a shared and a split variant, told apart
+by `individual_assignee`: NULL for the one task everybody shares, set for the
+one task split off for that person.
 """
 
 from django.contrib.auth.models import User
@@ -41,10 +42,15 @@ class Task(models.Model):
         choices=SourceType.choices,
         default=SourceType.ACT,
     )
-    source_action = models.OneToOneField(
+    # A foreign key rather than a one-to-one, for the same reason
+    # `protocol_action` is one: a corrective action marked
+    # `split_for_assignees` produces one independent task per assignee. How
+    # many tasks it may own is stated by the two unique constraints below, not
+    # by the relation.
+    source_action = models.ForeignKey(
         ActCorrectiveAction,
         on_delete=models.PROTECT,
-        related_name='task',
+        related_name='tasks',
         null=True,
         blank=True,
         verbose_name='Исходное корректирующее мероприятие',
@@ -82,10 +88,12 @@ class Task(models.Model):
         blank=True,
         verbose_name='Задача протокола',
     )
-    # Which single assignee of `protocol_action` this task was split off for,
-    # and NULL for a shared task — the one field that tells the two modes
-    # apart. It is not the assignee list: `TaskAssignee` still owns that, and
-    # for a split task holds exactly this same user.
+    # Which single assignee this task was split off for — of `source_action`
+    # for an act task, of `protocol_action` for a protocol one — and NULL for a
+    # shared task. The one field that tells the two modes apart, and the same
+    # field for both domains rather than one each. It is not the assignee list:
+    # `TaskAssignee` still owns that, and for a split task holds exactly this
+    # same user.
     individual_assignee = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
@@ -121,6 +129,11 @@ class Task(models.Model):
             # or half-filled source.
             models.CheckConstraint(
                 condition=(
+                    # `individual_assignee` is left free here and in the
+                    # `PROTOCOL_ACTION` branch below: NULL is a shared task,
+                    # set is one split off for that person, and both are valid
+                    # shapes of the same source. Only an approval task, which
+                    # nobody splits, still forbids it outright.
                     Q(
                         source_type='ACT',
                         act__isnull=False,
@@ -128,7 +141,6 @@ class Task(models.Model):
                         source_action__isnull=False,
                         protocol__isnull=True,
                         protocol_action__isnull=True,
-                        individual_assignee__isnull=True,
                     )
                     | Q(
                         source_type='PROTOCOL_APPROVAL',
@@ -139,9 +151,6 @@ class Task(models.Model):
                         protocol_action__isnull=True,
                         individual_assignee__isnull=True,
                     )
-                    # The only branch that leaves `individual_assignee` free:
-                    # NULL is a shared task, set is one split off for that
-                    # person. Both are valid shapes of the same source.
                     | Q(
                         source_type='PROTOCOL_ACTION',
                         act__isnull=True,
@@ -170,6 +179,20 @@ class Task(models.Model):
                 fields=['protocol_action', 'individual_assignee'],
                 name='unique_individual_protocol_action_task',
             ),
+            # The same pair for act tasks, replacing what `source_action`'s
+            # dropped one-to-one used to guarantee: at most one task everybody
+            # shares, and at most one per assignee within the split. NULL
+            # `source_action` rows are all distinct to a unique index, so no
+            # protocol task is affected by either.
+            models.UniqueConstraint(
+                fields=['source_action'],
+                condition=Q(individual_assignee__isnull=True),
+                name='unique_shared_act_action_task',
+            ),
+            models.UniqueConstraint(
+                fields=['source_action', 'individual_assignee'],
+                name='unique_individual_act_action_task',
+            ),
         ]
 
     def __str__(self):
@@ -187,21 +210,22 @@ class Task(models.Model):
         """Readable source validation, including the rules SQL cannot express.
 
         The shape rules deliberately restate the check constraint: a service or
-        a form gets a field error instead of an `IntegrityError`. The two
-        cross-table rules live *only* here — the `protocol_action`/`protocol`
-        agreement and, for a split task, the individual assignee really being
-        an assignee of that decision. Neither spans one row, so no check
-        constraint can state them safely.
+        a form gets a field error instead of an `IntegrityError`. Every rule
+        that spans two tables lives *only* here, because no single-row check
+        constraint can state one: that the source relations of an act task
+        agree with each other, that a protocol task's decision belongs to its
+        protocol, and that a split task's individual assignee really is an
+        assignee of the source it was split off from.
 
-        `individual_assignee` is optional for `PROTOCOL_ACTION` and forbidden
-        everywhere else: it is what tells a split task from a shared one, and
-        an act task has no decision to be split off from.
+        `individual_assignee` is optional for both split-capable sources — `ACT`
+        and `PROTOCOL_ACTION` — and forbidden on an approval task, which is one
+        person's queue entry and has nothing to split.
         """
         super().clean()
         required, forbidden = {
             self.SourceType.ACT: (
                 ('act', 'root_analysis', 'source_action'),
-                ('protocol', 'protocol_action', 'individual_assignee'),
+                ('protocol', 'protocol_action'),
             ),
             self.SourceType.PROTOCOL_APPROVAL: (
                 ('protocol',),
@@ -229,16 +253,33 @@ class Task(models.Model):
             and self.protocol_action.protocol_id != self.protocol_id
         ):
             errors['protocol_action'] = 'Задача протокола должна принадлежать тому же протоколу.'
-        if (
-            self.individual_assignee_id is not None
-            and self.protocol_action_id is not None
-            and not self.protocol_action.assignees.filter(
+        # The act source relations must describe one chain, not three
+        # independent rows: the corrective action's root analysis is the task's
+        # root analysis, and that analysis belongs to the task's act.
+        if self.source_action_id is not None and self.root_analysis_id is not None:
+            if self.source_action.root_analysis_id != self.root_analysis_id:
+                errors['source_action'] = (
+                    'Корректирующее мероприятие должно относиться к указанной корневой проработке.'
+                )
+        if self.root_analysis_id is not None and self.act_id is not None:
+            if self.root_analysis.act_id != self.act_id:
+                errors['root_analysis'] = (
+                    'Корневая проработка должна относиться к тому же акту.'
+                )
+        if self.individual_assignee_id is not None:
+            if self.protocol_action_id is not None and not self.protocol_action.assignees.filter(
                 user_id=self.individual_assignee_id
-            ).exists()
-        ):
-            errors['individual_assignee'] = (
-                'Персональная задача создаётся только на исполнителя этой задачи протокола.'
-            )
+            ).exists():
+                errors['individual_assignee'] = (
+                    'Персональная задача создаётся только на исполнителя этой задачи протокола.'
+                )
+            if self.source_action_id is not None and not self.source_action.assignees.filter(
+                user_id=self.individual_assignee_id
+            ).exists():
+                errors['individual_assignee'] = (
+                    'Персональная задача создаётся только на исполнителя этого '
+                    'корректирующего мероприятия.'
+                )
         if errors:
             raise ValidationError(errors)
 

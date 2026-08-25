@@ -686,7 +686,13 @@ class ActViewTests(TestCase):
         self.assertContains(response, 'name="root-0-actions-TOTAL_FORMS" value="1"')
         self.assertContains(response, 'data-root-analysis-title')
         self.assertContains(response, 'Корневая причина 1')
-        self.assertContains(response, 'class="corrective-action-row"')
+        # The redesigned corrective-action card: one «Исполнители» block of
+        # identical rows, and the execution mode under it.
+        self.assertContains(response, 'corrective-action-card__assignees')
+        self.assertContains(response, 'data-assignee-row')
+        self.assertContains(response, 'data-add-assignee')
+        self.assertContains(response, 'data-split-checkbox')
+        self.assertContains(response, 'Разбить задачу для исполнителей')
         self.assertContains(response, 'rows="2"')
 
     def test_otk_sees_own_act_at_otk_review_stage(self):

@@ -1445,11 +1445,89 @@
     gap: 14px;
 }
 
-.corrective-action-additional-list { display: grid; gap: 8px; }
-.corrective-action-card__fields--additional {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-    width: min(760px, 100%);
+/* Corrective-action card: the «Исполнители» block ------------------------- */
+
+.corrective-action-card__title {
+    color: var(--color-text);
+    font-size: 15px;
+    font-weight: 700;
 }
+
+.corrective-action-card__comment { align-self: stretch; }
+.corrective-action-card__comment textarea { min-height: 54px; resize: vertical; }
+
+/* The executors, set apart from the fields above them the way a protocol task
+   card sets its own apart — one block, identical rows inside it. */
+.corrective-action-card__assignees {
+    display: grid;
+    justify-items: start;
+    gap: 10px;
+    padding: 12px;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.corrective-action-card__assignees-label {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.to-assignee-list { display: grid; gap: 10px; width: 100%; }
+
+/* Every row identical, first one included: department, employee, compact ×. */
+.to-assignee-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: end;
+    width: 100%;
+}
+
+.to-assignee-row .analysis-remove-button { margin-bottom: 4px; }
+.to-assignee-row .analysis-remove-button[hidden] { display: none; }
+
+/* A saved employee who no longer matches the chosen department. Spans the
+   whole row, under the two selectors it is about. */
+.to-pair-warning {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: #b45309;
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.to-pair-warning[hidden] { display: none; }
+
+.to-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.to-checkbox input { width: auto; }
+
+/* «Разбить задачу для исполнителей»: an execution option, deliberately
+   quieter than the fields above it, and greyed out whole while the card names
+   fewer than two executors. */
+.to-split-option {
+    display: grid;
+    gap: 4px;
+    justify-items: start;
+}
+
+.to-split-option:has(input:disabled) { opacity: 0.55; }
+
+.to-split-hint {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-style: italic;
+    line-height: 1.35;
+}
+
+.to-split-hint [hidden] { display: none; }
 
 .root-analysis-card .act-inline-actions { gap: 8px; }
 .root-analysis-card .act-inline-actions .link-button { margin-top: 0; }
@@ -1762,7 +1840,8 @@
         grid-template-columns: 1fr;
     }
 
-    .corrective-action-card__fields--additional { width: 100%; }
+    .to-assignee-row { grid-template-columns: minmax(0, 1fr); }
+    .to-assignee-row .analysis-remove-button { justify-self: end; margin-bottom: 0; }
 
     .to-analysis-readonly .act-defects-table-wrap { overflow-x: auto; }
     .to-analysis-readonly .to-analysis-table { min-width: 680px; }
