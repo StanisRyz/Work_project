@@ -1,5 +1,8 @@
+from types import SimpleNamespace
+
 from django.contrib.auth.models import User
 from django.test import TestCase
+from django.urls import reverse
 
 from accounts.models import UserProfile
 from acts.models import Act
@@ -9,6 +12,7 @@ from acts.permissions import (
     can_approve_act,
     can_close_act,
     can_create_act,
+    can_download_attachment,
     can_edit_act,
     can_return_to_ko,
     can_return_to_otk,
@@ -46,6 +50,7 @@ class ActPermissionTests(TestCase):
         cls.manager_user = cls._create_user('manager', UserProfile.Role.MANAGER)
         cls.admin_user = cls._create_user('admin', UserProfile.Role.ADMIN)
         cls.pdo_user = cls._create_user('pdo', UserProfile.Role.PDO)
+        cls.mas_user = cls._create_user('mas', UserProfile.Role.MAS)
         cls.no_profile_user = User.objects.create_user(username='no_profile', password='demo12345')
         cls.no_profile_user.userprofile.delete()
         cls.no_profile_user._state.fields_cache.pop('userprofile', None)
@@ -64,6 +69,7 @@ class ActPermissionTests(TestCase):
         cls.actions_act = cls._create_act(cls.status_actions)
         cls.closed_act = cls._create_act(cls.status_closed)
         cls.cancelled_act = cls._create_act(cls.status_cancelled)
+        cls.archived_act = cls._create_act(ActStatus.objects.get(code='ARCHIVED'))
 
     @classmethod
     def _create_user(cls, username, role):
@@ -225,3 +231,82 @@ class ActPermissionTests(TestCase):
         # Reading every act stays open to ПДО, as it is to every role.
         self.assertTrue(can_view_act(self.ko_act, self.pdo_user))
         self.assertEqual(get_visible_acts_queryset(self.pdo_user).count(), 0)
+
+    def test_mas_reads_acts_but_has_no_working_scope_or_act_authority(self):
+        self.assertFalse(has_full_act_access(self.mas_user))
+        self.assertFalse(is_act_admin(self.mas_user))
+        self.assertFalse(can_create_act(self.mas_user))
+        self.assertEqual(get_visible_acts_queryset(self.mas_user).count(), 0)
+        for act in (self.created_act, self.archived_act):
+            self.assertTrue(can_view_act(act, self.mas_user))
+            self.assertTrue(
+                can_download_attachment(SimpleNamespace(act=act), self.mas_user)
+            )
+
+        checks = (
+            can_edit_act,
+            can_send_to_ko,
+            can_apply_ko_decision,
+            can_return_to_otk,
+            can_apply_to_analysis,
+            can_return_to_ko,
+            can_return_to_to,
+            can_approve_act,
+            can_close_act,
+        )
+        for act in (
+            self.created_act,
+            self.otk_review_act,
+            self.ko_act,
+            self.to_act,
+            self.actions_act,
+        ):
+            for check in checks:
+                with self.subTest(act=act.status.code, check=check.__name__):
+                    self.assertFalse(check(act, self.mas_user))
+
+    def test_mas_direct_requests_cannot_bypass_act_permissions(self):
+        self.client.force_login(self.mas_user)
+
+        active = self.client.get(reverse('acts:detail', args=[self.created_act.pk]))
+        archived = self.client.get(reverse('acts:detail', args=[self.archived_act.pk]))
+        self.assertEqual(active.status_code, 200)
+        self.assertEqual(archived.status_code, 200)
+        self.assertFalse(active.context['can_contribute'])
+        self.assertFalse(any(
+            allowed
+            for action, allowed in active.context['available_actions'].items()
+            if action != 'print_act'
+        ))
+        all_acts = self.client.get(reverse('acts:list'), {'scope': 'all'})
+        archive = self.client.get(reverse('acts:list'), {'scope': 'archive'})
+        self.assertIn(self.created_act, all_acts.context['acts'])
+        self.assertIn(self.archived_act, archive.context['acts'])
+
+        before = Act.objects.count()
+        self.assertRedirects(
+            self.client.post(reverse('acts:create'), {}),
+            reverse('acts:list'),
+        )
+        self.assertEqual(
+            self.client.post(reverse('acts:edit', args=[self.created_act.pk]), {}).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(reverse('acts:send_to_ko', args=[self.created_act.pk])).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse('acts:add_comment', args=[self.created_act.pk]),
+                {'text': 'Недоступный комментарий'},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(reverse('acts:add_attachment', args=[self.created_act.pk])).status_code,
+            404,
+        )
+        self.assertEqual(Act.objects.count(), before)
+        self.created_act.refresh_from_db()
+        self.assertEqual(self.created_act.status.code, 'CREATED_OTK')

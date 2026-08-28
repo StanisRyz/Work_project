@@ -886,6 +886,8 @@ def get_role_context_text(user):
         return 'Показаны только акты, находящиеся на анализе ТО.'
     if role == 'manager':
         return 'Показаны все акты.'
+    if role == UserProfile.Role.MAS:
+        return 'Акты доступны для чтения во вкладках «Все акты» и «Архив».'
     return 'Для пользователя без роли список актов недоступен.'
 
 

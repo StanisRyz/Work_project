@@ -24,7 +24,7 @@ from protocols.models import (
     ProtocolSpeech,
     ProtocolType,
 )
-from protocols.permissions import can_edit_protocol
+from protocols.permissions import can_decide_protocol_approval, can_edit_protocol, is_protocol_admin
 from protocols.services import (
     ProtocolWorkflowError,
     add_participant,
@@ -320,6 +320,124 @@ class ProtocolAccessTests(TestCase):
         self.assertRedirects(response, reverse('protocols:list'))
         self.assertFalse(Protocol.objects.filter(pk=protocol.pk).exists())
         self.assertEqual(ProtocolParticipant.objects.count(), 0)
+
+
+class MasProtocolPermissionTests(TestCase):
+    """MAS follows the ordinary author/approver rules and gains no admin path."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.quality = ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE)
+        cls.mas_department = Department.objects.get(code='MAS')
+        cls.other_department = Department.objects.create(name='ТО', code='MAS_TEST_TO')
+        cls.mas = _employee(
+            'mas_protocol', cls.mas_department, 'Максим', 'Смирнов', role=UserProfile.Role.MAS
+        )
+        cls.other_author = _employee(
+            'mas_other_author', cls.other_department, 'Анна', 'Иванова'
+        )
+        cls.reviewer = _employee(
+            'mas_reviewer', cls.other_department, 'Олег', 'Петров'
+        )
+
+    def _payload(self, author, approver):
+        return {
+            'participants-TOTAL_FORMS': '1',
+            'participants-0-department': str(approver.userprofile.department_id),
+            'participants-0-user': str(approver.pk),
+            'participants-0-requires_approval': 'on',
+            'agenda-TOTAL_FORMS': '1',
+            'agenda-0-text': 'План производства',
+            'speeches-TOTAL_FORMS': '1',
+            'speeches-0-speaker': str(author.pk),
+            'speeches-0-text': 'Представлен план производства.',
+            'actions-TOTAL_FORMS': '1',
+            'actions-0-text': 'Проверить выполнение плана',
+            'actions-0-due_date': (timezone.localdate() + timedelta(days=7)).isoformat(),
+            'actions-0-assignee_departments': str(approver.userprofile.department_id),
+            'actions-0-assignees': str(approver.pk),
+        }
+
+    def test_mas_creates_edits_and_submits_only_their_own_protocol(self):
+        self.assertFalse(is_protocol_admin(self.mas))
+        self.client.force_login(self.mas)
+        self.assertEqual(self.client.get(reverse('protocols:create')).status_code, 200)
+
+        created = self.client.post(
+            reverse('protocols:create'), {'protocol_type': self.quality.pk}
+        )
+        protocol = Protocol.objects.get(author=self.mas)
+        self.assertRedirects(
+            created, reverse('protocols:detail', args=[protocol.pk])
+        )
+
+        payload = self._payload(self.mas, self.reviewer)
+        saved = self.client.post(
+            reverse('protocols:save_draft', args=[protocol.pk]), payload
+        )
+        self.assertRedirects(saved, reverse('protocols:detail', args=[protocol.pk]))
+
+        submitted = self.client.post(
+            reverse('protocols:send_for_approval', args=[protocol.pk]), payload
+        )
+        self.assertRedirects(submitted, reverse('protocols:detail', args=[protocol.pk]))
+        protocol.refresh_from_db()
+        self.assertEqual(protocol.status, Protocol.Status.APPROVAL)
+
+        deletable = create_protocol(self.quality, self.mas)
+        deleted = self.client.post(reverse('protocols:delete', args=[deletable.pk]))
+        self.assertRedirects(deleted, reverse('protocols:list'))
+        self.assertFalse(Protocol.objects.filter(pk=deletable.pk).exists())
+
+        other_protocol = create_protocol(self.quality, self.other_author)
+        self.assertFalse(can_edit_protocol(other_protocol, self.mas))
+        refused = self.client.post(
+            reverse('protocols:save_draft', args=[other_protocol.pk]),
+            self._payload(self.other_author, self.reviewer),
+        )
+        self.assertEqual(refused.status_code, 403)
+        self.assertEqual(other_protocol.agenda_items.count(), 0)
+
+    def test_mas_decides_only_an_approval_actually_assigned_to_them(self):
+        assigned = create_protocol(self.quality, self.other_author)
+        self.client.force_login(self.other_author)
+        self.client.post(
+            reverse('protocols:send_for_approval', args=[assigned.pk]),
+            self._payload(self.other_author, self.mas),
+        )
+        assigned.refresh_from_db()
+        self.assertEqual(assigned.status, Protocol.Status.APPROVAL)
+
+        self.client.force_login(self.mas)
+        self.assertTrue(can_decide_protocol_approval(assigned, self.mas))
+        approved = self.client.post(reverse('protocols:approve', args=[assigned.pk]))
+        self.assertRedirects(approved, reverse('protocols:detail', args=[assigned.pk]))
+        self.assertEqual(
+            ProtocolApproval.objects.get(protocol=assigned, user=self.mas).status,
+            ProtocolApproval.Status.APPROVED,
+        )
+
+        unassigned = create_protocol(self.quality, self.other_author)
+        self.client.force_login(self.other_author)
+        self.client.post(
+            reverse('protocols:send_for_approval', args=[unassigned.pk]),
+            self._payload(self.other_author, self.reviewer),
+        )
+        unassigned.refresh_from_db()
+
+        self.client.force_login(self.mas)
+        self.assertFalse(can_decide_protocol_approval(unassigned, self.mas))
+        refused = self.client.post(reverse('protocols:approve', args=[unassigned.pk]))
+        self.assertEqual(refused.status_code, 400)
+        returned = self.client.post(
+            reverse('protocols:return_for_revision', args=[unassigned.pk]),
+            {'comment': 'Попытка не назначенного согласующего.'},
+        )
+        self.assertEqual(returned.status_code, 400)
+        self.assertEqual(
+            ProtocolApproval.objects.get(protocol=unassigned, user=self.reviewer).status,
+            ProtocolApproval.Status.PENDING,
+        )
 
 
 class ProtocolApprovalWorkflowTests(TestCase):

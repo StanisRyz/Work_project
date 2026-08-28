@@ -507,12 +507,24 @@ tasks never live inside `acts`.
   reuses it: the JSON endpoints (`entry_create`, `entry_manual_create`,
   production confirm/unlock, `entry_delete`, all through
   `@workup_manager_required` → JSON 403) and
-  `WindingEntryAdmin.has_add/change/delete_permission`. ОТК, КО, ТО and
+  `WindingEntryAdmin.has_add/change/delete_permission`. ОТК, КО, ТО, MAS and
   Руководитель stay read-only, and no view, template or script restates the
   rule. It never keys on `department.code`, a username or `is_staff`. The
   department «Планово-диспетчерская служба» (`PDO`, seeded idempotently by
   `accounts.0003`) is organisational only and grants nothing; it is also listed
   in `MIGRATION_SEEDED_ROWS` so a fresh transfer target is still «empty».
+- **`UserProfile.Role.MAS` (`mas`, «Мастер производства») is a first-class
+  ordinary operational role.** Its active organisational department
+  «Мастера производства» (`MAS`) is seeded idempotently by `accounts.0005`, but
+  department and role remain separate concepts and no permission checks the
+  department code. MAS reads all authenticated-user Act and task registries but
+  has no Act working scope, creation, mutation, workflow, manager or administrator
+  authority; creates and manages own protocols through the ordinary author and
+  assigned-approver rules; completes assigned ordinary tasks but never a
+  `PROTOCOL_APPROVAL` task through `complete_task()`; calculates winding and
+  reads/searches/exports «Проработка» without mutating it; and has ordinary
+  authenticated-user Plate Cutting preset Save/Search/Load. MAS has no Django
+  Admin privilege.
 - **Reading the journal stays open to every authenticated user**: the calculator
   page, calculations, the entry list, the `d/D-b` search, reload and the
   `.xlsx` export. The template's `can_manage_workup` flag is presentation

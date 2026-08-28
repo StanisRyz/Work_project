@@ -28,6 +28,9 @@ class UserProfile(models.Model):
         # journal. A first-class role like the others — never a department
         # check, never a synonym of any existing role.
         PDO = 'pdo', 'ПДО'
+        # Manufacturing supervisors are ordinary operational users. Their
+        # organisational department is separate metadata and grants no rights.
+        MAS = 'mas', 'Мастер производства'
         MANAGER = 'manager', 'Руководитель'
         ADMIN = 'admin', 'Администратор'
 

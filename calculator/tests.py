@@ -192,6 +192,7 @@ class WorkupOwnershipTests(TestCase):
         cls.ko = make_user('ko_user', role=UserProfile.Role.KO)
         cls.to = make_user('to_user', role=UserProfile.Role.TO)
         cls.manager = make_user('manager_user', role=UserProfile.Role.MANAGER)
+        cls.mas = make_user('mas_user', role=UserProfile.Role.MAS)
 
     def _json(self, url, user, payload=None):
         self.client.force_login(user)
@@ -202,7 +203,7 @@ class WorkupOwnershipTests(TestCase):
     def test_can_manage_workup_is_pdo_admin_or_superuser_only(self):
         for user in (self.pdo, self.admin, self.root):
             self.assertTrue(can_manage_workup(user), user.username)
-        for user in (self.otk, self.ko, self.to, self.manager):
+        for user in (self.otk, self.ko, self.to, self.manager, self.mas):
             self.assertFalse(can_manage_workup(user), user.username)
 
         # A ПДО *department* is organisational and still grants nothing, and an
@@ -255,7 +256,7 @@ class WorkupOwnershipTests(TestCase):
             (reverse('calculator:entry_production_unlock', args=[entry_id]), {}),
             (reverse('calculator:entry_delete', args=[entry_id]), {}),
         )
-        for user in (self.otk, self.ko, self.to, self.manager):
+        for user in (self.otk, self.ko, self.to, self.manager, self.mas):
             for url, payload in mutations:
                 response = self._json(url, user, payload)
                 self.assertEqual(response.status_code, 403, url)
@@ -265,9 +266,14 @@ class WorkupOwnershipTests(TestCase):
         self.assertFalse(WindingEntry.objects.get(pk=entry_id).production_confirmed)
 
         # Both may still read the journal, its page and the export.
-        for user in (self.pdo, self.otk):
+        for user in (self.pdo, self.otk, self.mas):
             self.client.force_login(user)
-            self.assertEqual(self.client.get(reverse('calculator:page')).status_code, 200)
+            page = self.client.get(reverse('calculator:page'))
+            self.assertEqual(page.status_code, 200)
+            if user == self.mas:
+                self.assertFalse(page.context['can_manage_workup'])
+                self.assertNotContains(page, 'id="calc-manual-form"')
+                self.assertNotContains(page, 'id="calc-delete-modal"')
             listed = self.client.get(reverse('calculator:entry_list'))
             self.assertEqual(listed.status_code, 200)
             self.assertEqual(len(listed.json()['entries']), 1)

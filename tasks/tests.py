@@ -16,7 +16,7 @@ from realtime.sync import build_sync_state
 from references.models import ActStatus, DefectType, Operation, TaskStatus
 
 from .models import Task, TaskAssignee
-from .permissions import can_complete_task
+from .permissions import can_complete_task, get_visible_tasks_queryset
 from .services import TaskWorkflowError, complete_task, replace_task_assignees
 
 
@@ -32,6 +32,7 @@ class TaskViewsTests(TestCase):
         cls.employee = cls._user('employee', UserProfile.Role.TO, cls.department)
         cls.other_employee = cls._user('other', UserProfile.Role.TO, cls.department)
         cls.manager = cls._user('manager', UserProfile.Role.MANAGER, cls.department)
+        cls.mas = cls._user('mas_employee', UserProfile.Role.MAS, cls.department)
         cls.creator = cls._user('otk', UserProfile.Role.OTK, cls.other_department)
         cls.act = Act.objects.create(
             created_by=cls.creator, nomenclature='Изделие', status=cls.status_archived,
@@ -134,6 +135,64 @@ class TaskViewsTests(TestCase):
         self.assertEqual(task.execution_comment, 'Мероприятие выполнено.')
         with self.assertRaises(TaskWorkflowError):
             complete_task(task, self.employee, 'Повторное завершение.')
+
+    def test_mas_reads_and_completes_assigned_work_but_not_protocol_approval_tasks(self):
+        ordinary = self._task(self.mas, timezone.localdate())
+        someone_elses = self._task(self.employee, timezone.localdate())
+        self.assertIn(ordinary, get_visible_tasks_queryset(self.mas))
+        self.assertNotIn(someone_elses, get_visible_tasks_queryset(self.mas))
+        self.client.force_login(self.mas)
+        self.assertEqual(
+            self.client.get(reverse('tasks:detail', args=[ordinary.pk])).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.get(reverse('tasks:detail', args=[someone_elses.pk])).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse('tasks:complete', args=[someone_elses.pk]),
+                {'execution_comment': 'Чужая задача.'},
+            ).status_code,
+            404,
+        )
+        completed = self.client.post(
+            reverse('tasks:complete', args=[ordinary.pk]),
+            {'execution_comment': 'Работа выполнена мастером.'},
+        )
+        self.assertRedirects(
+            completed,
+            f"{reverse('tasks:list')}?tab=archive&number={ordinary.pk}",
+        )
+        ordinary.refresh_from_db()
+        self.assertEqual(ordinary.status.code, 'COMPLETED')
+        self.assertEqual(ordinary.completed_by, self.mas)
+
+        protocol = Protocol.objects.create(
+            protocol_type=ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE),
+            number=100,
+            author=self.creator,
+        )
+        approval_task = Task.objects.create(
+            source_type=Task.SourceType.PROTOCOL_APPROVAL,
+            protocol=protocol,
+            task_text='Согласовать протокол',
+            department=self.department,
+            due_date=timezone.localdate(),
+            created_by=self.creator,
+            status=self.task_status,
+        )
+        TaskAssignee.objects.create(task=approval_task, user=self.mas)
+
+        self.assertFalse(can_complete_task(approval_task, self.mas))
+        refused = self.client.post(
+            reverse('tasks:complete', args=[approval_task.pk]),
+            {'execution_comment': 'Попытка обычного завершения.'},
+        )
+        self.assertEqual(refused.status_code, 400)
+        approval_task.refresh_from_db()
+        self.assertEqual(approval_task.status.code, 'IN_PROGRESS')
 
     def test_completing_a_task_bumps_updated_at_and_moves_the_tasks_revision(self):
         # `updated_at` is `auto_now=True`, but Django only bumps it when the

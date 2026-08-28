@@ -17,6 +17,8 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
+from accounts.models import UserProfile
+
 from .constants import HOLE_SECONDS, PLATE_LENGTH_RANGES
 from .models import MAX_HOLE_COUNT, MAX_PLATE_COUNT, PlateCuttingPreset
 
@@ -131,6 +133,31 @@ class PlateCuttingPresetTests(TestCase):
              for p in preset.packages.all()],
             [(0, '341', 120, 40), (1, '1', 500, 1000), (2, '2721', 7, 0)],
         )
+
+    def test_mas_keeps_the_ordinary_save_search_and_load_capabilities(self):
+        mas = User.objects.create_user(username='mas_cutter', password='demo12345')
+        UserProfile.objects.filter(user=mas).update(role=UserProfile.Role.MAS)
+        self.client.force_login(mas)
+
+        page = self.client.get(reverse('plate_cutting:page'))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'data-open-save')
+        self.assertContains(page, 'data-open-load')
+
+        created = self.post_preset({
+            'name': 'Набор мастера',
+            'packages': [{'range': '171', 'plates': 25, 'holes': 10}],
+        })
+        self.assertEqual(created.status_code, 201)
+        preset_id = created.json()['preset']['id']
+
+        found = self.client.get(reverse('plate_cutting:preset_list'), {'q': 'мастера'})
+        self.assertEqual([item['id'] for item in found.json()['presets']], [preset_id])
+        loaded = self.client.get(reverse('plate_cutting:preset_load', args=[preset_id]))
+        self.assertEqual(loaded.status_code, 200)
+        self.assertEqual(loaded.json()['preset']['packages'], [
+            {'range': '171', 'plates': 25, 'holes': 10},
+        ])
 
     def test_search_is_case_insensitive_and_load_returns_the_saved_inputs(self):
         self.post_preset({'name': 'Февраль', 'packages': [{'range': '171', 'plates': 9, 'holes': 3}]})
