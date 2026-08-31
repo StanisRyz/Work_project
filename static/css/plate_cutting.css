@@ -56,6 +56,10 @@
     border-color: #f0b4ad;
 }
 
+.plate-cutting-module .pcut-package--confirmed {
+    border-color: #9bd5ad;
+}
+
 .plate-cutting-module .pcut-package__head {
     display: flex;
     align-items: center;
@@ -107,6 +111,14 @@
     font: inherit;
 }
 
+.plate-cutting-module input:disabled,
+.plate-cutting-module select:disabled {
+    background: var(--color-bg);
+    color: var(--color-muted);
+    cursor: not-allowed;
+    opacity: 1;
+}
+
 .plate-cutting-module .pcut-package__result-row {
     position: relative;
     display: flex;
@@ -122,6 +134,16 @@
     flex: 1;
     color: var(--color-text);
     font-weight: 700;
+}
+
+.plate-cutting-module .pcut-package__confirm {
+    min-width: 34px;
+    padding-right: 8px;
+    padding-left: 8px;
+}
+
+.plate-cutting-module .pcut-package__confirm svg {
+    display: block;
 }
 
 .plate-cutting-module .pcut-errors {
@@ -215,6 +237,32 @@
 }
 
 /* ---------------------------------------------------------------- total -- */
+
+.plate-cutting-module .pcut-total__grid {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) minmax(180px, 1fr) minmax(180px, 1.2fr);
+    gap: 20px;
+    align-items: end;
+    margin-top: 16px;
+}
+
+.plate-cutting-module .pcut-total__label,
+.plate-cutting-module .pcut-set-quantity {
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.plate-cutting-module .pcut-set-quantity {
+    display: grid;
+    gap: 6px;
+}
+
+.plate-cutting-module .pcut-total__single {
+    margin: 6px 0 0;
+    color: var(--color-text);
+    font-size: 22px;
+    font-weight: 700;
+}
 
 .plate-cutting-module .pcut-total__value {
     margin: 6px 0 0;
@@ -321,6 +369,18 @@
     flex: none;
 }
 
+.plate-cutting-module .pcut-preset__actions {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.plate-cutting-module .pcut-conflict-actions {
+    flex-wrap: wrap;
+}
+
 @media (max-width: 900px) {
     .plate-cutting-module .pcut-fields {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -329,6 +389,10 @@
     .plate-cutting-module .pcut-card__heading {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .plate-cutting-module .pcut-total__grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
@@ -347,5 +411,14 @@
     .plate-cutting-module .pcut-preset {
         flex-direction: column;
         align-items: stretch;
+    }
+
+
+    .plate-cutting-module .pcut-total__grid {
+        grid-template-columns: 1fr;
+    }
+
+    .plate-cutting-module .pcut-preset__actions {
+        justify-content: flex-start;
     }
 }

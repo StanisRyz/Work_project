@@ -1,16 +1,5 @@
-"""The only place a saved package set is written or read back.
-
-Everything the browser sends is re-checked here against the same rules the
-page enforces for immediate feedback — a non-empty name, at least one package,
-a band that exists in `constants.PLATE_LENGTH_RANGES`, plates > 0 and holes >= 0,
-and both counters within `models.MAX_PLATE_COUNT` / `models.MAX_HOLE_COUNT`.
-`create_preset()` writes the set and all of its packages in one transaction, so
-an invalid package leaves nothing behind at all.
-
-No result is ever stored or returned from here: the payloads carry inputs only,
-and the calculator recomputes the seconds and hours after loading.
-"""
-from django.db import transaction
+"""Validation and transactional writes for plate-cutting presets."""
+from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.utils import timezone
 
@@ -19,39 +8,53 @@ from .models import (
     MAX_HOLE_COUNT,
     MAX_PACKAGES_PER_PRESET,
     MAX_PLATE_COUNT,
+    MAX_SET_QUANTITY,
     PRESET_NAME_MAX_LENGTH,
     PlateCuttingPreset,
     PlateCuttingPresetPackage,
     build_search_name,
 )
+from .permissions import can_manage_plate_cutting_presets
 
-#: How many rows one search answers with. The library is expected to grow; the
-#: modal is a picker with a search field, not a report.
 SEARCH_LIMIT = 50
+CONFLICT_CREATE = 'create'
+CONFLICT_OVERWRITE = 'overwrite'
+CONFLICT_SAVE_AS_NEW = 'save_as_new'
+CONFLICT_ACTIONS = frozenset({
+    CONFLICT_CREATE,
+    CONFLICT_OVERWRITE,
+    CONFLICT_SAVE_AS_NEW,
+})
 
 
 class PlateCuttingValidationError(Exception):
-    """Rejected input, carrying the message the modal shows as it is."""
+    """Rejected input, carrying the message returned by the JSON endpoint."""
+
+
+class PlateCuttingPermissionError(Exception):
+    """A persisted preset mutation was attempted without management rights."""
+
+
+class PlateCuttingNameConflict(Exception):
+    """A normal create used a logical name already present in the library."""
+
+    def __init__(self, preset):
+        super().__init__('Набор с таким названием уже существует.')
+        self.preset = preset
+
+
+def _assert_can_manage(user):
+    if not can_manage_plate_cutting_presets(user):
+        raise PlateCuttingPermissionError(
+            'У вас нет прав на изменение библиотеки наборов.'
+        )
 
 
 def _author_name(user):
-    """The display name shown next to a preset — never an email or a role."""
     return user.get_full_name() or user.get_username()
 
 
 def _integer(value, label, minimum, maximum):
-    """A whole number from JSON, within *minimum*..*maximum*.
-
-    The conversion itself is the check: `str.isdigit()` cannot be used as a
-    guard because it answers True for strings `int()` refuses — `'--5'` after
-    stripping signs, and superscripts such as `'²'` — which turned malformed
-    input into an uncaught `ValueError` and an HTTP 500 instead of the
-    message the modal shows.
-
-    *maximum* is not optional. Both stored counters are `PositiveIntegerField`,
-    i.e. PostgreSQL `integer`: a value above its ceiling aborts the insert
-    rather than being rejected, and only in production. See `MAX_PLATE_COUNT`.
-    """
     if isinstance(value, bool):
         raise PlateCuttingValidationError(f'{label}: введите целое число.')
     if isinstance(value, int):
@@ -85,7 +88,6 @@ def _clean_name(value):
 
 
 def _clean_packages(raw_packages):
-    """The packages to store, validated and numbered in the order they came."""
     if not isinstance(raw_packages, list) or not raw_packages:
         raise PlateCuttingValidationError('Добавьте хотя бы один пакет.')
     if len(raw_packages) > MAX_PACKAGES_PER_PRESET:
@@ -105,49 +107,128 @@ def _clean_packages(raw_packages):
         cleaned.append({
             'range_value': band.value,
             'plate_count': _integer(
-                raw.get('plates'), f'Пакет {index}: количество пластин', 1, MAX_PLATE_COUNT,
+                raw.get('plates'), f'Пакет {index}: количество пластин',
+                1, MAX_PLATE_COUNT,
             ),
             'hole_count': _integer(
-                raw.get('holes'), f'Пакет {index}: количество отверстий', 0, MAX_HOLE_COUNT,
+                raw.get('holes'), f'Пакет {index}: количество отверстий',
+                0, MAX_HOLE_COUNT,
             ),
             'display_order': index - 1,
         })
     return cleaned
 
 
-@transaction.atomic
-def create_preset(user, data):
-    """Store the current package structure under a name. All or nothing.
-
-    Both cleaners run *before* the first `INSERT`, and the whole call is one
-    transaction, so a rejected package cannot leave a half-saved set behind.
-    """
+def _clean_payload(data):
     if not isinstance(data, dict):
         raise PlateCuttingValidationError('Некорректный запрос.')
-    name = _clean_name(data.get('name'))
-    packages = _clean_packages(data.get('packages'))
+    action = str(data.get('conflict_action') or CONFLICT_CREATE)
+    if action not in CONFLICT_ACTIONS:
+        raise PlateCuttingValidationError('Некорректный способ сохранения набора.')
+    return (
+        _clean_name(data.get('name')),
+        _integer(
+            data.get('set_quantity', 1), 'Количество наборов',
+            1, MAX_SET_QUANTITY,
+        ),
+        _clean_packages(data.get('packages')),
+        action,
+    )
 
-    preset = PlateCuttingPreset.objects.create(
-        name=name, search_name=build_search_name(name), author=user,
-    )
+
+def _create_packages(preset, packages):
     PlateCuttingPresetPackage.objects.bulk_create(
-        PlateCuttingPresetPackage(preset=preset, **package) for package in packages
+        PlateCuttingPresetPackage(preset=preset, **package)
+        for package in packages
     )
-    return preset
+
+
+def _suffixed_name(base_name, number):
+    suffix = f'_{number:02d}'
+    return f'{base_name[:PRESET_NAME_MAX_LENGTH - len(suffix)]}{suffix}'
+
+
+def _create_unique_suffixed_preset(user, name, set_quantity):
+    """Create the first free suffixed row, retrying after a concurrent win."""
+    number = 1
+    while True:
+        candidate = _suffixed_name(name, number)
+        try:
+            with transaction.atomic():
+                return PlateCuttingPreset.objects.create(
+                    name=candidate,
+                    search_name=build_search_name(candidate),
+                    set_quantity=set_quantity,
+                    author=user,
+                )
+        except IntegrityError:
+            number += 1
+
+
+@transaction.atomic
+def create_preset(user, data):
+    """Create, overwrite or create a suffixed copy as one transaction."""
+    _assert_can_manage(user)
+    name, set_quantity, packages, action = _clean_payload(data)
+    search_name = build_search_name(name)
+    existing = (
+        PlateCuttingPreset.objects.select_for_update()
+        .filter(search_name=search_name)
+        .first()
+    )
+
+    if existing and action == CONFLICT_CREATE:
+        raise PlateCuttingNameConflict(existing)
+
+    if action == CONFLICT_OVERWRITE:
+        if existing is None:
+            raise PlateCuttingValidationError(
+                'Существующий набор уже удалён. Сохраните набор заново.'
+            )
+        existing.name = name
+        existing.set_quantity = set_quantity
+        existing.save(update_fields=['name', 'set_quantity', 'updated_at'])
+        existing.packages.all().delete()
+        _create_packages(existing, packages)
+        return existing, False
+
+    if action == CONFLICT_SAVE_AS_NEW:
+        preset = _create_unique_suffixed_preset(user, name, set_quantity)
+        _create_packages(preset, packages)
+        return preset, True
+
+    try:
+        with transaction.atomic():
+            preset = PlateCuttingPreset.objects.create(
+                name=name,
+                search_name=search_name,
+                set_quantity=set_quantity,
+                author=user,
+            )
+    except IntegrityError:
+        conflicting = (
+            PlateCuttingPreset.objects.select_for_update()
+            .get(search_name=search_name)
+        )
+        raise PlateCuttingNameConflict(conflicting)
+    _create_packages(preset, packages)
+    return preset, True
+
+
+@transaction.atomic
+def delete_preset(user, preset_id):
+    """Delete one locked preset; its package rows cascade in the transaction."""
+    _assert_can_manage(user)
+    preset = PlateCuttingPreset.objects.select_for_update().filter(pk=preset_id).first()
+    if preset is None:
+        raise PlateCuttingValidationError('Набор не найден.')
+    preset.delete()
 
 
 def search_presets(query='', limit=SEARCH_LIMIT):
-    """Saved sets whose name contains *query*, newest first.
-
-    Substring matching done by the database against the normalized
-    `search_name` column, so it is case-insensitive for Cyrillic on every
-    backend. No full-text index and no search dependency. Every authenticated
-    user sees every set.
-    """
     presets = (
         PlateCuttingPreset.objects
         .select_related('author')
-        # Counted by the database, so the modal's list is one query.
         .annotate(package_count=Count('packages'))
     )
     text = build_search_name(query)
@@ -157,31 +238,29 @@ def search_presets(query='', limit=SEARCH_LIMIT):
 
 
 def preset_summary(preset):
-    """One row of the «Загрузить набор» list. Inputs and traceability only."""
     return {
         'id': preset.pk,
         'name': preset.name,
         'author': _author_name(preset.author),
         'created_at': timezone.localtime(preset.created_at).strftime('%d.%m.%Y'),
         'package_count': getattr(preset, 'package_count', None) or preset.packages.count(),
+        'set_quantity': preset.set_quantity,
     }
 
 
 def preset_detail(preset):
-    """The authoritative structure the calculator rebuilds itself from."""
     return {
         'id': preset.pk,
         'name': preset.name,
         'author': _author_name(preset.author),
         'created_at': timezone.localtime(preset.created_at).strftime('%d.%m.%Y'),
+        'set_quantity': preset.set_quantity,
         'packages': [
             {
                 'range': package.range_value,
                 'plates': package.plate_count,
                 'holes': package.hole_count,
             }
-            # `Meta.ordering` is `display_order` first: the saved order is the
-            # order the packages are rebuilt in.
             for package in preset.packages.all()
         ],
     }

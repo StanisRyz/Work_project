@@ -105,6 +105,10 @@ class PlateCuttingPresetTests(TestCase):
         self.user = User.objects.create_user(
             username='cutter', password='demo12345', first_name='Иван', last_name='Петров',
         )
+        UserProfile.objects.update_or_create(
+            user=self.user,
+            defaults={'role': UserProfile.Role.PDO, 'is_active': True},
+        )
         self.client.login(username='cutter', password='demo12345')
 
     def post_preset(self, payload):
@@ -117,6 +121,7 @@ class PlateCuttingPresetTests(TestCase):
     def test_saving_keeps_every_package_in_the_order_it_was_sent(self):
         response = self.post_preset({
             'name': '  Январь  ',
+            'set_quantity': 10,
             'packages': [
                 {'range': '341', 'plates': 120, 'holes': 40},
                 {'range': '1', 'plates': 500, 'holes': 1000},
@@ -128,36 +133,120 @@ class PlateCuttingPresetTests(TestCase):
         preset = PlateCuttingPreset.objects.get()
         self.assertEqual(preset.name, 'Январь')
         self.assertEqual(preset.author, self.user)
+        self.assertEqual(preset.set_quantity, 10)
         self.assertEqual(
             [(p.display_order, p.range_value, p.plate_count, p.hole_count)
              for p in preset.packages.all()],
             [(0, '341', 120, 40), (1, '1', 500, 1000), (2, '2721', 7, 0)],
         )
 
-    def test_mas_keeps_the_ordinary_save_search_and_load_capabilities(self):
-        mas = User.objects.create_user(username='mas_cutter', password='demo12345')
-        UserProfile.objects.filter(user=mas).update(role=UserProfile.Role.MAS)
-        self.client.force_login(mas)
+        loaded = self.client.get(reverse('plate_cutting:preset_load', args=[preset.pk]))
+        self.assertEqual(loaded.json()['preset']['set_quantity'], 10)
+        deleted = self.client.post(reverse('plate_cutting:preset_delete', args=[preset.pk]))
+        self.assertEqual(deleted.status_code, 200)
+        self.assertFalse(PlateCuttingPreset.objects.exists())
+        self.assertEqual(self.post_preset({
+            'name': 'Некорректное количество',
+            'set_quantity': 0,
+            'packages': [{'range': '1', 'plates': 1, 'holes': 0}],
+        }).status_code, 400)
 
-        page = self.client.get(reverse('plate_cutting:page'))
-        self.assertEqual(page.status_code, 200)
-        self.assertContains(page, 'data-open-save')
-        self.assertContains(page, 'data-open-load')
-
+    def test_preset_permissions_keep_read_access_open_and_writes_restricted(self):
         created = self.post_preset({
-            'name': 'Набор мастера',
+            'name': 'Общий набор',
             'packages': [{'range': '171', 'plates': 25, 'holes': 10}],
         })
         self.assertEqual(created.status_code, 201)
         preset_id = created.json()['preset']['id']
 
-        found = self.client.get(reverse('plate_cutting:preset_list'), {'q': 'мастера'})
+        mas = User.objects.create_user(username='mas_cutter', password='demo12345')
+        UserProfile.objects.update_or_create(
+            user=mas,
+            defaults={'role': UserProfile.Role.MAS, 'is_active': True},
+        )
+        self.client.force_login(mas)
+
+        page = self.client.get(reverse('plate_cutting:page'))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, 'data-open-save')
+        self.assertContains(page, 'data-open-load')
+        found = self.client.get(reverse('plate_cutting:preset_list'), {'q': 'общий'})
         self.assertEqual([item['id'] for item in found.json()['presets']], [preset_id])
         loaded = self.client.get(reverse('plate_cutting:preset_load', args=[preset_id]))
         self.assertEqual(loaded.status_code, 200)
-        self.assertEqual(loaded.json()['preset']['packages'], [
-            {'range': '171', 'plates': 25, 'holes': 10},
-        ])
+        denied_payload = {
+            'name': 'Общий набор',
+            'conflict_action': 'overwrite',
+            'packages': [{'range': '1', 'plates': 1, 'holes': 0}],
+        }
+        self.assertEqual(self.post_preset({
+            'name': 'Новый набор мастера',
+            'packages': [{'range': '1', 'plates': 1, 'holes': 0}],
+        }).status_code, 403)
+        self.assertEqual(self.post_preset(denied_payload).status_code, 403)
+        self.assertEqual(
+            self.client.post(reverse('plate_cutting:preset_delete', args=[preset_id])).status_code,
+            403,
+        )
+
+        admin = User.objects.create_user(username='preset_admin', password='demo12345')
+        UserProfile.objects.update_or_create(
+            user=admin,
+            defaults={'role': UserProfile.Role.ADMIN, 'is_active': True},
+        )
+        self.client.force_login(admin)
+        self.assertEqual(self.post_preset({
+            'name': 'Набор администратора',
+            'packages': [{'range': '1', 'plates': 1, 'holes': 0}],
+        }).status_code, 201)
+        self.assertEqual(
+            self.client.post(reverse('plate_cutting:preset_delete', args=[preset_id])).status_code,
+            200,
+        )
+
+    def test_duplicate_name_requires_choice_then_overwrites_or_uses_suffix(self):
+        original = self.post_preset({
+            'name': 'Набор',
+            'set_quantity': 2,
+            'packages': [{'range': '1', 'plates': 10, 'holes': 0}],
+        })
+        original_id = original.json()['preset']['id']
+
+        duplicate = self.post_preset({
+            'name': '  нАБор  ',
+            'set_quantity': 3,
+            'packages': [{'range': '171', 'plates': 20, 'holes': 5}],
+        })
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(PlateCuttingPreset.objects.count(), 1)
+
+        overwrite = self.post_preset({
+            'name': 'Набор',
+            'set_quantity': 3,
+            'conflict_action': 'overwrite',
+            'packages': [{'range': '171', 'plates': 20, 'holes': 5}],
+        })
+        self.assertEqual(overwrite.status_code, 200)
+        self.assertEqual(overwrite.json()['preset']['id'], original_id)
+        preset = PlateCuttingPreset.objects.get(pk=original_id)
+        self.assertEqual(preset.set_quantity, 3)
+        self.assertEqual(
+            list(preset.packages.values_list('range_value', 'plate_count', 'hole_count')),
+            [('171', 20, 5)],
+        )
+
+        for expected in ('Набор_01', 'Набор_02'):
+            copied = self.post_preset({
+                'name': 'Набор',
+                'set_quantity': 4,
+                'conflict_action': 'save_as_new',
+                'packages': [{'range': '341', 'plates': 2, 'holes': 0}],
+            })
+            self.assertEqual(copied.status_code, 201)
+            self.assertEqual(copied.json()['preset']['name'], expected)
+        self.assertEqual(
+            PlateCuttingPreset.objects.values('search_name').distinct().count(), 3,
+        )
 
     def test_search_is_case_insensitive_and_load_returns_the_saved_inputs(self):
         self.post_preset({'name': 'Февраль', 'packages': [{'range': '171', 'plates': 9, 'holes': 3}]})

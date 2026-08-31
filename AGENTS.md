@@ -451,7 +451,8 @@ tasks never live inside `acts`.
   «Итого» all render from what it returns. There is no journal and no Redis
   channel here.
 - **A saved package set is inputs and order, never a result.**
-  `PlateCuttingPreset` (name, normalized `search_name`, author, timestamps) owns
+  `PlateCuttingPreset` (name, unique normalized `search_name`, `set_quantity`,
+  author, timestamps) owns
   an ordered `PlateCuttingPresetPackage` list (`range_value`, `plate_count`,
   `hole_count`, `display_order`); `range_value` is the `<select>` identifier of a
   band from `constants.PLATE_LENGTH_RANGES`, validated against those constants,
@@ -459,13 +460,23 @@ tasks never live inside `acts`.
   expanded formula text are never persisted — a loaded set is rebuilt from the
   page's own package `<template>` and recalculated by the current formula, which
   is what keeps old sets valid when a constant changes. `plate_cutting/services.py`
-  is the only place a set is written: it validates the trimmed name, at least one
-  package, the band and the plate/hole counts, and creates the preset and all of
-  its packages in one `@transaction.atomic` call, so an invalid package saves
-  nothing at all. The three `login_required` endpoints under
-  `/calculators/plate-cutting/presets/` save, search (`?q=`, substring over
-  `search_name`) and load; the modals reuse the application's `.app-modal`, and
-  there is no rename, delete or edit of a saved set.
+  is the only write layer. Logical names are trimmed and case-insensitive through
+  the unique `search_name`: an ordinary save conflicts without writing,
+  overwrite replaces packages and quantity on the locked row, and save-as-new
+  creates the first free `_01`, `_02`, … suffix under the database constraint.
+  All writes and deletion are transactional.
+- **Preset management has one permission rule.**
+  `plate_cutting.permissions.can_manage_plate_cutting_presets()` allows active
+  PDO/Admin profiles and genuine Django superusers. Everyone authenticated may
+  search/load; only managers may create, overwrite, copy or delete, and both the
+  JSON endpoints and UI use that helper.
+- **Confirmation and set quantity are calculator state.** A new package is
+  editable and must be confirmed locally before saving; a loaded package starts
+  confirmed, and editing it requires the pencil action. `set_quantity` is
+  enabled only while every package is confirmed and is persisted with the
+  preset. Package inputs always describe one set: `single_set_total` is the sum
+  of base package times, while every displayed package time and the grand total
+  are multiplied by `set_quantity` only when all packages are confirmed.
 - **Loading a set is confirmed before it overwrites anything.** `applyPreset()`
   replaces every package unconditionally, so the load handler asks
   `confirmReplace()` first: an untouched calculator (one package, no plates,

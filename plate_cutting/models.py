@@ -11,6 +11,7 @@ The band is stored as the identifier the calculator's `<select>` already uses
 seconds are looked up in the constants module when a preset is loaded.
 """
 from django.contrib.auth.models import User
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from .constants import RANGE_VALUE_MAX_LENGTH
@@ -34,6 +35,7 @@ PRESET_NAME_MAX_LENGTH = 120
 #: below.
 MAX_PLATE_COUNT = 1_000_000
 MAX_HOLE_COUNT = 1_000_000
+MAX_SET_QUANTITY = 1_000_000
 
 
 def build_search_name(name):
@@ -55,7 +57,12 @@ class PlateCuttingPreset(models.Model):
     # `build_search_name(name)`, kept beside it so a substring search is one
     # indexed column lookup rather than a function over every row.
     search_name = models.CharField(
-        'Ключ поиска', max_length=PRESET_NAME_MAX_LENGTH, db_index=True,
+        'Ключ поиска', max_length=PRESET_NAME_MAX_LENGTH,
+    )
+    set_quantity = models.PositiveIntegerField(
+        'Количество наборов',
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_SET_QUANTITY)],
     )
     # PROTECT, not CASCADE: the author is traceability, and deleting an
     # account must not silently take saved sets other people use with it.
@@ -72,6 +79,20 @@ class PlateCuttingPreset(models.Model):
         ordering = ['-created_at', '-pk']
         verbose_name = 'Набор пакетов рубки пластин'
         verbose_name_plural = 'Наборы пакетов рубки пластин'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['search_name'],
+                name='unique_plate_cutting_preset_search_name',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(set_quantity__gte=1),
+                name='plate_cutting_preset_set_quantity_positive',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(set_quantity__lte=MAX_SET_QUANTITY),
+                name='plate_cutting_preset_set_quantity_within_limit',
+            ),
+        ]
 
     def __str__(self):
         return self.name

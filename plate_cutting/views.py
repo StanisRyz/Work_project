@@ -18,10 +18,19 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
 from .constants import HOLE_SECONDS, PLATE_LENGTH_RANGES
-from .models import MAX_HOLE_COUNT, MAX_PLATE_COUNT, PlateCuttingPreset
+from .models import (
+    MAX_HOLE_COUNT,
+    MAX_PLATE_COUNT,
+    MAX_SET_QUANTITY,
+    PlateCuttingPreset,
+)
+from .permissions import can_manage_plate_cutting_presets
 from .services import (
+    PlateCuttingNameConflict,
+    PlateCuttingPermissionError,
     PlateCuttingValidationError,
     create_preset,
+    delete_preset,
     preset_detail,
     preset_summary,
     search_presets,
@@ -43,6 +52,8 @@ def plate_cutting_page(request):
         # slip on the number pad before it is ever sent.
         'max_plate_count': MAX_PLATE_COUNT,
         'max_hole_count': MAX_HOLE_COUNT,
+        'max_set_quantity': MAX_SET_QUANTITY,
+        'can_manage_presets': can_manage_plate_cutting_presets(request.user),
     })
 
 
@@ -55,10 +66,21 @@ def preset_create(request):
     except (UnicodeDecodeError, json.JSONDecodeError):
         return JsonResponse({'detail': 'Некорректный запрос.'}, status=400)
     try:
-        preset = create_preset(request.user, data)
+        preset, created = create_preset(request.user, data)
+    except PlateCuttingPermissionError as error:
+        return JsonResponse({'detail': str(error)}, status=403)
+    except PlateCuttingNameConflict as error:
+        return JsonResponse({
+            'detail': str(error),
+            'code': 'name_conflict',
+            'preset': preset_summary(error.preset),
+        }, status=409)
     except PlateCuttingValidationError as error:
         return JsonResponse({'detail': str(error)}, status=400)
-    return JsonResponse({'preset': preset_summary(preset)}, status=201)
+    return JsonResponse(
+        {'preset': preset_summary(preset), 'created': created},
+        status=201 if created else 200,
+    )
 
 
 @login_required
@@ -82,3 +104,16 @@ def preset_load(request, pk):
     response = JsonResponse({'preset': preset_detail(preset)})
     response['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
     return response
+
+
+@login_required
+@require_POST
+def preset_delete(request, pk):
+    """Delete one preset through the same centralized management rule."""
+    try:
+        delete_preset(request.user, pk)
+    except PlateCuttingPermissionError as error:
+        return JsonResponse({'detail': str(error)}, status=403)
+    except PlateCuttingValidationError as error:
+        return JsonResponse({'detail': str(error)}, status=404)
+    return JsonResponse({'deleted': True})
