@@ -23,7 +23,7 @@ def describe_task_source(task):
     Branching is on `source_type`, never on which nullable relation happens to
     be filled: a NULL cannot tell an absent origin from a wrong one.
     """
-    if task.source_type == Task.SourceType.ACT:
+    if task.source_type in {Task.SourceType.ACT, Task.SourceType.ACT_WORKFLOW}:
         if task.act_id is None:
             return {'label': '', 'url': ''}
         return {'label': task.act.number, 'url': reverse('acts:detail', args=[task.act_id])}
@@ -61,11 +61,25 @@ def describe_task_state(task):
     return {'label': str(task.status), 'variant': ''}
 
 
+def describe_task_type(task):
+    """«Тип задачи» for the registry and the task page.
+
+    An `ACT_WORKFLOW` row names the stage it stands for — «Этап обработки акта:
+    рассмотрение КО» — because four of them share one source type and the act
+    number alone does not say what is being asked. Read from the stored
+    `workflow_stage`, so an archived entry keeps its historical meaning.
+    """
+    label = task.get_source_type_display()
+    if task.source_type == Task.SourceType.ACT_WORKFLOW and task.workflow_stage:
+        return f'{label}: {task.get_workflow_stage_display().lower()}'
+    return label
+
+
 def describe_task(task):
     """One registry row: the task plus its source and its real state."""
     return {
         'task': task,
-        'type_label': task.get_source_type_display(),
+        'type_label': describe_task_type(task),
         'source': describe_task_source(task),
         'state': describe_task_state(task),
     }

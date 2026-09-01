@@ -12,7 +12,15 @@ readable messages) and by a database check constraint (the last line of
 defence). Two of those shapes come in a shared and a split variant, told apart
 by `individual_assignee`: NULL for the one task everybody shares, set for the
 one task split off for that person.
+
+Two of the four source types are *routing* entries rather than work:
+`PROTOCOL_APPROVAL` and `ACT_WORKFLOW`. Neither is completed with an
+execution comment — their real action is taken on the source document, and
+the document's workflow service closes them.
 """
+
+from pathlib import Path
+from uuid import uuid4
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
@@ -30,6 +38,24 @@ class Task(models.Model):
         ACT = 'ACT', 'По акту'
         PROTOCOL_APPROVAL = 'PROTOCOL_APPROVAL', 'Согласование протокола'
         PROTOCOL_ACTION = 'PROTOCOL_ACTION', 'По протоколу'
+        # A routing entry for the stage an act is currently waiting on, not a
+        # corrective action. Deliberately a separate type from `ACT`, which
+        # requires the act → root analysis → corrective action chain and is
+        # completed by an employee; this one is opened and closed by
+        # `acts/services.py` as the act moves.
+        ACT_WORKFLOW = 'ACT_WORKFLOW', 'Этап обработки акта'
+
+    class WorkflowStage(models.TextChoices):
+        """Which act stage an `ACT_WORKFLOW` task represents.
+
+        Persisted rather than read back off `Act.status`: a closed task must
+        keep saying what it was for, and the act has long moved on by then.
+        """
+
+        KO_REVIEW = 'KO_REVIEW', 'Рассмотрение КО'
+        TO_ANALYSIS = 'TO_ANALYSIS', 'Анализ ТО'
+        OTK_REVIEW = 'OTK_REVIEW', 'Итоговая проверка ОТК'
+        OTK_REWORK = 'OTK_REWORK', 'Доработка ОТК'
 
     # `default` is what let the existing production rows take a value when the
     # column was added, and it keeps a source type from ever being NULL. It is
@@ -102,8 +128,24 @@ class Task(models.Model):
         blank=True,
         verbose_name='Персональный исполнитель',
     )
+    # Filled for `ACT_WORKFLOW` only, and blank for every other source. It is
+    # the historical meaning of the row: which stage of the act's route this
+    # queue entry stood for when it was opened.
+    workflow_stage = models.CharField(
+        'Этап маршрута акта',
+        max_length=32,
+        choices=WorkflowStage.choices,
+        blank=True,
+    )
     task_text = models.TextField('Задача')
-    department = models.ForeignKey(Department, on_delete=models.PROTECT, verbose_name='Подразделение')
+    # Required for every real work item and enforced as such by the source
+    # constraint below. Nullable only because an `ACT_WORKFLOW` entry
+    # belongs to a *role* — every active КО, ТО or ОТК employee — and a
+    # role has no single department to name.
+    department = models.ForeignKey(
+        Department, on_delete=models.PROTECT, null=True, blank=True,
+        verbose_name='Подразделение',
+    )
     due_date = models.DateField('Срок')
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_tasks', verbose_name='Создал')
     created_at = models.DateTimeField('Создана', auto_now_add=True)
@@ -132,8 +174,13 @@ class Task(models.Model):
                     # `individual_assignee` is left free here and in the
                     # `PROTOCOL_ACTION` branch below: NULL is a shared task,
                     # set is one split off for that person, and both are valid
-                    # shapes of the same source. Only an approval task, which
+                    # shapes of the same source. Only a routing entry, which
                     # nobody splits, still forbids it outright.
+                    #
+                    # `department__isnull=False` and `workflow_stage=''` are
+                    # stated on all three existing branches, so making the
+                    # column nullable and adding the stage for `ACT_WORKFLOW`
+                    # relaxes nothing for the source types that already exist.
                     Q(
                         source_type='ACT',
                         act__isnull=False,
@@ -141,6 +188,8 @@ class Task(models.Model):
                         source_action__isnull=False,
                         protocol__isnull=True,
                         protocol_action__isnull=True,
+                        department__isnull=False,
+                        workflow_stage='',
                     )
                     | Q(
                         source_type='PROTOCOL_APPROVAL',
@@ -150,6 +199,8 @@ class Task(models.Model):
                         protocol__isnull=False,
                         protocol_action__isnull=True,
                         individual_assignee__isnull=True,
+                        department__isnull=False,
+                        workflow_stage='',
                     )
                     | Q(
                         source_type='PROTOCOL_ACTION',
@@ -158,6 +209,25 @@ class Task(models.Model):
                         source_action__isnull=True,
                         protocol__isnull=False,
                         protocol_action__isnull=False,
+                        department__isnull=False,
+                        workflow_stage='',
+                    )
+                    # The routing entry for an act stage: the act alone, no
+                    # corrective-action chain, no protocol, nobody to split it
+                    # between — and a stage that must actually be named.
+                    | (
+                        Q(
+                            source_type='ACT_WORKFLOW',
+                            act__isnull=False,
+                            root_analysis__isnull=True,
+                            source_action__isnull=True,
+                            protocol__isnull=True,
+                            protocol_action__isnull=True,
+                            individual_assignee__isnull=True,
+                        )
+                        # `workflow_stage` is a `CharField`, so "must be
+                        # filled" is stated as "is not the empty string".
+                        & ~Q(workflow_stage='')
                     )
                 ),
                 name='task_source_relations_match_source_type',
@@ -206,6 +276,23 @@ class Task(models.Model):
     def is_protocol_approval_task(self):
         return self.source_type == self.SourceType.PROTOCOL_APPROVAL
 
+    @property
+    def is_act_workflow_task(self):
+        return self.source_type == self.SourceType.ACT_WORKFLOW
+
+    @property
+    def is_routing_task(self):
+        """A queue entry whose real action happens on the source document.
+
+        The one answer the completion guard, the task page and the attachment
+        card all ask: a routing task has no execution form, is never completed
+        with a comment and carries no attachments.
+        """
+        return self.source_type in {
+            self.SourceType.PROTOCOL_APPROVAL,
+            self.SourceType.ACT_WORKFLOW,
+        }
+
     def clean(self):
         """Readable source validation, including the rules SQL cannot express.
 
@@ -235,6 +322,11 @@ class Task(models.Model):
             self.SourceType.PROTOCOL_ACTION: (
                 ('protocol', 'protocol_action'),
                 ('act', 'root_analysis', 'source_action'),
+            ),
+            self.SourceType.ACT_WORKFLOW: (
+                ('act',),
+                ('root_analysis', 'source_action', 'protocol', 'protocol_action',
+                 'individual_assignee'),
             ),
         }.get(self.source_type, ((), ()))
         if not required:
@@ -280,6 +372,17 @@ class Task(models.Model):
                     'Персональная задача создаётся только на исполнителя этого '
                     'корректирующего мероприятия.'
                 )
+        # The stage is what an `ACT_WORKFLOW` row *means*, and it is
+        # meaningless anywhere else; `department` is required by every real
+        # work item and unavailable for a role-wide routing entry.
+        if self.source_type == self.SourceType.ACT_WORKFLOW:
+            if not self.workflow_stage:
+                errors['workflow_stage'] = f'Обязательно для источника «{source_name}».'
+        else:
+            if self.workflow_stage:
+                errors['workflow_stage'] = f'Недопустимо для источника «{source_name}».'
+            if required and self.department_id is None:
+                errors['department'] = f'Обязательно для источника «{source_name}».'
         if errors:
             raise ValidationError(errors)
 
@@ -295,3 +398,58 @@ class TaskAssignee(models.Model):
 
     def __str__(self):
         return f'{self.task}: {self.user}'
+
+
+def task_attachment_upload_to(instance, filename):
+    """`tasks/attachments/<task_id>/<uuid>.<ext>` — never the browser's name.
+
+    The same shape act and protocol attachments use: a UUID file name means an
+    uploaded name can neither collide, escape its directory, nor become a
+    guessable URL. `MEDIA_ROOT` is not published by the web server, so the file
+    is only ever reachable through the permission-checked download view.
+    """
+    extension = Path(filename).suffix.lower()
+    task_id = instance.task_id or 'unassigned'
+    return f'tasks/attachments/{task_id}/{uuid4().hex}{extension}'
+
+
+class TaskAttachment(models.Model):
+    """An optional file attached to an ordinary, executable task.
+
+    Optional is the whole point: a task is completed with its execution
+    comment and zero attachments, exactly as before. Uploading is a separate
+    request from completing, so no file can ever become a precondition of
+    finishing the work.
+
+    Routing tasks (`PROTOCOL_APPROVAL`, `ACT_WORKFLOW`) carry no attachments —
+    their real action happens on the source document, which has attachments of
+    its own. `tasks.permissions` states that rule; the model only stores.
+    """
+
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name='attachments',
+        verbose_name='Задача',
+    )
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='task_attachments',
+        verbose_name='Загрузил',
+        blank=True,
+        null=True,
+    )
+    file = models.FileField('Файл', upload_to=task_attachment_upload_to)
+    original_name = models.CharField('Исходное имя файла', max_length=255)
+    file_size = models.PositiveIntegerField('Размер файла', default=0)
+    content_type = models.CharField('Тип содержимого', max_length=120, blank=True)
+    created_at = models.DateTimeField('Загружено', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Вложение задачи'
+        verbose_name_plural = 'Вложения задач'
+
+    def __str__(self):
+        return f'Задача #{self.task_id}: {self.original_name}'

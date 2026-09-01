@@ -97,7 +97,12 @@ def can_contribute_to_act(act, user):
     if has_full_act_access(user):
         return True
     if is_otk(user):
-        return act.created_by_id == user.id and _status_code(act) in {'CREATED_OTK', 'OTK_REVIEW'}
+        # `OTK_REVIEW` is the department's queue, not the author's: any active
+        # ОТК employee reviews, returns and approves it. `CREATED_OTK` stays
+        # the creator's own act until it is sent to КО.
+        if _status_code(act) == 'OTK_REVIEW':
+            return True
+        return act.created_by_id == user.id and _status_code(act) == 'CREATED_OTK'
     if is_ko(user):
         return _status_code(act) == 'KO_REVIEW'
     if is_to(user):
@@ -140,9 +145,17 @@ def can_return_to_ko(act, user):
 
 
 def can_review_otk(act, user):
+    """Final ОТК review — «Вернуть в ТО» and «Утвердить».
+
+    Any active ОТК employee, not only the act's author: the act is back with
+    the department, and the person who created it may be away. Manager and
+    administrator access is unchanged, and `can_return_to_to()` /
+    `can_approve_act()` are this same rule so the backend and the UI cannot
+    disagree.
+    """
     if _status_code(act) != 'OTK_REVIEW':
         return False
-    return has_full_act_access(user) or (is_otk(user) and act.created_by_id == user.id)
+    return has_full_act_access(user) or is_otk(user)
 
 
 def can_return_to_to(act, user):
@@ -193,7 +206,12 @@ def get_visible_acts_queryset(user):
     if has_full_act_access(user):
         return queryset
     if is_otk(user):
-        return queryset.filter(created_by=user, status__code__in=['CREATED_OTK', 'OTK_REVIEW'])
+        # Own acts still waiting to be sent to КО, plus every act the route
+        # brought back to ОТК for the final review — that queue is the
+        # department's, not the author's.
+        return queryset.filter(
+            Q(created_by=user, status__code='CREATED_OTK') | Q(status__code='OTK_REVIEW')
+        )
     if is_ko(user):
         return queryset.filter(status__code='KO_REVIEW')
     if is_to(user):

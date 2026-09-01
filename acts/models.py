@@ -8,6 +8,7 @@ from django.db import models
 from django.db.models import F, Q
 from django.utils import timezone
 
+from ecosystem.workdays import add_working_days
 from references.models import ActStatus, DefectType, Operation, Priority
 from accounts.models import Department
 
@@ -35,6 +36,26 @@ def get_act_status(code):
         raise ValidationError(
             f'Required act status "{ACT_STATUS_CODES[code]}" is missing. Run seed_references first.'
         ) from exc
+
+
+# How long ОТК, КО and ТО together have to process a new act. Working days
+# only — `ecosystem.workdays` is the one place weekday arithmetic lives.
+ACT_REVIEW_WORKING_DAYS = 3
+
+
+def calculate_act_due_date(created_on=None):
+    """The act's review deadline: its creation date plus three working days.
+
+    Counted Monday–Friday with no holiday calendar and without counting the
+    creation day itself, so Monday → Thursday, Thursday → Tuesday and Friday →
+    Wednesday. `created_on` defaults to today because `Act.created_at` is
+    `auto_now_add` and therefore unknown until the row is written — the caller
+    computes the deadline from the same local date the row will record.
+
+    Deliberately *not* derived from a defect's `detected_at`: editing defect
+    data later must never move the act's deadline.
+    """
+    return add_working_days(created_on or timezone.localdate(), ACT_REVIEW_WORKING_DAYS)
 
 
 def act_attachment_upload_to(instance, filename):
@@ -147,7 +168,9 @@ class Act(models.Model):
         null=True,
     )
     status = models.ForeignKey(ActStatus, on_delete=models.PROTECT, verbose_name='Статус')
-    # Unchanged on purpose: its business meaning is decided separately.
+    # Creation date plus three working days, written once by
+    # `calculate_act_due_date()` when the act is created. Nothing
+    # recalculates it afterwards — editing a defect never moves it.
     due_date = models.DateField('Срок рассмотрения', blank=True, null=True)
     ko_decision = models.CharField(
         'Решение КО',

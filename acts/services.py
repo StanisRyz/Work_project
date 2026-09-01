@@ -169,6 +169,60 @@ def _lock_act_root_analyses(act):
     return root_ids, action_ids
 
 
+
+# --------------------------------------------------------------------------
+# The act's route, mirrored in «Задачи»
+#
+# Every transition below moves one routing task along with the act: the stage
+# that is finished is closed, and the stage the act now waits on is opened for
+# everyone who may act on it. Both happen inside the transition's own
+# `atomic()` block, under the act row lock already taken, so the queue and the
+# act can never disagree — a rolled-back transition leaves no task behind, and
+# two concurrent transitions of one act cannot both open a stage.
+#
+# No task is created when the act is created: `CREATED_OTK` is the creator's
+# own work and they already have the act.
+# --------------------------------------------------------------------------
+
+
+def _move_act_workflow_task(act, stage_name, user, *, reason):
+    """Close the act's current routing task and open `stage_name`'s, if any.
+
+    `stage_name` is a `Task.WorkflowStage` member name, or `None` at the end of
+    the route. `tasks` is imported inside the function, as everywhere else in
+    this module: `tasks.models` already imports `acts.models`.
+    """
+    from tasks.models import Task
+    from tasks.services import active_users_for_role, move_act_workflow_task
+
+    role_for_stage = {
+        Task.WorkflowStage.KO_REVIEW: UserProfile.Role.KO,
+        Task.WorkflowStage.TO_ANALYSIS: UserProfile.Role.TO,
+        Task.WorkflowStage.OTK_REVIEW: UserProfile.Role.OTK,
+        Task.WorkflowStage.OTK_REWORK: UserProfile.Role.OTK,
+    }
+    stage = getattr(Task.WorkflowStage, stage_name) if stage_name else None
+    if stage is None:
+        assignees = []
+    elif stage == Task.WorkflowStage.OTK_REWORK:
+        # A return lands on the author's own `CREATED_OTK` act, and only the
+        # author may send it on again — so the rework queue entry is theirs,
+        # not the whole department's. An author who lost the role or the
+        # account falls back to ОТК at large, so the act is never stranded.
+        creator = act.created_by
+        profile = getattr(creator, 'userprofile', None)
+        usable = bool(
+            creator.is_active
+            and profile is not None
+            and profile.is_active
+            and profile.role == UserProfile.Role.OTK
+        )
+        assignees = [creator] if usable else active_users_for_role(UserProfile.Role.OTK)
+    else:
+        assignees = active_users_for_role(role_for_stage[stage])
+    return move_act_workflow_task(act, stage, assignees, created_by=user, reason=reason)
+
+
 def send_to_ko(act, user):
     with _workflow_logging('send_to_ko', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
@@ -189,6 +243,9 @@ def send_to_ko(act, user):
             'Акт передан в КО для рассмотрения.',
             from_status=from_status,
             to_status=to_status,
+        )
+        _move_act_workflow_task(
+            act, 'KO_REVIEW', user, reason='sent_to_ko'
         )
     return act
 
@@ -263,6 +320,9 @@ def apply_ko_decision(act, user, defect_decisions):
             from_status=from_status,
             to_status=to_status,
         )
+        _move_act_workflow_task(
+            act, 'TO_ANALYSIS', user, reason='ko_decision_applied'
+        )
     return act
 
 
@@ -290,6 +350,9 @@ def return_to_otk(act, user, return_comment):
             'Акт возвращён в ОТК на доработку.',
             from_status=from_status,
             to_status=to_status,
+        )
+        _move_act_workflow_task(
+            act, 'OTK_REWORK', user, reason='returned_to_otk'
         )
     return act
 
@@ -327,6 +390,9 @@ def apply_to_analysis(act, user, root_cause, action_summary):
             'Анализ ТО внесён, мероприятия ожидают дальнейшей проработки.',
             from_status=from_status,
             to_status=to_status,
+        )
+        _move_act_workflow_task(
+            act, 'OTK_REVIEW', user, reason='to_analysis_applied'
         )
     return act
 
@@ -410,6 +476,9 @@ def apply_structured_to_analysis(act, user, analysis_data):
             from_status=from_status,
             to_status=to_status,
         )
+        _move_act_workflow_task(
+            act, 'OTK_REVIEW', user, reason='to_analysis_applied'
+        )
     return act
 
 
@@ -438,6 +507,9 @@ def return_to_ko(act, user, return_comment):
             from_status=from_status,
             to_status=to_status,
         )
+        _move_act_workflow_task(
+            act, 'KO_REVIEW', user, reason='returned_to_ko'
+        )
     return act
 
 
@@ -465,6 +537,9 @@ def return_to_to(act, user, return_comment):
             'Акт возвращён в ТО на доработку.',
             from_status=from_status,
             to_status=to_status,
+        )
+        _move_act_workflow_task(
+            act, 'TO_ANALYSIS', user, reason='returned_to_to'
         )
     return act
 
@@ -542,6 +617,8 @@ def approve_act(act, user):
             from_status=from_status,
             to_status=to_status,
         )
+        # End of the route: the stage is closed and no new one opens.
+        _move_act_workflow_task(act, None, user, reason='approved')
     return act
 
 
@@ -790,7 +867,9 @@ def clear_all_acts():
         # so remove those dependent tasks before the acts themselves.
         from tasks.models import Task
 
-        Task.objects.filter(source_type=Task.SourceType.ACT).delete()
+        Task.objects.filter(
+            source_type__in=[Task.SourceType.ACT, Task.SourceType.ACT_WORKFLOW]
+        ).delete()
         Act.objects.all().delete()
     for attachment in attachments:
         try:
@@ -879,7 +958,10 @@ def get_role_context_text(user):
         )
     role = get_user_role(user)
     if role == 'otk':
-        return 'Показаны только акты, созданные вами и находящиеся на этапе ОТК.'
+        return (
+            'Показаны созданные вами акты на этапе ОТК и все акты, '
+            'ожидающие итоговой проверки ОТК.'
+        )
     if role == 'ko':
         return 'Показаны только акты, находящиеся на рассмотрении КО.'
     if role == 'to':

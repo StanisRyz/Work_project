@@ -1,9 +1,11 @@
+import tempfile
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -15,11 +17,14 @@ from protocols.models import (
 from realtime.sync import build_sync_state
 from references.models import ActStatus, DefectType, Operation, TaskStatus
 
-from .models import Task, TaskAssignee
-from .permissions import can_complete_task, get_visible_tasks_queryset
+from .models import Task, TaskAssignee, TaskAttachment
+from .permissions import (
+    can_complete_task, can_upload_task_attachment, get_visible_tasks_queryset,
+)
 from .services import TaskWorkflowError, complete_task, replace_task_assignees
 
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='task-attachments-'))
 class TaskViewsTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -355,6 +360,70 @@ class TaskViewsTests(TestCase):
         self.assertEqual(task.execution_comment, 'Работа выполнена.')
         archive = self.client.get(reverse('tasks:list'), {'tab': 'archive', 'number': task.pk})
         self.assertContains(archive, reverse('tasks:detail', args=[task.pk]))
+
+    def test_optional_attachment_is_uploadable_downloadable_and_never_required(self):
+        """Files on a task are optional, protected, and not part of finishing it."""
+        task = self._task(self.employee, timezone.localdate())
+        upload_url = reverse('tasks:add_attachment', args=[task.pk])
+
+        # A user with no relation to the task may read it, and reading has
+        # never granted a write: the upload is refused rather than stored.
+        self.client.force_login(self.other_employee)
+        refused = self.client.post(
+            upload_url, {'file': SimpleUploadedFile('чужой.txt', b'nope')}
+        )
+        self.assertEqual(refused.status_code, 404)
+        self.assertEqual(TaskAttachment.objects.count(), 0)
+
+        # The assignee of an active task may attach one.
+        self.client.force_login(self.employee)
+        response = self.client.post(
+            upload_url, {'file': SimpleUploadedFile('отчёт.txt', b'result')}
+        )
+        self.assertRedirects(response, reverse('tasks:detail', args=[task.pk]))
+        attachment = TaskAttachment.objects.get()
+        self.assertEqual(attachment.task_id, task.pk)
+        self.assertEqual(attachment.uploaded_by, self.employee)
+        self.assertEqual(attachment.original_name, 'отчёт.txt')
+        # The stored path never carries the name the browser sent.
+        self.assertNotIn('отчёт', attachment.file.name)
+
+        # Anyone who may read the task may download its protected file.
+        self.client.force_login(self.other_employee)
+        download = self.client.get(
+            reverse('tasks:download_attachment', args=[task.pk, attachment.pk])
+        )
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(b''.join(download.streaming_content), b'result')
+
+        # A second task is completed with the execution comment and no file at
+        # all, and completion never removes what is already attached.
+        bare = self._task(self.employee, timezone.localdate())
+        self.client.force_login(self.employee)
+        self.client.post(
+            reverse('tasks:complete', args=[bare.pk]),
+            {'execution_comment': 'Выполнено без вложений.'},
+        )
+        bare.refresh_from_db()
+        self.assertEqual(bare.status.code, 'COMPLETED')
+        self.assertFalse(bare.attachments.exists())
+
+        self.client.post(
+            reverse('tasks:complete', args=[task.pk]),
+            {'execution_comment': 'Выполнено.'},
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'COMPLETED')
+        self.assertEqual(task.attachments.count(), 1)
+        # A finished task no longer accepts uploads, but still hands out the
+        # file it has.
+        self.assertFalse(can_upload_task_attachment(task, self.employee))
+        self.assertEqual(
+            self.client.get(
+                reverse('tasks:download_attachment', args=[task.pk, attachment.pk])
+            ).status_code,
+            200,
+        )
 
     def test_unassigned_manager_cannot_complete_task(self):
         task = self._task(self.employee, timezone.localdate())

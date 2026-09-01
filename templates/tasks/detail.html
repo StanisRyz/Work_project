@@ -1,12 +1,17 @@
 {% extends 'base.html' %}
+{% load people %}
 
 {% block title %}Задача {{ task.pk }}{% endblock %}
 
 {% block content %}
 {% comment %}
 The ordinary task page, used by `ACT` and `PROTOCOL_ACTION` tasks alike. A
-`PROTOCOL_APPROVAL` task never reaches it — the view redirects it to the
-protocol — so no approval decision control lives here.
+routing task never reaches it — the view redirects a `PROTOCOL_APPROVAL` to
+its protocol and an `ACT_WORKFLOW` to its act — so neither an approval
+decision control nor an execution form for a stage lives here.
+
+People are always written through `|person_name`: `{{ user }}` alone renders
+the Django login, never the employee's name.
 {% endcomment %}
 <section class="task-detail-heading">
     <a class="act-back-link" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}" aria-label="К списку задач">←</a>
@@ -40,8 +45,8 @@ protocol — so no approval decision control lives here.
         {% with assignees=task.assignees.all %}
             {% if assignees %}
                 <div class="task-detail-assignee-primary">
-                    <span class="task-detail-assignee-avatar">{{ assignees.0.user.username|slice:":2"|upper }}</span>
-                    <span>{{ assignees.0.user }}</span>
+                    <span class="task-detail-assignee-avatar">{{ assignees.0.user|person_initials }}</span>
+                    <span>{{ assignees.0.user|person_name }}</span>
                     {% if assignees.0.user.userprofile.department %}<span class="task-detail-assignee-role">{{ assignees.0.user.userprofile.department }}</span>{% endif %}
                 </div>
                 <div class="task-detail-assignee-toggle-row">
@@ -53,8 +58,8 @@ protocol — so no approval decision control lives here.
                             <ul class="task-detail-assignee-popup">
                                 {% for assignee in assignees|slice:"1:" %}
                                 <li>
-                                    <span class="task-detail-assignee-avatar">{{ assignee.user.username|slice:":2"|upper }}</span>
-                                    <span>{{ assignee.user }}</span>
+                                    <span class="task-detail-assignee-avatar">{{ assignee.user|person_initials }}</span>
+                                    <span>{{ assignee.user|person_name }}</span>
                                     {% if assignee.user.userprofile.department %}<span class="task-detail-assignee-role">{{ assignee.user.userprofile.department }}</span>{% endif %}
                                 </li>
                                 {% endfor %}
@@ -91,26 +96,59 @@ protocol — so no approval decision control lives here.
     </section>
 </div>
 
-{% if can_complete %}
-    <form method="post" action="{% url 'tasks:complete' task.pk %}" class="task-detail-execution-card">
-        {% csrf_token %}
-        <input type="hidden" name="list_query" value="{{ list_query }}">
-        <h2>Выполнение</h2>
-        <textarea name="execution_comment" rows="4" required placeholder="Опишите результат выполнения задачи">{{ execution_comment }}</textarea>
-        {% if execution_error %}<p class="field-error">{{ execution_error }}</p>{% endif %}
-        <div class="task-detail-actions">
-            <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a>
-            <button class="link-button" type="submit">Завершить задачу</button>
-        </div>
-    </form>
-{% else %}
-    {% if task.completed_by %}
+{% comment %}
+«Выполнение» on the left, «Вложения» on the right. The two are separate forms
+posting to separate endpoints on purpose: a file is optional, and a task is
+still completed with the execution comment and nothing attached.
+{% endcomment %}
+<div class="task-detail-execution-columns">
+    {% if can_complete %}
+        <form method="post" action="{% url 'tasks:complete' task.pk %}" class="task-detail-execution-card">
+            {% csrf_token %}
+            <input type="hidden" name="list_query" value="{{ list_query }}">
+            <h2>Выполнение</h2>
+            <textarea name="execution_comment" rows="4" required placeholder="Опишите результат выполнения задачи">{{ execution_comment }}</textarea>
+            {% if execution_error %}<p class="field-error">{{ execution_error }}</p>{% endif %}
+            <div class="task-detail-actions">
+                <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a>
+                <button class="link-button" type="submit">Завершить задачу</button>
+            </div>
+        </form>
+    {% elif task.completed_by %}
         <section class="task-detail-execution-card">
             <h2>Выполнение</h2>
             <div class="task-comment-block">{{ task.execution_comment|linebreaksbr }}</div>
-            <p class="task-completion-meta">Завершил {{ task.completed_by }}, {{ task.completed_at|date:'d.m.Y H:i' }}</p>
+            <p class="task-completion-meta">Завершил {{ task.completed_by|person_name }}, {{ task.completed_at|date:'d.m.Y H:i' }}</p>
         </section>
     {% endif %}
+
+    <section class="task-detail-attachments-card">
+        <h2>Вложения</h2>
+        {% if can_upload_attachment %}
+            <form class="task-attachment-form" method="post" action="{% url 'tasks:add_attachment' task.pk %}" enctype="multipart/form-data">
+                {% csrf_token %}
+                <input type="hidden" name="list_query" value="{{ list_query }}">
+                {{ attachment_form.file }}
+                {{ attachment_form.file.errors }}
+                <button class="link-button link-button--secondary link-button--compact" type="submit">Добавить вложение</button>
+            </form>
+        {% endif %}
+        {% if attachments %}
+            <ul class="task-attachment-list">
+                {% for item in attachments %}
+                    <li class="task-attachment-row">
+                        <a class="table-link" href="{% url 'tasks:download_attachment' task.pk item.object.pk %}">{{ item.object.original_name }}</a>
+                        <span class="task-attachment-meta">{{ item.formatted_size }} · {{ item.object.uploaded_by|person_name|default:'Без автора' }} · {{ item.object.created_at|date:'d.m.Y H:i' }}</span>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="task-completion-meta">Вложения пока не добавлены.</p>
+        {% endif %}
+    </section>
+</div>
+
+{% if not can_complete %}
     <div class="task-detail-actions">
         <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a>
     </div>

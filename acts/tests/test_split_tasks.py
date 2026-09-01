@@ -113,7 +113,9 @@ class ActTaskSplitTests(TestCase):
         self.assertEqual(act.status.code, 'ARCHIVED')
         action = ActCorrectiveAction.objects.get(root_analysis__act=act)
         tasks = list(
-            Task.objects.filter(act=act).order_by('individual_assignee_id').prefetch_related('assignees')
+            Task.objects.filter(act=act, source_type=Task.SourceType.ACT)
+            .order_by('individual_assignee_id')
+            .prefetch_related('assignees')
         )
         self.assertEqual(len(tasks), 2)
         for task, user in zip(tasks, sorted(assignees, key=lambda item: item.pk)):
@@ -137,7 +139,7 @@ class ActTaskSplitTests(TestCase):
         # The shared mode is unchanged beside it: one task, every assignee on it.
         shared_act = self._act_at_otk_review(split=False, assignees=assignees)
         approve_act(shared_act, self.otk_user)
-        shared_task = Task.objects.get(act=shared_act)
+        shared_task = Task.objects.get(act=shared_act, source_type=Task.SourceType.ACT)
         self.assertIsNone(shared_task.individual_assignee_id)
         self.assertEqual(
             sorted(a.user_id for a in shared_task.assignees.all()),
@@ -153,7 +155,10 @@ class ActTaskSplitTests(TestCase):
         act = self._act_at_otk_review(split=True, assignees=assignees)
         approve_act(act, self.otk_user)
         action = ActCorrectiveAction.objects.get(root_analysis__act=act)
-        tasks = {task.individual_assignee_id: task for task in Task.objects.filter(act=act)}
+        tasks = {
+            task.individual_assignee_id: task
+            for task in Task.objects.filter(act=act, source_type=Task.SourceType.ACT)
+        }
 
         completed = complete_task(tasks[self.to_user.pk], self.to_user, 'Оснастка заменена.')
 

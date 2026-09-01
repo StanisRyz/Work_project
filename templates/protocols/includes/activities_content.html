@@ -1,3 +1,4 @@
+{% load people %}
 {% comment %}
 «Связанные мероприятия»: the real `PROTOCOL_ACTION` tasks this protocol
 produced, read-only and permission-filtered by `get_related_protocol_tasks()`,
@@ -24,7 +25,7 @@ protocol counterpart.
             <tbody>{% for task in related_tasks %}<tr data-related-task="{{ task.pk }}">
                 <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
                 <td><strong>{{ task.task_text }}</strong></td>
-                <td>{% for assignee in task.assignees.all %}{{ assignee.user.get_full_name|default:assignee.user.username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
+                <td>{% for assignee in task.assignees.all %}{{ assignee.user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
                 <td>{{ task.due_date|date:'d.m.Y' }}</td>
                 <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>
             </tr>{% endfor %}</tbody>

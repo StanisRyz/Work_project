@@ -1,3 +1,4 @@
+{% load people %}
 {% comment %}
 Related corrective actions and their tasks. Read-only and permission-filtered
 by `get_related_tasks`, so it is safe to replace live.
@@ -15,7 +16,7 @@ by `get_related_tasks`, so it is safe to replace live.
                 <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
                 <td><strong>{{ task.task_text }}</strong></td>
                 <td>{{ task.root_analysis.root_cause|default:'—' }}</td>
-                <td>{% for assignee in task.assignees.all %}{{ assignee.user }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+                <td>{% for assignee in task.assignees.all %}{{ assignee.user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
                 <td>{{ task.due_date|date:'d.m.Y' }}</td>
                 <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>
             </tr>{% endfor %}</tbody>

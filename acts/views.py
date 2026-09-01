@@ -28,7 +28,7 @@ from .forms import (
     ReturnToOtkForm,
     ToAnalysisStructureForm,
 )
-from .models import Act, ActAttachment, ActHistoryEvent, get_act_status
+from .models import Act, ActAttachment, ActHistoryEvent, calculate_act_due_date, get_act_status
 from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_contribute_to_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act
 from .selectors import (
     build_act_list_state,
@@ -233,10 +233,11 @@ def act_create(request):
                 for defect_form in defect_formset.forms
                 if defect_form.cleaned_data and not defect_form.cleaned_data.get('DELETE', False)
             ]
-            # Defect data belongs to `ActDefect` and is no longer copied onto
-            # the act. `due_date` keeps its current derivation on purpose — its
-            # semantics are decided separately.
-            act.due_date = defect_forms[0].cleaned_data['detected_at']
+            # The review deadline is the act's own: creation date plus three
+            # working days. `created_at` is `auto_now_add` and unknown until
+            # the row is written, so the same local date the row will record
+            # is used here — never a defect's detection date.
+            act.due_date = calculate_act_due_date()
             try:
                 with transaction.atomic():
                     act.status = get_act_status('CREATED_OTK')
@@ -311,10 +312,10 @@ def act_edit(request, pk):
                     act = form.save(commit=False)
                     act.status = locked_act.status
                     defect_formset.save()
-                    # Defect data stays in `ActDefect`; only `due_date` keeps
-                    # its current derivation, unchanged in this phase.
-                    first_defect = act.defects.order_by('created_at', 'pk').first()
-                    act.due_date = first_defect.detected_at
+                    # `due_date` is deliberately not recomputed: it was fixed
+                    # when the act was created and editing defect data — the
+                    # detection date included — must never move it.
+                    act.due_date = locked_act.due_date
                     # `form.save(commit=False)` already resolved the business
                     # number, including keeping a legacy one untouched.
                     act.save()

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -6,10 +6,15 @@ from django.utils import timezone
 
 from accounts.models import Department, UserProfile
 from acts.forms import ToAnalysisStructureForm
-from acts.models import Act, ActComment, ActCorrectiveAction, ActDefect, ActHistoryEvent, ActRootAnalysis
+from acts.models import (
+    Act, ActComment, ActCorrectiveAction, ActDefect, ActHistoryEvent, ActRootAnalysis,
+    calculate_act_due_date,
+)
+from acts.permissions import can_approve_act
 from acts.services import ActWorkflowError, apply_ko_decision, apply_structured_to_analysis, apply_to_analysis, approve_act, return_to_ko, return_to_otk, return_to_to, send_to_ko
 from references.models import ActStatus, DefectType, Operation
 from tasks.models import Task
+from tasks.permissions import can_complete_task
 
 
 class ActWorkflowTests(TestCase):
@@ -49,6 +54,15 @@ class ActWorkflowTests(TestCase):
             nomenclature='Катушка',
             status=status,
         )
+
+    @staticmethod
+    def _act_tasks(act):
+        """The act's corrective-action tasks only.
+
+        An act also owns `ACT_WORKFLOW` routing entries now — one per stage it
+        waits on — and they are not what approval creates.
+        """
+        return Task.objects.filter(act=act, source_type=Task.SourceType.ACT)
 
     def test_otk_can_send_own_created_act_to_ko(self):
         act = self._create_act(self.status_created)
@@ -311,8 +325,8 @@ class ActWorkflowTests(TestCase):
         self.assertEqual(act.status.code, 'ARCHIVED')
         self.assertEqual(act.approved_by, self.otk_user)
         self.assertIsNotNone(act.approved_at)
-        self.assertEqual(Task.objects.filter(act=act).count(), 1)
-        self.assertEqual(Task.objects.get(act=act).status.code, 'IN_PROGRESS')
+        self.assertEqual(self._act_tasks(act).count(), 1)
+        self.assertEqual(self._act_tasks(act).get().status.code, 'IN_PROGRESS')
         self.assertEqual(
             ActHistoryEvent.objects.filter(act=act, event_type=ActHistoryEvent.EventType.APPROVED).count(),
             1,
@@ -330,7 +344,7 @@ class ActWorkflowTests(TestCase):
 
         approve_act(act, self.otk_user)
 
-        task = Task.objects.get(act=act)
+        task = self._act_tasks(act).get()
         self.assertEqual(task.source_type, Task.SourceType.ACT)
         self.assertIsNotNone(task.source_action_id)
         self.assertIsNotNone(task.root_analysis_id)
@@ -353,8 +367,8 @@ class ActWorkflowTests(TestCase):
 
         approve_act(act, self.otk_user)
 
-        task = Task.objects.get(act=act)
-        self.assertEqual(Task.objects.filter(act=act).count(), 1)
+        task = self._act_tasks(act).get()
+        self.assertEqual(self._act_tasks(act).count(), 1)
         self.assertSetEqual(set(task.assignees.values_list('user_id', flat=True)), {self.to_user.pk, second_to_user.pk})
 
     def test_approval_rolls_back_when_corrective_action_is_invalid(self):
@@ -371,7 +385,7 @@ class ActWorkflowTests(TestCase):
 
         act.refresh_from_db()
         self.assertEqual(act.status.code, 'OTK_REVIEW')
-        self.assertFalse(Task.objects.filter(act=act).exists())
+        self.assertFalse(self._act_tasks(act).exists())
 
     def test_approval_does_not_create_duplicate_tasks(self):
         act = self._create_act(self.status_to)
@@ -383,7 +397,7 @@ class ActWorkflowTests(TestCase):
         with self.assertRaises(ActWorkflowError):
             approve_act(act, self.otk_user)
 
-        self.assertEqual(Task.objects.filter(act=act).count(), 1)
+        self.assertEqual(self._act_tasks(act).count(), 1)
 
     def test_approval_rejects_due_date_before_approval_date(self):
         act = self._create_act(self.status_to)
@@ -399,7 +413,91 @@ class ActWorkflowTests(TestCase):
 
         act.refresh_from_db()
         self.assertEqual(act.status.code, 'OTK_REVIEW')
-        self.assertFalse(Task.objects.filter(act=act).exists())
+        self.assertFalse(self._act_tasks(act).exists())
+    def test_route_deadline_and_workflow_tasks_follow_the_act_not_its_author(self):
+        """The three facts the new act workflow rests on, in one pass.
+
+        The deadline is three Monday–Friday days from *creation*; each stage of
+        the route owns exactly one routing task, closed as the act moves; and
+        the final ОТК review belongs to the department, not to the person who
+        created the act.
+        """
+        # 1. Three working days from the creation date, weekends stepped over.
+        for created_on, expected in (
+            (date(2026, 8, 31), date(2026, 9, 3)),   # Monday    → Thursday
+            (date(2026, 9, 3), date(2026, 9, 8)),    # Thursday  → Tuesday
+            (date(2026, 9, 4), date(2026, 9, 9)),    # Friday    → Wednesday
+        ):
+            self.assertEqual(calculate_act_due_date(created_on), expected)
+
+        second_otk = self._create_user('otk_second', UserProfile.Role.OTK)
+        act = self._create_act(self.status_created)
+        act.due_date = calculate_act_due_date()
+        act.save(update_fields=['due_date'])
+
+        def stage_task():
+            return Task.objects.filter(
+                act=act,
+                source_type=Task.SourceType.ACT_WORKFLOW,
+            ).exclude(status__code='COMPLETED').get()
+
+        # 2. Creation owns no routing task — the creator already has the act.
+        self.assertFalse(
+            Task.objects.filter(act=act, source_type=Task.SourceType.ACT_WORKFLOW).exists()
+        )
+
+        send_to_ko(act, self.otk_user)
+        ko_task = stage_task()
+        self.assertEqual(ko_task.workflow_stage, Task.WorkflowStage.KO_REVIEW)
+        self.assertEqual(
+            set(ko_task.assignees.values_list('user_id', flat=True)), {self.ko_user.pk}
+        )
+        self.assertEqual(ko_task.due_date, act.due_date)
+        # A routing task is never finished with an execution comment.
+        self.assertFalse(can_complete_task(ko_task, self.ko_user))
+
+        act = apply_ko_decision(
+            act, self.ko_user, [(None, Act.KoDecision.PROHIBIT_USE, 'Решение')]
+        )
+        ko_task.refresh_from_db()
+        self.assertEqual(ko_task.status.code, 'COMPLETED')
+        to_task = stage_task()
+        self.assertEqual(to_task.workflow_stage, Task.WorkflowStage.TO_ANALYSIS)
+        self.assertEqual(
+            set(to_task.assignees.values_list('user_id', flat=True)),
+            {self.to_user.pk, self.other_user.pk},
+        )
+
+        form = ToAnalysisStructureForm(self._structured_analysis_post())
+        self.assertTrue(form.is_valid())
+        act = apply_structured_to_analysis(act, self.to_user, form.analysis_data)
+        to_task.refresh_from_db()
+        self.assertEqual(to_task.status.code, 'COMPLETED')
+        otk_task = stage_task()
+        self.assertEqual(otk_task.workflow_stage, Task.WorkflowStage.OTK_REVIEW)
+        self.assertEqual(
+            set(otk_task.assignees.values_list('user_id', flat=True)),
+            {self.otk_user.pk, second_otk.pk},
+        )
+
+        # 3. Any active ОТК employee closes the review, not only the author.
+        self.assertTrue(can_approve_act(act, second_otk))
+        approve_act(act, second_otk)
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'ARCHIVED')
+        self.assertEqual(act.approved_by, second_otk)
+        otk_task.refresh_from_db()
+        self.assertEqual(otk_task.status.code, 'COMPLETED')
+        # The route ended: no new routing task was opened.
+        self.assertFalse(
+            Task.objects.filter(act=act, source_type=Task.SourceType.ACT_WORKFLOW)
+            .exclude(status__code='COMPLETED')
+            .exists()
+        )
+        # And the corrective-action tasks are untouched by any of it.
+        self.assertEqual(self._act_tasks(act).count(), 1)
+
     def test_wrong_roles_raise_workflow_error(self):
         ko_act = self._create_act(self.status_ko)
         to_act = self._create_act(self.status_to)

@@ -26,6 +26,7 @@ from .models import (
     ProtocolHistoryEvent,
     ProtocolType,
 )
+from .pdf import approval_mark, render_protocol_pdf
 from .permissions import can_edit_protocol
 from .selectors import build_protocol_document
 from .services import (
@@ -275,6 +276,48 @@ class ProtocolProductionTests(TestCase):
         self.assertEqual(len(document['decisions']), 1)
         self.assertEqual(document['decisions'][0]['assignees'], ['Анна Кузнецова'])
         self.assertEqual(len(document['approvals']), 2)
+
+    def test_the_document_marks_electronic_approvals_and_names_people_not_logins(self):
+        """The signature area states the decision it already has.
+
+        An approved row prints «Согласовано: ДД.ММ.ГГГГ» from the stored
+        `ProtocolApproval.decided_at`; a row that is still pending, returned or
+        cancelled keeps its blank signature line even though it carries a date
+        of its own. And the task the archive produced is presented by the
+        person's name, never by their Django login.
+        """
+        protocol = self._build(approvers=[self.reviewer], assignees=[self.executor])
+        send_protocol_for_approval(protocol, self.author)
+        approve_protocol(protocol, self.reviewer)
+        protocol.refresh_from_db()
+
+        document = build_protocol_document(protocol)
+        rows = {row['display_name']: row for row in document['approvals']}
+        marks = {name: approval_mark(row) for name, row in rows.items()}
+        reviewer_name = self.reviewer.get_full_name()
+        executor_name = self.executor.get_full_name()
+        # The stored decision date, rendered — never a recomputed one.
+        decided_at = rows[reviewer_name]['decided_at']
+        self.assertTrue(rows[reviewer_name]['is_approved'])
+        self.assertEqual(
+            marks[reviewer_name],
+            f"Согласовано: {timezone.localtime(decided_at).strftime('%d.%m.%Y')}",
+        )
+        # Still pending — a signature line, not a claim that they signed.
+        self.assertEqual(marks[executor_name], '')
+
+        # The whole file still renders with the marker in place.
+        approve_protocol(protocol, self.executor)
+        protocol.refresh_from_db()
+        pdf = render_protocol_pdf(build_protocol_document(protocol))
+        self.assertTrue(pdf.startswith(b'%PDF'))
+
+        # The task page names the assignee, not their login.
+        task = Task.objects.get(protocol=protocol, source_type=Task.SourceType.PROTOCOL_ACTION)
+        self.client.force_login(self.reader)
+        page = self.client.get(reverse('tasks:detail', args=[task.pk])).content.decode()
+        self.assertIn(executor_name, page)
+        self.assertNotIn(self.executor.get_username(), page)
 
     def test_a_bare_protocol_still_produces_a_document_and_a_pdf(self):
         """Empty optional sections must render, not raise.

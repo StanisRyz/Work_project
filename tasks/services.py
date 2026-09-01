@@ -10,10 +10,11 @@ from realtime.emitters import emit_task_completed, emit_task_created, emit_task_
 from references.models import TaskStatus
 
 from .models import Task, TaskAssignee
-from .permissions import can_complete_task
+from .permissions import can_complete_task, can_upload_task_attachment
 
 
 logger = logging.getLogger('ecosystem.workflow')
+attachment_logger = logging.getLogger('ecosystem.attachments')
 
 
 class TaskWorkflowError(Exception):
@@ -118,9 +119,18 @@ def complete_task(task, user, execution_comment):
         # Stated separately from the permission check so the refusal is
         # legible in the log: this is not "you may not", it is "this kind of
         # task is not finished this way". `can_complete_task` refuses it too.
-        if task.source_type == Task.SourceType.PROTOCOL_APPROVAL:
-            _rejected('protocol_approval_not_completable', previous_status)
-            raise TaskWorkflowError('Задача согласования протокола не завершается таким образом.')
+        if task.is_routing_task:
+            reason = (
+                'protocol_approval_not_completable'
+                if task.source_type == Task.SourceType.PROTOCOL_APPROVAL
+                else 'act_workflow_not_completable'
+            )
+            _rejected(reason, previous_status)
+            raise TaskWorkflowError(
+                'Задача согласования протокола не завершается таким образом.'
+                if task.source_type == Task.SourceType.PROTOCOL_APPROVAL
+                else 'Этап обработки акта закрывается действием в самом акте.'
+            )
         if not can_complete_task(task, user):
             _rejected('not_permitted_or_already_completed', previous_status)
             raise TaskWorkflowError('Завершение задачи недоступно.')
@@ -227,8 +237,10 @@ def _save_new_task(task, assignee_ids, *, actor):
         'INFO',
         'task.created',
         task_id=task.pk,
+        act_id=task.act_id,
         protocol_id=task.protocol_id,
         source_type=task.source_type,
+        workflow_stage=task.workflow_stage or None,
         actor_user_id=_pk_of(actor),
         assignee_count=len(assignee_ids),
         next_status=task.status.code,
@@ -371,3 +383,240 @@ def cancel_protocol_approval_task(task, decided_at):
     naming someone who never decided.
     """
     return _close_approval_task(task, approver=None, decided_at=decided_at, reason='cancelled')
+
+
+# --------------------------------------------------------------------------
+# Act workflow task lifecycle
+#
+# The act's route made visible in «Задачи». One active routing task per act at
+# a time, naming the stage the act is waiting on and assigned to every active
+# holder of the role that has to act. Written *only* through these functions,
+# called only from `acts/services.py` inside the transaction that already holds
+# the act row lock — which is also what makes "at most one active task per act"
+# true without a database constraint: two transitions of one act cannot run at
+# the same time.
+#
+# These tasks are never completed by an employee. `complete_task()` and
+# `can_complete_task()` both refuse them, exactly as they refuse a protocol
+# approval task: the real action is «внести решение КО», «выполнить анализ ТО»
+# or «утвердить акт», and it is taken on the act.
+# --------------------------------------------------------------------------
+
+
+# What the person is being asked to do, per stage. One sentence, no act number:
+# the task's source link leads to the act itself.
+WORKFLOW_STAGE_TEXT = {
+    Task.WorkflowStage.KO_REVIEW: 'Рассмотреть акт и внести решение КО.',
+    Task.WorkflowStage.TO_ANALYSIS: 'Выполнить анализ ТО по акту.',
+    Task.WorkflowStage.OTK_REVIEW: 'Проверить акт и утвердить его или вернуть в ТО.',
+    Task.WorkflowStage.OTK_REWORK: 'Доработать акт после возврата и передать его в КО.',
+}
+
+
+def _workflow_task_department(assignees):
+    """The department to show on a routing task, or `None`.
+
+    A stage belongs to a *role*, not to one department, so there is nothing
+    authoritative to store: the first assignee who has a department lends its
+    name to the row, and an installation where nobody has one simply shows no
+    department. Never a reason to refuse an act transition.
+    """
+    for user in assignees:
+        profile = getattr(user, 'userprofile', None)
+        department = getattr(profile, 'department', None) if profile is not None else None
+        if department is not None:
+            return department
+    return None
+
+
+def close_act_workflow_tasks(act, *, closed_at=None, reason='stage_finished'):
+    """Close every active routing task of this act. Returns how many.
+
+    Called before opening the next stage's task and on approval, when there is
+    no next stage. `completed_by` stays NULL on purpose: nobody "performed" a
+    queue entry — the act moved, and the entry stopped being relevant.
+    """
+    closed_at = closed_at or timezone.now()
+    tasks = list(
+        Task.objects.select_for_update()
+        .filter(act=act, source_type=Task.SourceType.ACT_WORKFLOW)
+        .exclude(status__code='COMPLETED')
+    )
+    if not tasks:
+        return 0
+    completed = _active_status('COMPLETED', 'Выполнено')
+    for task in tasks:
+        task.status = completed
+        task.completed_at = closed_at
+        # `auto_now` fields are only bumped when named in `update_fields`.
+        task.save(update_fields=['status', 'completed_at', 'updated_at'])
+        emit_task_completed(task)
+        log_event(
+            logger,
+            'INFO',
+            'task.act_workflow_closed',
+            task_id=task.pk,
+            act_id=task.act_id,
+            workflow_stage=task.workflow_stage,
+            reason=reason,
+            next_status='COMPLETED',
+            outcome='ok',
+        )
+    return len(tasks)
+
+
+def create_act_workflow_task(act, stage, assignees, *, created_by, due_date=None):
+    """One shared routing task for the stage this act is now waiting on.
+
+    `assignees` is every active holder of the role that has to act. An empty
+    list creates nothing and is *not* an error: a plant with no active КО
+    employee must still be able to send an act to КО, exactly as it already
+    receives no notification. The act's own deadline is the task's deadline —
+    the stage is what has to happen before it.
+    """
+    assignees = [user for user in assignees if user is not None]
+    if not assignees:
+        log_event(
+            logger,
+            'INFO',
+            'task.act_workflow_skipped',
+            act_id=_pk_of(act),
+            workflow_stage=stage,
+            reason='no_active_assignees',
+            outcome='skipped',
+        )
+        return None
+    task = Task(
+        source_type=Task.SourceType.ACT_WORKFLOW,
+        act=act,
+        workflow_stage=stage,
+        task_text=WORKFLOW_STAGE_TEXT[stage],
+        department=_workflow_task_department(assignees),
+        due_date=due_date or act.due_date or timezone.localdate(),
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    return _save_new_task(task, sorted({user.pk for user in assignees}), actor=created_by)
+
+
+def move_act_workflow_task(act, stage, assignees, *, created_by, reason='stage_changed'):
+    """Close the act's current routing task and open the next one, in order.
+
+    The single entry point `acts/services.py` uses for every transition, so the
+    queue can never show two stages of one act at once, nor keep showing a
+    stage the act has left. `stage=None` closes without opening anything —
+    approval, where the act's route ends.
+    """
+    close_act_workflow_tasks(act, reason=reason)
+    if stage is None:
+        return None
+    return create_act_workflow_task(act, stage, assignees, created_by=created_by)
+
+
+def active_users_for_role(role):
+    """Active users whose active profile carries `role`.
+
+    The same rule `notifications.services` routes act events by — an inactive
+    account or an inactive profile holds no role — expressed once here so the
+    task queue and the notification cannot address different people.
+    """
+    from django.contrib.auth import get_user_model
+
+    return list(
+        get_user_model()
+        .objects.select_related('userprofile__department')
+        .filter(is_active=True, userprofile__is_active=True, userprofile__role=role)
+        .order_by('pk')
+    )
+
+
+# --------------------------------------------------------------------------
+# Task attachments
+#
+# Optional files on an ordinary, executable task. Upload is its own request,
+# never part of completion, so a task is still finished with its execution
+# comment and no file at all. The one upload policy in
+# `ecosystem.attachments` decides what may be stored; `tasks.permissions`
+# decides who may store it; this decides nothing and only writes.
+# --------------------------------------------------------------------------
+
+
+def add_task_attachment(task, user, uploaded_file):
+    """Attach one file to an ordinary task, atomically.
+
+    Storage is not transactional with the database, so the file is written
+    first and removed again if the row cannot be saved — the act attachment
+    service does exactly this, and an orphaned file is worse than a failed
+    upload. The permission is re-checked under the task's row lock, because a
+    task completed meanwhile no longer accepts uploads.
+    """
+    from .models import TaskAttachment
+
+    if not can_upload_task_attachment(task, user):
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.access_denied',
+            task_id=_pk_of(task),
+            user_id=_pk_of(user),
+            operation='upload',
+            outcome='denied',
+        )
+        raise TaskWorkflowError('Добавление вложения к задаче недоступно.')
+
+    attachment = TaskAttachment(
+        task=task,
+        uploaded_by=user if getattr(user, 'is_authenticated', False) else None,
+        original_name=uploaded_file.name,
+        file_size=getattr(uploaded_file, 'size', 0) or 0,
+        content_type=getattr(uploaded_file, 'content_type', '') or '',
+    )
+    file_written = False
+    try:
+        attachment.file.save(uploaded_file.name, uploaded_file, save=False)
+        file_written = True
+        with transaction.atomic():
+            locked = (
+                Task.objects.select_for_update()
+                .select_related('status')
+                .prefetch_related('assignees')
+                .get(pk=task.pk)
+            )
+            if not can_upload_task_attachment(locked, user):
+                raise TaskWorkflowError('Добавление вложения к задаче недоступно.')
+            attachment.task = locked
+            attachment.save()
+    except Exception:
+        if file_written:
+            _delete_task_attachment_file(attachment)
+        raise
+
+    # Identifiers and a size only — never the file's name or its path.
+    log_event(
+        attachment_logger,
+        'INFO',
+        'attachment.uploaded',
+        attachment_id=attachment.pk,
+        task_id=_pk_of(task),
+        user_id=_pk_of(user),
+        size_bytes=attachment.file_size,
+        operation='upload',
+        outcome='ok',
+    )
+    return attachment
+
+
+def _delete_task_attachment_file(attachment):
+    """Best-effort cleanup of a file whose row was never stored."""
+    try:
+        attachment.file.storage.delete(attachment.file.name)
+    except Exception as exc:  # noqa: BLE001 - storage cleanup is best-effort
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.storage_failed',
+            task_id=getattr(attachment, 'task_id', None),
+            operation='upload_rollback',
+            error_type=type(exc).__name__,
+            outcome='orphan_cleanup_failed',
+        )

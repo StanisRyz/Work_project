@@ -173,12 +173,18 @@ def get_act_comments(act):
 
 
 def get_related_tasks(act, user):
-    """Tasks of this act available through authenticated read-only access."""
+    """«Связанные мероприятия» — the corrective-action tasks of this act.
+
+    `source_type=ACT` only. An `ACT_WORKFLOW` row is a routing entry for the
+    stage the act waits on, not work created by the ТО analysis, and listing it
+    here would turn the section into a second copy of the act's own route.
+    """
+    from tasks.models import Task
     from tasks.permissions import get_readable_tasks_queryset
 
     return (
         get_readable_tasks_queryset(user)
-        .filter(act=act)
+        .filter(act=act, source_type=Task.SourceType.ACT)
         .select_related('department', 'status', 'root_analysis', 'completed_by')
         .prefetch_related('assignees__user__userprofile')
     )

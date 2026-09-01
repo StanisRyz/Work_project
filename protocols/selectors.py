@@ -307,7 +307,12 @@ def build_protocol_document(protocol):
             'display_name': approval.display_name,
             'position': approval.position,
             'department_name': approval.department_name,
+            'status': approval.status,
             'status_label': approval.get_status_display(),
+            # `is_approved` is the one answer both targets read before showing
+            # an electronic approval marker: a pending, returned or cancelled
+            # row has a decision date too, and none of them is a signature.
+            'is_approved': approval.status == ProtocolApproval.Status.APPROVED,
             'decided_at': approval.decided_at,
             'reason': describe_approval_reason(approval),
             'return_comment': approval.return_comment,

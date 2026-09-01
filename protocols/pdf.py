@@ -57,6 +57,11 @@ FONT_CANDIDATES = (
 REGULAR_FONT = 'ProtocolBody'
 BOLD_FONT = 'ProtocolBodyBold'
 
+# The paragraph indent of «Повестка», «Слушали» and «Решили» — the printed
+# form's red line. 30 pt is the ReportLab equivalent of the ~40 CSS pixels
+# the HTML print page uses, so the file and the page indent alike.
+BODY_FIRST_LINE_INDENT = 30
+
 MONTHS = (
     'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
     'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
@@ -136,15 +141,32 @@ def _styles():
             'Heading', parent=body, fontName=BOLD_FONT, spaceBefore=12, spaceAfter=4,
         ),
         'person': ParagraphStyle('Person', parent=body, spaceAfter=1),
-        'speaker': ParagraphStyle('Speaker', parent=body, firstLineIndent=18, spaceBefore=6),
+        'speaker': ParagraphStyle(
+            'Speaker', parent=body, firstLineIndent=BODY_FIRST_LINE_INDENT, spaceBefore=6,
+        ),
         'speech': ParagraphStyle(
-            'Speech', parent=body, firstLineIndent=18, alignment=TA_JUSTIFY, spaceAfter=4,
+            'Speech', parent=body, firstLineIndent=BODY_FIRST_LINE_INDENT,
+            alignment=TA_JUSTIFY, spaceAfter=4,
         ),
-        # Numbered items: the number is drawn in the gutter by `bulletText`.
+        # Numbered items: the number is drawn in the gutter by `bulletText`,
+        # at `bulletIndent`, while the text block starts at `leftIndent`. Both
+        # move together, so a wider indent keeps «1.» aligned with its text
+        # instead of leaving the number stranded at the margin — and wrapped
+        # lines still line up under the first one.
         'item': ParagraphStyle(
-            'Item', parent=body, leftIndent=24, bulletIndent=6, spaceAfter=3,
+            'Item',
+            parent=body,
+            leftIndent=BODY_FIRST_LINE_INDENT,
+            bulletIndent=BODY_FIRST_LINE_INDENT - 18,
+            spaceAfter=3,
         ),
-        'fact': ParagraphStyle('Fact', parent=body, leftIndent=24, spaceAfter=2),
+        'fact': ParagraphStyle(
+            'Fact', parent=body, leftIndent=BODY_FIRST_LINE_INDENT, spaceAfter=2,
+        ),
+        # The electronic approval marker printed in place of a signature rule.
+        'approval_mark': ParagraphStyle(
+            'ApprovalMark', parent=body, fontSize=9, leading=12,
+        ),
         'prepared': ParagraphStyle('Prepared', parent=body, fontSize=9, leading=12),
     }
 
@@ -170,6 +192,21 @@ def _long_date(value):
 def _short_date(value):
     moment = _localdate(value)
     return moment.strftime('%d.%m.%Y') if moment else '—'
+
+
+def approval_mark(approval):
+    """«Согласовано: ДД.ММ.ГГГГ» for a signed row, `''` for every other one.
+
+    The one place the electronic approval marker is worded, so the rule — an
+    *approved* decision that actually has a date — cannot be restated
+    differently somewhere else. The date is `ProtocolApproval.decided_at` as
+    the workflow stored it; nothing here recomputes it, and a pending,
+    returned or cancelled row gets no marker even though it carries a date of
+    its own.
+    """
+    if not approval.get('is_approved') or not approval.get('decided_at'):
+        return ''
+    return f"Согласовано: {_short_date(approval['decided_at'])}"
 
 
 def _escape(text):
@@ -300,21 +337,40 @@ def render_protocol_pdf(document):
     # -- Протокол согласован
     #
     # Signature lines, as on the paper original: who has to sign and in which
-    # role. The electronic decision, its date and the round it belongs to stay
-    # on the protocol page — a printed form is something people sign.
+    # role. A participant who has already approved electronically gets
+    # «Согласовано: ДД.ММ.ГГГГ» on the signature line instead of an empty rule,
+    # taken from the stored `ProtocolApproval.decided_at` and never recomputed.
+    # Pending, returned and cancelled rows keep the blank line: they carry a
+    # date too, and none of them is a signature.
     if document['approvals']:
         story.append(Paragraph('Протокол согласован:', styles['heading']))
         rows = []
+        approved_rows = []
         for approval in document['approvals']:
             line = _escape(approval['display_name'])
             if approval['position']:
                 line += f" – {_escape(approval['position'])}"
-            rows.append([Paragraph(line, styles['body']), ''])
+            mark_text = approval_mark(approval)
+            if mark_text:
+                mark = Paragraph(_escape(mark_text), styles['approval_mark'])
+                approved_rows.append(len(rows))
+            else:
+                mark = ''
+            rows.append([Paragraph(line, styles['body']), mark])
         signatures = Table(rows, colWidths=[width - 45 * mm, 45 * mm], hAlign='LEFT')
+        signature_style = [
+            ('LINEBELOW', (1, 0), (1, -1), 0.7, colors.black),
+        ]
+        # An electronically approved row states the fact instead of offering a
+        # rule to sign on.
+        for row_index in approved_rows:
+            signature_style.append(
+                ('LINEBELOW', (1, row_index), (1, row_index), 0, colors.white)
+            )
         signatures.setStyle(
             TableStyle(
-                [
-                    ('LINEBELOW', (1, 0), (1, -1), 0.7, colors.black),
+                signature_style
+                + [
                     ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
                     ('LEFTPADDING', (0, 0), (-1, -1), 0),
                     ('RIGHTPADDING', (0, 0), (-1, -1), 0),

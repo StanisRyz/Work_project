@@ -130,9 +130,13 @@
 
 .protocol-print__people { margin: 0; }
 
+/* The red line of «Повестка», «Слушали» and «Решили» — the same indent the
+   PDF uses (30 pt ≈ 40 px), stated once here. `padding-left` on the list, not
+   `text-indent`, so the item numbers move with their text and wrapped lines
+   stay aligned under the first one. */
 .protocol-print__list {
     margin: 0;
-    padding-left: 26px;
+    padding-left: 40px;
 }
 
 .protocol-print__list li { margin-bottom: 6px; }
@@ -140,8 +144,8 @@
 /* «Ответственный» and «Срок» sit under their decision, indented with it. */
 .protocol-print__fact { display: block; }
 
-.protocol-print__speaker { margin: 10px 0 2px; text-indent: 24px; }
-.protocol-print__speech { margin: 0; text-align: justify; text-indent: 24px; }
+.protocol-print__speaker { margin: 10px 0 2px; text-indent: 40px; }
+.protocol-print__speech { margin: 0; text-align: justify; text-indent: 40px; }
 
 .protocol-print__empty { margin: 0; }
 

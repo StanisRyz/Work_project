@@ -413,7 +413,8 @@
 }
 
 .task-detail-columns,
-.task-detail-analysis-columns {
+.task-detail-analysis-columns,
+.task-detail-execution-columns {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
@@ -428,7 +429,8 @@
 .task-detail-info-card,
 .task-detail-assignee-card,
 .task-detail-analysis-card,
-.task-detail-execution-card {
+.task-detail-execution-card,
+.task-detail-attachments-card {
     padding: 16px 20px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
@@ -463,14 +465,17 @@
 
 .task-detail-assignee-card,
 .task-detail-analysis-card,
-.task-detail-execution-card {
+.task-detail-execution-card,
+.task-detail-attachments-card {
     display: grid;
     gap: 10px;
+    align-content: start;
 }
 
 .task-detail-assignee-card h2,
 .task-detail-analysis-card h2,
-.task-detail-execution-card h2 {
+.task-detail-execution-card h2,
+.task-detail-attachments-card h2 {
     margin: 0;
     color: #162852;
     font-size: 16px;
@@ -641,9 +646,39 @@
 
 .task-completion-meta { margin: 0; color: var(--color-muted); }
 
+/* «Вложения» beside «Выполнение»: one file per row, name then metadata. */
+.task-attachment-form {
+    display: grid;
+    justify-items: start;
+    gap: 8px;
+}
+
+.task-attachment-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.task-attachment-row {
+    display: grid;
+    gap: 2px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: #fbfcfe;
+}
+
+.task-attachment-meta {
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
 @media (max-width: 900px) {
     .task-detail-columns,
-    .task-detail-analysis-columns {
+    .task-detail-analysis-columns,
+    .task-detail-execution-columns {
         grid-template-columns: 1fr;
     }
 }

@@ -22,7 +22,7 @@ model without explicit approval.
 | `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`). No user-facing pages beyond login/logout — user/department management is Django Admin only |
 | `references` | operations, defect types, act/task statuses, priorities; `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
-| `tasks` | tasks created on approval, their assignees and completion |
+| `tasks` | tasks created by act and protocol workflows, their assignees, completion and optional attachments |
 | `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
@@ -78,8 +78,9 @@ tasks never live inside `acts`.
   endpoints. A full page and its fragment go through the same state builder and
   the same partials.
 - **Attachments are protected media**, served only by
-  `acts.views.act_download_attachment` and
-  `protocols.views.protocol_download_attachment`, each with a per-request
+  `acts.views.act_download_attachment`,
+  `protocols.views.protocol_download_attachment` and
+  `tasks.views.task_download_attachment`, each with a per-request
   permission check. `MEDIA_ROOT` is never published by the web server and is a
   different directory from `STATIC_ROOT`.
 - Django Templates and vanilla JavaScript only: no framework, bundler or npm.
@@ -118,9 +119,14 @@ tasks never live inside `acts`.
 - Every authenticated user may read every act: `all` contains all non-archived
   acts, `archive` contains all archived acts, and their detail pages are
   read-only outside the user's working scope. `my` is the working queue: ОТК
-  gets own `CREATED_OTK`/`OTK_REVIEW` acts, КО gets `KO_REVIEW`, ТО gets
-  `TO_ANALYSIS` plus own `ACTIONS_ASSIGNED`; managers and administrators get
-  all active acts. Global read access never grants comments, uploads, workflow
+  gets own `CREATED_OTK` acts **plus every `OTK_REVIEW` act**, КО gets
+  `KO_REVIEW`, ТО gets `TO_ANALYSIS` plus own `ACTIONS_ASSIGNED`; managers and
+  administrators get all active acts. `OTK_REVIEW` is the department's queue,
+  not the author's: `can_review_otk()` — and therefore `can_return_to_to()`
+  and `can_approve_act()` — is «any active ОТК employee», so an act is never
+  stranded because its creator is away. `CREATED_OTK` stays the creator's own
+  act. Manager and administrator behaviour is unchanged, and the UI reads the
+  same helpers through `get_available_act_actions()`. Global read access never grants comments, uploads, workflow
   actions or editing; editing remains limited to authorised `CREATED_OTK` acts.
 - Every return transition requires a non-whitespace comment saved atomically
   with it, and must not emit a duplicate ordinary-comment notification. With
@@ -153,15 +159,30 @@ tasks never live inside `acts`.
   the detected date between groups for UX. Hiding needs the
   `display: none !important` rules in `acts.css`: an author `display` on a
   label beats the user-agent `[hidden]`, so the attribute alone is not enough.
-- **`Act.due_date` is deliberately unresolved.** It is presented as a review
-  deadline but still derived from the first defect's detected date. Do not
-  rename, remove, re-derive or re-filter it — the business decision is a
-  separate patch.
+- **`Act.due_date` is the act's creation date plus three working days**, and
+  nothing else. `acts.models.calculate_act_due_date()` is the single
+  implementation, and it delegates the weekday arithmetic to
+  `ecosystem.workdays.add_working_days()` — Monday–Friday, no holiday
+  calendar, the creation day itself not counted, so Monday → Thursday,
+  Thursday → Tuesday, Friday → Wednesday. It is written **once**, when the act
+  is created, from `timezone.localdate()`: `Act.created_at` is `auto_now_add`
+  and therefore unknown until the row exists. Editing an act — including a
+  defect's `detected_at` — carries the stored deadline over unchanged; no code
+  re-derives it from defect data, and `ActDefect.detected_at` keeps its own
+  meaning.
 - An act must have at least one `ActDefect`: `manage.py audit_legacy_act_defects`
   reports any that do not, and migration `0024` refuses to run while one exists.
   Never infer a workshop from old data or fabricate a defect to get past it.
 - Never write a placeholder such as `"-"` in place of missing business data;
   read-only views render the neutral `—`.
+- **A person is written by name, never by their login.** `{{ user }}` renders
+  Django's `User.__str__()`, which is the account name, so every template that
+  names an employee uses `accounts/templatetags/people.py` —
+  `{{ user|person_name }}` (`get_full_name() or get_username()`) and
+  `{{ user|person_initials }}` for the avatar, derived from the displayed name
+  so the circle and the label cannot disagree. One filter, not a
+  `get_full_name|default:username` expression copied around, and presentation
+  only: authentication usernames are unchanged.
 - Structured TO analysis is atomic and read-only after submission; each
   corrective action needs text, a department, a due date and at least one active
   assignee. Approval revalidates it all under lock and creates the tasks.
@@ -193,19 +214,60 @@ tasks never live inside `acts`.
   `tasks.services.replace_task_assignees()`. Every authenticated user may read
   every task through `all`, `archive` and task detail; only active assigned
   tasks appear in `my`, and read access never grants completion rights.
-- **A task's origin is `source_type`, never a nullable relation.** Three values
-  exist — `ACT`, `PROTOCOL_APPROVAL`, `PROTOCOL_ACTION` — and exactly one
-  relation shape is valid for each, enforced by `Task.clean()` and by the
-  `task_source_relations_match_source_type` check constraint:
+- **A task's origin is `source_type`, never a nullable relation.** Four values
+  exist — `ACT`, `ACT_WORKFLOW`, `PROTOCOL_APPROVAL`, `PROTOCOL_ACTION` — and
+  exactly one relation shape is valid for each, enforced by `Task.clean()` and
+  by the `task_source_relations_match_source_type` check constraint:
 
-  | `source_type` | required | must be NULL |
+  | `source_type` | required | must be NULL / empty |
   | --- | --- | --- |
-  | `ACT` | `act`, `root_analysis`, `source_action` | `protocol`, `protocol_action` |
-  | `PROTOCOL_APPROVAL` | `protocol` | `act`, `root_analysis`, `source_action`, `protocol_action`, `individual_assignee` |
-  | `PROTOCOL_ACTION` | `protocol`, `protocol_action` | `act`, `root_analysis`, `source_action` |
+  | `ACT` | `act`, `root_analysis`, `source_action`, `department` | `protocol`, `protocol_action`, `workflow_stage` |
+  | `ACT_WORKFLOW` | `act`, `workflow_stage` | `root_analysis`, `source_action`, `protocol`, `protocol_action`, `individual_assignee` |
+  | `PROTOCOL_APPROVAL` | `protocol`, `department` | `act`, `root_analysis`, `source_action`, `protocol_action`, `individual_assignee`, `workflow_stage` |
+  | `PROTOCOL_ACTION` | `protocol`, `protocol_action`, `department` | `act`, `root_analysis`, `source_action`, `workflow_stage` |
 
   The act relations are nullable *only* so the other shapes can exist; for an
-  `ACT` task all three stay required.
+  `ACT` task all three stay required. `department` is nullable for the same
+  reason and for one source only — an `ACT_WORKFLOW` entry belongs to a *role*,
+  which has no single department — so the constraint states
+  `department IS NOT NULL` explicitly on the other three branches rather than
+  leaving it to the column.
+- **`ACT_WORKFLOW` is the act's route made visible in «Задачи», and is not an
+  `ACT` task.** An `ACT` task is a corrective action somebody performs; an
+  `ACT_WORKFLOW` task is a work-queue entry saying which stage the act is
+  waiting on. The two never merge: `get_related_tasks()` («Связанные
+  мероприятия») filters `source_type=ACT`, and the corrective-action behaviour,
+  its split mode and its constraints are untouched.
+  `Task.workflow_stage` — `KO_REVIEW`, `TO_ANALYSIS`, `OTK_REVIEW`,
+  `OTK_REWORK` — is **persisted**, not read back off `Act.status`: a closed
+  entry has to keep saying what it stood for long after the act moved on.
+- **The `ACT_WORKFLOW` lifecycle is driven by `acts/services.py`, exactly as
+  the approval queue is driven by the protocol workflow.**
+  `tasks.services.move_act_workflow_task()` closes every active routing task of
+  the act and opens the next stage's; `acts/services._move_act_workflow_task()`
+  is the only caller, once per transition, inside the transition's own
+  `atomic()` block under the act row lock already taken. That lock is also what
+  makes «at most one active routing task per act» true without a database
+  constraint — two transitions of one act cannot run at once — and a
+  rolled-back transition leaves no task behind. Send to КО → `KO_REVIEW`; КО
+  decision → `TO_ANALYSIS`; ТО analysis → `OTK_REVIEW`; approval closes the
+  last one and opens nothing. Returns keep the queue with the act: КО → ОТК
+  opens `OTK_REWORK`, ТО → КО opens `KO_REVIEW`, ОТК → ТО opens `TO_ANALYSIS`.
+  **Creating an act creates no routing task** — `CREATED_OTK` is the creator's
+  own work and they already hold the act.
+- **A routing task is never completed by an employee.** `Task.is_routing_task`
+  covers `PROTOCOL_APPROVAL` and `ACT_WORKFLOW` alike, and both
+  `can_complete_task()` and `complete_task()` refuse it: the real action is
+  «внести решение КО», «выполнить анализ ТО», «утвердить акт» or «согласовать
+  протокол», and it is taken on the source document. `tasks.views.task_detail`
+  therefore redirects such a task to its act or its protocol instead of
+  rendering the execution form, and it carries no attachment card.
+  Assignees are every active holder of the stage's role
+  (`tasks.services.active_users_for_role()`, the same rule notifications route
+  by); `OTK_REWORK` goes to the act's author, who is the only one who may send
+  it on, falling back to ОТК at large when that account no longer qualifies. A
+  stage with no active holder creates **nothing** and logs it: a plant without
+  an active КО employee must still be able to send an act to КО.
 - **`Task.individual_assignee` is the one field that tells a split task from a
   shared one, for both domains.** NULL is the task everybody shares; set is the
   task split off for that person, whose `TaskAssignee` rows are exactly them.
@@ -231,6 +293,20 @@ tasks never live inside `acts`.
   so the column could be added to the existing production table and is never a
   substitute for saying so. Read-side code must not assume `task.act` or
   `task.root_analysis` is present — branch on `source_type`.
+- **A `TaskAttachment` is optional, and never a precondition of finishing.**
+  Uploading is its own endpoint (`tasks:add_attachment`) and its own form, so
+  the completion form carries no file field and a task is still completed with
+  the execution comment and zero attachments; completion deletes nothing.
+  Files reuse the shared policy — `ecosystem.attachments` for size and
+  extension, a `tasks/attachments/<task_id>/<uuid>.<ext>` path that never
+  contains the browser's name, `MEDIA_ROOT` unpublished — and are served only
+  by `tasks.views.task_download_attachment`, which re-loads the row scoped to
+  the task in the URL and asks permission again. `can_upload_task_attachment()`
+  **is** `can_complete_task()`: an assignee of an active ordinary task plus the
+  administrative fallback, which also means a routing task accepts no file at
+  all. Reading a task is open to every authenticated user, so downloading is
+  too — and read access still grants no upload. There is no deletion, no
+  description and no second file-security implementation.
 - **`PROTOCOL_APPROVAL` is never completed through the normal task workflow.**
   `can_complete_task()` and `complete_task()` both refuse it: agreeing to a
   protocol is its own decision, and closing it with an execution comment would
@@ -384,6 +460,17 @@ tasks never live inside `acts`.
   white, no cards, badges, borders or workflow controls. The approval block
   prints blank signature lines: the electronic decision and its date stay on
   the protocol page, because a printed form is something people sign.
+  The one deliberate difference is the approval block: the printable page
+  keeps blank signature lines, while the PDF prints
+  «Согласовано: ДД.ММ.ГГГГ» beside a participant whose `ProtocolApproval` is
+  `APPROVED`. `pdf.approval_mark()` is the single wording of that marker and
+  reads the stored `decided_at` — never a recomputed date — and a pending,
+  returned or cancelled row gets no marker although it carries a date of its
+  own. No new field: `selectors.build_protocol_document()` simply publishes
+  `status`/`is_approved` alongside `decided_at`. The red line of «Повестка»,
+  «Слушали» and «Решили» is `pdf.BODY_FIRST_LINE_INDENT` (30 pt) and its CSS
+  counterpart in `print.css` (40 px); numbered items move `leftIndent` and
+  `bulletIndent` together, so «1.» stays with its text.
   ReportLab is deliberately pure Python — the application is deployed on
   Windows too — and Cyrillic needs a real TTF, resolved from
   `PROTOCOL_PDF_FONT_PATH` or the usual Times/Liberation/DejaVu locations,
