@@ -23,7 +23,11 @@ def describe_task_source(task):
     Branching is on `source_type`, never on which nullable relation happens to
     be filled: a NULL cannot tell an absent origin from a wrong one.
     """
-    if task.source_type in {Task.SourceType.ACT, Task.SourceType.ACT_WORKFLOW}:
+    if task.source_type in {
+        Task.SourceType.ACT,
+        Task.SourceType.ACT_WORKFLOW,
+        Task.SourceType.ACT_REJECTION,
+    }:
         if task.act_id is None:
             return {'label': '', 'url': ''}
         return {'label': task.act.number, 'url': reverse('acts:detail', args=[task.act_id])}

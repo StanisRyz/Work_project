@@ -1,5 +1,7 @@
 from datetime import date, timedelta
+from importlib import import_module
 
+from django.apps import apps as django_apps
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
@@ -10,11 +12,19 @@ from acts.models import (
     Act, ActComment, ActCorrectiveAction, ActDefect, ActHistoryEvent, ActRootAnalysis,
     calculate_act_due_date,
 )
-from acts.permissions import can_approve_act
+from acts.permissions import (
+    can_approve_act,
+    can_contribute_to_act,
+    can_edit_act,
+    can_send_to_ko,
+    get_visible_acts_queryset,
+)
+from acts.selectors import get_related_tasks
 from acts.services import ActWorkflowError, apply_ko_decision, apply_structured_to_analysis, apply_to_analysis, approve_act, return_to_ko, return_to_otk, return_to_to, send_to_ko
 from references.models import ActStatus, DefectType, Operation
 from tasks.models import Task
 from tasks.permissions import can_complete_task
+from tasks.services import ensure_act_rejection_task
 
 
 class ActWorkflowTests(TestCase):
@@ -53,6 +63,21 @@ class ActWorkflowTests(TestCase):
             created_by=self.otk_user,
             nomenclature='Катушка',
             status=status,
+        )
+
+    def _mp_defect(self, act, *, znp, party, rejected):
+        return ActDefect.objects.create(
+            act=act,
+            defect_type=self.defect_type,
+            workshop=ActDefect.Workshop.MP_SHOP,
+            operation=self.operation,
+            mp_type=ActDefect.MpType.OL,
+            znp_number=znp,
+            party_number=party,
+            description='Дефект МП',
+            detected_at='2026-09-01',
+            checked_quantity=rejected + 10,
+            nonconforming_quantity=rejected,
         )
 
     @staticmethod
@@ -497,6 +522,168 @@ class ActWorkflowTests(TestCase):
         )
         # And the corrective-action tasks are untouched by any of it.
         self.assertEqual(self._act_tasks(act).count(), 1)
+
+    def test_backfill_repairs_active_acts_and_orphaned_created_otk_stays_workable(self):
+        """The two things an existing production database needs on upgrade.
+
+        Acts already in flight get the new deadline and the routing task their
+        stage implies; an act whose author is no longer an eligible ОТК
+        employee stops being unreachable, while an act with a live author keeps
+        belonging to them alone.
+        """
+        backfill = import_module(
+            'tasks.migrations.0013_backfill_active_act_deadlines_and_workflow_tasks'
+        )
+        second_otk = self._create_user('otk_backfill', UserProfile.Role.OTK)
+
+        created = self._create_act(self.status_created)
+        ko_act = self._create_act(self.status_ko)
+        archived = self._create_act(self.status_archived)
+        archived.due_date = date(2020, 1, 1)
+        archived.save(update_fields=['due_date'])
+        # An act whose stage is already represented must not gain a second one.
+        represented = self._create_act(self.status_created)
+        send_to_ko(represented, self.otk_user)
+        represented.refresh_from_db()
+        existing_task = Task.objects.get(
+            act=represented, source_type=Task.SourceType.ACT_WORKFLOW
+        )
+
+        backfill.backfill_active_acts(django_apps, None)
+
+        for act in (created, ko_act, represented):
+            act.refresh_from_db()
+            self.assertEqual(
+                act.due_date,
+                calculate_act_due_date(timezone.localtime(act.created_at).date()),
+            )
+        # Archived history is never rewritten.
+        archived.refresh_from_db()
+        self.assertEqual(archived.due_date, date(2020, 1, 1))
+
+        ko_task = Task.objects.get(act=ko_act, source_type=Task.SourceType.ACT_WORKFLOW)
+        self.assertEqual(ko_task.workflow_stage, Task.WorkflowStage.KO_REVIEW)
+        self.assertEqual(
+            set(ko_task.assignees.values_list('user_id', flat=True)), {self.ko_user.pk}
+        )
+        self.assertEqual(ko_task.due_date, ko_act.due_date)
+        # No routing task for `CREATED_OTK`, and no duplicate where one existed.
+        self.assertFalse(
+            Task.objects.filter(
+                act=created, source_type=Task.SourceType.ACT_WORKFLOW
+            ).exists()
+        )
+        self.assertEqual(
+            list(
+                Task.objects.filter(
+                    act=represented, source_type=Task.SourceType.ACT_WORKFLOW
+                ).values_list('pk', flat=True)
+            ),
+            [existing_task.pk],
+        )
+        # Idempotent: a second run adds nothing.
+        backfill.backfill_active_acts(django_apps, None)
+        self.assertEqual(
+            Task.objects.filter(
+                act=ko_act, source_type=Task.SourceType.ACT_WORKFLOW
+            ).count(),
+            1,
+        )
+
+        # An act returned to `CREATED_OTK` belongs to its author while the
+        # author is still an eligible ОТК employee.
+        orphan = self._create_act(self.status_created)
+        self.assertFalse(can_edit_act(orphan, second_otk))
+        self.assertFalse(can_send_to_ko(orphan, second_otk))
+        self.assertNotIn(orphan, get_visible_acts_queryset(second_otk))
+
+        # Once the author is not, any active ОТК employee may pick it up.
+        self.otk_user.userprofile.is_active = False
+        self.otk_user.userprofile.save(update_fields=['is_active'])
+        self.assertTrue(can_edit_act(orphan, second_otk))
+        self.assertTrue(can_send_to_ko(orphan, second_otk))
+        self.assertTrue(can_contribute_to_act(orphan, second_otk))
+        self.assertIn(orphan, get_visible_acts_queryset(second_otk))
+
+    def test_prohibited_mp_defects_create_one_pdo_task_for_the_whole_act(self):
+        """The ПДО replanning notice: what triggers it, and what it says."""
+        # Seeded by `accounts.0003`, so it is looked up rather than created.
+        pdo_department = Department.objects.get(code='PDO')
+        # Department, not role: a Руководитель filed under ПДО plans products
+        # too, and a ПДО-role user in another department does not.
+        planner = self._create_user('pdo_manager', UserProfile.Role.MANAGER)
+        planner.userprofile.department = pdo_department
+        planner.userprofile.save(update_fields=['department'])
+        outsider = self._create_user('pdo_role_elsewhere', UserProfile.Role.PDO)
+        outsider.userprofile.department = self.other_department
+        outsider.userprofile.save(update_fields=['department'])
+
+        act = self._create_act(self.status_ko)
+        act.nomenclature = 'МП 120/200-40'
+        act.order_number = '12345'
+        act.due_date = date(2026, 9, 10)
+        act.save(update_fields=['nomenclature', 'order_number', 'due_date'])
+        first = self._mp_defect(act, znp='6789', party='15', rejected=8)
+        second = self._mp_defect(act, znp='7000', party='16', rejected=2)
+        # A ПиР defect is never planned for replacement, whatever КО decided.
+        pir = ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, workshop=ActDefect.Workshop.PIR_SHOP,
+            znp_number='9001', detected_at='2026-09-01',
+            checked_quantity=5, nonconforming_quantity=1,
+        )
+
+        apply_ko_decision(act, self.ko_user, [
+            (first, Act.KoDecision.PROHIBIT_USE, 'Брак'),
+            (second, Act.KoDecision.PROHIBIT_USE, 'Брак'),
+            (pir, Act.KoDecision.PROHIBIT_USE, 'Брак'),
+        ])
+
+        task = Task.objects.get(act=act, source_type=Task.SourceType.ACT_REJECTION)
+        # One task for the act, one line per qualifying defect, in act order,
+        # with no synthetic total across ЗНП rows.
+        self.assertEqual(
+            task.task_text.splitlines(),
+            [
+                'МП 120/200-40 забраковано 8 шт. по заказу №12345, ЗНП №6789, Партия №15.',
+                'МП 120/200-40 забраковано 2 шт. по заказу №12345, ЗНП №7000, Партия №16.',
+            ],
+        )
+        self.assertEqual(
+            set(task.assignees.values_list('user_id', flat=True)), {planner.pk}
+        )
+        self.assertEqual(task.department_id, pdo_department.pk)
+        self.assertEqual(task.due_date, act.due_date)
+        self.assertEqual(task.created_by, self.ko_user)
+        # Ordinary executable work: completable, and not in «Связанные мероприятия».
+        self.assertTrue(can_complete_task(task, planner))
+        self.assertNotIn(task, get_related_tasks(act, planner))
+        # The routing queue moved on independently.
+        self.assertEqual(
+            Task.objects.filter(act=act, source_type=Task.SourceType.ACT_WORKFLOW)
+            .exclude(status__code='COMPLETED')
+            .get()
+            .workflow_stage,
+            Task.WorkflowStage.TO_ANALYSIS,
+        )
+
+        # A repeat creates nothing more.
+        ensure_act_rejection_task(act, [first, second], created_by=self.ko_user)
+        self.assertEqual(
+            Task.objects.filter(act=act, source_type=Task.SourceType.ACT_REJECTION).count(), 1
+        )
+
+        # A permitting decision on МП products produces no notice at all.
+        allowed_act = self._create_act(self.status_ko)
+        allowed_defect = self._mp_defect(allowed_act, znp='1', party='2', rejected=1)
+        apply_ko_decision(
+            allowed_act, self.ko_user,
+            [(allowed_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Разрешено')],
+        )
+        self.assertFalse(
+            Task.objects.filter(
+                act=allowed_act, source_type=Task.SourceType.ACT_REJECTION
+            ).exists()
+        )
 
     def test_wrong_roles_raise_workflow_error(self):
         ko_act = self._create_act(self.status_ko)

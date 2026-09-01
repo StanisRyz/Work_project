@@ -44,6 +44,12 @@ class Task(models.Model):
         # completed by an employee; this one is opened and closed by
         # `acts/services.py` as the act moves.
         ACT_WORKFLOW = 'ACT_WORKFLOW', 'Этап обработки акта'
+        # Real, executable work for ПДО: products the КО decision prohibited
+        # from use have to be re-planned. Unlike `ACT_WORKFLOW` it is completed
+        # by the employee in the ordinary way, and unlike `ACT` it comes from
+        # the КО decision rather than from the ТО analysis, so it has no
+        # corrective-action chain to hang on.
+        ACT_REJECTION = 'ACT_REJECTION', 'Брак по акту'
 
     class WorkflowStage(models.TextChoices):
         """Which act stage an `ACT_WORKFLOW` task represents.
@@ -212,6 +218,21 @@ class Task(models.Model):
                         department__isnull=False,
                         workflow_stage='',
                     )
+                    # Real ПДО work created by a КО «запретить использование»:
+                    # the act and a department, but no corrective-action
+                    # chain — it is not a ТО mitigation — no protocol, no
+                    # stage, and nobody to split it between.
+                    | Q(
+                        source_type='ACT_REJECTION',
+                        act__isnull=False,
+                        root_analysis__isnull=True,
+                        source_action__isnull=True,
+                        protocol__isnull=True,
+                        protocol_action__isnull=True,
+                        individual_assignee__isnull=True,
+                        department__isnull=False,
+                        workflow_stage='',
+                    )
                     # The routing entry for an act stage: the act alone, no
                     # corrective-action chain, no protocol, nobody to split it
                     # between — and a stage that must actually be named.
@@ -263,6 +284,16 @@ class Task(models.Model):
                 fields=['source_action', 'individual_assignee'],
                 name='unique_individual_act_action_task',
             ),
+            # One rejection task per act, stated by the database rather than by
+            # a service check: a retried or concurrent КО transition must not
+            # be able to hand ПДО the same notice twice, whatever the service
+            # looked up a moment earlier. Rows of every other source type have
+            # a `source_type` that fails the condition, so none is affected.
+            models.UniqueConstraint(
+                fields=['act'],
+                condition=Q(source_type='ACT_REJECTION'),
+                name='unique_act_rejection_task',
+            ),
         ]
 
     def __str__(self):
@@ -279,6 +310,10 @@ class Task(models.Model):
     @property
     def is_act_workflow_task(self):
         return self.source_type == self.SourceType.ACT_WORKFLOW
+
+    @property
+    def is_act_rejection_task(self):
+        return self.source_type == self.SourceType.ACT_REJECTION
 
     @property
     def is_routing_task(self):
@@ -324,6 +359,11 @@ class Task(models.Model):
                 ('act', 'root_analysis', 'source_action'),
             ),
             self.SourceType.ACT_WORKFLOW: (
+                ('act',),
+                ('root_analysis', 'source_action', 'protocol', 'protocol_action',
+                 'individual_assignee'),
+            ),
+            self.SourceType.ACT_REJECTION: (
                 ('act',),
                 ('root_analysis', 'source_action', 'protocol', 'protocol_action',
                  'individual_assignee'),

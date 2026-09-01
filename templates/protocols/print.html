@@ -80,8 +80,13 @@ downloaded file stay the same document.
 
         {% comment %}
         Signature lines, as on the paper original: who has to sign and in which
-        role. The electronic decision, its date and the round it belongs to stay
-        on the protocol page — a printed form is something people sign.
+        role. A participant who already approved electronically gets
+        «Согласовано: ДД.ММ.ГГГГ» instead of a rule to sign on — the same rule
+        `pdf.approval_mark()` applies, read from the same `is_approved` /
+        `decided_at` fields `build_protocol_document()` publishes, so the page
+        and the file cannot disagree. Pending, returned and cancelled rows keep
+        their blank line: they carry a decision date too, and none of them is a
+        signature.
         {% endcomment %}
         {% if document.approvals %}
             <h2 class="protocol-print__heading">Протокол согласован:</h2>
@@ -89,7 +94,11 @@ downloaded file stay the same document.
                 {% for approval in document.approvals %}
                     <tr>
                         <td>{{ approval.display_name }}{% if approval.position %} – {{ approval.position }}{% endif %}</td>
-                        <td class="protocol-print__signature-line"></td>
+                        {% if approval.is_approved and approval.decided_at %}
+                            <td class="protocol-print__approval-mark">Согласовано: {{ approval.decided_at|date:'d.m.Y' }}</td>
+                        {% else %}
+                            <td class="protocol-print__signature-line"></td>
+                        {% endif %}
                     </tr>
                 {% endfor %}
             </table>

@@ -177,7 +177,9 @@ def get_related_tasks(act, user):
 
     `source_type=ACT` only. An `ACT_WORKFLOW` row is a routing entry for the
     stage the act waits on, not work created by the ТО analysis, and listing it
-    here would turn the section into a second copy of the act's own route.
+    here would turn the section into a second copy of the act's own route. An
+    `ACT_REJECTION` row is ПДО's replanning notice from the КО decision, which
+    exists before any corrective action does.
     """
     from tasks.models import Task
     from tasks.permissions import get_readable_tasks_queryset

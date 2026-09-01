@@ -531,6 +531,142 @@ def active_users_for_role(role):
 
 
 # --------------------------------------------------------------------------
+# The ПДО rejection task
+#
+# When КО prohibits the use of defective «Цех МП» products, someone has to
+# plan replacements. That is real, executable work — an ordinary task ПДО
+# finishes with an execution comment — and deliberately not an `ACT` task: it
+# comes from the КО decision, months before the ТО analysis exists, so there
+# is no corrective action to hang it on.
+#
+# Recipients are resolved by *organisational department*, not by role: the
+# people who plan production are the employees of Department `PDO`, whatever
+# role each of them holds. A Руководитель working there is included; a ПДО-role
+# user filed under another department is not.
+# --------------------------------------------------------------------------
+
+
+# The department that plans replacement products. A code, not a name: names are
+# editable in Admin, the code is the identifier the seed migration writes.
+PDO_DEPARTMENT_CODE = 'PDO'
+
+# One rejected defect, one line — the task page renders the text with
+# `linebreaksbr`, so the sentences stay separate facts.
+LINE_SEPARATOR = '\n'
+
+
+def _rejection_value(value, fallback='—'):
+    """A printable value for a field that legacy data may have left blank.
+
+    The «Цех МП» profile requires all of these, so on current data the fallback
+    never shows. It exists because an act stored years ago must not be able to
+    abort a КО transition over an empty string.
+    """
+    text = str(value).strip() if value not in (None, '') else ''
+    return text or fallback
+
+
+def describe_rejected_defect(act, defect):
+    """One sentence about one prohibited «Цех МП» defect.
+
+    «<номенклатура> забраковано <N> шт. по заказу №<заказ>, ЗНП №<ЗНП>,
+    Партия №<партия>.» — the wording the plant uses. Quantities are never
+    added together across defects: two ЗНП rows are two facts, and a synthetic
+    total would describe a batch that does not exist.
+    """
+    return (
+        f'{_rejection_value(act.nomenclature)} забраковано '
+        f'{_rejection_value(defect.nonconforming_quantity, "—")} шт. '
+        f'по заказу №{_rejection_value(act.order_number)}, '
+        f'ЗНП №{_rejection_value(defect.znp_number)}, '
+        f'Партия №{_rejection_value(defect.party_number)}.'
+    )
+
+
+def get_pdo_recipients():
+    """Active employees of the active Department `PDO`, ordered by pk.
+
+    By department, not by role — planning replacement products is what that
+    department does, and its members' roles are irrelevant. An absent or
+    deactivated department yields nobody, which the caller treats as "skip",
+    never as a failure.
+    """
+    from django.contrib.auth import get_user_model
+
+    return list(
+        get_user_model()
+        .objects.select_related('userprofile__department')
+        .filter(
+            is_active=True,
+            userprofile__is_active=True,
+            userprofile__department__is_active=True,
+            userprofile__department__code=PDO_DEPARTMENT_CODE,
+        )
+        .order_by('pk')
+    )
+
+
+def ensure_act_rejection_task(act, defects, *, created_by):
+    """The one ПДО rejection task for this act, created at most once.
+
+    `defects` is every already-saved defect of the act whose КО decision
+    prohibits use and whose workshop is «Цех МП», in the act's own order. An
+    empty list creates nothing. One task for the whole act — one sentence per
+    defect, one line each — because ПДО plans a replacement for the act, not
+    a separate errand per ЗНП row.
+
+    Idempotent on two levels: the existence check below covers the ordinary
+    repeat, and `unique_act_rejection_task` covers the race the check cannot
+    see. Called from inside the КО transition's `atomic()` block under the act
+    row lock, so it rolls back with the transition — and an
+    `IntegrityError` from anything *other* than that unique index is left to
+    propagate rather than swallowed.
+    """
+    if not defects:
+        return None
+    if Task.objects.filter(act=act, source_type=Task.SourceType.ACT_REJECTION).exists():
+        log_event(
+            logger,
+            'INFO',
+            'task.act_rejection_skipped',
+            act_id=_pk_of(act),
+            reason='already_exists',
+            outcome='skipped',
+        )
+        return None
+
+    recipients = get_pdo_recipients()
+    if not recipients:
+        # Never a reason to refuse the КО decision: the act still has to move
+        # to ТО, and a plant with no ПДО account simply gets no task.
+        log_event(
+            logger,
+            'INFO',
+            'task.act_rejection_skipped',
+            act_id=_pk_of(act),
+            reason='no_pdo_recipients',
+            outcome='skipped',
+        )
+        return None
+
+    department = recipients[0].userprofile.department
+    task = Task(
+        source_type=Task.SourceType.ACT_REJECTION,
+        act=act,
+        task_text=LINE_SEPARATOR.join(
+            describe_rejected_defect(act, defect) for defect in defects
+        ),
+        department=department,
+        # The act's own review deadline. Legacy rows may have none, and a
+        # missing deadline must not abort the transition either.
+        due_date=act.due_date or timezone.localdate(),
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    return _save_new_task(task, [user.pk for user in recipients], actor=created_by)
+
+
+# --------------------------------------------------------------------------
 # Task attachments
 #
 # Optional files on an ordinary, executable task. Upload is its own request,

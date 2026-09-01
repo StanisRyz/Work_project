@@ -125,7 +125,15 @@ tasks never live inside `acts`.
   not the author's: `can_review_otk()` — and therefore `can_return_to_to()`
   and `can_approve_act()` — is «any active ОТК employee», so an act is never
   stranded because its creator is away. `CREATED_OTK` stays the creator's own
-  act. Manager and administrator behaviour is unchanged, and the UI reads the
+  act **while the creator is still an eligible ОТК employee**; once they are
+  not — deactivated account, deactivated profile or another role — any active
+  ОТК employee may work on it, because an act returned from КО would otherwise
+  be unreachable. `can_work_on_created_otk_act()` is the single rule, shared by
+  `can_contribute_to_act()`, `can_edit_act()`, `can_send_to_ko()` and the `my`
+  queryset, and `_move_act_workflow_task()` routes the `OTK_REWORK` entry the
+  same way, so whoever receives the task may act on it; it never widens access
+  while the author is still there.
+  Manager and administrator behaviour is unchanged, and the UI reads the
   same helpers through `get_available_act_actions()`. Global read access never grants comments, uploads, workflow
   actions or editing; editing remains limited to authorised `CREATED_OTK` acts.
 - Every return transition requires a non-whitespace comment saved atomically
@@ -214,15 +222,17 @@ tasks never live inside `acts`.
   `tasks.services.replace_task_assignees()`. Every authenticated user may read
   every task through `all`, `archive` and task detail; only active assigned
   tasks appear in `my`, and read access never grants completion rights.
-- **A task's origin is `source_type`, never a nullable relation.** Four values
-  exist — `ACT`, `ACT_WORKFLOW`, `PROTOCOL_APPROVAL`, `PROTOCOL_ACTION` — and
-  exactly one relation shape is valid for each, enforced by `Task.clean()` and
-  by the `task_source_relations_match_source_type` check constraint:
+- **A task's origin is `source_type`, never a nullable relation.** Five values
+  exist — `ACT`, `ACT_WORKFLOW`, `ACT_REJECTION`, `PROTOCOL_APPROVAL`,
+  `PROTOCOL_ACTION` — and exactly one relation shape is valid for each,
+  enforced by `Task.clean()` and by the
+  `task_source_relations_match_source_type` check constraint:
 
   | `source_type` | required | must be NULL / empty |
   | --- | --- | --- |
   | `ACT` | `act`, `root_analysis`, `source_action`, `department` | `protocol`, `protocol_action`, `workflow_stage` |
   | `ACT_WORKFLOW` | `act`, `workflow_stage` | `root_analysis`, `source_action`, `protocol`, `protocol_action`, `individual_assignee` |
+  | `ACT_REJECTION` | `act`, `department` | `root_analysis`, `source_action`, `protocol`, `protocol_action`, `individual_assignee`, `workflow_stage` |
   | `PROTOCOL_APPROVAL` | `protocol`, `department` | `act`, `root_analysis`, `source_action`, `protocol_action`, `individual_assignee`, `workflow_stage` |
   | `PROTOCOL_ACTION` | `protocol`, `protocol_action`, `department` | `act`, `root_analysis`, `source_action`, `workflow_stage` |
 
@@ -255,6 +265,26 @@ tasks never live inside `acts`.
   opens `OTK_REWORK`, ТО → КО opens `KO_REVIEW`, ОТК → ТО opens `TO_ANALYSIS`.
   **Creating an act creates no routing task** — `CREATED_OTK` is the creator's
   own work and they already hold the act.
+- **`ACT_REJECTION` is ordinary executable work, not a routing entry.** It
+  appears in the registry and in `my`, opens as a normal task page (never a
+  redirect), takes attachments and is completed by its assignee with the usual
+  execution comment; the administrative fallback applies as to any task. It is
+  created **only** inside the successful `KO_REVIEW → TO_ANALYSIS` transition,
+  from the defects as they were just saved: a defect qualifies when
+  `workshop == MP_SHOP` **and** `ko_decision == PROHIBIT_USE`, so ПиР defects
+  and every permitting decision produce nothing. **One shared task per act**,
+  not per defect — `describe_rejected_defect()` writes one sentence per
+  qualifying defect on its own line, in the act's order, and quantities are
+  never summed across ЗНП rows. The deadline is the act's `due_date` (today as
+  a legacy fallback) and `created_by` is the КО user.
+  **Recipients are resolved by department, never by role**: active users with
+  an active profile in the active `Department.code == 'PDO'`, whatever role
+  each holds. A missing, inactive or empty ПДО department skips the task and
+  logs the reason — it must never block the act. `unique_act_rejection_task`
+  (partial, on `source_type='ACT_REJECTION'`) is what makes a retry or a
+  concurrent transition unable to duplicate it; the service's existence check
+  is only the readable path to the same answer. It is *not* an `ACT` task and
+  never appears in «Связанные мероприятия».
 - **A routing task is never completed by an employee.** `Task.is_routing_task`
   covers `PROTOCOL_APPROVAL` and `ACT_WORKFLOW` alike, and both
   `can_complete_task()` and `complete_task()` refuse it: the real action is
@@ -315,7 +345,19 @@ tasks never live inside `acts`.
 - Schema changes to `Task` migrate the existing production table in place:
   add first, classify existing rows in a separate data migration, relax
   nullability, then add constraints. Never delete, recreate or renumber task
-  rows, and never generate tasks from existing rows in a migration.
+  rows.
+- **One migration generates tasks, and only because the acts already in flight
+  had no way to acquire them.** `tasks.0013` recomputes `Act.due_date` for
+  **active** acts (`CREATED_OTK`, `KO_REVIEW`, `TO_ANALYSIS`, `OTK_REVIEW`)
+  from their own `created_at` plus three working days, and creates the one
+  `ACT_WORKFLOW` entry their current stage implies. Archived acts are history
+  and are never rewritten; `CREATED_OTK` gets no task; an act that already has
+  an active routing task, or a stage whose role has no eligible user, is
+  skipped, so a second run changes nothing. It emits no notification and no
+  realtime event — a migration is not a workflow transition — touches no
+  corrective-action or protocol task, and reads only historical models through
+  `apps.get_model`. This is the exception, not a licence: normal work still
+  never generates tasks from existing rows in a migration.
 - `Act.number` is a **business identifier, never the identity**. The user types
   a suffix of up to `ACT_NUMBER_SUFFIX_LENGTH` (5) arbitrary characters and
   `acts.models.format_act_number()` builds `АОК-{year}-{zero-padded suffix}` on
@@ -458,12 +500,12 @@ tasks never live inside `acts`.
   «Протокол», date and «№ N / тип» on one line, Присутствовали, Повестка,
   Слушали, Решили, signature lines and «Подготовил» — flowing serif text on
   white, no cards, badges, borders or workflow controls. The approval block
-  prints blank signature lines: the electronic decision and its date stay on
-  the protocol page, because a printed form is something people sign.
-  The one deliberate difference is the approval block: the printable page
-  keeps blank signature lines, while the PDF prints
-  «Согласовано: ДД.ММ.ГГГГ» beside a participant whose `ProtocolApproval` is
-  `APPROVED`. `pdf.approval_mark()` is the single wording of that marker and
+  prints «Согласовано: ДД.ММ.ГГГГ» beside a participant whose
+  `ProtocolApproval` is `APPROVED`, and a blank signature line for everyone
+  else — in **both** targets, the printable page and the PDF, from the same
+  `is_approved` / `decided_at` fields, because an already-signed document must
+  not ask for that signature again.
+  `pdf.approval_mark()` is the single wording of that marker and
   reads the stored `decided_at` — never a recomputed date — and a pending,
   returned or cancelled row gets no marker although it carries a date of its
   own. No new field: `selectors.build_protocol_document()` simply publishes

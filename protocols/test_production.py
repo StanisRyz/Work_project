@@ -306,6 +306,23 @@ class ProtocolProductionTests(TestCase):
         # Still pending — a signature line, not a claim that they signed.
         self.assertEqual(marks[executor_name], '')
 
+        # The printable page follows the same rule as the file: the approved
+        # row states the date, the pending one keeps its blank rule.
+        expected_mark = marks[reviewer_name]
+        self.client.force_login(self.reader)
+        printed = self.client.get(
+            reverse('protocols:print', args=[protocol.pk])
+        ).content.decode()
+        self.assertIn(expected_mark, printed)
+        # Scoped to the signature table: both names also appear above it.
+        signatures = printed.split('protocol-print__signatures', 1)[1].split('</table>', 1)[0]
+        rows_html = {
+            row.split('<td>', 1)[1].split('</td>', 1)[0].split(' – ')[0]: row
+            for row in signatures.split('<tr>')[1:]
+        }
+        self.assertNotIn('protocol-print__signature-line', rows_html[reviewer_name])
+        self.assertIn('protocol-print__signature-line', rows_html[executor_name])
+
         # The whole file still renders with the marker in place.
         approve_protocol(protocol, self.executor)
         protocol.refresh_from_db()

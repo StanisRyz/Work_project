@@ -90,7 +90,7 @@ the Django login, never the employee's name.
     </section>
     {% endif %}
     <section class="task-detail-analysis-card">
-        <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% else %}Решение протокола{% endif %}</span>
+        <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% elif task.is_act_rejection_task %}Решение КО{% else %}Решение протокола{% endif %}</span>
         <h2>Задача</h2>
         <div class="task-comment-block">{{ task.task_text|linebreaksbr }}</div>
     </section>

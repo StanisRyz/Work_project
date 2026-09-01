@@ -25,7 +25,11 @@ class TaskAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     @admin.display(description='Источник')
     def source_reference(self, obj):
         """The one relation that actually identifies this task's origin."""
-        if obj.source_type in {Task.SourceType.ACT, Task.SourceType.ACT_WORKFLOW}:
+        if obj.source_type in {
+            Task.SourceType.ACT,
+            Task.SourceType.ACT_WORKFLOW,
+            Task.SourceType.ACT_REJECTION,
+        }:
             return obj.act
         if obj.source_type == Task.SourceType.PROTOCOL_ACTION:
             return obj.protocol_action

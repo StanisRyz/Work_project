@@ -64,6 +64,64 @@ def is_manager_or_admin(user):
     return has_full_act_access(user)
 
 
+# --------------------------------------------------------------------------
+# Who owns a `CREATED_OTK` act
+#
+# Normally its author, alone: they typed it and they are the one who sends it
+# to КО. But an act returned from КО lands back in `CREATED_OTK`, and by then
+# the author may have left, been deactivated or moved off ОТК — and a
+# creator-only rule would strand the act with nobody able to edit or forward
+# it. The fallback is deliberately narrow: it opens *only* while the creator
+# is no longer an eligible active ОТК employee, and it never widens access to
+# an act whose author is still there.
+#
+# `acts/services._move_act_workflow_task()` routes the `OTK_REWORK` queue entry
+# by the same rule, so the person who gets the task is a person who may act on
+# it.
+# --------------------------------------------------------------------------
+
+
+def creator_is_eligible_otk(act):
+    """Whether this act's author may still work on it as ОТК.
+
+    An active account *and* an active profile *and* the ОТК role — the same
+    three conditions every other role check applies. A missing profile is read
+    through `getattr`, because the row is deletable on its own in Admin.
+    """
+    creator = getattr(act, 'created_by', None)
+    if creator is None or not creator.is_active:
+        return False
+    profile = getattr(creator, 'userprofile', None)
+    return bool(
+        profile is not None
+        and profile.is_active
+        and profile.role == UserProfile.Role.OTK
+    )
+
+
+def _eligible_otk_creator_filter():
+    """The same rule as a `Q`, for the registry queryset."""
+    return Q(
+        created_by__is_active=True,
+        created_by__userprofile__is_active=True,
+        created_by__userprofile__role=UserProfile.Role.OTK,
+    )
+
+
+def can_work_on_created_otk_act(act, user):
+    """Whether `user` may edit or forward this `CREATED_OTK` act as ОТК.
+
+    The author while the author is still eligible; any active ОТК employee once
+    they are not. Managers and administrators are answered by
+    `has_full_act_access()` in the callers, not here.
+    """
+    if not is_otk(user):
+        return False
+    if act.created_by_id == user.id:
+        return True
+    return not creator_is_eligible_otk(act)
+
+
 def can_create_act(user):
     return is_otk(user) or is_manager_or_admin(user)
 
@@ -99,10 +157,11 @@ def can_contribute_to_act(act, user):
     if is_otk(user):
         # `OTK_REVIEW` is the department's queue, not the author's: any active
         # ОТК employee reviews, returns and approves it. `CREATED_OTK` stays
-        # the creator's own act until it is sent to КО.
+        # the creator's own act — unless the creator is no longer an eligible
+        # ОТК employee, which would otherwise leave a returned act stranded.
         if _status_code(act) == 'OTK_REVIEW':
             return True
-        return act.created_by_id == user.id and _status_code(act) == 'CREATED_OTK'
+        return _status_code(act) == 'CREATED_OTK' and can_work_on_created_otk_act(act, user)
     if is_ko(user):
         return _status_code(act) == 'KO_REVIEW'
     if is_to(user):
@@ -117,7 +176,7 @@ def can_send_to_ko(act, user):
         return False
     if has_full_act_access(user):
         return True
-    return is_otk(user) and act.created_by_id == user.id
+    return can_work_on_created_otk_act(act, user)
 
 
 def can_edit_act(act, user):
@@ -125,7 +184,7 @@ def can_edit_act(act, user):
         return False
     if has_full_act_access(user):
         return True
-    return is_otk(user) and act.created_by_id == user.id
+    return can_work_on_created_otk_act(act, user)
 
 
 def can_apply_ko_decision(act, user):
@@ -206,12 +265,14 @@ def get_visible_acts_queryset(user):
     if has_full_act_access(user):
         return queryset
     if is_otk(user):
-        # Own acts still waiting to be sent to КО, plus every act the route
-        # brought back to ОТК for the final review — that queue is the
-        # department's, not the author's.
-        return queryset.filter(
-            Q(created_by=user, status__code='CREATED_OTK') | Q(status__code='OTK_REVIEW')
+        # Own acts still waiting to be sent to КО — plus any `CREATED_OTK` act
+        # whose author is no longer an eligible ОТК employee, which nobody
+        # else could otherwise pick up — plus every act the route brought back
+        # for the final review, a queue that belongs to the department.
+        created_otk = Q(status__code='CREATED_OTK') & (
+            Q(created_by=user) | ~_eligible_otk_creator_filter()
         )
+        return queryset.filter(created_otk | Q(status__code='OTK_REVIEW'))
     if is_ko(user):
         return queryset.filter(status__code='KO_REVIEW')
     if is_to(user):

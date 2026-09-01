@@ -16,7 +16,7 @@ from realtime.emitters import (
     emit_comment_created,
 )
 
-from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActHistoryEvent, ActRootAnalysis, get_act_status
+from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActDefect, ActHistoryEvent, ActRootAnalysis, get_act_status
 from .permissions import (
     can_apply_ko_decision,
     can_apply_to_analysis,
@@ -323,7 +323,36 @@ def apply_ko_decision(act, user, defect_decisions):
         _move_act_workflow_task(
             act, 'TO_ANALYSIS', user, reason='ko_decision_applied'
         )
+        _ensure_rejection_task(act, defect_decisions, user)
     return act
+
+
+def _ensure_rejection_task(act, defect_decisions, user):
+    """One ПДО task for the «Цех МП» products this КО decision prohibited.
+
+    Read from the locked defect rows *after* they were saved, so the task
+    describes the decisions the database actually holds rather than the ones
+    the request proposed. A defect qualifies on two facts together — the
+    workshop is «Цех МП» and the decision is «запретить использование» — so a
+    ПиР defect never produces one, and neither does any permitting decision.
+    Defect order is the act's own, and quantities are never summed: one
+    sentence per defect.
+
+    Inside the transition's `atomic()` block and under the act row lock, so a
+    rolled-back КО decision takes the task with it. Missing ПДО recipients are
+    not an error and never block the act; an unexpected database failure is
+    left to propagate.
+    """
+    from tasks.services import ensure_act_rejection_task
+
+    rejected = [
+        defect
+        for defect, _decision, _comment in defect_decisions
+        if defect is not None
+        and defect.workshop == ActDefect.Workshop.MP_SHOP
+        and defect.ko_decision == Act.KoDecision.PROHIBIT_USE
+    ]
+    return ensure_act_rejection_task(act, rejected, created_by=user)
 
 
 def return_to_otk(act, user, return_comment):
@@ -868,7 +897,11 @@ def clear_all_acts():
         from tasks.models import Task
 
         Task.objects.filter(
-            source_type__in=[Task.SourceType.ACT, Task.SourceType.ACT_WORKFLOW]
+            source_type__in=[
+                Task.SourceType.ACT,
+                Task.SourceType.ACT_WORKFLOW,
+                Task.SourceType.ACT_REJECTION,
+            ]
         ).delete()
         Act.objects.all().delete()
     for attachment in attachments:

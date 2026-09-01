@@ -166,6 +166,14 @@
     border-bottom: 1px solid #000000;
 }
 
+/* Same column, no rule: an electronically approved row states the fact
+   instead of offering a line to sign on. */
+.protocol-print__approval-mark {
+    width: 150px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
 .protocol-print__prepared {
     margin-top: 26px;
     font-size: 12px;
