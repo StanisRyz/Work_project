@@ -222,6 +222,65 @@ class ProtocolDraftEditorTests(TestCase):
             2,
         )
 
+    def test_changing_only_an_action_execution_flag_counts_as_an_edit(self):
+        """`_document_snapshot()` covers every persisted column of a decision.
+
+        Both execution flags are stored on `ProtocolAction` and both decide
+        what the real task becomes, so a submission that moves nothing else is
+        still an edit: `updated_at`, one `EDITED` event and one realtime
+        emission, through the existing path and no new mechanism. An identical
+        resubmission still produces none of the three.
+        """
+        protocol = create_protocol(self.quality, self.author)
+        url = reverse('protocols:save_draft', args=[protocol.pk])
+
+        def edits():
+            return protocol.history_events.filter(
+                event_type=ProtocolHistoryEvent.EventType.EDITED
+            ).count()
+
+        # Two assignees, so «разбить» is not normalized away below two.
+        both = {
+            'actions-0-assignee_departments': [
+                str(self.other_department.pk), str(self.other_department.pk)
+            ],
+            'actions-0-assignees': [str(self.executor.pk), str(self.member.pk)],
+        }
+        self.client.post(url, self._payload(**both))
+        self.assertEqual(edits(), 1)
+
+        # An identical resubmission is not an edit — the guard still works.
+        with patch('protocols.services.emit_protocol_updated') as unchanged_emit:
+            self.client.post(url, self._payload(**both))
+        self.assertEqual(edits(), 1)
+        unchanged_emit.assert_not_called()
+
+        protocol.refresh_from_db()
+        before = protocol.updated_at
+
+        # Only «Обязательно вложение» moves.
+        with patch('protocols.services.emit_protocol_updated') as emit:
+            self.client.post(
+                url, self._payload(**both, **{'actions-0-requires_attachment': 'on'})
+            )
+        self.assertEqual(edits(), 2)
+        emit.assert_called_once()
+        self.assertTrue(protocol.actions.get().requires_attachment)
+        protocol.refresh_from_db()
+        self.assertGreater(protocol.updated_at, before)
+
+        # Only «Разбить задачу для участников» moves, on top of it.
+        with patch('protocols.services.emit_protocol_updated') as split_emit:
+            self.client.post(url, self._payload(**both, **{
+                'actions-0-requires_attachment': 'on',
+                'actions-0-split_for_assignees': 'on',
+            }))
+        self.assertEqual(edits(), 3)
+        split_emit.assert_called_once()
+        action = protocol.actions.get()
+        self.assertTrue(action.split_for_assignees)
+        self.assertTrue(action.requires_attachment)
+
     def test_editor_opens_when_an_assignee_has_no_profile_row(self):
         """A missing `UserProfile` is an empty department, never a 500.
 

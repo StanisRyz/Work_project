@@ -203,11 +203,17 @@ def _document_snapshot(protocol):
             (speech.speaker.user_id, speech.text, speech.display_order)
             for speech in protocol.speeches.select_related('speaker')
         ],
+        # Every persisted column of a decision the editor can move, execution
+        # flags included: they are the author's own answers, they survive a
+        # return for revision, and they decide what the real task becomes — so
+        # a submission that changes nothing but one of them is still an edit.
         'actions': [
             (
                 action.task_text,
                 action.department_id,
                 action.due_date,
+                action.split_for_assignees,
+                action.requires_attachment,
                 action.display_order,
                 sorted(assignee.user_id for assignee in action.assignees.all()),
             )

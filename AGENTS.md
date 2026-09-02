@@ -769,7 +769,11 @@ tasks never live inside `acts`.
   block in one `transaction.atomic()`. There is no autosave and no per-block
   endpoint; a refusal anywhere persists nothing from that submission. One
   successful save that actually changes stored content adds exactly one `EDITED`
-  event — never one per field.
+  event — never one per field. «Changes stored content» is decided by
+  `_document_snapshot()`, which covers every persisted column of a decision,
+  `split_for_assignees` and `requires_attachment` included: a submission that
+  moves nothing but an execution flag is still an edit and takes the ordinary
+  `updated_at` / `EDITED` / realtime path.
 - **A participant who stays keeps their snapshot.** The save reconciles
   participant rows by user: an existing row is updated in place (and re-freezes
   `department_name` only when its department really changed), a removed row is

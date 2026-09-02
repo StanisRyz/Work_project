@@ -8,6 +8,11 @@
  */
 
 .plate-cutting-module {
+    /* The shared height of every main package-row control. Declared once so
+       the inputs, the range select, the «Время пакета» value box and the
+       confirm/edit button beside it cannot drift apart. */
+    --pcut-control-height: 40px;
+
     display: grid;
     gap: 16px;
 }
@@ -100,15 +105,26 @@
     font-size: 14px;
 }
 
+/* One height for every main control on a package row — the three inputs, the
+   range select and the «Время пакета» value box — so the row reads as one line
+   however the value box is built inside. */
 .plate-cutting-module input,
-.plate-cutting-module select {
+.plate-cutting-module select,
+.plate-cutting-module .pcut-package__time {
     width: 100%;
+    min-height: var(--pcut-control-height);
     padding: 10px 12px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
     color: var(--color-text);
     font: inherit;
+}
+
+/* The same neutral grey on every numeric field of the row. */
+.plate-cutting-module input::placeholder {
+    color: var(--color-muted);
+    opacity: 1;
 }
 
 .plate-cutting-module input:disabled,
@@ -119,25 +135,38 @@
     opacity: 1;
 }
 
+/* The action group: the value box and the confirm/edit button beside it. It
+   carries no border of its own — the box inside it is the field — and stays
+   `relative` because the details popup is anchored to the whole group. */
 .plate-cutting-module .pcut-package__result-row {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 9px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
+    gap: 8px;
 }
 
-.plate-cutting-module .pcut-package__result-row output {
+/* The value box itself: what the label «Время пакета» names, styled exactly
+   like an input above. Only the value and the details chevron live in it. */
+.plate-cutting-module .pcut-package__time {
+    display: flex;
     flex: 1;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+}
+
+.plate-cutting-module .pcut-package__time output {
+    flex: 1;
+    min-width: 0;
     color: var(--color-text);
     font-weight: 700;
 }
 
+/* Outside the value box, and squared off to the same height as it. */
 .plate-cutting-module .pcut-package__confirm {
-    min-width: 34px;
+    flex: none;
+    min-width: var(--pcut-control-height);
+    min-height: var(--pcut-control-height);
     padding-right: 8px;
     padding-left: 8px;
 }
@@ -399,6 +428,16 @@
 @media (max-width: 560px) {
     .plate-cutting-module .pcut-fields {
         grid-template-columns: 1fr;
+    }
+
+    /* The value box and its button may wrap onto two lines rather than
+       squeeze; the button keeps its full square and is never clipped. */
+    .plate-cutting-module .pcut-package__result-row {
+        flex-wrap: wrap;
+    }
+
+    .plate-cutting-module .pcut-package__time {
+        flex-basis: 100%;
     }
 
     .plate-cutting-module .pcut-details-popup {

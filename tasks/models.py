@@ -464,12 +464,14 @@ def task_attachment_upload_to(instance, filename):
 
 
 class TaskAttachment(models.Model):
-    """An optional file attached to an ordinary, executable task.
+    """A file attached to an ordinary, executable task.
 
-    Optional is the whole point: a task is completed with its execution
-    comment and zero attachments, exactly as before. Uploading is a separate
-    request from completing, so no file can ever become a precondition of
-    finishing the work.
+    Optional by default: a task is completed with its execution comment and
+    zero attachments, exactly as before. The one exception is a task created
+    with `Task.requires_attachment`, which `complete_task()` refuses to close
+    until at least one of these rows exists — the requirement is that task's
+    own snapshot and is enforced there alone. Uploading stays a separate
+    request from completing either way.
 
     Routing tasks (`PROTOCOL_APPROVAL`, `ACT_WORKFLOW`) carry no attachments —
     their real action happens on the source document, which has attachments of

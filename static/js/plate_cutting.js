@@ -76,14 +76,19 @@
     if (platesMax && Number(platesText) > platesMax) {
       return { error: 'Количество пластин — не больше ' + platesMax + '.' };
     }
-    if (!holesText) return { incomplete: true };
-    if (!INTEGER.test(holesText)) {
+    // Empty reads as nought holes, and only here. The field starts blank so a
+    // new package does not show a zero nobody typed, but a row is still
+    // computable and confirmable before it is filled in — exactly what the
+    // prefilled `0` used to give. Nothing writes the zero back to the input.
+    if (holesText && !INTEGER.test(holesText)) {
       return { error: 'Количество отверстий, всего — целое число от 0.' };
     }
     if (holesMax && Number(holesText) > holesMax) {
       return { error: 'Количество отверстий, всего — не больше ' + holesMax + '.' };
     }
-    return { result: calculatePackage(range, Number(platesText), Number(holesText)) };
+    return {
+      result: calculatePackage(range, Number(platesText), holesText ? Number(holesText) : 0),
+    };
   }
 
   function readSetQuantity() {

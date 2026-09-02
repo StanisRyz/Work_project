@@ -94,19 +94,33 @@ Every class is namespaced under `.plate-cutting-module`.
                     <input data-field="plates" type="number" min="1" max="{{ max_plate_count }}" step="1" inputmode="numeric" placeholder="Например, 500">
                 </label>
                 <label>
+                    {% comment %}
+                    No `value="0"`: a new package starts empty and the user fills it.
+                    `readPackage()` reads an empty field as nought holes, so an
+                    unfinished row still computes instead of blocking confirmation.
+                    {% endcomment %}
                     <span>Количество отверстий, всего</span>
-                    <input data-field="holes" type="number" min="0" max="{{ max_hole_count }}" step="1" inputmode="numeric" value="0">
+                    <input data-field="holes" type="number" min="0" max="{{ max_hole_count }}" step="1" inputmode="numeric" placeholder="Например, 120">
                 </label>
+                {% comment %}
+                The value and the actions beside it, not inside it: the bordered
+                `__time` box is the field and matches the inputs' height, while
+                «подтвердить»/«редактировать» is its own button to the right of it.
+                The details chevron stays with the value it explains, and the popup
+                stays anchored to the row.
+                {% endcomment %}
                 <div class="pcut-package__result">
                     <span class="pcut-package__result-label">Время пакета</span>
                     <div class="pcut-package__result-row">
-                        <output data-package-time>—</output>
+                        <div class="pcut-package__time">
+                            <output data-package-time>—</output>
+                            {# Same stroked chevron and rotation as the profile menu; click only. #}
+                            <button class="pcut-details-toggle" type="button" data-details-toggle aria-expanded="false" aria-label="Показать расчёт пакета" title="Расчёт пакета">
+                                <svg class="ui-icon pcut-details-toggle__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+                            </button>
+                        </div>
                         <button class="link-button link-button--compact link-button--success pcut-package__confirm" type="button" data-confirm-package aria-label="Подтвердить пакет" title="Подтвердить пакет">
                             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg>
-                        </button>
-                        {# Same stroked chevron and rotation as the profile menu; click only. #}
-                        <button class="pcut-details-toggle" type="button" data-details-toggle aria-expanded="false" aria-label="Показать расчёт пакета" title="Расчёт пакета">
-                            <svg class="ui-icon pcut-details-toggle__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
                         </button>
                         <div class="pcut-details-popup" data-details-popup hidden></div>
                     </div>
@@ -198,9 +212,9 @@ Every class is namespaced under `.plate-cutting-module`.
 {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/plate_cutting.css' %}?v=20260831-1">
+<link rel="stylesheet" href="{% static 'css/plate_cutting.css' %}?v=20260902-1">
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'js/plate_cutting.js' %}?v=20260831-1"></script>
+<script src="{% static 'js/plate_cutting.js' %}?v=20260902-1"></script>
 {% endblock %}

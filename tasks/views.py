@@ -133,12 +133,18 @@ def complete_task_view(request, pk):
 
 @login_required
 def task_add_attachment(request, pk):
-    """Upload one optional file to an ordinary task.
+    """Upload one file to an ordinary task.
 
-    Its own endpoint, deliberately separate from completion: a task is still
-    finished with the execution comment alone, and no file is ever a
-    precondition. The task is loaded through the visible-tasks queryset and the
-    permission is re-checked in the service under the row lock.
+    Its own endpoint, deliberately separate from completion, and it stays that
+    way now that a file can be a precondition: an ordinary task is still
+    finished with the execution comment and nothing attached, but one created
+    with `Task.requires_attachment` needs at least one attachment before
+    `complete_task()` will close it. Uploading and completing remain two
+    requests either way — nothing here checks or enforces the requirement, and
+    the completion guard is the only authority on it.
+
+    The task is loaded through the visible-tasks queryset and the permission is
+    re-checked in the service under the row lock.
     """
     task = get_object_or_404(get_visible_tasks_queryset(request.user), pk=pk)
     if request.method != 'POST':

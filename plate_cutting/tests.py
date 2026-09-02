@@ -98,6 +98,52 @@ class PlateCuttingPageTests(TestCase):
         self.assertIn('replaceModal.showModal()', confirm_block)
 
 
+    def test_the_package_row_starts_with_empty_holes_and_a_confirm_button_outside_the_value(self):
+        """The two package-row rules a browser test would otherwise own.
+
+        A source-level check, for the same reason the one above is: the project
+        has no JavaScript test runner and a layout patch is not the place to
+        add one. What it pins is that a new package renders no typed-looking
+        `0`, that an empty field is still computable so the row can be
+        confirmed, and that the confirm/edit button is a sibling of the value
+        box rather than a child of it.
+        """
+        User.objects.create_user(username='cutter', password='demo12345')
+        self.client.login(username='cutter', password='demo12345')
+        page = self.client.get(self.url).content.decode()
+
+        # No template comment leaks into the page. Django's `{#...#}` is
+        # single-line only, so a multi-line one is not parsed and is rendered
+        # verbatim — inside `.pcut-fields` it also becomes a stray grid item.
+        self.assertNotIn('{#', page)
+        self.assertNotIn('{% comment', page)
+
+        holes = page.split('data-field="holes"')[1].split('>')[0]
+        # No prefilled zero, and the same grey placeholder treatment as «пластин».
+        self.assertNotIn('value="0"', holes)
+        self.assertIn('placeholder=', holes)
+
+        # The confirm/edit button is outside the value box: `__time` closes
+        # before the button opens, and the button is not inside it.
+        time_box = page.split('class="pcut-package__time"')[1].split('data-confirm-package')[0]
+        self.assertIn('data-package-time', time_box)
+        self.assertEqual(time_box.count('</div>'), 1)
+        # The details toggle and its popup survived the move.
+        self.assertIn('data-details-toggle', page)
+        self.assertIn('data-details-popup', page)
+
+        # An empty holes field reads as nought rather than blocking the row,
+        # and nothing writes that zero back into the input.
+        script = (settings.BASE_DIR / 'static' / 'js' / 'plate_cutting.js').read_text(
+            encoding='utf-8'
+        )
+        read_block = script.split('function readPackage(')[1].split('function readSetQuantity')[0]
+        self.assertNotIn("if (!holesText) return { incomplete: true };", read_block)
+        self.assertIn("holesText ? Number(holesText) : 0", read_block)
+        self.assertNotIn('holesEl.value =', script)
+
+
+
 class PlateCuttingPresetTests(TestCase):
     """Saving, searching and loading a set of packages."""
 
