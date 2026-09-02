@@ -227,6 +227,25 @@ class AttachmentSource:
             for attachment in attachments
         ]
 
+    def recent(self, user, limit=5):
+        """The newest attachments this user may read, as references.
+
+        The same scoping as `search()` with no term — «recently uploaded», not
+        «recently opened»: no per-user access log exists, and inventing one for
+        a shortcut block would be a tracking system nobody asked for.
+        """
+        attachments = (
+            self.attachment_model.objects.filter(
+                **{f'{self.record_field}__in': self._record_filter(user)}
+            )
+            .select_related(self.record_field)
+            .order_by(f'-{self.timestamp_field}', '-pk')[:limit]
+        )
+        return [
+            self.build_reference(getattr(attachment, self.record_field), attachment)
+            for attachment in attachments
+        ]
+
     def resolve_attachment(self, user, attachment_id):
         """The attachment row for a download, or None.
 

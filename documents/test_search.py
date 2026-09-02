@@ -91,6 +91,13 @@ class DocumentSearchTests(TestCase):
         by_act_number = self.client.get(reverse('documents:search'), {'q': 'АОК-2026-00123'})
         self.assertContains(by_act_number, 'Навивка — дефект.jpg')
 
+        # The same two files reach «Недавние документы» on the root page,
+        # through the same card.
+        root = self.client.get(reverse('documents:browse'))
+        self.assertContains(root, 'Недавние документы')
+        self.assertContains(root, 'Навивка. Инструкция.pdf')
+        self.assertContains(root, 'Навивка — дефект.jpg')
+
     def test_search_respects_existing_visibility_rules(self):
         """Search grants nothing on its own: no session, no results, no page."""
         self.assertEqual(search_documents(AnonymousUser(), 'Навивка'), [])

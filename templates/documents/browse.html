@@ -4,7 +4,7 @@
 {% block title %}Документация - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-3">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-4">
 {% endblock %}
 
 {% block content %}
@@ -86,6 +86,21 @@ hiding a button is presentation, not permission.
     {% else %}
         <p class="doc-tools__hint">Файлы хранятся внутри папок — откройте папку, чтобы загрузить документ.</p>
     {% endif %}
+</section>
+{% endif %}
+
+{% if recent_documents %}
+{% comment %}
+«Недавние документы»: the newest files from both halves of the library, on the
+root page only. Recently *uploaded*, not recently opened — the project keeps no
+per-user access log, and a shortcut block is not a reason to start one. Renders
+through the shared result card, so it needs no markup of its own.
+{% endcomment %}
+<section class="doc-recent" aria-labelledby="doc-recent-title">
+    <h2 class="doc-recent__title" id="doc-recent-title">Недавние документы</h2>
+    <div class="doc-results">
+        {% for result in recent_documents %}{% include 'documents/includes/result_card.html' %}{% endfor %}
+    </div>
 </section>
 {% endif %}
 

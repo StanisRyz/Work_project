@@ -395,3 +395,14 @@
         width: 100%;
     }
 }
+
+/* «Недавние документы» — the same result cards, under a heading. */
+
+.doc-recent {
+    margin-bottom: 20px;
+}
+
+.doc-recent__title {
+    margin: 0 0 10px;
+    font-size: 16px;
+}

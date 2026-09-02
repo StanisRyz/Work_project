@@ -1,10 +1,9 @@
-"""Read-side assembly for the documentation pages.
+"""Read-side assembly for the folder browser.
 
-`documents/search.py` decides what *matches*; this module decides what the
-page *shows* — the parsed query, the filter chips with their counts, the
-narrowed result list, and the breadcrumbs. Keeping the two apart is what lets
-a future full-text or OCR backend replace the matching without touching a
-view or a template.
+The browser's own selectors: the breadcrumb trail and the «Недавние
+документы» block. Search has its own package (`documents/search/`) with its
+own selectors; the split is deliberate, so a search backend change cannot
+reach the navigation and vice versa.
 
 Nothing here writes. Mutations stay in `documents/services.py`.
 """
@@ -12,16 +11,12 @@ Nothing here writes. Mutations stay in `documents/services.py`.
 from django.urls import reverse
 
 from .models import ROOT_FOLDER_LABEL
-from .search import (
-    MIN_QUERY_LENGTH,
-    SCOPE_ALL,
-    SEARCH_SCOPES,
-    count_by_scope,
-    filter_by_scope,
-    normalise_query,
-    normalise_scope,
-    search_documents,
-)
+from .search import recent_documents
+
+
+# How many rows the «Недавние документы» block shows. Small on purpose: it is
+# a shortcut on the way into the library, not a feed.
+RECENT_LIMIT = 5
 
 
 def build_breadcrumbs(folder):
@@ -49,43 +44,11 @@ def build_breadcrumbs(folder):
     return trail
 
 
-def build_search_state(user, query_params):
-    """Everything the search page renders, for this user and these GET params.
+def build_recent_documents(user, limit=RECENT_LIMIT):
+    """The newest files this user may see, as ordinary `SearchResult` rows.
 
-    One search run: the full result set feeds the chip counts, and the chosen
-    scope narrows the list that is displayed. A term shorter than
-    `MIN_QUERY_LENGTH` is treated as no search at all rather than as a search
-    that found nothing — the two say different things to a user.
+    Same shape as a search hit, so the block reuses the result card and needs
+    no rendering path of its own. Shown on the Documentation root only — deeper
+    pages have the folder's own listing right there.
     """
-    raw_query = (query_params.get('q') or '').strip()
-    query = normalise_query(raw_query)
-    scope = normalise_scope(query_params.get('scope'))
-
-    results = search_documents(user, query) if query else []
-    counts = count_by_scope(results)
-    visible = filter_by_scope(results, scope)
-
-    return {
-        'query': raw_query,
-        'has_query': bool(query),
-        # A term that was typed but is too short: the page says so instead of
-        # reporting an empty result set.
-        'query_too_short': bool(raw_query) and not query,
-        'min_query_length': MIN_QUERY_LENGTH,
-        'scope': scope,
-        'scopes': [
-            {
-                'value': value,
-                'label': label,
-                'count': counts.get(value, 0),
-                'is_active': value == scope,
-            }
-            for value, label in SEARCH_SCOPES
-        ],
-        'results': visible,
-        'total_count': counts.get(SCOPE_ALL, 0),
-        'breadcrumbs': [
-            {'name': ROOT_FOLDER_LABEL, 'url': reverse('documents:browse'), 'is_current': False},
-            {'name': 'Поиск', 'url': reverse('documents:search'), 'is_current': True},
-        ],
-    }
+    return recent_documents(user, limit=limit)

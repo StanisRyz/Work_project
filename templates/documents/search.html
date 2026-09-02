@@ -4,7 +4,7 @@
 {% block title %}Поиск по документации{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-3">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-4">
 {% endblock %}
 
 {% block content %}
@@ -41,31 +41,7 @@ where it lives.
     {% if results %}
         <p class="doc-search__summary">Найдено: {{ results|length }} из {{ total_count }} по запросу «{{ query }}».</p>
         <section class="doc-results" aria-label="Результаты поиска">
-            {% for result in results %}
-            <article class="doc-result{% if result.is_readonly %} doc-result--system{% endif %}">
-                <div class="doc-result__head">
-                    <a class="doc-result__name" href="{{ result.url }}">
-                        <span class="doc-entry__icon" aria-hidden="true">{% if result.is_readonly %}🔒{% else %}📄{% endif %}</span>{{ result.name }}
-                    </a>
-                    <span class="doc-result__tag">{{ result.source_label }}</span>
-                </div>
-                <p class="doc-result__path">{{ result.path }}</p>
-                <div class="doc-result__meta">
-                    {% if result.is_readonly %}
-                        <span>Источник: <a href="{{ result.open_url }}">{{ result.open_label }}</a></span>
-                        <span class="doc-result__readonly">Только чтение</span>
-                    {% else %}
-                        <span>Папка: <a href="{{ result.open_url }}">{{ result.open_label }}</a></span>
-                    {% endif %}
-                    <span>{{ result.size|filesizeformat }}</span>
-                    <span>{{ result.created_at|date:'d.m.Y H:i' }}</span>
-                </div>
-                <div class="doc-result__actions">
-                    <a class="link-button link-button--secondary link-button--compact" href="{{ result.url }}">Скачать</a>
-                    <a class="link-button link-button--secondary link-button--compact" href="{{ result.open_url }}">Открыть расположение</a>
-                </div>
-            </article>
-            {% endfor %}
+            {% for result in results %}{% include 'documents/includes/result_card.html' %}{% endfor %}
         </section>
     {% else %}
         {% include 'acts/includes/empty_state.html' with title='Ничего не найдено' message='Попробуйте другой запрос или снимите фильтр.' %}

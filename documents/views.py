@@ -45,7 +45,8 @@ from .permissions import (
     can_view_system_attachments,
 )
 from .references import SOURCES, SYSTEM_AREA_LABEL, get_source
-from .selectors import build_breadcrumbs, build_search_state
+from .search import build_search_state
+from .selectors import build_breadcrumbs, build_recent_documents
 from .services import (
     DocumentError,
     create_folder,
@@ -132,6 +133,9 @@ def browse(request, folder_id=None):
             if folder is None and can_view_system_attachments(request.user)
             else None
         ),
+        # A shortcut into the newest files, root page only: deeper levels
+        # already show the folder's own listing.
+        'recent_documents': build_recent_documents(request.user) if folder is None else [],
         'folder_form': FolderForm(),
         'upload_form': DocumentUploadForm(),
     }
