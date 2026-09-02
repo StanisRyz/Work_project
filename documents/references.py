@@ -30,7 +30,7 @@ reads them yet.
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.urls import reverse
 
 from acts.models import Act, ActAttachment
@@ -117,6 +117,15 @@ class AttachmentSource:
         """The owning app's own download rule, asked again for every file."""
         raise NotImplementedError
 
+    def record_search_filter(self, query):
+        """A `Q` over the *record* matching a search term.
+
+        Only the identifiers and short descriptive text the module already
+        shows — never a join into another app's tables. `search()` ORs this
+        with a match on the filename itself.
+        """
+        raise NotImplementedError
+
     # -- the shared machinery ---------------------------------------------
 
     def _record_filter(self, user):
@@ -160,28 +169,61 @@ class AttachmentSource:
             .first()
         )
 
+    def build_reference(self, record, attachment):
+        """One attachment row, described against the record that owns it."""
+        return DocumentReference(
+            source=self.slug,
+            source_label=self.label,
+            object_id=record.pk,
+            object_label=self.record_label(record),
+            object_url=self.record_url(record),
+            attachment_id=attachment.pk,
+            name=attachment.original_name,
+            size=attachment.file_size,
+            created_at=getattr(attachment, self.timestamp_field, None),
+            download_url=reverse(
+                'documents:system_download', args=[self.slug, attachment.pk]
+            ),
+        )
+
     def references(self, user, record):
         """Every attachment of one record, as read-only references."""
-        label = self.record_label(record)
-        url = self.record_url(record)
         attachments = self.attachment_model.objects.filter(
             **{self.record_field: record}
         ).order_by(f'-{self.timestamp_field}', '-pk')
-        return [
-            DocumentReference(
-                source=self.slug,
-                source_label=self.label,
-                object_id=record.pk,
-                object_label=label,
-                object_url=url,
-                attachment_id=attachment.pk,
-                name=attachment.original_name,
-                size=attachment.file_size,
-                created_at=getattr(attachment, self.timestamp_field, None),
-                download_url=reverse(
-                    'documents:system_download', args=[self.slug, attachment.pk]
-                ),
+        return [self.build_reference(record, attachment) for attachment in attachments]
+
+    def search(self, user, query, limit=None):
+        """References matching `query`, within what this user may read.
+
+        Two ways to match, combined: the file's own name, and the record it
+        belongs to — its identifier and the descriptive text the module shows
+        beside it, spelled out by `record_search_filter()`. Searching for an
+        act number therefore finds that act's photographs even though the
+        number appears nowhere in their filenames.
+
+        Still a projection: the same `DocumentReference` the browser builds,
+        from the same rows. Nothing is indexed and nothing is stored.
+        """
+        readable = self._record_filter(user)
+        matching_records = (
+            self.record_model.objects.filter(pk__in=readable)
+            .filter(self.record_search_filter(query))
+            .values('pk')
+        )
+        attachments = (
+            self.attachment_model.objects.filter(**{f'{self.record_field}__in': readable})
+            .filter(
+                Q(original_name__icontains=query)
+                | Q(**{f'{self.record_field}__in': matching_records})
             )
+            .select_related(self.record_field)
+            .order_by(f'-{self.timestamp_field}', '-pk')
+        )
+        if limit is not None:
+            attachments = attachments[:limit]
+        return [
+            self.build_reference(getattr(attachment, self.record_field), attachment)
             for attachment in attachments
         ]
 
@@ -229,6 +271,11 @@ class ActAttachmentSource(AttachmentSource):
     def can_download(self, attachment, user):
         return can_download_act_attachment(attachment, user)
 
+    def record_search_filter(self, query):
+        # The act number is what people actually type; the nomenclature is the
+        # other thing the registry shows next to it.
+        return Q(number__icontains=query) | Q(nomenclature__icontains=query)
+
 
 class ProtocolAttachmentSource(AttachmentSource):
     slug = 'protocols'
@@ -255,6 +302,16 @@ class ProtocolAttachmentSource(AttachmentSource):
     def can_download(self, attachment, user):
         return can_download_protocol_attachment(attachment, user)
 
+    def record_search_filter(self, query):
+        # A protocol is identified by its type plus a number that is unique
+        # only within that type, so both are searchable. A bare number matches
+        # numerically as well as inside the type name.
+        condition = Q(protocol_type__name__icontains=query)
+        digits = query.strip().lstrip('№').strip()
+        if digits.isdigit():
+            condition |= Q(number=int(digits))
+        return condition
+
 
 class TaskAttachmentSource(AttachmentSource):
     slug = 'tasks'
@@ -275,6 +332,15 @@ class TaskAttachmentSource(AttachmentSource):
 
     def can_download(self, attachment, user):
         return can_download_task_attachment(attachment, user)
+
+    def record_search_filter(self, query):
+        # A task has no business number of its own — it is identified by its
+        # row id and described by its text.
+        condition = Q(task_text__icontains=query)
+        digits = query.strip().lstrip('#№').strip()
+        if digits.isdigit():
+            condition |= Q(pk=int(digits))
+        return condition
 
 
 # The registry the views walk. Order is the order the «Вложения» folder lists

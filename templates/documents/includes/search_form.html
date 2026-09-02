@@ -1,0 +1,19 @@
+{% comment %}
+The search box, rendered on every Documentation page so a search can be
+started from wherever the user happens to be. A plain GET form to
+`documents:search` — no JavaScript, no fragment endpoint: the result page is
+an ordinary page inside the module.
+
+`scope` rides along as a hidden field so a search launched from a filtered
+result page keeps that filter.
+{% endcomment %}
+<form class="doc-search" method="get" action="{% url 'documents:search' %}" role="search">
+    <label class="doc-search__field">
+        <span class="doc-visually-hidden">Поиск по документации</span>
+        <input type="search" name="q" value="{{ query|default:'' }}"
+               placeholder="Поиск по документам и вложениям"
+               aria-label="Поиск по документации" autocomplete="off">
+    </label>
+    {% if scope and scope != 'all' %}<input type="hidden" name="scope" value="{{ scope }}">{% endif %}
+    <button class="link-button link-button--compact" type="submit">Найти</button>
+</form>

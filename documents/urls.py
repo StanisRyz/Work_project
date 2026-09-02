@@ -11,6 +11,9 @@ urlpatterns = [
     path('', views.browse, name='browse'),
     path('folders/<int:folder_id>/', views.browse, name='folder'),
 
+    # One search over both branches. GET only, and it never leaves the module.
+    path('search/', views.search, name='search'),
+
     # Management: POST only, and each one checks the permission before the
     # method, so a forbidden URL answers 403 rather than 405.
     path('folders/create/', views.folder_create, name='folder_create'),

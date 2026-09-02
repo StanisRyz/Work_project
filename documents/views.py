@@ -45,6 +45,7 @@ from .permissions import (
     can_view_system_attachments,
 )
 from .references import SOURCES, SYSTEM_AREA_LABEL, get_source
+from .selectors import build_breadcrumbs, build_search_state
 from .services import (
     DocumentError,
     create_folder,
@@ -63,28 +64,6 @@ def _browse_url(folder):
     if folder is None:
         return reverse('documents:browse')
     return reverse('documents:folder', args=[folder.pk])
-
-
-def _breadcrumbs(folder):
-    """«Документация» first, then every folder down to the current one.
-
-    The root is a label and not a row, so it is added here rather than being
-    stored: see the module docstring in `documents/models.py`.
-    """
-    trail = [{
-        'name': ROOT_FOLDER_LABEL,
-        'url': reverse('documents:browse'),
-        'is_current': folder is None,
-    }]
-    if folder is None:
-        return trail
-    for entry in folder.breadcrumbs():
-        trail.append({
-            'name': entry.name,
-            'url': _browse_url(entry),
-            'is_current': entry.pk == folder.pk,
-        })
-    return trail
 
 
 def _require_manage(user):
@@ -132,7 +111,7 @@ def browse(request, folder_id=None):
         'header_title': ROOT_FOLDER_LABEL,
         'folder': folder,
         'parent_url': _browse_url(folder.parent) if folder is not None else None,
-        'breadcrumbs': _breadcrumbs(folder),
+        'breadcrumbs': build_breadcrumbs(folder),
         'subfolders': subfolders,
         'documents': documents,
         'can_manage': can_manage,
@@ -157,6 +136,28 @@ def browse(request, folder_id=None):
         'upload_form': DocumentUploadForm(),
     }
     return render(request, 'documents/browse.html', context)
+
+
+@login_required
+def search(request):
+    """One result list over corporate documents and system attachments.
+
+    The view parses nothing and matches nothing: `build_search_state()` reads
+    the two GET parameters, runs `documents/search.py` once and returns the
+    chips, their counts and the narrowed list. Visibility comes from the same
+    rules the browser uses, so a hit is always something this user could have
+    reached by clicking.
+    """
+    if not can_view_documents(request.user):
+        raise PermissionDenied('Недостаточно прав для просмотра документации.')
+
+    context = {
+        'active_page': 'documents',
+        'page_title': 'Поиск по документации',
+        'header_title': ROOT_FOLDER_LABEL,
+    }
+    context.update(build_search_state(request.user, request.GET))
+    return render(request, 'documents/search.html', context)
 
 
 @login_required
@@ -343,6 +344,7 @@ def _require_system_view(user):
 
 
 def _system_breadcrumbs(source=None, record_label='', record_id=None):
+    """The same clickable trail as the corporate side, one label deeper."""
     trail = [
         {'name': ROOT_FOLDER_LABEL, 'url': reverse('documents:browse'), 'is_current': False},
         {

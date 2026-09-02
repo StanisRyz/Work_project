@@ -4,7 +4,7 @@
 {% block title %}Документация - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-2">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-3">
 {% endblock %}
 
 {% block content %}
@@ -18,16 +18,7 @@ every one of them posts to an endpoint that checks the same rule again —
 hiding a button is presentation, not permission.
 {% endcomment %}
 
-<nav class="doc-breadcrumbs" aria-label="Путь по документации">
-    {% for crumb in breadcrumbs %}
-        {% if crumb.is_current %}
-            <span class="doc-breadcrumbs__current" aria-current="page">{{ crumb.name }}</span>
-        {% else %}
-            <a class="doc-breadcrumbs__link" href="{{ crumb.url }}">{{ crumb.name }}</a>
-            <span class="doc-breadcrumbs__separator" aria-hidden="true">/</span>
-        {% endif %}
-    {% endfor %}
-</nav>
+{% include 'documents/includes/breadcrumbs.html' %}
 
 <div class="doc-toolbar">
     <div class="doc-toolbar__nav">
@@ -36,6 +27,8 @@ hiding a button is presentation, not permission.
         {% endif %}
         <h1 class="doc-toolbar__title">{{ page_title }}</h1>
     </div>
+    <div class="doc-toolbar__side">
+        {% include 'documents/includes/search_form.html' %}
     {% if can_manage %}
     <div class="doc-toolbar__actions">
         {% if can_rename_current %}
@@ -61,6 +54,7 @@ hiding a button is presentation, not permission.
         {% endif %}
     </div>
     {% endif %}
+    </div>
 </div>
 
 {% if can_create_here %}

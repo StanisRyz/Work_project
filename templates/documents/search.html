@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Поиск по документации{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-3">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+Search results, corporate documents and system attachments in one list.
+
+The two kinds share a card and differ only where they genuinely differ: a
+corporate document names the folder it sits in, a system attachment names the
+act, protocol or task that owns it and is marked read-only. Neither card
+carries a management control — searching is not editing, and a file is changed
+where it lives.
+{% endcomment %}
+
+{% include 'documents/includes/breadcrumbs.html' %}
+
+<div class="doc-toolbar">
+    <div class="doc-toolbar__nav">
+        <a class="link-button link-button--secondary link-button--compact" href="{% url 'documents:browse' %}">← К документации</a>
+        <h1 class="doc-toolbar__title">Поиск</h1>
+    </div>
+    {% include 'documents/includes/search_form.html' %}
+</div>
+
+{% if has_query %}
+    {% comment %} The filter chips. Each keeps the current term and carries its own count. {% endcomment %}
+    <nav class="doc-filters" aria-label="Фильтр результатов поиска">
+        {% for entry in scopes %}
+            <a class="doc-filter{% if entry.is_active %} doc-filter--active{% endif %}"
+               href="?q={{ query|urlencode }}&scope={{ entry.value }}"
+               {% if entry.is_active %}aria-current="true"{% endif %}>{{ entry.label }}<span class="doc-filter__count">{{ entry.count }}</span></a>
+        {% endfor %}
+    </nav>
+
+    {% if results %}
+        <p class="doc-search__summary">Найдено: {{ results|length }} из {{ total_count }} по запросу «{{ query }}».</p>
+        <section class="doc-results" aria-label="Результаты поиска">
+            {% for result in results %}
+            <article class="doc-result{% if result.is_readonly %} doc-result--system{% endif %}">
+                <div class="doc-result__head">
+                    <a class="doc-result__name" href="{{ result.url }}">
+                        <span class="doc-entry__icon" aria-hidden="true">{% if result.is_readonly %}🔒{% else %}📄{% endif %}</span>{{ result.name }}
+                    </a>
+                    <span class="doc-result__tag">{{ result.source_label }}</span>
+                </div>
+                <p class="doc-result__path">{{ result.path }}</p>
+                <div class="doc-result__meta">
+                    {% if result.is_readonly %}
+                        <span>Источник: <a href="{{ result.open_url }}">{{ result.open_label }}</a></span>
+                        <span class="doc-result__readonly">Только чтение</span>
+                    {% else %}
+                        <span>Папка: <a href="{{ result.open_url }}">{{ result.open_label }}</a></span>
+                    {% endif %}
+                    <span>{{ result.size|filesizeformat }}</span>
+                    <span>{{ result.created_at|date:'d.m.Y H:i' }}</span>
+                </div>
+                <div class="doc-result__actions">
+                    <a class="link-button link-button--secondary link-button--compact" href="{{ result.url }}">Скачать</a>
+                    <a class="link-button link-button--secondary link-button--compact" href="{{ result.open_url }}">Открыть расположение</a>
+                </div>
+            </article>
+            {% endfor %}
+        </section>
+    {% else %}
+        {% include 'acts/includes/empty_state.html' with title='Ничего не найдено' message='Попробуйте другой запрос или снимите фильтр.' %}
+    {% endif %}
+
+{% elif query_too_short %}
+    <section class="empty-state">
+        <h2>Слишком короткий запрос</h2>
+        <p>Введите не менее {{ min_query_length }} символов.</p>
+    </section>
+{% else %}
+    {% include 'acts/includes/empty_state.html' with title='Поиск по документации' message='Введите название файла, папки, номер акта или протокола.' %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,16 @@
+{% comment %}
+The path line, shared by every Documentation page.
+
+Every item is a link, the current one included: the trail is how a user gets
+back out of a deep folder, and a dead last item is a small trap when the rest
+of the row is clickable. The current item still carries `aria-current="page"`
+and its own class, so it reads as the end of the path rather than as another
+destination.
+{% endcomment %}
+<nav class="doc-breadcrumbs" aria-label="Путь по документации">
+    {% for crumb in breadcrumbs %}
+        <a class="doc-breadcrumbs__link{% if crumb.is_current %} doc-breadcrumbs__link--current{% endif %}"
+           href="{{ crumb.url }}"{% if crumb.is_current %} aria-current="page"{% endif %}>{{ crumb.name }}</a>
+        {% if not forloop.last %}<span class="doc-breadcrumbs__separator" aria-hidden="true">/</span>{% endif %}
+    {% endfor %}
+</nav>

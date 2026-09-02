@@ -26,7 +26,7 @@ model without explicit approval.
 | `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
-| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree) and `Document` (files under `media/documents/library/`) for corporate documents, the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the file browser, and every mutation in `documents/services.py` |
+| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree) and `Document` (files under `media/documents/library/`) for corporate documents, the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search in `documents/search.py`, the file browser, and every mutation in `documents/services.py` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -1023,8 +1023,35 @@ tasks never live inside `acts`.
   was uploaded, so the owning workflow writes its history event. Do not add an
   exemption; a stage that wants one changes that single function in the open.
 - The reference carries a stable `(source, attachment_id)` identity and a
-  `created_at`, which is the interface a later search index, version chain,
-  audit entry or approval flow attaches to. None of those is implemented.
+  `created_at`, which is the interface a later version chain, audit entry or
+  approval flow attaches to. None of those is implemented.
+
+#### Search (`documents/search.py`, `documents/selectors.py`)
+
+- **One search over both halves**, at `/documents/search/`. `search.py` decides
+  what matches and returns `SearchResult` — again a frozen dataclass, never a
+  table and never an index. Corporate documents match on document name,
+  stored filename and folder name; system attachments match on the filename
+  *or* on the record that owns them, through each source's
+  `record_search_filter()` (act number/nomenclature, protocol type + number,
+  task id/text), so an act number finds that act's photographs.
+- **Matching and page assembly are separate on purpose.**
+  `search_documents()` is the only entry point and `SearchResult` the only
+  shape callers see; `selectors.py` (`build_search_state()`) turns that into
+  the filter chips, their counts and the narrowed list. Full-text ranking, a
+  PDF text index, OCR or metadata filters replace the matching functions and
+  keep both — do not push matching into a view.
+- The search runs **unscoped once** and is narrowed in Python
+  (`filter_by_scope()`), because every chip needs a count. Results are capped
+  per source (`RESULT_LIMIT`) and a term shorter than `MIN_QUERY_LENGTH` is
+  «no search», not «no results».
+- **Search grants nothing.** Corporate hits go through `can_view_documents()`,
+  system hits through each source's readable queryset, so a result set is
+  always a subset of what the same user could reach by clicking. Never add a
+  visibility rule here.
+- `selectors.build_breadcrumbs()` is the one trail builder for the corporate
+  side; every item is a link, the current one included, and it is rendered by
+  `templates/documents/includes/breadcrumbs.html` on all three page types.
 
 ## Security and permissions
 

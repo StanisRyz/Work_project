@@ -31,9 +31,14 @@
     color: var(--color-border);
 }
 
-.doc-breadcrumbs__current {
+/* The last item is a link too — it just reads as the end of the path. */
+.doc-breadcrumbs__link--current {
     color: var(--color-text);
     font-weight: 700;
+}
+
+.doc-breadcrumbs__link--current:hover {
+    color: var(--color-primary-dark);
 }
 
 .doc-toolbar {
@@ -61,6 +66,14 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+/* Search box plus whatever the page's right-hand actions are. */
+.doc-toolbar__side {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
 }
 
 /* The management strip: shown only to a user who may change the library. */
@@ -201,4 +214,184 @@
 
 .doc-entry__source a:hover {
     text-decoration: underline;
+}
+
+/* Search ------------------------------------------------------------------
+ *
+ * The box lives in the toolbar of every Documentation page; the results page
+ * adds the filter chips and the cards. Same surfaces, borders and buttons as
+ * the folder browser — a result is the same file, seen from a different page.
+ */
+
+.doc-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.doc-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.doc-search__field input {
+    width: min(320px, 60vw);
+    padding: 9px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.doc-search__summary {
+    margin: 0 0 12px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.doc-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.doc-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.doc-filter:hover {
+    color: var(--color-primary-dark);
+}
+
+.doc-filter--active {
+    border-color: var(--color-primary);
+    background: #edf3ff;
+    color: var(--color-primary-dark);
+}
+
+.doc-filter__count {
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: #eef2f7;
+    font-size: 12px;
+}
+
+.doc-filter--active .doc-filter__count {
+    background: #dbe7ff;
+}
+
+/* Result cards ------------------------------------------------------------
+ *
+ * One card for both kinds. A system attachment is told apart by its icon, its
+ * «Только чтение» marker and the muted left edge — never by a second layout.
+ */
+
+.doc-results {
+    display: grid;
+    gap: 12px;
+}
+
+.doc-result {
+    display: grid;
+    gap: 8px;
+    padding: 16px 18px;
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-primary);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.doc-result--system {
+    border-left-color: var(--color-muted);
+}
+
+.doc-result__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.doc-result__name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-primary-dark);
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.doc-result__name:hover {
+    text-decoration: underline;
+}
+
+.doc-result__tag {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #eef2f7;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.doc-result__path {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.doc-result__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.doc-result__meta a {
+    color: var(--color-primary-dark);
+    font-weight: 600;
+}
+
+.doc-result__meta a:hover {
+    text-decoration: underline;
+}
+
+.doc-result__readonly {
+    font-weight: 700;
+}
+
+.doc-result__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+@media (max-width: 760px) {
+    .doc-search,
+    .doc-toolbar__side {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .doc-search__field input {
+        width: 100%;
+    }
 }

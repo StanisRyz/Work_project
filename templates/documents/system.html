@@ -4,7 +4,7 @@
 {% block title %}Вложения - Документация{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-2">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-3">
 {% endblock %}
 
 {% block content %}
@@ -18,16 +18,7 @@ Three levels share it: the module list, one module's records, and one
 record's files. Whichever is non-empty is what renders.
 {% endcomment %}
 
-<nav class="doc-breadcrumbs" aria-label="Путь по документации">
-    {% for crumb in breadcrumbs %}
-        {% if crumb.is_current %}
-            <span class="doc-breadcrumbs__current" aria-current="page">{{ crumb.name }}</span>
-        {% else %}
-            <a class="doc-breadcrumbs__link" href="{{ crumb.url }}">{{ crumb.name }}</a>
-            <span class="doc-breadcrumbs__separator" aria-hidden="true">/</span>
-        {% endif %}
-    {% endfor %}
-</nav>
+{% include 'documents/includes/breadcrumbs.html' %}
 
 <div class="doc-toolbar">
     <div class="doc-toolbar__nav">
@@ -37,9 +28,12 @@ record's files. Whichever is non-empty is what renders.
         <h1 class="doc-toolbar__title">{{ page_title }}</h1>
         <span class="doc-system-badge" title="Файлы принадлежат исходным документам">🔒 Только чтение</span>
     </div>
-    {% if record_url %}
-        <a class="link-button link-button--secondary link-button--compact" href="{{ record_url }}">Открыть {{ record_label }}</a>
-    {% endif %}
+    <div class="doc-toolbar__side">
+        {% include 'documents/includes/search_form.html' %}
+        {% if record_url %}
+            <a class="link-button link-button--secondary link-button--compact" href="{{ record_url }}">Открыть {{ record_label }}</a>
+        {% endif %}
+    </div>
 </div>
 
 <p class="doc-system-note">
