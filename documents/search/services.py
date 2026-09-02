@@ -47,6 +47,10 @@ def _folder_path(folder):
 
 
 def _corporate_result(document):
+    # A document always has a current version — `upload_document()` creates
+    # both together — but a row whose version was somehow removed still has to
+    # render, so the card degrades to «no download» rather than raising.
+    version = document.current_version
     return SearchResult(
         kind=KIND_CORPORATE,
         scope=SCOPE_CORPORATE,
@@ -54,14 +58,20 @@ def _corporate_result(document):
         source_label='Корпоративные документы',
         title=document.name,
         path=_folder_path(document.folder),
-        size=document.file_size,
-        # The upload date, not `updated_at`: a card says when the file
-        # arrived, and renaming its row is not a new document.
-        created_at=document.uploaded_at,
-        open_url=reverse('documents:folder', args=[document.folder_id]),
-        open_label=document.folder.name,
-        download_url=reverse('documents:document_download', args=[document.pk]),
-        can_download=True,
+        size=version.file_size if version is not None else 0,
+        # When the *current version* was uploaded, not when the document row
+        # was created: a card says how fresh the file is.
+        created_at=version.uploaded_at if version is not None else document.uploaded_at,
+        version_label=version.label if version is not None else '',
+        open_url=reverse('documents:document_detail', args=[document.pk]),
+        open_label=document.name,
+        open_action_label='Открыть документ',
+        download_url=(
+            reverse('documents:document_download', args=[document.pk])
+            if version is not None
+            else ''
+        ),
+        can_download=version is not None,
         is_readonly=False,
     )
 
@@ -76,8 +86,11 @@ def _system_result(source, reference):
         path=f'Вложения / {source.label} / {reference.object_label}',
         size=reference.size,
         created_at=reference.created_at,
+        # System attachments have no versions, by design.
+        version_label='',
         open_url=reference.object_url,
         open_label=reference.object_label,
+        open_action_label='Открыть источник',
         download_url=reference.download_url,
         can_download=True,
         is_readonly=True,
@@ -85,7 +98,11 @@ def _system_result(source, reference):
 
 
 def _corporate_queryset():
-    return Document.objects.select_related('folder', 'folder__parent')
+    # The current version comes along in one extra query for the whole page,
+    # because every result card needs its size, date and download URL.
+    return Document.objects.select_related('folder', 'folder__parent').prefetch_related(
+        Document.current_version_prefetch()
+    )
 
 
 def _search_corporate(user, query, limit):
@@ -94,9 +111,11 @@ def _search_corporate(user, query, limit):
         return []
     documents = _corporate_queryset().filter(
         Q(name__icontains=query)
-        | Q(original_name__icontains=query)
+        # Any version's stored filename, not only the current one: a document
+        # people still call by the name of an older revision has to be findable.
+        | Q(versions__original_name__icontains=query)
         | Q(folder__name__icontains=query)
-    ).order_by('name', 'pk')[:limit]
+    ).distinct().order_by('name', 'pk')[:limit]
     return [_corporate_result(document) for document in documents]
 
 
@@ -165,7 +184,9 @@ def recent_documents(user, limit=5):
     """
     results = []
     if can_view_documents(user):
-        documents = _corporate_queryset().order_by('-uploaded_at', '-pk')[:limit]
+        # `updated_at` and not `uploaded_at`: `add_document_version()` touches
+        # it, so a document that just received a new revision counts as recent.
+        documents = _corporate_queryset().order_by('-updated_at', '-pk')[:limit]
         results.extend(_corporate_result(document) for document in documents)
     if can_view_system_attachments(user):
         for source in SOURCES.values():

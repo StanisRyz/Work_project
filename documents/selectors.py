@@ -44,6 +44,19 @@ def build_breadcrumbs(folder):
     return trail
 
 
+def build_document_breadcrumbs(document):
+    """The folder trail plus the document itself, as the last (current) item."""
+    trail = build_breadcrumbs(document.folder)
+    for crumb in trail:
+        crumb['is_current'] = False
+    trail.append({
+        'name': document.name,
+        'url': reverse('documents:document_detail', args=[document.pk]),
+        'is_current': True,
+    })
+    return trail
+
+
 def build_recent_documents(user, limit=RECENT_LIMIT):
     """The newest files this user may see, as ordinary `SearchResult` rows.
 

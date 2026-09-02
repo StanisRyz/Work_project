@@ -11,18 +11,17 @@ Expects `result`.
 {% endcomment %}
 <article class="doc-result{% if result.is_readonly %} doc-result--system{% endif %}">
     <div class="doc-result__head">
-        <a class="doc-result__name" href="{% if result.can_download %}{{ result.download_url }}{% else %}{{ result.open_url }}{% endif %}">
+        <a class="doc-result__name" href="{{ result.open_url }}">
             <span class="doc-entry__icon" aria-hidden="true">{% if result.is_readonly %}🔒{% else %}📄{% endif %}</span>{{ result.title }}
         </a>
-        <span class="doc-result__tag">{{ result.document_type }}</span>
+        <span class="doc-result__tag">{% if result.version_label %}{{ result.version_label }} · {% endif %}{{ result.document_type }}</span>
     </div>
+    {# The path already reads as the location, so the meta line adds only what it does not say. #}
     <p class="doc-result__path">{{ result.path }}</p>
     <div class="doc-result__meta">
         {% if result.is_readonly %}
             <span>{{ result.source_label }}: <a href="{{ result.open_url }}">{{ result.open_label }}</a></span>
             <span class="doc-result__readonly">Только чтение</span>
-        {% else %}
-            <span>Папка: <a href="{{ result.open_url }}">{{ result.open_label }}</a></span>
         {% endif %}
         <span>{{ result.size|filesizeformat }}</span>
         <span>{{ result.created_at|date:'d.m.Y H:i' }}</span>
@@ -31,6 +30,6 @@ Expects `result`.
         {% if result.can_download %}
             <a class="link-button link-button--secondary link-button--compact" href="{{ result.download_url }}">Скачать</a>
         {% endif %}
-        <a class="link-button link-button--secondary link-button--compact" href="{{ result.open_url }}">Открыть расположение</a>
+        <a class="link-button link-button--secondary link-button--compact" href="{{ result.open_url }}">{{ result.open_action_label }}</a>
     </div>
 </article>

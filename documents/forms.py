@@ -58,3 +58,34 @@ class DocumentUploadForm(forms.Form):
 
     def clean_file(self):
         return validate_document_upload(self.cleaned_data['file'])
+
+
+class DocumentVersionForm(forms.Form):
+    """A new version of an existing document: the file, and why it changed.
+
+    No `name` field on purpose — the document's name is its identity and does
+    not follow whatever the new file happened to be called on someone's disk.
+    """
+
+    file = forms.FileField(
+        label='Файл новой версии',
+        error_messages={'required': 'Выберите файл.'},
+    )
+    comment = forms.CharField(
+        label='Что изменилось',
+        max_length=500,
+        required=False,
+        strip=True,
+        widget=forms.Textarea(attrs={'rows': 2}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['file'].widget.attrs['aria-label'] = 'Выберите файл новой версии'
+        self.fields['comment'].widget.attrs.update({
+            'aria-label': 'Комментарий к версии',
+            'placeholder': 'Комментарий (необязательно)',
+        })
+
+    def clean_file(self):
+        return validate_document_upload(self.cleaned_data['file'])

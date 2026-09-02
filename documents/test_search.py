@@ -17,7 +17,7 @@ from accounts.models import UserProfile
 from acts.models import Act, ActAttachment
 from references.models import ActStatus
 
-from .models import Document, DocumentFolder
+from .models import Document, DocumentFolder, DocumentVersion
 from .search import search_documents
 from .services import get_corporate_root
 
@@ -44,9 +44,13 @@ class DocumentSearchTests(TestCase):
             name='Инструкции ОТК', parent=get_corporate_root()
         )
         self.document = Document.objects.create(
-            folder=self.folder,
+            folder=self.folder, name='Навивка. Инструкция.pdf'
+        )
+        DocumentVersion.objects.create(
+            document=self.document,
             file=SimpleUploadedFile('winding.pdf', b'%PDF-1.4', content_type='application/pdf'),
-            name='Навивка. Инструкция.pdf',
+            number=1,
+            is_current=True,
             original_name='Навивка. Инструкция.pdf',
             file_size=8,
         )

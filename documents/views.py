@@ -32,27 +32,33 @@ from django.urls import reverse
 
 from ecosystem.logging_utils import log_event
 
-from .forms import DocumentUploadForm, FolderForm
-from .models import ROOT_FOLDER_LABEL, Document, DocumentFolder
+from .forms import DocumentUploadForm, DocumentVersionForm, FolderForm
+from .models import ROOT_FOLDER_LABEL, Document, DocumentFolder, DocumentVersion
 from .permissions import (
+    can_add_document_version,
     can_delete_document,
     can_delete_folder,
     can_download_document,
+    can_download_document_version,
     can_manage_documents,
     can_modify_system_attachments,
     can_rename_folder,
+    can_restore_document_version,
+    can_view_document_history,
     can_view_documents,
     can_view_system_attachments,
 )
 from .references import SOURCES, SYSTEM_AREA_LABEL, get_source
 from .search import build_search_state
-from .selectors import build_breadcrumbs, build_recent_documents
+from .selectors import build_breadcrumbs, build_document_breadcrumbs, build_recent_documents
 from .services import (
     DocumentError,
+    add_document_version,
     create_folder,
     delete_document,
     delete_folder,
     rename_folder,
+    restore_document_version,
     upload_document,
 )
 
@@ -99,6 +105,7 @@ def browse(request, folder_id=None):
         list(
             Document.objects.filter(folder=folder)
             .select_related('uploaded_by')
+            .prefetch_related(Document.current_version_prefetch())
             .order_by('name', 'pk')
         )
         if folder is not None
@@ -147,7 +154,7 @@ def search(request):
     """One result list over corporate documents and system attachments.
 
     The view parses nothing and matches nothing: `build_search_state()` reads
-    the two GET parameters, runs `documents/search.py` once and returns the
+    the two GET parameters, runs `documents/search/` once and returns the
     chips, their counts and the narrowed list. Visibility comes from the same
     rules the browser uses, so a hit is always something this user could have
     reached by clicking.
@@ -275,18 +282,32 @@ def document_download(request, document_id):
             outcome='denied',
         )
         raise Http404('No Document matches the given query.')
-    if not document.file:
+    version = document.current_version
+    if version is None:
+        raise Http404('Document has no current version.')
+    return _stream_version(request, version, 'download')
+
+
+def _stream_version(request, version, operation):
+    """Open one version's stored file and hand it to the browser.
+
+    Shared by the document download — which resolves the current version — and
+    by the per-version download, so both answer identically for a row whose
+    file has gone missing.
+    """
+    if not version.file:
         raise Http404('Document file is missing.')
     try:
-        handle = document.file.open('rb')
+        handle = version.file.open('rb')
     except OSError as exc:
         log_event(
             logger,
             'ERROR',
             'documents.storage_failed',
-            document_id=document.pk,
+            document_id=version.document_id,
+            version_number=version.number,
             user_id=getattr(request.user, 'pk', None),
-            operation='download',
+            operation=operation,
             error_type=type(exc).__name__,
             outcome='failed',
             exc_info=True,
@@ -297,19 +318,136 @@ def document_download(request, document_id):
         logger,
         'INFO',
         'documents.downloaded',
-        document_id=document.pk,
-        folder_id=document.folder_id,
+        document_id=version.document_id,
+        version_number=version.number,
         user_id=getattr(request.user, 'pk', None),
-        size_bytes=document.file_size,
-        operation='download',
+        size_bytes=version.file_size,
+        operation=operation,
         outcome='ok',
     )
     return FileResponse(
         handle,
         as_attachment=True,
-        filename=document.original_name or document.name,
-        content_type=document.content_type or 'application/octet-stream',
+        filename=version.original_name or version.document.name,
+        content_type=version.content_type or 'application/octet-stream',
     )
+
+
+@login_required
+def document_detail(request, document_id):
+    """One document: its current version, its history, and the upload form.
+
+    The page every corporate file now has. Reading it is reading the library;
+    the «новая версия» form and the restore buttons are drawn only for a
+    document manager, and each posts to an endpoint that asks the same rule
+    again.
+    """
+    document = get_object_or_404(
+        Document.objects.select_related('folder', 'folder__parent', 'uploaded_by'),
+        pk=document_id,
+    )
+    if not can_view_documents(request.user):
+        raise PermissionDenied('Недостаточно прав для просмотра документации.')
+
+    versions = list(document.versions.select_related('uploaded_by').order_by('-number', '-pk'))
+    current = next((version for version in versions if version.is_current), None)
+    can_manage = can_add_document_version(document, request.user)
+    context = {
+        'active_page': 'documents',
+        'page_title': document.name,
+        'header_title': ROOT_FOLDER_LABEL,
+        'document': document,
+        'folder': document.folder,
+        'parent_url': _browse_url(document.folder),
+        'breadcrumbs': build_document_breadcrumbs(document),
+        'current_version': current,
+        'versions': versions,
+        'history': (
+            list(document.history.select_related('user').order_by('-created_at', '-pk')[:50])
+            if can_view_document_history(document, request.user)
+            else []
+        ),
+        'can_manage': can_manage,
+        'can_restore': can_restore_document_version(document, request.user),
+        'can_delete': can_delete_document(document, request.user),
+        'version_form': DocumentVersionForm(),
+    }
+    return render(request, 'documents/document.html', context)
+
+
+@login_required
+def document_version_add(request, document_id):
+    """Upload a new current version. Never overwrites the previous one."""
+    document = get_object_or_404(Document.objects.select_related('folder'), pk=document_id)
+    _require_manage(request.user)
+    detail_url = reverse('documents:document_detail', args=[document.pk])
+    if request.method != 'POST':
+        return redirect(detail_url)
+
+    form = DocumentVersionForm(request.POST, request.FILES)
+    if not form.is_valid():
+        first_error = next(iter(form.errors.values()))[0]
+        messages.error(request, first_error)
+        return redirect(detail_url)
+    try:
+        version = add_document_version(
+            document,
+            form.cleaned_data['file'],
+            request.user,
+            comment=form.cleaned_data.get('comment', ''),
+        )
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+        return redirect(detail_url)
+    messages.success(request, f'Загружена версия {version.label}.')
+    return redirect(detail_url)
+
+
+@login_required
+def document_version_download(request, document_id, version_id):
+    """Download any version of a document — the current one or an earlier one.
+
+    Scoped to the document in the path, so a version id cannot be used to
+    reach a file under a document the URL does not name.
+    """
+    version = get_object_or_404(
+        DocumentVersion.objects.select_related('document', 'document__folder'),
+        pk=version_id,
+        document_id=document_id,
+    )
+    if not can_download_document_version(version, request.user):
+        log_event(
+            logger,
+            'WARNING',
+            'documents.access_denied',
+            document_id=version.document_id,
+            version_number=version.number,
+            user_id=getattr(request.user, 'pk', None),
+            operation='version_download',
+            outcome='denied',
+        )
+        raise Http404('No Document matches the given query.')
+    return _stream_version(request, version, 'version_download')
+
+
+@login_required
+def document_version_restore(request, document_id, version_id):
+    """Make an earlier version current again. Nothing is edited or removed."""
+    version = get_object_or_404(
+        DocumentVersion.objects.select_related('document'), pk=version_id, document_id=document_id
+    )
+    _require_manage(request.user)
+    detail_url = reverse('documents:document_detail', args=[document_id])
+    if request.method != 'POST':
+        return redirect(detail_url)
+
+    try:
+        restore_document_version(version.document, version, request.user)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f'Версия {version.label} снова стала текущей.')
+    return redirect(detail_url)
 
 
 @login_required

@@ -15,7 +15,7 @@ from django.urls import reverse
 
 from accounts.models import UserProfile
 
-from .models import CORPORATE_FOLDER_CODE, Document, DocumentFolder
+from .models import CORPORATE_FOLDER_CODE, Document, DocumentFolder, DocumentVersion
 from .services import DEFAULT_FOLDERS, ensure_default_folders, get_corporate_root
 
 
@@ -48,10 +48,13 @@ class DocumentAccessTests(TestCase):
         self.folder = DocumentFolder.objects.create(
             name='Инструкции ОТК', parent=get_corporate_root()
         )
-        self.document = Document.objects.create(
-            folder=self.folder,
+        # A document is its versions: created together, as the service does.
+        self.document = Document.objects.create(folder=self.folder, name='Инструкция.pdf')
+        DocumentVersion.objects.create(
+            document=self.document,
             file=_sample_file(),
-            name='Инструкция.pdf',
+            number=1,
+            is_current=True,
             original_name='Инструкция.pdf',
             file_size=13,
         )

@@ -69,12 +69,17 @@ class SearchResult:
     path: str
     size: int
     created_at: datetime | None
+    # «v3» for a corporate document, empty for a system attachment: those are
+    # projections of another module's files and have no versions.
+    version_label: str
 
-    # Where it goes. `open_url` is the location — the folder for a corporate
-    # document, the act/protocol/task for an attachment — and `open_label`
-    # names it. `download_url` is empty when `can_download` is False.
+    # Where it goes. `open_url` opens the item itself — the document page for
+    # a corporate document, the owning act/protocol/task for an attachment —
+    # `open_label` names that target and `open_action_label` is the button's
+    # caption. `download_url` is empty when `can_download` is False.
     open_url: str
     open_label: str
+    open_action_label: str
     download_url: str
     can_download: bool
 

@@ -26,7 +26,7 @@ model without explicit approval.
 | `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
-| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree) and `Document` (files under `media/documents/library/`) for corporate documents, the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
+| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -993,12 +993,50 @@ tasks never live inside `acts`.
   `ecosystem/attachments.py` — an act attachment and a library document are
   different things and must not drift into one set.
 
+#### Versions and history (corporate documents only)
+
+- **`Document` holds no file.** It is the logical document — name, folder,
+  identity. `DocumentVersion` holds the file, one row per uploaded revision,
+  with `number`, `is_current`, `comment` and the copied
+  `original_name`/`file_size`/`content_type`. `document.current_version` is the
+  accessor; a listing must add `Document.current_version_prefetch()` or it pays
+  one query per row.
+- **Append-only.** `add_document_version()` allocates the next number under
+  `select_for_update()` on the document, clears `is_current` on the previous
+  row and inserts a new one with its own UUID path — it never overwrites,
+  renames or deletes a stored file, so every earlier revision stays
+  downloadable. A partial unique constraint (`documents_version_single_current`)
+  is the database's own word on «exactly one current version»; a second
+  constraint keeps `(document, number)` unique. `restore_document_version()`
+  only moves `is_current` — it is not an edit.
+- **All version work goes through `documents/services.py`.** Never create a
+  `DocumentVersion` in a view or in Admin: the number, `is_current`,
+  `Document.updated_at` and the history row are set together, and any one of
+  them written alone leaves the document inconsistent. Both are read-only in
+  Admin for that reason.
+- **`DocumentHistoryEvent`** is four actions, a user, a timestamp and a
+  sentence — not an audit framework. Its `document` FK is `SET_NULL` and the
+  name is snapshotted, so `DOCUMENT_DELETED` survives the document it records.
+  `_record_history()` swallows and logs write failures: history must not roll
+  back the upload it describes.
+- **Where an approval workflow goes:** on `DocumentVersion` (status, approver,
+  decision date, signature) — revisions are approved one at a time — plus new
+  members of `DocumentHistoryEvent.Action`. Not on `Document`, and not in a new
+  table. None of it is implemented.
+- `document_download` (the pre-versioning URL) still works and resolves to the
+  current version; `documents/migrations/0004`–`0006` created the tables, moved
+  every existing document's file *pointer* into a version 1 row without
+  touching MEDIA_ROOT, and then dropped the old columns.
+
 #### Corporate documents vs system attachments
 
 - **Corporate documents** are the library's own rows and are writable by a
   document manager. Everything above applies to them.
 - **System attachments** («Вложения» → Акты / Протоколы / Задачи) are act,
-  protocol and task files shown through `documents/references.py`.
+  protocol and task files shown through `documents/references.py`. **They have
+  no versions and no history, and never will**: the file belongs to the act,
+  protocol or task that owns it, and versioning it here would fork another
+  module's record. `DocumentVersion` is reachable only from `Document`.
   `DocumentReference` is a **frozen dataclass, not a table**: it is built per
   request from `ActAttachment` / `ProtocolAttachment` / `TaskAttachment`, so
   Documentation never holds a second copy of a file, a second row describing

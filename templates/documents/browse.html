@@ -4,7 +4,7 @@
 {% block title %}Документация - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-4">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-5">
 {% endblock %}
 
 {% block content %}
@@ -153,13 +153,19 @@ through the shared result card, so it needs no markup of its own.
             </tr>
         {% endfor %}
         {% for document in documents %}
+            {# The name opens the document page — current version, versions, history. #}
             <tr>
                 <td>
-                    <a class="table-link doc-entry" href="{% url 'documents:document_download' document.pk %}">
+                    <a class="table-link doc-entry" href="{% url 'documents:document_detail' document.pk %}">
                         <span class="doc-entry__icon" aria-hidden="true">📄</span>{{ document.name }}
                     </a>
+                    {% with version=document.current_version %}
+                    {% if version %}
+                        <span class="doc-entry__source">{{ version.label }} · {{ version.uploaded_at|date:'d.m.Y' }}{% if version.uploaded_by %} · {{ version.uploaded_by.get_full_name|default:version.uploaded_by.username }}{% endif %}</span>
+                    {% endif %}
+                    {% endwith %}
                 </td>
-                <td class="doc-table__muted">{{ document.file_size|filesizeformat }}</td>
+                <td class="doc-table__muted">{% with version=document.current_version %}{% if version %}{{ version.file_size|filesizeformat }}{% else %}—{% endif %}{% endwith %}</td>
                 <td class="doc-table__muted">{{ document.updated_at|date:'d.m.Y H:i' }}</td>
                 <td class="doc-table__actions">
                     <a class="link-button link-button--secondary link-button--compact" href="{% url 'documents:document_download' document.pk %}">Скачать</a>

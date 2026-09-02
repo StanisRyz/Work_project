@@ -143,3 +143,44 @@ def can_upload_document(folder, user):
 
 def can_delete_document(document, user):
     return can_manage_documents(user)
+
+
+# ---------------------------------------------------------------------------
+# Versions
+#
+# Corporate documents only. The rules are the two that already existed,
+# applied to the new object: reading a version is reading the library, and
+# adding or restoring one is managing it. Nothing here widens or narrows what
+# a role could already do.
+#
+# System attachments have no counterpart to any of this. They carry no
+# versions, and `can_modify_system_attachments()` refuses every write to them
+# for every role — administrators and superusers included.
+# ---------------------------------------------------------------------------
+
+
+def can_view_document_history(document, user):
+    """Reading the history follows reading the document."""
+    return can_view_documents(user)
+
+
+def can_download_document_version(version, user):
+    """Any earlier revision downloads exactly like the current one.
+
+    Deliberately not manager-only: keeping an old revision readable is the
+    point of versioning, and hiding it would make «current» unverifiable.
+    """
+    return can_view_documents(user)
+
+
+def can_add_document_version(document, user):
+    return can_manage_documents(user)
+
+
+def can_restore_document_version(document, user):
+    """Making an earlier revision current again — a management action.
+
+    Restoring never edits or deletes anything: it moves `is_current`, and the
+    version that was current stays in the list, downloadable, where it was.
+    """
+    return can_manage_documents(user)

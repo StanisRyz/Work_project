@@ -13,7 +13,8 @@ one nobody can size, so deletions here remove the file first and the row after.
 
 import logging
 
-from django.db import transaction
+from django.db import DatabaseError, transaction
+from django.db.models import Max
 
 from ecosystem.logging_utils import log_event
 
@@ -23,12 +24,16 @@ from .models import (
     MAX_FOLDER_DEPTH,
     Document,
     DocumentFolder,
+    DocumentHistoryEvent,
+    DocumentVersion,
 )
 from .permissions import (
+    can_add_document_version,
     can_create_folder,
     can_delete_document,
     can_delete_folder,
     can_rename_folder,
+    can_restore_document_version,
     can_upload_document,
 )
 from .validators import safe_document_name, validate_document_upload
@@ -191,9 +196,17 @@ def delete_folder(folder, user):
     parent = folder.parent
     with transaction.atomic():
         documents = list(Document.objects.filter(folder_id__in=folder_ids))
-        for document in documents:
-            _delete_stored_file(document)
-        # The FK cascade removes the descendant folders and the document rows.
+        versions = list(DocumentVersion.objects.filter(document__in=documents))
+        for version in versions:
+            _delete_stored_file(version)
+        _record_history(
+            [
+                _deletion_event(document, user, 'Папка удалена вместе с документом.')
+                for document in documents
+            ]
+        )
+        # The FK cascade removes the descendant folders, the document rows and
+        # their versions; the history rows survive on a nulled document FK.
         folder.delete()
     log_event(
         logger,
@@ -213,11 +226,79 @@ def delete_folder(folder, user):
 # ---------------------------------------------------------------------------
 
 
-def upload_document(folder, uploaded_file, user, name=''):
-    """Store one uploaded file in `folder`.
+def _actor(user):
+    """The user to record, or None for an anonymous or system caller."""
+    return user if getattr(user, 'is_authenticated', False) else None
 
-    The upload is validated here as well as in the form: a form is one caller,
-    and the rule about what the library may hold belongs to the library.
+
+def _record_history(events):
+    """Append history rows. Never raises into the caller's transaction path.
+
+    History is a record of what happened, not a precondition for it: a failure
+    to write it must not roll back the upload the user just made. It is logged
+    instead, which is where an operator looks when the page disagrees with the
+    files.
+    """
+    if not events:
+        return []
+    try:
+        return DocumentHistoryEvent.objects.bulk_create(events)
+    except DatabaseError as exc:
+        log_event(
+            logger,
+            'ERROR',
+            'documents.history_failed',
+            error_type=type(exc).__name__,
+            event_count=len(events),
+            outcome='failed',
+        )
+        return []
+
+
+def _history_event(document, action, user, description, version=None):
+    return DocumentHistoryEvent(
+        document=document,
+        # Copied, so the row still says what it was about after the document
+        # itself is gone.
+        document_name=document.name,
+        version=version,
+        version_number=version.number if version is not None else None,
+        action=action,
+        user=_actor(user),
+        description=description,
+    )
+
+
+def _deletion_event(document, user, description):
+    """A deletion event, which must outlive its document.
+
+    `version` is deliberately left unset: the version rows are about to be
+    cascaded away, and a FK to one of them would only be nulled a moment later.
+    """
+    return _history_event(
+        document, DocumentHistoryEvent.Action.DOCUMENT_DELETED, user, description
+    )
+
+
+def _version_payload(uploaded_file):
+    """The columns copied off an upload, shared by create and add-version."""
+    return {
+        'original_name': safe_document_name(uploaded_file.name),
+        'file_size': uploaded_file.size or 0,
+        'content_type': (getattr(uploaded_file, 'content_type', '') or '')[:120],
+    }
+
+
+def upload_document(folder, uploaded_file, user, name='', comment=''):
+    """Create a new document in `folder`, with its first version.
+
+    A document and a version are made together and never separately: a
+    document with no file is not a state the library has, and every download,
+    listing and card assumes there is a current version to describe.
+
+    The upload is validated here as well as in the form — a form is one
+    caller, and the rule about what the library may hold belongs to the
+    library.
     """
     if not can_upload_document(folder, user):
         raise DocumentError('Недостаточно прав для загрузки документа.')
@@ -225,46 +306,179 @@ def upload_document(folder, uploaded_file, user, name=''):
         raise DocumentError('Выберите файл.')
     validate_document_upload(uploaded_file)
 
-    original_name = safe_document_name(uploaded_file.name)
-    display_name = safe_document_name(name) if (name or '').strip() else original_name
-    document = Document.objects.create(
-        folder=folder,
-        file=uploaded_file,
-        name=display_name,
-        original_name=original_name,
-        file_size=uploaded_file.size or 0,
-        content_type=(getattr(uploaded_file, 'content_type', '') or '')[:120],
-        uploaded_by=user if getattr(user, 'is_authenticated', False) else None,
-    )
+    payload = _version_payload(uploaded_file)
+    display_name = safe_document_name(name) if (name or '').strip() else payload['original_name']
+
+    with transaction.atomic():
+        document = Document.objects.create(
+            folder=folder,
+            name=display_name,
+            uploaded_by=_actor(user),
+        )
+        version = DocumentVersion.objects.create(
+            document=document,
+            file=uploaded_file,
+            number=1,
+            is_current=True,
+            comment=(comment or '').strip(),
+            uploaded_by=_actor(user),
+            **payload,
+        )
+        _record_history([
+            _history_event(
+                document,
+                DocumentHistoryEvent.Action.DOCUMENT_CREATED,
+                user,
+                'Документ создан.',
+            ),
+            _history_event(
+                document,
+                DocumentHistoryEvent.Action.VERSION_ADDED,
+                user,
+                f'Загружена версия {version.label}.',
+                version=version,
+            ),
+        ])
+
     log_event(
         logger,
         'INFO',
         'documents.uploaded',
         document_id=document.pk,
         folder_id=folder.pk,
-        size_bytes=document.file_size,
+        version_number=version.number,
+        size_bytes=version.file_size,
         user_id=getattr(user, 'pk', None),
         outcome='ok',
     )
     return document
 
 
-def _delete_stored_file(document):
-    """Remove the blob, tolerating one that is already gone.
+def add_document_version(document, uploaded_file, user, comment=''):
+    """Add a new current version to an existing document.
+
+    Never an overwrite: a new row is inserted with the next number and its own
+    generated storage path, and the previous version only loses `is_current`.
+    Every earlier revision stays downloadable exactly as it was uploaded.
+
+    The number is allocated under a row lock on the document, so two
+    simultaneous uploads produce v2 and v3 rather than two v2s — and the
+    partial unique constraint on `is_current` is the database's own last word
+    on «exactly one current version».
+    """
+    if not can_add_document_version(document, user):
+        raise DocumentError('Недостаточно прав для загрузки новой версии.')
+    if uploaded_file is None:
+        raise DocumentError('Выберите файл.')
+    validate_document_upload(uploaded_file)
+
+    payload = _version_payload(uploaded_file)
+    with transaction.atomic():
+        locked = Document.objects.select_for_update().get(pk=document.pk)
+        previous = locked.versions.filter(is_current=True).first()
+        next_number = (
+            locked.versions.aggregate(highest=Max('number'))['highest'] or 0
+        ) + 1
+        # Cleared before the insert, so the «one current version» constraint
+        # never sees two rows claiming it.
+        locked.versions.filter(is_current=True).update(is_current=False)
+        version = DocumentVersion.objects.create(
+            document=locked,
+            file=uploaded_file,
+            number=next_number,
+            is_current=True,
+            comment=(comment or '').strip(),
+            uploaded_by=_actor(user),
+            **payload,
+        )
+        # `updated_at` is auto_now, so saving the row is what refreshes it —
+        # a new revision is an update to the document even though no column of
+        # its own changed.
+        locked.save(update_fields=['updated_at'])
+        _record_history([
+            _history_event(
+                locked,
+                DocumentHistoryEvent.Action.VERSION_ADDED,
+                user,
+                f'Загружена версия {version.label}.',
+                version=version,
+            ),
+        ])
+
+    log_event(
+        logger,
+        'INFO',
+        'documents.version_added',
+        document_id=document.pk,
+        version_number=version.number,
+        previous_version=previous.number if previous is not None else None,
+        size_bytes=version.file_size,
+        user_id=getattr(user, 'pk', None),
+        outcome='ok',
+    )
+    return version
+
+
+def restore_document_version(document, version, user):
+    """Make an earlier version current again.
+
+    A pointer move, not an edit: no file is copied, rewritten or renumbered,
+    and the version that was current stays in the list exactly where it was.
+    Restoring the version that is already current is a no-op rather than an
+    error — the caller asked for a state, and it already holds.
+    """
+    if not can_restore_document_version(document, user):
+        raise DocumentError('Недостаточно прав для восстановления версии.')
+    if version.document_id != document.pk:
+        raise DocumentError('Версия принадлежит другому документу.')
+    if version.is_current:
+        return version
+
+    with transaction.atomic():
+        locked = Document.objects.select_for_update().get(pk=document.pk)
+        locked.versions.filter(is_current=True).update(is_current=False)
+        locked.versions.filter(pk=version.pk).update(is_current=True)
+        locked.save(update_fields=['updated_at'])
+        _record_history([
+            _history_event(
+                locked,
+                DocumentHistoryEvent.Action.VERSION_RESTORED,
+                user,
+                f'Версия {version.label} снова стала текущей.',
+                version=version,
+            ),
+        ])
+
+    version.refresh_from_db()
+    log_event(
+        logger,
+        'INFO',
+        'documents.version_restored',
+        document_id=document.pk,
+        version_number=version.number,
+        user_id=getattr(user, 'pk', None),
+        outcome='ok',
+    )
+    return version
+
+
+def _delete_stored_file(version):
+    """Remove one version's blob, tolerating one that is already gone.
 
     A missing file must not stop the row from being deleted: the point of the
     operation is that neither remains.
     """
-    if not document.file:
+    if not version.file:
         return
     try:
-        document.file.delete(save=False)
+        version.file.delete(save=False)
     except OSError as exc:
         log_event(
             logger,
             'WARNING',
             'documents.storage_failed',
-            document_id=document.pk,
+            version_id=version.pk,
+            document_id=version.document_id,
             operation='delete',
             error_type=type(exc).__name__,
             outcome='failed',
@@ -272,12 +486,22 @@ def _delete_stored_file(document):
 
 
 def delete_document(document, user):
+    """Delete a document with every one of its versions.
+
+    All or nothing: a controlled document does not survive as a stump of old
+    revisions, so the whole chain goes and the history row that records the
+    deletion stays behind on a nulled document reference.
+    """
     if not can_delete_document(document, user):
         raise DocumentError('Недостаточно прав для удаления документа.')
     folder = document.folder
     document_id = document.pk
     with transaction.atomic():
-        _delete_stored_file(document)
+        versions = list(document.versions.all())
+        for version in versions:
+            _delete_stored_file(version)
+        _record_history([_deletion_event(document, user, 'Документ удалён.')])
+        # The cascade takes the version rows; history survives, by SET_NULL.
         document.delete()
     log_event(
         logger,
@@ -285,6 +509,7 @@ def delete_document(document, user):
         'documents.deleted',
         document_id=document_id,
         folder_id=folder.pk,
+        version_count=len(versions),
         user_id=getattr(user, 'pk', None),
         outcome='ok',
     )

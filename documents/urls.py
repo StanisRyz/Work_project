@@ -22,9 +22,28 @@ urlpatterns = [
     path('folders/<int:folder_id>/delete/', views.folder_delete, name='folder_delete'),
     path('folders/<int:folder_id>/upload/', views.document_upload, name='document_upload'),
 
-    # Files are served only through this view, never from a media URL.
+    # One corporate document: its current version, its versions and its
+    # history. Files are served only through these views, never from a media
+    # URL. `document_download` is the unchanged pre-versioning URL and now
+    # resolves to the current version.
+    path('files/<int:document_id>/', views.document_detail, name='document_detail'),
     path('files/<int:document_id>/download/', views.document_download, name='document_download'),
     path('files/<int:document_id>/delete/', views.document_delete, name='document_delete'),
+    path(
+        'files/<int:document_id>/versions/add/',
+        views.document_version_add,
+        name='document_version_add',
+    ),
+    path(
+        'files/<int:document_id>/versions/<int:version_id>/download/',
+        views.document_version_download,
+        name='document_version_download',
+    ),
+    path(
+        'files/<int:document_id>/versions/<int:version_id>/restore/',
+        views.document_version_restore,
+        name='document_version_restore',
+    ),
 
     # ------------------------------------------------------------------
     # «Вложения»: act, protocol and task files, read-only.
