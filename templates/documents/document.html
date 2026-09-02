@@ -4,22 +4,23 @@
 {% block title %}{{ document.name }} - Документация{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-6">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-10">
 {% endblock %}
 
 {% block content %}
 {% comment %}
-One corporate document: the version that is current, every earlier version,
-and the history.
+One corporate document, in three parts: the information block, the viewer, and
+«История» on its own tab.
 
-Old versions are downloadable and nothing else — no rename, no replace, no
-delete. «Сделать текущей» does not edit them either: it moves `is_current`,
-and the version that was current stays in the list where it was. Every control
-here is drawn only for a document manager and posts to an endpoint that asks
-the same rule again.
+The version table is deliberately not on the first tab — somebody opening a
+document wants the file, not the audit trail. The tabs are the same `?tab=`
+pattern and the same `.act-detail-tabs` component acts and protocols use, so
+the page behaves like the rest of the project rather than like itself.
 
-Only corporate documents have this page. System attachments are projections of
-act, protocol and task files, carry no versions and are never editable.
+Every control here is drawn only for a user who may use it, and each posts to
+an endpoint that asks the same rule again. Only corporate documents have this
+page: system attachments are projections of act, protocol and task files and
+have no versions at all.
 {% endcomment %}
 
 {% include 'documents/includes/breadcrumbs.html' %}
@@ -27,22 +28,79 @@ act, protocol and task files, carry no versions and are never editable.
 <div class="doc-toolbar">
     <div class="doc-toolbar__nav">
         <a class="link-button link-button--secondary link-button--compact" href="{{ parent_url }}">← В папку</a>
-        <h1 class="doc-toolbar__title">{{ document.name }}</h1>
-        {% if current_version %}<span class="doc-version-badge">{{ current_version.label }}</span>{% endif %}
     </div>
     <div class="doc-toolbar__side">
         {% include 'documents/includes/search_form.html' %}
+    </div>
+</div>
+
+{% comment %}
+A) The information block: what this document is, and what can be done with it.
+{% endcomment %}
+<section class="doc-head" aria-label="Сведения о документе">
+    <span class="doc-head__icon" aria-hidden="true">{{ icon }}</span>
+    <div class="doc-head__body">
+        <h1 class="doc-head__title">
+            {{ document.name }}
+            {% if current_version %}<span class="doc-version-badge">{{ current_version.label }}</span>{% endif %}
+        </h1>
+        {% if selected_version %}
+        <div class="doc-head__meta">
+            <span>Загрузил: {{ selected_version.uploaded_by.get_full_name|default:selected_version.uploaded_by.username|default:'—' }}</span>
+            <span>{{ selected_version.uploaded_at|date:'d.m.Y H:i' }}</span>
+            <span>{{ selected_version.file_size|filesizeformat }}</span>
+            {% if not is_viewing_current %}
+                <span class="doc-head__notice">Открыта версия {{ selected_version.label }}, не текущая</span>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="doc-head__actions">
         {% if can_favorite %}
-            {# The viewer's own shortcut — private, and visible to nobody else. #}
             <form method="post" action="{% url 'documents:favorite_toggle' document.pk %}">
                 {% csrf_token %}
-                <input type="hidden" name="next" value="{{ request.path }}">
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
                 <button class="link-button link-button--secondary link-button--compact" type="submit"
                         aria-pressed="{% if is_favorite %}true{% else %}false{% endif %}">{% if is_favorite %}★ В избранном{% else %}☆ В избранное{% endif %}</button>
             </form>
         {% endif %}
+
+        {% if version_rows|length > 1 %}
+            {% comment %}
+            «Версия» opens a revision in the viewer; «Скачать» saves one. Two
+            menus because they are two different acts — reading an old revision
+            and taking a copy of it — and one control would have to guess which
+            was meant. Both are `<details>`, like the topbar menus, so neither
+            needs JavaScript.
+            {% endcomment %}
+            <details class="doc-menu">
+                <summary class="link-button link-button--secondary link-button--compact">Версия {{ selected_version.label }} ▾</summary>
+                <div class="doc-menu__popup" role="menu">
+                    {% for row in version_rows %}
+                        <a class="doc-menu__item{% if row.is_selected %} doc-menu__item--active{% endif %}"
+                           href="{{ row.view_url }}" role="menuitem">{{ row.label }}{% if row.is_current %} · текущая{% endif %}</a>
+                    {% endfor %}
+                </div>
+            </details>
+
+            <details class="doc-menu">
+                <summary class="link-button link-button--secondary link-button--compact">Скачать ▾</summary>
+                <div class="doc-menu__popup" role="menu">
+                    {% for row in version_rows %}
+                        <a class="doc-menu__item" href="{{ row.download_url }}" role="menuitem">Скачать {{ row.label }}{% if row.is_current %} (текущая){% endif %}</a>
+                    {% endfor %}
+                </div>
+            </details>
+        {% elif current_version %}
+            <a class="link-button link-button--secondary link-button--compact"
+               href="{% url 'documents:document_download' document.pk %}">Скачать</a>
+        {% endif %}
+
         {% if current_version %}
-            <a class="link-button link-button--compact" href="{% url 'documents:document_download' document.pk %}">Скачать текущую</a>
+            {# Whatever the menus have selected, this one is always the current version. #}
+            <a class="link-button link-button--compact"
+               href="{% url 'documents:document_download' document.pk %}">Скачать текущую версию</a>
         {% endif %}
         {% if can_delete %}
             <button class="link-button link-button--warning link-button--compact" type="button"
@@ -51,22 +109,27 @@ act, protocol and task files, carry no versions and are never editable.
                     data-confirm-title="Удалить документ"
                     data-confirm-text="Документ «{{ document.name }}» будет удалён вместе со всеми версиями."
                     data-confirm-label="Удалить"
-                    data-confirm-variant="warning">Удалить документ</button>
+                    data-confirm-variant="warning">Удалить</button>
         {% endif %}
     </div>
-</div>
-
-<section class="doc-summary" aria-label="Текущая версия">
-    {% if current_version %}
-        <div><span class="doc-summary__label">Текущая версия</span><strong>{{ current_version.label }}</strong></div>
-        <div><span class="doc-summary__label">Обновлён</span><strong>{{ current_version.uploaded_at|date:'d.m.Y H:i' }}</strong></div>
-        <div><span class="doc-summary__label">Загрузил</span><strong>{{ current_version.uploaded_by.get_full_name|default:current_version.uploaded_by.username|default:'—' }}</strong></div>
-        <div><span class="doc-summary__label">Файл</span><strong>{{ current_version.original_name }}</strong></div>
-        <div><span class="doc-summary__label">Размер</span><strong>{{ current_version.file_size|filesizeformat }}</strong></div>
-    {% else %}
-        <p class="doc-tools__hint">У документа нет ни одной версии.</p>
-    {% endif %}
 </section>
+
+<nav class="act-detail-tabs" aria-label="Разделы документа">
+    <a class="act-detail-tabs__link{% if detail_tab == 'document' %} act-detail-tabs__link--active{% endif %}"
+       href="?tab=document{% if not is_viewing_current and selected_version %}&version={{ selected_version.pk }}{% endif %}">
+        <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Документ
+    </a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history">
+        <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.7M4 5v4h4"/></svg>История
+    </a>
+</nav>
+
+{% if detail_tab == 'history' %}
+{% comment %}
+C) История: every version and every recorded event — and the one place a new
+version is uploaded, because that is a change to the document's history and
+this is where its result is visible.
+{% endcomment %}
 
 {% if can_manage %}
 <section class="doc-tools" aria-label="Загрузка новой версии">
@@ -74,11 +137,11 @@ act, protocol and task files, carry no versions and are never editable.
           action="{% url 'documents:document_version_add' document.pk %}">
         {% csrf_token %}
         <label class="doc-tools__field">
-            <span>Новая версия</span>
+            <span class="doc-visually-hidden">Файл новой версии</span>
             {{ version_form.file }}
         </label>
         <label class="doc-tools__field">
-            <span class="doc-tools__field-optional">Что изменилось</span>
+            <span class="doc-visually-hidden">Что изменилось</span>
             {{ version_form.comment }}
         </label>
         <button class="link-button link-button--compact" type="submit">Загрузить версию</button>
@@ -88,37 +151,37 @@ act, protocol and task files, carry no versions and are never editable.
 {% endif %}
 
 <h2 class="doc-section-title">Версии</h2>
-{% if versions %}
+{% if version_rows %}
 <section class="table-card doc-card">
     <table class="data-table doc-table">
         <thead>
-            <tr><th>Версия</th><th>Файл</th><th>Загружена</th><th>Кто</th><th class="doc-table__actions-head">Действия</th></tr>
+            <tr><th>Версия</th><th>Файл и комментарий</th><th>Загружена</th><th>Автор</th><th class="doc-table__actions-head">Действия</th></tr>
         </thead>
         <tbody>
-        {% for version in versions %}
+        {% for row in version_rows %}
             <tr>
                 <td>
-                    <strong>{{ version.label }}</strong>
-                    {% if version.is_current %}<span class="doc-version-badge doc-version-badge--current">Текущая</span>{% endif %}
+                    <strong>{{ row.label }}</strong>
+                    {% if row.is_current %}<span class="doc-version-badge doc-version-badge--current">Текущая</span>{% endif %}
                 </td>
                 <td>
-                    {{ version.original_name }}
-                    {% if version.comment %}<span class="doc-entry__source">{{ version.comment }}</span>{% endif %}
+                    {{ row.version.original_name }}
+                    {% if row.version.comment %}<span class="doc-entry__source">{{ row.version.comment }}</span>{% endif %}
                 </td>
-                <td class="doc-table__muted">{{ version.uploaded_at|date:'d.m.Y H:i' }}</td>
-                <td class="doc-table__muted">{{ version.uploaded_by.get_full_name|default:version.uploaded_by.username|default:'—' }}</td>
-                <td class="doc-table__actions">
-                    <a class="link-button link-button--secondary link-button--compact"
-                       href="{% url 'documents:document_version_download' document.pk version.pk %}">Скачать</a>
-                    {% if can_restore and not version.is_current %}
+                <td class="doc-table__muted">{{ row.version.uploaded_at|date:'d.m.Y H:i' }}</td>
+                <td class="doc-table__muted">{{ row.version.uploaded_by.get_full_name|default:row.version.uploaded_by.username|default:'—' }}</td>
+                <td class="doc-table__actions"><div class="doc-actions">
+                    <a class="link-button link-button--secondary link-button--compact" href="{{ row.view_url }}">Открыть</a>
+                    <a class="link-button link-button--secondary link-button--compact" href="{{ row.download_url }}">Скачать</a>
+                    {% if can_restore and not row.is_current %}
                         <button class="link-button link-button--secondary link-button--compact" type="button"
                                 data-confirm
-                                data-confirm-url="{% url 'documents:document_version_restore' document.pk version.pk %}"
+                                data-confirm-url="{% url 'documents:document_version_restore' document.pk row.version.pk %}"
                                 data-confirm-title="Сделать версию текущей"
-                                data-confirm-text="Версия {{ version.label }} снова станет текущей. Остальные версии останутся доступными."
+                                data-confirm-text="Версия {{ row.label }} снова станет текущей. Остальные версии останутся доступными."
                                 data-confirm-label="Сделать текущей">Сделать текущей</button>
                     {% endif %}
-                </td>
+                </div></td>
             </tr>
         {% endfor %}
         </tbody>
@@ -128,7 +191,7 @@ act, protocol and task files, carry no versions and are never editable.
     {% include 'acts/includes/empty_state.html' with title='Версий нет' message='У этого документа не осталось ни одного файла.' %}
 {% endif %}
 
-<h2 class="doc-section-title">История</h2>
+<h2 class="doc-section-title">События</h2>
 {% if history %}
 <ol class="doc-history">
     {% for event in history %}
@@ -142,5 +205,39 @@ act, protocol and task files, carry no versions and are never editable.
 </ol>
 {% else %}
     <p class="doc-tools__hint">История пуста.</p>
+{% endif %}
+
+{% else %}
+{% comment %}
+B) The viewer. A PDF goes into an `<iframe>` and an image into an `<img>`, both
+served from this project's own origin by
+`documents:document_version_preview` — no external viewer and no JavaScript
+library. Anything else says so plainly and offers the download.
+{% endcomment %}
+<section class="doc-viewer" aria-label="Просмотр документа">
+    {% if preview.kind == 'pdf' or preview.kind == 'text' %}
+        <iframe class="doc-viewer__frame" src="{{ preview_url }}"
+                title="{{ document.name }} — {{ selected_version.label }}"></iframe>
+    {% elif preview.kind == 'image' %}
+        <div class="doc-viewer__image-wrap">
+            <img class="doc-viewer__image" src="{{ preview_url }}" alt="{{ document.name }}">
+        </div>
+    {% else %}
+        <div class="doc-viewer__empty">
+            <p>{{ preview.message }}</p>
+            {% if selected_version %}
+                <a class="link-button link-button--compact"
+                   href="{% url 'documents:document_version_download' document.pk selected_version.pk %}">Скачать {{ selected_version.label }}</a>
+            {% endif %}
+        </div>
+    {% endif %}
+</section>
+
+{% if current_version %}
+<p class="doc-viewer__footer">
+    Текущая версия: {{ current_version.label }} от {{ current_version.uploaded_at|date:'d.m.Y H:i' }}
+    · <a href="?tab=history">Посмотреть историю версий</a>
+</p>
+{% endif %}
 {% endif %}
 {% endblock %}

@@ -1,26 +1,25 @@
 """Read-side assembly for the folder browser.
 
 The browser's own selectors: the breadcrumb trail, the document cards a
-listing renders, the personal blocks on the Documentation root («Избранное»,
-«Недавние документы») and the archive counters an administrator sees. Search
-has its own package (`documents/search/`) with its own selectors; the split is
-deliberate, so a search backend change cannot reach the navigation.
+listing renders, and the personal blocks on the Documentation root
+(«Избранное», «Недавние документы»). Search has its own package
+(`documents/search/`) with its own selectors; the split is deliberate, so a
+search backend change cannot reach the navigation.
 
 Nothing here writes. Mutations stay in `documents/services.py`.
 """
 
-from django.db.models import Count, Max, Prefetch, Sum
+from django.db.models import Prefetch
 from django.urls import reverse
 
 from .cards import corporate_card
 from .models import (
     CURRENT_VERSION_ATTR,
     ROOT_FOLDER_LABEL,
-    Document,
     DocumentFavorite,
-    DocumentFolder,
     DocumentVersion,
 )
+from .permissions import can_delete_folder, can_rename_folder
 from .search import recent_documents
 
 
@@ -70,6 +69,52 @@ def build_document_breadcrumbs(document):
 
 def _folder_path(folder):
     return ' / '.join([ROOT_FOLDER_LABEL, *(entry.name for entry in folder.breadcrumbs())])
+
+
+def build_folder_rows(folders, user):
+    """Subfolder rows with their permissions already resolved.
+
+    The template must not re-derive «may this be renamed» from `is_system` —
+    that is how the page and `documents/permissions.py` drifted apart once
+    already, leaving an administrator with no actions on the shipped folders.
+    One helper, asked here, per row.
+    """
+    return [
+        {
+            'folder': folder,
+            'url': reverse('documents:folder', args=[folder.pk]),
+            'can_rename': can_rename_folder(folder, user),
+            'can_delete': can_delete_folder(folder, user),
+        }
+        for folder in folders
+    ]
+
+
+def build_version_rows(document, versions, selected):
+    """The rows both dropdowns and the history tab render.
+
+    One list, built once: the «Версия» selector, the «Скачать» menu and the
+    history table all describe the same versions and must never disagree about
+    which one is current.
+    """
+    return [
+        {
+            'version': version,
+            'label': version.label,
+            'is_current': version.is_current,
+            'is_selected': selected is not None and version.pk == selected.pk,
+            'download_url': reverse(
+                'documents:document_version_download', args=[document.pk, version.pk]
+            ),
+            # Opening a version is the same page with `?version=` — no state,
+            # so the address bar always says which revision is on screen.
+            'view_url': (
+                f"{reverse('documents:document_detail', args=[document.pk])}"
+                f'?version={version.pk}'
+            ),
+        }
+        for version in versions
+    ]
 
 
 def build_document_cards(documents, user, path=None):
@@ -129,24 +174,3 @@ def build_recent_documents(user, limit=RECENT_LIMIT):
     every page view. Uploads are data that already exists.
     """
     return recent_documents(user, limit=limit)
-
-
-def build_archive_statistics():
-    """A few counters for an administrator: the size of the archive.
-
-    Four numbers and a date, from three aggregate queries. Deliberately not a
-    dashboard, not per-user and not stored — there is nothing here to keep up
-    to date.
-    """
-    folders = DocumentFolder.objects.aggregate(total=Count('pk'), last_update=Max('updated_at'))
-    documents = Document.objects.aggregate(total=Count('pk'), last_update=Max('updated_at'))
-    versions = DocumentVersion.objects.aggregate(total=Count('pk'), total_size=Sum('file_size'))
-    return {
-        'folder_count': folders['total'] or 0,
-        'document_count': documents['total'] or 0,
-        'version_count': versions['total'] or 0,
-        # Every stored revision counts: the archive occupies what it occupies,
-        # not what its current versions alone would.
-        'total_size': versions['total_size'] or 0,
-        'last_update': documents['last_update'] or folders['last_update'],
-    }

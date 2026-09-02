@@ -19,6 +19,8 @@ uses the same helpers only to decide which buttons to draw.
 
 from accounts.models import UserProfile
 
+from .models import CORPORATE_FOLDER_CODE
+
 
 # The application roles that manage corporate documents. Django's genuine
 # superuser is handled separately in `can_manage_documents()` and is not a
@@ -119,20 +121,38 @@ def can_create_folder(parent, user):
     return can_manage_documents(user)
 
 
-def can_rename_folder(folder, user):
-    """System folders keep their names: the initial structure is not editable.
+def is_structural_folder(folder):
+    """Whether this folder is part of the library's shape rather than content.
 
-    A superuser who genuinely needs to rename one does it in Admin, where the
-    consequence is visible; the page does not offer it.
+    Exactly one folder is: «Корпоративные документы». It is one of the two
+    branches under the browse root — the other, «Вложения», is generated and
+    has no row at all — and `create_folder()` refuses to put anything at the
+    root, so renaming or removing it would leave the library with nowhere to
+    store a document.
+
+    The folders shipped inside it («Инструкции», «Шаблоны», …) are *content*,
+    not shape. They are marked `is_system` so the initial structure can be
+    recognised and re-created idempotently, and a manager renames and removes
+    them like any other folder.
     """
-    if folder.is_system:
+    return folder.code == CORPORATE_FOLDER_CODE
+
+
+def can_rename_folder(folder, user):
+    """Any corporate folder except the structural root."""
+    if is_structural_folder(folder):
         return False
     return can_manage_documents(user)
 
 
 def can_delete_folder(folder, user):
-    """Same rule as renaming — and deleting takes the whole subtree with it."""
-    if folder.is_system:
+    """Same rule as renaming.
+
+    Whether the folder is actually *empty* is `delete_folder()`'s decision, not
+    this one: that is a fact about content and it is re-checked under the
+    service's own transaction.
+    """
+    if is_structural_folder(folder):
         return False
     return can_manage_documents(user)
 
@@ -188,11 +208,6 @@ def can_favorite_document(document, user):
     `Document` row, so there is nothing to star.
     """
     return can_view_documents(user)
-
-
-def can_view_archive_statistics(user):
-    """The folder/file/size counters — an operational detail, for managers."""
-    return can_manage_documents(user)
 
 
 def can_restore_document_version(document, user):

@@ -1019,6 +1019,18 @@ tasks never live inside `acts`.
   name is snapshotted, so `DOCUMENT_DELETED` survives the document it records.
   `_record_history()` swallows and logs write failures: history must not roll
   back the upload it describes.
+- **The document page has two tabs**, the same `?tab=` pattern and the same
+  `.act-detail-tabs` component acts and protocols use: «Документ» (header +
+  viewer) and «История» (versions, the upload form, the event log). The version
+  table must not return to the first tab. `?version=` selects which revision is
+  on screen — a query parameter, never session state, and an unknown value
+  falls back to the current version instead of 404ing.
+- **Preview is `documents/preview.py`'s decision.** `INLINE_TYPES` maps an
+  extension to the content type it may be served inline as; anything absent has
+  no preview and the page says so. `document_version_preview` derives the type
+  from that map (**never** from the stored `content_type`, which came from the
+  browser) and sends `nosniff` + `Content-Security-Policy: sandbox`. No HTML and
+  no SVG are ever inline, and no external viewer or JS library is loaded.
 - **Where an approval workflow goes:** on `DocumentVersion` (status, approver,
   decision date, signature) — revisions are approved one at a time — plus new
   members of `DocumentHistoryEvent.Action`. Not on `Document`, and not in a new
@@ -1088,9 +1100,36 @@ tasks never live inside `acts`.
   subfolder. This is an archive: removing a folder must never be a way to
   destroy documents and their version history in one click. System folders are
   still undeletable, and «Вложения» is not a folder at all.
-- `build_archive_statistics()` is three aggregate queries behind
-  `can_view_archive_statistics()` (manager-only): folder/document/version
-  counts, total stored bytes, last update. Not a dashboard, not stored.
+- **Only «Корпоративные документы» is structural.** `is_structural_folder()`
+  names the one folder a manager may not rename or delete — it is a branch of
+  the browse root, and `create_folder()` refuses `parent=None`, so removing it
+  would leave nowhere to store anything. The shipped folders inside it
+  («Инструкции», «Шаблоны», …) are *content*: `is_system` marks them so
+  `ensure_default_folders()` can recreate them idempotently, and it grants no
+  protection. **Never branch on `is_system` in a template or a view** — ask
+  `can_rename_folder()`/`can_delete_folder()`; `build_folder_rows()` resolves
+  both per row, because the template doing it itself is what once left an
+  administrator with no actions on the shipped folders.
+- **Creating and renaming a folder both go through the shared confirmation
+  modal** (`data-confirm-comment="required"` with `data-confirm-comment-name="name"`).
+  There is no inline name field in the toolbar.
+- **Uploading is the green «+».** `DocumentUploadForm` uses
+  `MultipleFileField`, so a manager picks several files at once; picking them
+  *is* the action — `static/js/documents.js` fills the shared confirmation
+  modal with the names and submits the form, and there is no name field
+  (a selection has no single name). The upload policy is applied **per file**
+  by `upload_documents()` and deliberately not in the form: a form error would
+  refuse the whole selection, and nine good files should not be lost to one
+  bad one. The view reports both halves.
+- Inside a folder, documents render as a **four-column table** (name, size,
+  date, version) with `table-layout: fixed` so a long name clips with an
+  ellipsis; the card is for search results and the personal blocks, where a hit
+  has to say where it came from.
+- A `<td>` that holds row actions keeps `display: table-cell`; the flex row
+  goes on an inner `div.doc-actions`. Putting `display: flex` on the cell
+  pulls the column out of the table layout.
+- Django's `{# … #}` is **single-line only** — a multi-line one renders as page
+  text. Use `{% comment %}` for anything longer.
 
 #### Search (`documents/search/`)
 

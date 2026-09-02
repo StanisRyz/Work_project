@@ -16,7 +16,15 @@ from django.urls import reverse
 from accounts.models import UserProfile
 
 from .models import DocumentFavorite, DocumentFolder
-from .services import DocumentError, create_folder, delete_folder, get_corporate_root, upload_document
+from .permissions import can_delete_folder, can_rename_folder
+from .services import (
+    DocumentError,
+    create_folder,
+    delete_document,
+    delete_folder,
+    get_corporate_root,
+    upload_document,
+)
 
 
 MEDIA_OVERRIDE = tempfile.mkdtemp(prefix='documents-archive-tests-')
@@ -99,9 +107,19 @@ class ArchiveTests(TestCase):
         with self.assertRaises(DocumentError):
             delete_folder(folder, self.admin)
         # Nor is one that holds documents.
+        upload_document(child, _pdf('Регламент.pdf'), self.admin)
         with self.assertRaises(DocumentError):
-            delete_folder(self.corporate, self.admin)
+            delete_folder(child, self.admin)
+        # The folders shipped with the project are ordinary content: a manager
+        # renames and removes them. Only «Корпоративные документы» itself is
+        # structural and stays untouchable.
+        shipped = DocumentFolder.objects.get(code='instructions')
+        self.assertTrue(can_rename_folder(shipped, self.admin))
+        self.assertTrue(can_delete_folder(shipped, self.admin))
+        self.assertFalse(can_delete_folder(self.corporate, self.admin))
+
         # An empty one goes.
+        delete_document(child.documents.get(), self.admin)
         delete_folder(child, self.admin)
         self.client.post(reverse('documents:folder_delete', args=[folder.pk]))
         self.assertFalse(DocumentFolder.objects.filter(pk=folder.pk).exists())

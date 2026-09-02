@@ -96,9 +96,9 @@ record's files. Whichever is non-empty is what renders.
                 </td>
                 <td class="doc-table__muted">{{ reference.size|filesizeformat }}</td>
                 <td class="doc-table__muted">{{ reference.created_at|date:'d.m.Y H:i' }}</td>
-                <td class="doc-table__actions">
+                <td class="doc-table__actions"><div class="doc-actions">
                     <a class="link-button link-button--secondary link-button--compact" href="{{ reference.download_url }}">Скачать</a>
-                </td>
+                </div></td>
             </tr>
         {% endfor %}
         </tbody>

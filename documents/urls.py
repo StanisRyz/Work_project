@@ -45,6 +45,13 @@ urlpatterns = [
         views.document_version_download,
         name='document_version_download',
     ),
+    # Shown in the page's viewer, never downloaded: its own view because the
+    # content type and the sandbox headers differ from a download's.
+    path(
+        'files/<int:document_id>/versions/<int:version_id>/preview/',
+        views.document_version_preview,
+        name='document_version_preview',
+    ),
     path(
         'files/<int:document_id>/versions/<int:version_id>/restore/',
         views.document_version_restore,

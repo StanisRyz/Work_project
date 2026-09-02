@@ -28,36 +28,58 @@ class FolderForm(forms.Form):
         })
 
 
-class DocumentUploadForm(forms.Form):
-    """One uploaded file, plus an optional display name.
+class MultipleFileInput(forms.ClearableFileInput):
+    """A file input that accepts a whole selection.
 
-    `file` goes through the library's own policy (size, blocked executables,
-    allowed types). The service validates it again — a form is only one of the
-    ways a document can arrive.
+    Django's widget refuses `multiple` by default because a plain `FileField`
+    would silently keep only the last file. This one opts in, and
+    `MultipleFileField` below is the half that actually validates the list.
     """
 
-    file = forms.FileField(
-        label='Файл',
+    allow_multiple_selected = True
+
+
+class MultipleFileField(forms.FileField):
+    """`FileField` over a selection: cleans every file, returns a list.
+
+    Only the ordinary field checks happen here — «is this an uploaded file at
+    all». The library's own policy (size, blocked executables, allowed types)
+    is applied per file by `upload_documents()`, deliberately *not* here: a
+    form error would refuse the whole selection, and a person dropping ten
+    files should get the nine that are fine plus a line saying what was wrong
+    with the tenth.
+    """
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('widget', MultipleFileInput())
+        super().__init__(*args, **kwargs)
+
+    def clean(self, data, initial=None):
+        clean_one = super().clean
+        if isinstance(data, (list, tuple)):
+            return [clean_one(item, initial) for item in data]
+        return [clean_one(data, initial)]
+
+
+class DocumentUploadForm(forms.Form):
+    """The files a manager drops into a folder.
+
+    No display-name field: a document is named after the file it was uploaded
+    from, and asking for a name would make no sense for a selection of several.
+    Renaming stays a separate, deliberate action.
+    """
+
+    file = MultipleFileField(
+        label='Файлы',
         error_messages={'required': 'Выберите файл.'},
-    )
-    name = forms.CharField(
-        label='Название документа',
-        max_length=255,
-        required=False,
-        strip=True,
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['file'].widget.attrs['aria-label'] = 'Выберите файл для загрузки'
-        self.fields['name'].widget.attrs.update({
-            'aria-label': 'Название документа',
-            'placeholder': 'Название (необязательно)',
-            'autocomplete': 'off',
+        self.fields['file'].widget.attrs.update({
+            'multiple': True,
+            'aria-label': 'Выберите файлы для загрузки',
         })
-
-    def clean_file(self):
-        return validate_document_upload(self.cleaned_data['file'])
 
 
 class DocumentVersionForm(forms.Form):

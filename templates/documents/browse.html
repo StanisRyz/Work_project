@@ -4,7 +4,7 @@
 {% block title %}Документация - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-6">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-9">
 {% endblock %}
 
 {% block content %}
@@ -29,77 +29,55 @@ hiding a button is presentation, not permission.
     </div>
     <div class="doc-toolbar__side">
         {% include 'documents/includes/search_form.html' %}
-    {% if can_manage %}
-    <div class="doc-toolbar__actions">
-        {% if can_rename_current %}
-            <button class="link-button link-button--secondary link-button--compact" type="button"
-                    data-confirm
-                    data-confirm-url="{% url 'documents:folder_rename' folder.pk %}"
-                    data-confirm-title="Переименовать папку"
-                    data-confirm-text="Введите новое название папки."
-                    data-confirm-label="Переименовать"
-                    data-confirm-comment="required"
-                    data-confirm-comment-name="name"
-                    data-confirm-comment-label="Название папки"
-                    data-confirm-comment-error="Укажите название папки.">Переименовать</button>
-        {% endif %}
-        {% if can_delete_current %}
-            <button class="link-button link-button--warning link-button--compact" type="button"
-                    data-confirm
-                    data-confirm-url="{% url 'documents:folder_delete' folder.pk %}"
-                    data-confirm-title="Удалить папку"
-                    data-confirm-text="Папка будет удалена вместе со вложенными папками и файлами."
-                    data-confirm-label="Удалить"
-                    data-confirm-variant="warning">Удалить папку</button>
-        {% endif %}
-    </div>
-    {% endif %}
     </div>
 </div>
 
 {% if can_create_here %}
+{% comment %}
+The folder toolbar: two buttons, no inline fields.
+
+«Создать папку» opens the shared confirmation modal and asks for the name
+there — the same dialog, with the same required-comment field, that renaming a
+folder already uses. Uploading is the green «+»: the file input inside it is
+visually hidden, so picking files *is* the action, and
+`static/js/documents.js` submits the form after the same modal confirms.
+{% endcomment %}
 <section class="doc-tools" aria-label="Управление документацией">
-    <form class="doc-tools__form" method="post"
-          action="{% url 'documents:subfolder_create' folder.pk %}">
-        {% csrf_token %}
-        <label class="doc-tools__field">
-            <span>Новая папка</span>
-            {{ folder_form.name }}
-        </label>
-        <button class="link-button link-button--compact" type="submit">Создать папку</button>
-    </form>
+    <button class="link-button link-button--compact" type="button"
+            data-confirm
+            data-confirm-url="{% url 'documents:subfolder_create' folder.pk %}"
+            data-confirm-title="Создать папку"
+            data-confirm-text="Новая папка появится в «{{ folder.name }}»."
+            data-confirm-label="Создать"
+            data-confirm-comment="required"
+            data-confirm-comment-name="name"
+            data-confirm-comment-label="Название папки"
+            data-confirm-comment-error="Укажите название папки.">Создать папку</button>
 
     {% if can_upload_here %}
-    <form class="doc-tools__form" method="post" enctype="multipart/form-data"
-          action="{% url 'documents:document_upload' folder.pk %}">
+    <form class="doc-tools__form" id="doc-upload-form" method="post"
+          enctype="multipart/form-data"
+          action="{% url 'documents:document_upload' folder.pk %}"
+          data-document-upload data-folder-name="{{ folder.name }}">
         {% csrf_token %}
-        <label class="doc-tools__field">
-            <span>Загрузить документ</span>
+        <label class="doc-upload" title="Загрузить документы">
+            <span class="doc-upload__glyph" aria-hidden="true">+</span>
+            <span class="doc-visually-hidden">Загрузить документы</span>
             {{ upload_form.file }}
         </label>
-        <label class="doc-tools__field">
-            <span class="doc-tools__field-optional">Название</span>
-            {{ upload_form.name }}
-        </label>
-        <button class="link-button link-button--compact" type="submit">Загрузить</button>
+        {% comment %}
+        Hidden, and clicked by the script — never by a person. It carries the
+        modal's attributes so an upload is confirmed through exactly the same
+        dialog as every other action in the project.
+        {% endcomment %}
+        <button class="doc-upload__confirm" type="button"
+                data-confirm
+                data-confirm-form="doc-upload-form"
+                data-confirm-title="Загрузить документы"
+                data-confirm-label="Загрузить"
+                data-document-upload-confirm>Загрузить</button>
     </form>
-    {% else %}
-        <p class="doc-tools__hint">Файлы хранятся внутри папок — откройте папку, чтобы загрузить документ.</p>
     {% endif %}
-</section>
-{% endif %}
-
-{% if archive_statistics %}
-{% comment %}
-A few operational counters for a document manager: how big the archive is, not
-an analytics dashboard. Read-only, computed on the spot, stored nowhere.
-{% endcomment %}
-<section class="doc-stats" aria-label="Статистика архива">
-    <div><span class="doc-summary__label">Папок</span><strong>{{ archive_statistics.folder_count }}</strong></div>
-    <div><span class="doc-summary__label">Документов</span><strong>{{ archive_statistics.document_count }}</strong></div>
-    <div><span class="doc-summary__label">Версий</span><strong>{{ archive_statistics.version_count }}</strong></div>
-    <div><span class="doc-summary__label">Объём</span><strong>{{ archive_statistics.total_size|filesizeformat }}</strong></div>
-    <div><span class="doc-summary__label">Обновлён</span><strong>{{ archive_statistics.last_update|date:'d.m.Y H:i'|default:'—' }}</strong></div>
 </section>
 {% endif %}
 
@@ -142,9 +120,12 @@ shared card, the same one search and the blocks above use.
         <thead><tr><th>Папка</th><th>Обновлена</th><th class="doc-table__actions-head">Действия</th></tr></thead>
         <tbody>
         {% if system_entry %}
-            {# Generated from the act, protocol and task attachment tables: no
-               folder row, and no management controls, because nothing in it is
-               editable by anyone. #}
+            {% comment %}
+            Generated from the act, protocol and task attachment tables: no
+            folder row, and no management controls, because nothing in it is
+            editable by anyone. `{# #}` is single-line only — a multi-line one
+            renders as text, which is exactly what it did here.
+            {% endcomment %}
             <tr>
                 <td>
                     <a class="table-link doc-entry" href="{{ system_entry.url }}">
@@ -156,35 +137,37 @@ shared card, the same one search and the blocks above use.
                 <td class="doc-table__actions"></td>
             </tr>
         {% endif %}
-        {% for subfolder in subfolders %}
+        {% for row in subfolders %}
             <tr>
                 <td>
-                    <a class="table-link doc-entry" href="{% url 'documents:folder' subfolder.pk %}">
-                        <span class="doc-entry__icon" aria-hidden="true">📁</span>{{ subfolder.name }}
+                    <a class="table-link doc-entry" href="{{ row.url }}">
+                        <span class="doc-entry__icon" aria-hidden="true">📁</span>{{ row.folder.name }}
                     </a>
                 </td>
-                <td class="doc-table__muted">{{ subfolder.updated_at|date:'d.m.Y H:i' }}</td>
-                <td class="doc-table__actions">
-                    {% if can_manage and not subfolder.is_system %}
+                <td class="doc-table__muted">{{ row.folder.updated_at|date:'d.m.Y H:i' }}</td>
+                <td class="doc-table__actions"><div class="doc-actions">
+                    {% if row.can_rename %}
                         <button class="link-button link-button--secondary link-button--compact" type="button"
                                 data-confirm
-                                data-confirm-url="{% url 'documents:folder_rename' subfolder.pk %}"
+                                data-confirm-url="{% url 'documents:folder_rename' row.folder.pk %}"
                                 data-confirm-title="Переименовать папку"
-                                data-confirm-text="Введите новое название папки «{{ subfolder.name }}»."
+                                data-confirm-text="Введите новое название папки «{{ row.folder.name }}»."
                                 data-confirm-label="Переименовать"
                                 data-confirm-comment="required"
                                 data-confirm-comment-name="name"
                                 data-confirm-comment-label="Название папки"
                                 data-confirm-comment-error="Укажите название папки.">Переименовать</button>
+                    {% endif %}
+                    {% if row.can_delete %}
                         <button class="link-button link-button--warning link-button--compact" type="button"
                                 data-confirm
-                                data-confirm-url="{% url 'documents:folder_delete' subfolder.pk %}"
+                                data-confirm-url="{% url 'documents:folder_delete' row.folder.pk %}"
                                 data-confirm-title="Удалить папку"
-                                data-confirm-text="Удалить папку «{{ subfolder.name }}»? Удаляются только пустые папки — если внутри есть документы или вложенные папки, сервер откажет."
+                                data-confirm-text="Удалить папку «{{ row.folder.name }}»? Удаляются только пустые папки — если внутри есть документы или вложенные папки, сервер откажет."
                                 data-confirm-label="Удалить"
                                 data-confirm-variant="warning">Удалить</button>
                     {% endif %}
-                </td>
+                </div></td>
             </tr>
         {% endfor %}
         </tbody>
@@ -193,12 +176,48 @@ shared card, the same one search and the blocks above use.
 {% endif %}
 
 {% if documents %}
-<section class="doc-results" aria-label="Документы">
-    {% for card in documents %}{% include 'documents/includes/document_card.html' with card_next=request.path %}{% endfor %}
+{% comment %}
+Four columns, deliberately unequal: the name takes what is left and is clipped
+with an ellipsis when it does not fit, while size, date and version are as
+narrow as their content. The card layout is kept for search results and the
+personal blocks, where a hit needs to say where it came from; inside a folder
+that is already known.
+{% endcomment %}
+<section class="table-card doc-card" aria-label="Документы">
+    <table class="data-table doc-table doc-file-table">
+        <colgroup>
+            <col>
+            <col class="doc-file-table__size">
+            <col class="doc-file-table__date">
+            <col class="doc-file-table__version">
+        </colgroup>
+        <thead>
+            <tr><th>Название</th><th>Размер</th><th>Изменён</th><th>Версия</th></tr>
+        </thead>
+        <tbody>
+        {% for card in documents %}
+            <tr>
+                <td class="doc-file-name">
+                    <a class="table-link doc-entry" href="{{ card.open_url }}" title="{{ card.title }}">
+                        <span class="doc-entry__icon" aria-hidden="true">{{ card.icon }}</span>
+                        <span class="doc-file-name__text">{{ card.title }}</span>
+                    </a>
+                </td>
+                <td class="doc-table__muted">{{ card.size|filesizeformat }}</td>
+                <td class="doc-table__muted">{{ card.created_at|date:'d.m.Y' }}</td>
+                <td class="doc-table__muted">{{ card.version_label|default:'—' }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
 </section>
 {% endif %}
 
 {% if not subfolders and not documents and not system_entry %}
     {% include 'acts/includes/empty_state.html' with title='Папка пуста' message='Здесь пока нет ни папок, ни документов.' %}
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/documents.js' %}?v=20260902-1" defer></script>
 {% endblock %}

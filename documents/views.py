@@ -32,33 +32,33 @@ from django.urls import reverse
 
 from ecosystem.logging_utils import log_event
 
+from .cards import file_icon
 from .forms import DocumentUploadForm, DocumentVersionForm, FolderForm
 from .models import ROOT_FOLDER_LABEL, Document, DocumentFolder, DocumentVersion
 from .permissions import (
     can_add_document_version,
     can_delete_document,
-    can_delete_folder,
     can_download_document,
     can_download_document_version,
-    can_manage_documents,
     can_favorite_document,
+    can_manage_documents,
     can_modify_system_attachments,
-    can_rename_folder,
     can_restore_document_version,
-    can_view_archive_statistics,
     can_view_document_history,
     can_view_documents,
     can_view_system_attachments,
 )
+from .preview import describe_preview, inline_content_type
 from .references import SOURCES, SYSTEM_AREA_LABEL, get_source
 from .search import build_search_state
 from .selectors import (
-    build_archive_statistics,
     build_breadcrumbs,
     build_document_breadcrumbs,
     build_document_cards,
+    build_folder_rows,
     build_favorite_documents,
     build_recent_documents,
+    build_version_rows,
 )
 from .services import (
     DocumentError,
@@ -69,7 +69,7 @@ from .services import (
     rename_folder,
     restore_document_version,
     toggle_document_favorite,
-    upload_document,
+    upload_documents,
 )
 
 
@@ -106,8 +106,8 @@ def browse(request, folder_id=None):
     if folder_id is not None:
         folder = get_object_or_404(DocumentFolder.objects.select_related('parent'), pk=folder_id)
 
-    subfolders = list(
-        DocumentFolder.objects.filter(parent=folder).order_by('name', 'pk')
+    subfolders = build_folder_rows(
+        DocumentFolder.objects.filter(parent=folder).order_by('name', 'pk'), request.user
     )
     # The root is a label, not a row, so nothing can be stored directly in it:
     # every document belongs to a real folder.
@@ -135,8 +135,9 @@ def browse(request, folder_id=None):
         'subfolders': subfolders,
         'documents': document_cards,
         'can_manage': can_manage,
-        'can_rename_current': folder is not None and can_rename_folder(folder, request.user),
-        'can_delete_current': folder is not None and can_delete_folder(folder, request.user),
+        # A folder is renamed and deleted from the «Действия» column of the
+        # listing it appears in, never from its own page: one place for the
+        # action, and the row it belongs to is right next to it.
         # The root holds the two system branches and nothing else, so neither
         # a new folder nor a file is created directly in it.
         'can_create_here': can_manage and folder is not None,
@@ -156,11 +157,6 @@ def browse(request, folder_id=None):
         # folder's own listing. Favourites are this user's and nobody else's.
         'favorite_documents': build_favorite_documents(request.user) if folder is None else [],
         'recent_documents': build_recent_documents(request.user) if folder is None else [],
-        'archive_statistics': (
-            build_archive_statistics()
-            if folder is None and can_view_archive_statistics(request.user)
-            else None
-        ),
         'folder_form': FolderForm(),
         'upload_form': DocumentUploadForm(),
     }
@@ -266,16 +262,21 @@ def document_upload(request, folder_id):
         messages.error(request, first_error)
         return redirect(_browse_url(folder))
     try:
-        document = upload_document(
-            folder,
-            form.cleaned_data['file'],
-            request.user,
-            name=form.cleaned_data.get('name', ''),
+        created, errors = upload_documents(
+            folder, form.cleaned_data['file'], request.user
         )
     except DocumentError as exc:
         messages.error(request, str(exc))
         return redirect(_browse_url(folder))
-    messages.success(request, f'Документ «{document.name}» загружен.')
+
+    if len(created) == 1:
+        messages.success(request, f'Документ «{created[0].name}» загружен.')
+    elif created:
+        messages.success(request, f'Загружено документов: {len(created)}.')
+    # A partly refused selection reports both halves: what was stored, and
+    # what was not and why.
+    for error in errors:
+        messages.error(request, error)
     return redirect(_browse_url(folder))
 
 
@@ -351,14 +352,21 @@ def _stream_version(request, version, operation):
     )
 
 
+DOCUMENT_TABS = ('document', 'history')
+
+
 @login_required
 def document_detail(request, document_id):
-    """One document: its current version, its history, and the upload form.
+    """One document: its header, the file itself, and — on its own tab — history.
 
-    The page every corporate file now has. Reading it is reading the library;
-    the «новая версия» form and the restore buttons are drawn only for a
-    document manager, and each posts to an endpoint that asks the same rule
-    again.
+    Two tabs, the same `?tab=` pattern acts and protocols use: «Документ» is
+    the information block plus the viewer, «История» is every version and every
+    recorded event. The version table is deliberately absent from the first
+    tab — a reader wants the file, not the audit trail.
+
+    `?version=` chooses which revision is on screen. It is a plain query
+    parameter and not session state, so the address bar always says which
+    revision is being read and a link to it can be pasted to somebody else.
     """
     document = get_object_or_404(
         Document.objects.select_related('folder', 'folder__parent', 'uploaded_by'),
@@ -367,25 +375,41 @@ def document_detail(request, document_id):
     if not can_view_documents(request.user):
         raise PermissionDenied('Недостаточно прав для просмотра документации.')
 
+    requested_tab = request.GET.get('tab')
+    detail_tab = requested_tab if requested_tab in DOCUMENT_TABS else 'document'
+
     versions = list(document.versions.select_related('uploaded_by').order_by('-number', '-pk'))
     current = next((version for version in versions if version.is_current), None)
-    can_manage = can_add_document_version(document, request.user)
+    # An unknown or foreign `?version=` falls back to the current one rather
+    # than 404ing: the parameter selects a view, it does not address a file.
+    selected = current
+    requested_version = request.GET.get('version')
+    if requested_version and requested_version.isdigit():
+        selected = next(
+            (version for version in versions if version.pk == int(requested_version)), current
+        )
+
     context = {
         'active_page': 'documents',
         'page_title': document.name,
         'header_title': ROOT_FOLDER_LABEL,
+        'detail_tab': detail_tab,
         'document': document,
         'folder': document.folder,
         'parent_url': _browse_url(document.folder),
         'breadcrumbs': build_document_breadcrumbs(document),
+        'icon': file_icon(current.original_name if current else document.name),
         'current_version': current,
-        'versions': versions,
-        'history': (
-            list(document.history.select_related('user').order_by('-created_at', '-pk')[:50])
-            if can_view_document_history(document, request.user)
-            else []
+        'selected_version': selected,
+        'version_rows': build_version_rows(document, versions, selected),
+        'is_viewing_current': selected is not None and selected.is_current,
+        'preview': describe_preview(selected),
+        'preview_url': (
+            reverse('documents:document_version_preview', args=[document.pk, selected.pk])
+            if selected is not None
+            else ''
         ),
-        'can_manage': can_manage,
+        'can_manage': can_add_document_version(document, request.user),
         'can_favorite': can_favorite_document(document, request.user),
         'is_favorite': (
             document.favorites.filter(user=request.user).exists()
@@ -396,7 +420,56 @@ def document_detail(request, document_id):
         'can_delete': can_delete_document(document, request.user),
         'version_form': DocumentVersionForm(),
     }
+    if detail_tab == 'history':
+        context['history'] = (
+            list(document.history.select_related('user').order_by('-created_at', '-pk')[:50])
+            if can_view_document_history(document, request.user)
+            else []
+        )
     return render(request, 'documents/document.html', context)
+
+
+@login_required
+def document_version_preview(request, document_id, version_id):
+    """Serve one version inline, for the viewer on the document page.
+
+    The same read rule as the download — this is the same file, shown rather
+    than saved — and three deliberate differences from `_stream_version()`:
+
+    * the content type comes from `documents/preview.py`'s own map, keyed on
+      the file's extension, never from the `content_type` recorded at upload:
+      that value came from the browser and may claim anything;
+    * an extension with no entry is a 404, so nothing outside the safe set is
+      ever sent inline;
+    * `nosniff` and a sandbox CSP travel with the response, so a crafted file
+      cannot be re-interpreted as script running on this origin.
+    """
+    version = get_object_or_404(
+        DocumentVersion.objects.select_related('document'),
+        pk=version_id,
+        document_id=document_id,
+    )
+    if not can_download_document_version(version, request.user):
+        raise Http404('No Document matches the given query.')
+    content_type = inline_content_type(version.extension)
+    if content_type is None or not version.file:
+        raise Http404('Preview is not available for this file.')
+    try:
+        handle = version.file.open('rb')
+    except OSError as exc:
+        raise Http404('Document file is missing.') from exc
+
+    response = FileResponse(
+        handle,
+        as_attachment=False,
+        filename=version.original_name,
+        content_type=content_type,
+    )
+    response['X-Content-Type-Options'] = 'nosniff'
+    # The strictest sandbox the file still renders under: no scripts, no forms,
+    # no navigation, no same-origin privileges.
+    response['Content-Security-Policy'] = 'sandbox'
+    return response
 
 
 @login_required

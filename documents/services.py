@@ -13,6 +13,7 @@ one nobody can size, so deletions here remove the file first and the row after.
 
 import logging
 
+from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
 from django.db.models import Max
 
@@ -358,6 +359,36 @@ def upload_document(folder, uploaded_file, user, name='', comment=''):
         outcome='ok',
     )
     return document
+
+
+def upload_documents(folder, uploaded_files, user, comment=''):
+    """Store a selection of files as that many separate documents.
+
+    One transaction each rather than one for the whole batch: a selection of
+    ten files is ten independent documents, and the ninth being refused is no
+    reason to discard the eight that were fine. Returns the documents created
+    and the per-file refusals, so the view can report both.
+    """
+    if not can_upload_document(folder, user):
+        raise DocumentError('Недостаточно прав для загрузки документа.')
+    files = [item for item in (uploaded_files or []) if item is not None]
+    if not files:
+        raise DocumentError('Выберите файл.')
+
+    created, errors = [], []
+    for uploaded_file in files:
+        try:
+            created.append(upload_document(folder, uploaded_file, user, comment=comment))
+        except (DocumentError, ValidationError) as exc:
+            errors.append(f'{safe_document_name(uploaded_file.name)}: {_error_text(exc)}')
+    return created, errors
+
+
+def _error_text(exc):
+    """The message of a `DocumentError` or a field `ValidationError`."""
+    if isinstance(exc, ValidationError):
+        return '; '.join(exc.messages)
+    return str(exc)
 
 
 def add_document_version(document, uploaded_file, user, comment=''):

@@ -135,7 +135,12 @@ class DocumentVersionTests(TestCase):
         )
         self.assertEqual([event.version_number for event in events], [None, 1, 2])
         self.assertEqual({event.user for event in events}, {self.admin})
-        # And the page shows it.
-        detail = self.client.get(reverse('documents:document_detail', args=[self.document.pk]))
-        self.assertContains(detail, 'История')
-        self.assertContains(detail, 'Загружена версия')
+        # And the «История» tab shows it — the main tab deliberately does not.
+        history = self.client.get(
+            reverse('documents:document_detail', args=[self.document.pk]), {'tab': 'history'}
+        )
+        self.assertContains(history, 'Загружена версия')
+        document_tab = self.client.get(
+            reverse('documents:document_detail', args=[self.document.pk])
+        )
+        self.assertNotContains(document_tab, 'Файл и комментарий')
