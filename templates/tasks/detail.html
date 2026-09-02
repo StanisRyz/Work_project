@@ -124,6 +124,17 @@ still completed with the execution comment and nothing attached.
 
     <section class="task-detail-attachments-card">
         <h2>Вложения</h2>
+        {% comment %}
+        An announcement, not a control. The file input is never marked
+        `required` and the «Завершить задачу» button is never hidden or
+        disabled: uploading and completing are separate requests on purpose, so
+        the rule is enforced by `complete_task()` alone and its refusal comes
+        back in the «Выполнение» error slot like any other. Routing tasks never
+        reach this page — `task_detail` redirects them to their document.
+        {% endcomment %}
+        {% if task.requires_attachment %}
+            <p class="task-attachment-required">Для выполнения этой задачи необходимо добавить вложение.</p>
+        {% endif %}
         {% if can_upload_attachment %}
             <form class="task-attachment-form" method="post" action="{% url 'tasks:add_attachment' task.pk %}" enctype="multipart/form-data">
                 {% csrf_token %}

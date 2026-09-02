@@ -85,6 +85,7 @@ class ProtocolDraftForm:
                 'text': action.task_text,
                 'due_date': action.due_date.isoformat(),
                 'split_for_assignees': action.split_for_assignees,
+                'requires_attachment': action.requires_attachment,
                 'assignees': [
                     {
                         'user': str(assignee.user_id),
@@ -261,6 +262,10 @@ class ProtocolDraftForm:
                 # anything depends on how many assignees survive validation
                 # below, and `_apply_actions()` is what settles it.
                 'split_for_assignees': bool(self.data.get(f'{prefix}-split_for_assignees')),
+                # A plain answer, unlike the split flag above: the requirement
+                # means the same on a decision with one исполнитель as on one
+                # with five, so nothing below can normalize it away.
+                'requires_attachment': bool(self.data.get(f'{prefix}-requires_attachment')),
                 'assignees': [
                     {'user': user, 'department': department}
                     for user, department in zip(assignee_users, assignee_departments)
@@ -320,6 +325,7 @@ class ProtocolDraftForm:
                     'due_date': due_date,
                     'assignees': assignees,
                     'split_for_assignees': row['split_for_assignees'],
+                    'requires_attachment': row['requires_attachment'],
                 }
             )
         return cleaned

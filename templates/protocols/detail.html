@@ -46,10 +46,10 @@ when they are ready.
 </div>
 
 <nav class="act-detail-tabs" aria-label="Разделы протокола">
-    <a class="act-detail-tabs__link{% if detail_tab == 'protocol' %} act-detail-tabs__link--active{% endif %}" href="?tab=protocol">Протокол</a>
-    <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history">История</a>
-    <a class="act-detail-tabs__link{% if detail_tab == 'collaboration' %} act-detail-tabs__link--active{% endif %}" href="?tab=collaboration">Вложения и комментарии</a>
-    <a class="act-detail-tabs__link{% if detail_tab == 'activities' %} act-detail-tabs__link--active{% endif %}" href="?tab=activities">Связанные мероприятия</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'protocol' %} act-detail-tabs__link--active{% endif %}" href="?tab=protocol"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Протокол</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.7M4 5v4h4"/></svg>История</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'collaboration' %} act-detail-tabs__link--active{% endif %}" href="?tab=collaboration"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>Вложения и комментарии</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'activities' %} act-detail-tabs__link--active{% endif %}" href="?tab=activities"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 13 4-4M7 17l-1 1a3 3 0 1 1-4-4l4-4a3 3 0 0 1 4 0M17 7l1-1a3 3 0 1 1 4 4l-4 4a3 3 0 0 1-4 0"/></svg>Связанные мероприятия</a>
 </nav>
 
 {% if save_error %}<p class="field-error protocol-editor__error">{{ save_error }}</p>{% endif %}

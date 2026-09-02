@@ -11,6 +11,7 @@ from datetime import timedelta
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Department, UserProfile
@@ -45,7 +46,7 @@ class ActTaskSplitTests(TestCase):
             created_by=self.otk_user, nomenclature='Катушка', status=status,
         )
 
-    def _analysis_payload(self, *, split, assignees):
+    def _analysis_payload(self, *, split, assignees, requires_attachment=False):
         return [
             {
                 'root_cause': 'Плохое оснащение участка',
@@ -56,16 +57,21 @@ class ActTaskSplitTests(TestCase):
                         'assignees': list(assignees),
                         'due_date': timezone.localdate() + timedelta(days=7),
                         'split_for_assignees': split,
+                        'requires_attachment': requires_attachment,
                     }
                 ],
             }
         ]
 
-    def _act_at_otk_review(self, *, split, assignees):
+    def _act_at_otk_review(self, *, split, assignees, requires_attachment=False):
         """An act whose single corrective action names `assignees`, ready to approve."""
         act = self._create_act(self.status_to)
         apply_structured_to_analysis(
-            act, self.to_user, self._analysis_payload(split=split, assignees=assignees)
+            act,
+            self.to_user,
+            self._analysis_payload(
+                split=split, assignees=assignees, requires_attachment=requires_attachment
+            ),
         )
         act.refresh_from_db()
         return act
@@ -189,3 +195,47 @@ class ActTaskSplitTests(TestCase):
                 [user.pk for user in assignees],
                 created_by=self.otk_user,
             )
+
+    def test_the_requirement_reaches_every_task_and_no_approved_analysis_cell(self):
+        """«Обязательно вложение»: the same two execution modes, no new row.
+
+        Unlike splitting it is never normalized away by assignee count, and —
+        unlike every other field of the analysis — it is deliberately invisible
+        once the act is approved: it controls the generated task, not how the
+        archived «Анализ ТО» reads.
+        """
+        assignees = [self.to_user, self.other_user]
+
+        # Shared: one task, carrying the corrective action's requirement.
+        shared_act = self._act_at_otk_review(
+            split=False, assignees=assignees, requires_attachment=True
+        )
+        shared_action = ActCorrectiveAction.objects.get(root_analysis__act=shared_act)
+        # Stored as answered, with no normalization by assignee count.
+        self.assertTrue(shared_action.requires_attachment)
+        approve_act(shared_act, self.otk_user)
+        shared_task = Task.objects.get(act=shared_act, source_type=Task.SourceType.ACT)
+        self.assertTrue(shared_task.requires_attachment)
+
+        # Split: every independent task carries it, and each enforces it alone.
+        split_act = self._act_at_otk_review(
+            split=True, assignees=assignees, requires_attachment=True
+        )
+        approve_act(split_act, self.otk_user)
+        split_tasks = list(
+            Task.objects.filter(act=split_act, source_type=Task.SourceType.ACT)
+        )
+        self.assertEqual(len(split_tasks), 2)
+        self.assertTrue(all(task.requires_attachment for task in split_tasks))
+
+        # The approved, read-only «Анализ ТО» says nothing about it: same five
+        # columns, no badge, no checkbox, no extra text. The flag controls the
+        # generated task, not how the archived analysis reads.
+        self.client.force_login(self.otk_user)
+        page = self.client.get(reverse('acts:detail', args=[shared_act.pk]))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, 'Обязательно вложение')
+        self.assertContains(
+            page,
+            '<th>№</th><th>Мероприятие</th><th>Исполнитель(и)</th><th>Срок</th><th>Статус</th>',
+        )

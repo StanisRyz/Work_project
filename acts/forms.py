@@ -440,6 +440,7 @@ class ToAnalysisStructureForm:
                             'assignees': [str(assignee.user_id) for assignee in action.assignees.all()],
                             'assignee_rows': cls._assignee_rows_from_action(action),
                             'split_for_assignees': action.split_for_assignees,
+                            'requires_attachment': action.requires_attachment,
                             'due_date': action.due_date.isoformat(),
                             'errors': {},
                         }
@@ -490,6 +491,7 @@ class ToAnalysisStructureForm:
                     'assignees': [],
                     'assignee_rows': [{'user': '', 'department': ''}],
                     'split_for_assignees': False,
+                    'requires_attachment': False,
                     'due_date': '',
                     'errors': {},
                 }
@@ -547,6 +549,13 @@ class ToAnalysisStructureForm:
                     # below, and `apply_structured_to_analysis()` settles it.
                     'split_for_assignees': bool(
                         self.data.get(f'{action_prefix}-split_for_assignees')
+                    ),
+                    # A plain answer, unlike the split flag above: nothing
+                    # below normalizes it, because a required file means the
+                    # same for one исполнитель as for five. Re-rendered from
+                    # here, so it survives a page returned with errors.
+                    'requires_attachment': bool(
+                        self.data.get(f'{action_prefix}-requires_attachment')
                     ),
                     'due_date': self.data.get(f'{action_prefix}-due_date', ''),
                     'errors': {},
@@ -618,6 +627,7 @@ class ToAnalysisStructureForm:
                             'assignees': assignees,
                             'due_date': due_date,
                             'split_for_assignees': action['split_for_assignees'],
+                            'requires_attachment': action['requires_attachment'],
                         }
                     )
             self.root_rows.append(root)

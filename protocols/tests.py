@@ -699,7 +699,7 @@ class ProtocolActionSplitTests(TestCase):
         cls.second = _employee('split_second', cls.to, 'Анна', 'Кузнецова')
         cls.third = _employee('split_third', cls.to, 'Ольга', 'Смирнова')
 
-    def _archived_protocol(self, *, split, assignees):
+    def _archived_protocol(self, *, split, assignees, requires_attachment=False):
         """A protocol whose single decision names `assignees`, taken to ARCHIVED.
 
         Every assignee has to approve — that is the ordinary formula, and it is
@@ -720,6 +720,7 @@ class ProtocolActionSplitTests(TestCase):
             department=self.to,
             due_date=timezone.localdate() + timedelta(days=7),
             split_for_assignees=split,
+            requires_attachment=requires_attachment,
             display_order=0,
         )
         for user in assignees:
@@ -775,6 +776,79 @@ class ProtocolActionSplitTests(TestCase):
             reverse('protocols:detail', args=[protocol.pk])
         ).context['form'].action_rows
         self.assertEqual([row['split_for_assignees'] for row in rows], [True, False])
+
+    def test_a_required_attachment_is_stored_on_the_draft_and_copied_to_every_task(self):
+        """«Обязательно вложение»: stored on the decision, snapshotted per task.
+
+        Unlike splitting it is never normalized away, so both execution modes
+        carry it: one shared task, or one per assignee each enforcing it on its
+        own. The editor offers the stored answer back, which is what a protocol
+        returned for revision depends on.
+        """
+        protocol = create_protocol(self.quality, self.author)
+        self.client.force_login(self.author)
+        due = (timezone.localdate() + timedelta(days=7)).isoformat()
+
+        response = self.client.post(
+            reverse('protocols:save_draft', args=[protocol.pk]),
+            {
+                'participants-TOTAL_FORMS': '0',
+                'agenda-TOTAL_FORMS': '1',
+                'agenda-0-text': 'О качестве партии',
+                'speeches-TOTAL_FORMS': '1',
+                'speeches-0-speaker': str(self.author.pk),
+                'speeches-0-text': 'Доложил о результатах контроля.',
+                'actions-TOTAL_FORMS': '2',
+                'actions-0-text': 'Изучение интерфейса',
+                'actions-0-due_date': due,
+                'actions-0-assignee_departments': str(self.to.pk),
+                'actions-0-assignees': str(self.first.pk),
+                'actions-0-requires_attachment': 'on',
+                'actions-1-text': 'Обновить инструкцию',
+                'actions-1-due_date': due,
+                'actions-1-assignee_departments': str(self.to.pk),
+                'actions-1-assignees': str(self.second.pk),
+            },
+        )
+
+        self.assertRedirects(response, reverse('protocols:detail', args=[protocol.pk]))
+        required, plain = list(protocol.actions.order_by('display_order'))
+        # One assignee keeps the requirement: unlike splitting, it means the
+        # same however many people the decision names.
+        self.assertTrue(required.requires_attachment)
+        self.assertFalse(plain.requires_attachment)
+        # Reopening the editor offers the stored answer back, which is what a
+        # return for revision preserves.
+        rows = self.client.get(
+            reverse('protocols:detail', args=[protocol.pk])
+        ).context['form'].action_rows
+        self.assertEqual([row['requires_attachment'] for row in rows], [True, False])
+
+        # Shared: one task, carrying the decision's requirement.
+        shared, _action = self._archived_protocol(
+            split=False, assignees=[self.first, self.second], requires_attachment=True
+        )
+        shared_task = Task.objects.get(
+            protocol=shared, source_type=Task.SourceType.PROTOCOL_ACTION
+        )
+        self.assertTrue(shared_task.requires_attachment)
+
+        # Split: every independent task carries it, and each enforces it alone.
+        split, _action = self._archived_protocol(
+            split=True, assignees=[self.first, self.second], requires_attachment=True
+        )
+        split_tasks = list(
+            Task.objects.filter(protocol=split, source_type=Task.SourceType.PROTOCOL_ACTION)
+        )
+        self.assertEqual(len(split_tasks), 2)
+        self.assertTrue(all(task.requires_attachment for task in split_tasks))
+
+        # The approval tasks the same protocols opened never carry it.
+        self.assertFalse(
+            Task.objects.filter(
+                source_type=Task.SourceType.PROTOCOL_APPROVAL, requires_attachment=True
+            ).exists()
+        )
 
     def test_archiving_splits_a_marked_decision_into_one_task_per_assignee(self):
         assignees = [self.first, self.second, self.third]

@@ -311,6 +311,12 @@ def _apply_actions(protocol, actions):
             split_for_assignees=(
                 item.get('split_for_assignees', False) and len(item['assignees']) > 1
             ),
+            # Stored as answered, with no normalization: unlike splitting, a
+            # required attachment means the same for one исполнитель as for
+            # five. `.get()` for the same reason as above — the flag was added
+            # after this structure, and a caller that omits it means the
+            # unrestricted task every decision produced before.
+            requires_attachment=item.get('requires_attachment', False),
             display_order=order,
         )
         ProtocolActionAssignee.objects.bulk_create(

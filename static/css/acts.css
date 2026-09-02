@@ -675,6 +675,19 @@
     font-size: 13px;
 }
 
+/* Stated once, above the upload form: this task cannot be completed with
+   nothing attached. Purely an announcement — the rule lives in
+   `complete_task()`, and its refusal is shown in the «Выполнение» card. */
+.task-attachment-required {
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid #f0c98a;
+    border-radius: 8px;
+    background: #fff8ea;
+    color: #7a4b06;
+    font-size: 13px;
+}
+
 @media (max-width: 900px) {
     .task-detail-columns,
     .task-detail-analysis-columns,
@@ -1488,6 +1501,20 @@
     font-weight: 700;
 }
 
+/* The wording and «Обязательно вложение» share one row: the requirement is a
+   property of what has to be done, so it reads next to it rather than among
+   the fields below. Editable form only — the approved analysis never shows it. */
+.corrective-action-card__statement {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
+    align-items: start;
+    gap: 14px;
+}
+
+/* Aligned with the textarea beside it rather than with its own label row,
+   which the checkbox does not have. */
+.corrective-action-card__requirement { padding-top: 26px; }
+
 .corrective-action-card__comment { align-self: stretch; }
 .corrective-action-card__comment textarea { min-height: 54px; resize: vertical; }
 
@@ -1871,9 +1898,12 @@
         grid-column: 1;
     }
 
-    .corrective-action-card__fields {
+    .corrective-action-card__fields,
+    .corrective-action-card__statement {
         grid-template-columns: 1fr;
     }
+
+    .corrective-action-card__requirement { padding-top: 0; }
 
     .to-assignee-row { grid-template-columns: minmax(0, 1fr); }
     .to-assignee-row .analysis-remove-button { justify-self: end; margin-bottom: 0; }

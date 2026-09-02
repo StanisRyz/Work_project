@@ -458,6 +458,20 @@
 .protocol-action-card__head h3 { margin: 0; font-size: 15px; }
 .protocol-action-card__head .protocol-remove-button { margin-left: auto; }
 
+/* The wording and «Обязательно вложение» share one row: the requirement is a
+   property of what has to be done, so it reads next to it rather than among
+   the fields below. Collapses to one column with the rest of the card at 900px. */
+.protocol-action-card__statement {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
+    align-items: start;
+    gap: 12px;
+}
+
+/* Aligned with the textarea beside it rather than with its own label row,
+   which the checkbox does not have. */
+.protocol-action-card__requirement { padding-top: 26px; }
+
 /* The deadline is the only field on this row — «Подразделение» comes from the
    first assignee, so it is not asked for again. */
 .protocol-action-card__fields {
@@ -643,7 +657,10 @@
     .protocol-participant-card__fields,
     .protocol-speech-card__head,
     .protocol-action-card__fields,
+    .protocol-action-card__statement,
     .protocol-assignee-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+
+    .protocol-action-card__requirement { padding-top: 0; }
 
     .protocol-approval-item { grid-template-columns: minmax(0, 1fr); }
 

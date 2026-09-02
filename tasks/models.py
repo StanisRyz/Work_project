@@ -165,6 +165,16 @@ class Task(models.Model):
     )
     completed_at = models.DateTimeField('Завершена', null=True, blank=True)
     execution_comment = models.TextField('Результат выполнения', blank=True)
+    # A snapshot, taken from `ProtocolAction.requires_attachment` or
+    # `ActCorrectiveAction.requires_attachment` when the task is created, of
+    # whether finishing this work needs at least one `TaskAttachment`.
+    # Deliberately copied rather than read through the relation: the source row
+    # stays editable until its task exists, and a completed task must keep
+    # saying what was required of it. `complete_task()` is the authority.
+    # Routing entries (`PROTOCOL_APPROVAL`, `ACT_WORKFLOW`) and `ACT_REJECTION`
+    # are never given the flag; `default=False` is what every row stored before
+    # this field existed carries.
+    requires_attachment = models.BooleanField('Требуется вложение', default=False)
 
     class Meta:
         ordering = ['due_date', 'created_at']

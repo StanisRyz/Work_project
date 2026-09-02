@@ -208,6 +208,11 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
         });
         const split = action.querySelector('[data-split-checkbox]');
         if (split) split.name = `${prefix}-split_for_assignees`;
+        // Stated here for the same reason as the split checkbox above: a card
+        // cloned from another card carries that card's names, and this is the
+        // one place that rebuilds them from the card's own position.
+        const requiresAttachment = action.querySelector('[data-requires-attachment-checkbox]');
+        if (requiresAttachment) requiresAttachment.name = `${prefix}-requires_attachment`;
     };
 
     const renumber = () => {

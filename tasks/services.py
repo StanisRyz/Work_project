@@ -138,6 +138,17 @@ def complete_task(task, user, execution_comment):
         if not execution_comment:
             _rejected('empty_execution_comment', previous_status)
             raise TaskWorkflowError('Укажите результат выполнения задачи.')
+        # The attachment requirement, checked here and nowhere else: the page
+        # only announces it, and the button is never hidden or disabled for it.
+        # `requires_attachment` is this task's own snapshot, so a later edit of
+        # the protocol decision or corrective action behind it changes nothing;
+        # and the attachments are this task's own, so a split исполнитель
+        # cannot be carried by a colleague's separate task. Who uploaded the
+        # file, how many there are and what kind they are is deliberately not
+        # asked — one attachment existing is the whole rule.
+        if task.requires_attachment and not task.attachments.exists():
+            _rejected('missing_required_attachment', previous_status)
+            raise TaskWorkflowError('Для выполнения этой задачи необходимо добавить вложение.')
         try:
             completed_status = TaskStatus.objects.get(code='COMPLETED', is_active=True)
         except TaskStatus.DoesNotExist as exc:
@@ -285,6 +296,12 @@ def create_act_action_task(action, assignee_ids, *, created_by, individual_assig
         task_text=action.comment,
         department=action.department,
         due_date=action.due_date,
+        # A snapshot, taken now and never read back: the corrective action stays
+        # editable until this task exists, and a completed task must keep saying
+        # what was required of it. A split action gives every one of its tasks
+        # the same requirement, so each исполнитель satisfies it on their own
+        # task; a shared one is satisfied by any single attachment on it.
+        requires_attachment=action.requires_attachment,
         created_by=created_by,
         status=_active_status('IN_PROGRESS', 'В работе'),
     )
@@ -335,6 +352,12 @@ def create_protocol_action_task(
         task_text=action.task_text,
         department=action.department,
         due_date=action.due_date,
+        # A snapshot, exactly as `create_act_action_task()` takes one: the
+        # decision stays editable until this task exists, and both execution
+        # modes carry the same requirement — one shared task satisfied by any
+        # single attachment, or one per assignee each satisfied on its own.
+        # `PROTOCOL_APPROVAL` never gets it: an approval is not executed here.
+        requires_attachment=action.requires_attachment,
         created_by=created_by,
         status=_active_status('IN_PROGRESS', 'В работе'),
     )

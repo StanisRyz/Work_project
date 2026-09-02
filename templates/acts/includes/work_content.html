@@ -64,11 +64,31 @@ user has no unsaved input; a dirty form is never touched.
                                     <span class="corrective-action-card__title" data-corrective-action-title>Мероприятие {{ forloop.counter }}</span>
                                     {% if root.actions|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-corrective-action aria-label="Удалить мероприятие" title="Удалить мероприятие">×</button>{% endif %}
                                 </div>
-                                <label class="corrective-action-card__comment">
-                                    <span>Корректирующее мероприятие</span>
-                                    <textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="2" required>{{ action.comment }}</textarea>
-                                    {% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}
-                                </label>
+                                {% comment %}
+                                The wording and the one requirement that
+                                belongs to it, side by side, and only in this
+                                editable form: the approved, read-only «Анализ
+                                ТО» table and the printed act deliberately say
+                                nothing about it. «Обязательно вложение» is
+                                stored on the `ActCorrectiveAction` and copied
+                                onto the real task once, when the act is
+                                approved; unlike «Разбить задачу» it is never
+                                disabled, because a required file means the same
+                                whether the action has one исполнитель or five.
+                                {% endcomment %}
+                                <div class="corrective-action-card__statement">
+                                    <label class="corrective-action-card__comment">
+                                        <span>Корректирующее мероприятие</span>
+                                        <textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="2" required>{{ action.comment }}</textarea>
+                                        {% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}
+                                    </label>
+                                    <div class="corrective-action-card__requirement">
+                                        <label class="to-checkbox">
+                                            <input type="checkbox" name="root-{{ root.index }}-actions-{{ action.index }}-requires_attachment" data-requires-attachment-checkbox{% if action.requires_attachment %} checked{% endif %}>
+                                            <span>Обязательно вложение</span>
+                                        </label>
+                                    </div>
+                                </div>
                                 <div class="corrective-action-card__fields">
                                     <label>
                                         <span>Срок</span>

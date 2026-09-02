@@ -361,6 +361,65 @@ class TaskViewsTests(TestCase):
         archive = self.client.get(reverse('tasks:list'), {'tab': 'archive', 'number': task.pk})
         self.assertContains(archive, reverse('tasks:detail', args=[task.pk]))
 
+    def test_a_required_attachment_blocks_completion_until_one_file_exists(self):
+        """`Task.requires_attachment`: the backend is the only authority.
+
+        The page announces the requirement and the button stays live, so this
+        posts the completion exactly as a user would and checks what the server
+        answers. The execution comment stays required independently of it, and
+        a task without the flag is untouched.
+        """
+        task = self._task(self.employee, timezone.localdate())
+        task.requires_attachment = True
+        task.save(update_fields=['requires_attachment'])
+        complete_url = reverse('tasks:complete', args=[task.pk])
+        self.client.force_login(self.employee)
+
+        # The notice is on the page; the file input is never HTML-required,
+        # because uploading and completing are separate requests.
+        detail = self.client.get(reverse('tasks:detail', args=[task.pk]))
+        self.assertContains(detail, 'Для выполнения этой задачи необходимо добавить вложение.')
+
+        refused = self.client.post(complete_url, {'execution_comment': 'Сделано.'})
+
+        self.assertEqual(refused.status_code, 400)
+        self.assertContains(
+            refused, 'Для выполнения этой задачи необходимо добавить вложение.', status_code=400
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'IN_PROGRESS')
+
+        # One attachment is the whole rule — no extension, count, description
+        # or particular uploader is asked for. A colleague eligible to upload
+        # to this shared task satisfies it for everyone on it.
+        self.client.force_login(self.other_employee)
+        TaskAssignee.objects.create(task=task, user=self.other_employee)
+        self.client.post(
+            reverse('tasks:add_attachment', args=[task.pk]),
+            {'file': SimpleUploadedFile('акт.txt', b'result')},
+        )
+        self.assertEqual(task.attachments.count(), 1)
+
+        self.client.force_login(self.employee)
+        allowed = self.client.post(complete_url, {'execution_comment': 'Сделано.'})
+
+        self.assertRedirects(
+            allowed, f'{reverse("tasks:list")}?tab=archive&number={task.pk}'
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'COMPLETED')
+
+        # And a task that never carried the flag still finishes with nothing
+        # attached, exactly as before.
+        plain = self._task(self.employee, timezone.localdate())
+        self.assertFalse(plain.requires_attachment)
+        self.client.post(
+            reverse('tasks:complete', args=[plain.pk]), {'execution_comment': 'Сделано.'}
+        )
+        plain.refresh_from_db()
+        self.assertEqual(plain.status.code, 'COMPLETED')
+        self.assertEqual(plain.attachments.count(), 0)
+
     def test_optional_attachment_is_uploadable_downloadable_and_never_required(self):
         """Files on a task are optional, protected, and not part of finishing it."""
         task = self._task(self.employee, timezone.localdate())

@@ -367,6 +367,15 @@ class ActCorrectiveAction(models.Model):
     split_for_assignees = models.BooleanField(
         'Разбить задачу для исполнителей', default=False
     )
+    # Whether the real task this corrective action becomes may only be
+    # completed with a file attached. Stored on the corrective action so the
+    # answer survives a return from ОТК to ТО and a re-edit of the analysis;
+    # the task copies it once, at creation, and never reads it back. Not shown
+    # in the approved, read-only «Анализ ТО» table or in the printed act: it
+    # controls the generated task, not how the analysis reads.
+    requires_attachment = models.BooleanField(
+        'Обязательно вложение', default=False
+    )
     display_order = models.PositiveIntegerField('Порядок отображения', default=0)
 
     class Meta:

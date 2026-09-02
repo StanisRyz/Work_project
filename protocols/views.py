@@ -704,7 +704,7 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
         }
         context['empty_action_row'] = {
             'index': 0, 'text': '', 'due_date': '', 'assignees': [],
-            'split_for_assignees': False, 'errors': {},
+            'split_for_assignees': False, 'requires_attachment': False, 'errors': {},
         }
         context['empty_assignee'] = {'user': '', 'department': ''}
     else:

@@ -337,6 +337,32 @@ tasks never live inside `acts`.
   all. Reading a task is open to every authenticated user, so downloading is
   too — and read access still grants no upload. There is no deletion, no
   description and no second file-security implementation.
+- **`requires_attachment` is a source-domain answer that `Task` snapshots.**
+  `ProtocolAction.requires_attachment` and
+  `ActCorrectiveAction.requires_attachment` (both `BooleanField(default=False)`)
+  are the author's/ТО's choice, stored on the draft row so it survives a
+  protocol returned for revision and a ТО analysis returned from ОТК, and
+  editable right up until the real task exists. Unlike `split_for_assignees` it
+  is stored exactly as answered — a required file means the same for one
+  исполнитель as for five, so nothing normalizes it. When the task is created,
+  `create_protocol_action_task()` and `create_act_action_task()` copy it once
+  into `Task.requires_attachment`; that copy is authoritative and is never read
+  back through the relation, so editing the source row afterwards cannot change
+  a live or completed task. Shared execution gives the one task the
+  requirement, satisfied by any single attachment on it; split execution gives
+  *every* generated task the same requirement, and each исполнитель satisfies
+  it on their own task — a colleague's separate task never counts.
+  `PROTOCOL_APPROVAL`, `ACT_WORKFLOW` and `ACT_REJECTION` are never given the
+  flag. **The rule is enforced in `complete_task()` and nowhere else**: after
+  the routing, permission and execution-comment checks and before the task
+  becomes COMPLETED, a task with `requires_attachment` and zero
+  `TaskAttachment` rows is refused with «Для выполнения этой задачи необходимо
+  добавить вложение.» (logged as `missing_required_attachment`). The task page
+  only announces the requirement beside «Вложения» — the file input is never
+  HTML-required and the button is never hidden or disabled, because uploading
+  and completing are deliberately separate requests. The approved, read-only
+  «Анализ ТО» table and the printed act deliberately show nothing about it: it
+  controls the generated task, not how the document reads.
 - **`PROTOCOL_APPROVAL` is never completed through the normal task workflow.**
   `can_complete_task()` and `complete_task()` both refuse it: agreeing to a
   protocol is its own decision, and closing it with an execution comment would

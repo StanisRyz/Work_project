@@ -279,6 +279,15 @@ class ProtocolAction(models.Model):
     split_for_assignees = models.BooleanField(
         'Разбить задачу для участников', default=False
     )
+    # Whether the real task this decision becomes may only be completed with a
+    # file attached. Stored here, on the draft row, because the requirement is
+    # the author's decision and has to survive a return for revision; the task
+    # copies it once, at creation, and never reads it back — see
+    # `Task.requires_attachment`. `default=False` is what keeps every row
+    # stored before this field existed exactly as permissive as it was.
+    requires_attachment = models.BooleanField(
+        'Обязательно вложение', default=False
+    )
     display_order = models.PositiveIntegerField('Порядок отображения', default=0)
 
     class Meta:

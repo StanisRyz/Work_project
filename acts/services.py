@@ -468,6 +468,12 @@ def apply_structured_to_analysis(act, user, analysis_data):
                         action_data.get('split_for_assignees', False)
                         and len(action_data['assignees']) > 1
                     ),
+                    # Stored as answered, with no normalization: unlike
+                    # splitting, a required attachment means the same for one
+                    # исполнитель as for five. `.get()` for the same reason as
+                    # above — a caller that omits it means the unrestricted
+                    # task every corrective action produced before.
+                    requires_attachment=action_data.get('requires_attachment', False),
                     display_order=action_index,
                 )
                 ActCorrectiveActionAssignee.objects.bulk_create(
