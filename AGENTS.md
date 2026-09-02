@@ -27,6 +27,7 @@ model without explicit approval.
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` + `DocumentFavorite` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
+| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, the pages under `/quality/smk/`, and the single write path `smk/services.create_smk_source()` — which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction. No task system of its own |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -34,7 +35,10 @@ model without explicit approval.
 The user-facing sections are Акты (`/quality/acts/`), Задачи
 (`/quality/tasks/`), Протоколы (`/quality/protocols/`), Калькулятор времени
 навивки (`/calculators/winding/`), Калькулятор рубки пластин
-(`/calculators/plate-cutting/`) and Документация (`/documents/`); `/` redirects to
+(`/calculators/plate-cutting/`) and Документация (`/documents/`). `/quality/smk/`
+is mounted the same way but has no navigation item of its own: the СМК form is
+reached from «Задачи» through `tasks:create`, and the record it produces is read
+from the task that links to it. `/` redirects to
 `/quality/acts/` and so does the login fallback, for every role including
 superusers. Django Admin (`/admin/`) is reached directly, not from the sidebar.
 
@@ -228,9 +232,9 @@ tasks never live inside `acts`.
   `tasks.services.replace_task_assignees()`. Every authenticated user may read
   every task through `all`, `archive` and task detail; only active assigned
   tasks appear in `my`, and read access never grants completion rights.
-- **A task's origin is `source_type`, never a nullable relation.** Five values
+- **A task's origin is `source_type`, never a nullable relation.** Six values
   exist — `ACT`, `ACT_WORKFLOW`, `ACT_REJECTION`, `PROTOCOL_APPROVAL`,
-  `PROTOCOL_ACTION` — and exactly one relation shape is valid for each,
+  `PROTOCOL_ACTION`, `SMK` — and exactly one relation shape is valid for each,
   enforced by `Task.clean()` and by the
   `task_source_relations_match_source_type` check constraint:
 
@@ -241,13 +245,17 @@ tasks never live inside `acts`.
   | `ACT_REJECTION` | `act`, `department` | `root_analysis`, `source_action`, `protocol`, `protocol_action`, `individual_assignee`, `workflow_stage` |
   | `PROTOCOL_APPROVAL` | `protocol`, `department` | `act`, `root_analysis`, `source_action`, `protocol_action`, `individual_assignee`, `workflow_stage` |
   | `PROTOCOL_ACTION` | `protocol`, `protocol_action`, `department` | `act`, `root_analysis`, `source_action`, `workflow_stage` |
+  | `SMK` | `smk_source`, `smk_action`, `department` | `act`, `root_analysis`, `source_action`, `protocol`, `protocol_action`, `individual_assignee`, `workflow_stage` |
 
   The act relations are nullable *only* so the other shapes can exist; for an
   `ACT` task all three stay required. `department` is nullable for the same
   reason and for one source only — an `ACT_WORKFLOW` entry belongs to a *role*,
   which has no single department — so the constraint states
-  `department IS NOT NULL` explicitly on the other three branches rather than
-  leaving it to the column.
+  `department IS NOT NULL` explicitly on the other branches rather than
+  leaving it to the column. `smk_source`/`smk_action` are stated `IS NULL` on
+  every non-`SMK` branch for the same reason: a relation outside a shape must
+  be provably absent, not merely unmentioned. `Task.clean()` adds them to
+  `forbidden` in one place instead of restating them in five tuples.
 - **`ACT_WORKFLOW` is the act's route made visible in «Задачи», and is not an
   `ACT` task.** An `ACT` task is a corrective action somebody performs; an
   `ACT_WORKFLOW` task is a work-queue entry saying which stage the act is
@@ -291,6 +299,20 @@ tasks never live inside `acts`.
   concurrent transition unable to duplicate it; the service's existence check
   is only the readable path to the same answer. It is *not* an `ACT` task and
   never appears in «Связанные мероприятия».
+- **`SMK` is ordinary executable work with a source document of its own.** It
+  appears in the registry and in `my`, opens as a normal task page, takes
+  attachments and is completed by its assignee with the usual execution
+  comment. It is created **only** by `smk.services.create_smk_source()`, which
+  writes the `SmkSource`, its findings, its `SmkCorrectiveAction` rows and one
+  task per measure inside a single `atomic()` block — a record whose measures
+  reached nobody is never left behind. **One task per мероприятие**, carrying
+  every исполнитель: an СМК measure is never split, so
+  `tasks.services.create_smk_action_task()` takes no `individual_assignee` and
+  the branch forbids it. `unique_smk_action_task` is what makes a retried or
+  concurrent submission unable to duplicate it. Who may create one is
+  `smk.permissions.can_create_smk_task()` — the СМК role, руководитель or
+  администратор — re-checked inside the service, not only in the view;
+  completion rights are `tasks.permissions.can_complete_task()`, unchanged.
 - **A routing task is never completed by an employee.** `Task.is_routing_task`
   covers `PROTOCOL_APPROVAL` and `ACT_WORKFLOW` alike, and both
   `can_complete_task()` and `complete_task()` refuse it: the real action is
@@ -750,6 +772,16 @@ tasks never live inside `acts`.
   reads/searches/exports «Проработка» without mutating it; and has ordinary
   authenticated-user Plate Cutting preset Save/Search/Load. MAS has no Django
   Admin privilege.
+- **`UserProfile.Role.SMK` (`smk`, «СМК») is a first-class role, read through
+  `acts.permissions.is_smk()` like every other.** It grants exactly one thing:
+  creating an СМК record and the tasks it produces
+  (`smk.permissions.can_create_smk_task()`, which also admits руководитель and
+  администратор). It changes no act, protocol, calculator or admin right, and
+  no check keys on the department. The department «Отдел СМК» (`SMK`, seeded
+  idempotently by `accounts.0007` and listed in `MIGRATION_SEEDED_ROWS`) is
+  organisational only. Руководитель and администратор are shown a task-type
+  step at `tasks:create`; an СМК user, having one kind, is redirected straight
+  to the form.
 - **Reading the journal stays open to every authenticated user**: the calculator
   page, calculations, the entry list, the `d/D-b` search, reload and the
   `.xlsx` export. The template's `can_manage_workup` flag is presentation

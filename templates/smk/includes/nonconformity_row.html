@@ -1,0 +1,14 @@
+{% comment %}
+One выявленное несоответствие. The visible number comes from CSS counters, so
+adding or removing a row never has to renumber anything in the markup — the
+same mechanism `protocols/includes/agenda_row.html` uses.
+{% endcomment %}
+<div class="protocol-agenda-card" data-row>
+    <span class="protocol-agenda-card__number" aria-hidden="true"></span>
+    <label>
+        <span class="visually-hidden-label">Выявленное несоответствие</span>
+        <textarea name="nonconformities-{{ row.index }}-text" rows="2" placeholder="Опишите выявленное несоответствие">{{ row.text }}</textarea>
+        {% if row.errors.text %}<span class="field-error">{{ row.errors.text }}</span>{% endif %}
+    </label>
+    <button class="protocol-remove-button" type="button" data-remove-row aria-label="Удалить несоответствие" title="Удалить несоответствие">×</button>
+</div>

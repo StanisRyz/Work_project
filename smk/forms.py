@@ -1,0 +1,238 @@
+"""Parsing and validation of the one structured form the СМК page posts.
+
+Two repeatable blocks — выявленные несоответствия and корректирующие
+мероприятия, the latter with its own repeatable assignee rows — so a
+`ModelForm` per block would need formsets and still could not express the rule
+that crosses them. This does what `protocols.forms.ProtocolDraftForm` does: it
+reads the flat `POST`, rebuilds the rows for re-rendering with their errors,
+and hands the service a fully resolved structure.
+
+Nothing here writes to the database, and nothing here decides permissions.
+"""
+
+from datetime import date
+
+from django.contrib.auth.models import User
+
+from accounts.models import Department
+
+from .models import SmkSource
+
+
+# An audit record, not a bulk import: this cap only stops an absurd or forged
+# `TOTAL_FORMS` from turning into thousands of queries. The same number
+# `protocols.forms` uses, for the same reason.
+MAX_ROWS = 60
+
+
+class SmkSourceForm:
+    """Validates the whole СМК record submitted from the creation page."""
+
+    def __init__(self, data=None):
+        self.data = data
+        self.is_bound = data is not None
+        self.non_field_errors = []
+        self.cleaned = None
+        self._valid = None
+        self.origin = ''
+        self.origin_error = ''
+        self.non_conformity_rows = []
+        self.action_rows = []
+        if not self.is_bound:
+            self.non_conformity_rows = [{'index': 0, 'text': '', 'errors': {}}]
+            self.action_rows = [self._empty_action_row(0)]
+
+    # ------------------------------------------------------------------ initial
+
+    @staticmethod
+    def _empty_action_row(index):
+        return {
+            'index': index,
+            'text': '',
+            'due_date': '',
+            'assignees': [{'user': '', 'department': ''}],
+            'errors': {},
+        }
+
+    @property
+    def origin_choices(self):
+        return SmkSource.Origin.choices
+
+    # ---------------------------------------------------------------- validation
+
+    def is_valid(self):
+        if self._valid is not None:
+            return self._valid
+        if not self.is_bound:
+            self._valid = False
+            return False
+
+        self._departments = {
+            department.pk: department
+            for department in Department.objects.filter(is_active=True)
+        }
+        self._users = {
+            user.pk: user
+            for user in User.objects.filter(
+                is_active=True, userprofile__is_active=True
+            ).select_related('userprofile')
+        }
+
+        origin = self._clean_origin()
+        non_conformities = self._clean_non_conformities()
+        actions = self._clean_actions()
+
+        self._valid = (
+            not self.non_field_errors
+            and not self.origin_error
+            and not any(
+                row['errors']
+                for row in (*self.non_conformity_rows, *self.action_rows)
+            )
+        )
+        if self._valid:
+            self.cleaned = {
+                'origin': origin,
+                'non_conformities': non_conformities,
+                'actions': actions,
+            }
+        return self._valid
+
+    def _clean_origin(self):
+        self.origin = self.data.get('origin', '').strip()
+        if self.origin not in SmkSource.Origin.values:
+            self.origin_error = 'Выберите источник.'
+            return ''
+        return self.origin
+
+    def _clean_non_conformities(self):
+        """At least one finding: an audit record with none states nothing."""
+        cleaned = []
+        for index in range(self._count('nonconformities')):
+            row = {
+                'index': index,
+                'text': self.data.get(f'nonconformities-{index}-text', '').strip(),
+                'errors': {},
+            }
+            self.non_conformity_rows.append(row)
+            if row['text']:
+                cleaned.append(row['text'])
+        if not self.non_conformity_rows:
+            self.non_conformity_rows.append({'index': 0, 'text': '', 'errors': {}})
+        if not cleaned:
+            self.non_conformity_rows[0]['errors']['text'] = (
+                'Добавьте хотя бы одно выявленное несоответствие.'
+            )
+        return cleaned
+
+    def _clean_actions(self):
+        """At least one measure — each measure becomes exactly one real task."""
+        cleaned = []
+        for index in range(self._count('actions')):
+            prefix = f'actions-{index}'
+            assignee_users = self._getlist(f'{prefix}-assignees')
+            assignee_departments = self._getlist(f'{prefix}-assignee_departments')
+            row = {
+                'index': index,
+                'text': self.data.get(f'{prefix}-text', '').strip(),
+                'due_date': self.data.get(f'{prefix}-due_date', '').strip(),
+                'assignees': [
+                    {'user': user, 'department': department}
+                    for user, department in zip(assignee_users, assignee_departments)
+                ],
+                'errors': {},
+            }
+            self.action_rows.append(row)
+            if not row['text']:
+                row['errors']['text'] = 'Укажите корректирующее мероприятие.'
+            due_date = None
+            try:
+                due_date = date.fromisoformat(row['due_date'])
+            except (TypeError, ValueError):
+                row['errors']['due_date'] = 'Выберите срок.'
+            assignees = []
+            # The measure's department is the department of its first assignee,
+            # chosen right next to them and already checked against their
+            # profile below. Asking for it twice would only make it possible to
+            # state two different answers — the same rule `protocols.forms`
+            # settled on.
+            department = None
+            if len(assignee_users) != len(assignee_departments):
+                row['errors']['assignees'] = 'Для каждого исполнителя выберите подразделение.'
+            elif not assignee_users:
+                row['errors']['assignees'] = 'Выберите хотя бы одного исполнителя.'
+            else:
+                seen = set()
+                for user_value, department_value in zip(assignee_users, assignee_departments):
+                    assignee = self._user(user_value)
+                    assignee_department = self._department(department_value)
+                    if assignee is None:
+                        row['errors']['assignees'] = 'Выберите активных сотрудников.'
+                        continue
+                    if assignee.pk in seen:
+                        row['errors']['assignees'] = 'Исполнители не должны повторяться.'
+                        continue
+                    profile = getattr(assignee, 'userprofile', None)
+                    if (
+                        assignee_department is None
+                        or profile is None
+                        or profile.department_id != assignee_department.pk
+                    ):
+                        row['errors']['assignees'] = (
+                            'Исполнитель должен относиться к выбранному подразделению.'
+                        )
+                        continue
+                    seen.add(assignee.pk)
+                    assignees.append(assignee)
+                    if department is None:
+                        department = assignee_department
+            if row['errors']:
+                continue
+            cleaned.append(
+                {
+                    'text': row['text'],
+                    'department': department,
+                    'due_date': due_date,
+                    'assignees': assignees,
+                }
+            )
+        if not self.action_rows:
+            self.action_rows.append(self._empty_action_row(0))
+        if not cleaned and not any(row['errors'] for row in self.action_rows):
+            self.action_rows[0]['errors']['text'] = (
+                'Добавьте хотя бы одно корректирующее мероприятие.'
+            )
+        return cleaned
+
+    # ------------------------------------------------------------------ helpers
+
+    def _count(self, block):
+        try:
+            value = int(self.data.get(f'{block}-TOTAL_FORMS', ''))
+        except (TypeError, ValueError):
+            self.non_field_errors.append('Форма повреждена, обновите страницу.')
+            return 0
+        if value < 0 or value > MAX_ROWS:
+            self.non_field_errors.append('Превышено допустимое количество строк.')
+            return 0
+        return value
+
+    def _department(self, value):
+        try:
+            return self._departments.get(int(value))
+        except (TypeError, ValueError):
+            return None
+
+    def _user(self, value):
+        try:
+            return self._users.get(int(value))
+        except (TypeError, ValueError):
+            return None
+
+    def _getlist(self, key):
+        if hasattr(self.data, 'getlist'):
+            return [value.strip() for value in self.data.getlist(key)]
+        value = self.data.get(key, [])
+        if isinstance(value, (list, tuple)):
+            return [str(item).strip() for item in value]
+        return [value.strip()] if value else []

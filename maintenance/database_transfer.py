@@ -85,8 +85,9 @@ MIGRATION_SEEDED_MODELS = (
 )
 
 MIGRATION_SEEDED_ROWS = {
-    # accounts.0003 / accounts.0005 create organisational departments.
-    'accounts.Department': ('PDO', 'MAS'),
+    # accounts.0003 / accounts.0005 / accounts.0007 create organisational
+    # departments.
+    'accounts.Department': ('PDO', 'MAS', 'SMK'),
     # acts.0014 / acts.0015 create these two act statuses.
     'references.ActStatus': ('ARCHIVED', 'OTK_REVIEW'),
     # references.0002 / references.0003 create these two task statuses.

@@ -31,6 +31,13 @@ def describe_task_source(task):
         if task.act_id is None:
             return {'label': '', 'url': ''}
         return {'label': task.act.number, 'url': reverse('acts:detail', args=[task.act_id])}
+    if task.source_type == Task.SourceType.SMK:
+        if task.smk_source_id is None:
+            return {'label': '', 'url': ''}
+        return {
+            'label': task.smk_source.label,
+            'url': reverse('smk:detail', args=[task.smk_source_id]),
+        }
     if task.protocol_id is None:
         return {'label': '', 'url': ''}
     return {

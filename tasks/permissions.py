@@ -13,6 +13,9 @@ _SOURCE_AWARE_SELECT_RELATED = (
     # one-to-one `protocol_approval` carries the real outcome of an approval
     # queue entry; both are read for every registry row.
     'protocol__protocol_type', 'protocol_action', 'protocol_approval',
+    # The СМК record is what the registry's «Источник» column names for an
+    # `SMK` task; the measure behind it is not read there.
+    'smk_source',
 )
 
 

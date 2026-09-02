@@ -28,10 +28,13 @@ def _source_search_filter(term):
     Deliberately small: «АОК-2026-00034», «Качество», «Качество №7», «№7» and
     a bare «7» are what people type, and no full-text machinery is involved.
     An explicit «№» splits the term, so a type and a number narrow each other;
-    without one the term is tried as a type name or as a number.
+    without one the term is tried as a type name or as a number. An СМК record
+    is «СМК №4» or a bare number, matched on its own identifier — it has no
+    type series of its own to narrow by.
     """
     head, separator, tail = term.partition('№')
     criteria = Q(act__number__icontains=term)
+    smk = Q()
     if separator:
         name, number = head.strip(), tail.strip()
         protocol = Q()
@@ -39,13 +42,19 @@ def _source_search_filter(term):
             protocol &= Q(protocol__protocol_type__name__icontains=name)
         if number.isdigit():
             protocol &= Q(protocol__number=int(number))
+        if number.isdigit() and (not name or 'смк' in name.lower()):
+            smk = Q(smk_source_id=int(number))
     else:
         protocol = Q(protocol__protocol_type__name__icontains=term)
         if term.isdigit():
             protocol |= Q(protocol__number=int(term))
+            smk = Q(smk_source_id=int(term))
     # An empty `Q()` would widen the search to everything instead of adding
     # nothing, so it is never combined in.
-    return criteria | protocol if protocol else criteria
+    for extra in (protocol, smk):
+        if extra:
+            criteria |= extra
+    return criteria
 
 
 def build_task_list_state(user, query_params):

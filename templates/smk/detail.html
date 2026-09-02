@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ source.label }} - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260902-1">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+The record behind an СМК task, read-only. It has no workflow of its own: the
+work it created lives in «Задачи», and each measure below links to the one task
+it produced.
+{% endcomment %}
+<div class="protocol-create-page">
+    <header class="protocol-page-header">
+        <a class="act-back-link" href="{% url 'tasks:list' %}" aria-label="К списку задач">←</a>
+        <div>
+            <h1>{{ source.label }}</h1>
+            <p>{{ source.get_origin_display }} · создал {{ source.created_by.get_full_name|default:source.created_by.username }} · {{ source.created_at|date:'d.m.Y' }}</p>
+        </div>
+    </header>
+
+    <section class="protocol-section">
+        <div class="protocol-section__body">
+            <h2 class="protocol-section__title">Выявленные несоответствия</h2>
+            <ol class="protocol-readonly-list">
+                {% for item in non_conformities %}<li>{{ item.text }}</li>{% endfor %}
+            </ol>
+        </div>
+    </section>
+
+    <section class="protocol-section protocol-section--accent">
+        <div class="protocol-section__body">
+            <h2 class="protocol-section__title">Корректирующие мероприятия</h2>
+            <div class="protocol-card-grid">
+                {% for row in actions %}
+                    <article class="protocol-action-card">
+                        <div class="protocol-action-card__head">
+                            <h3>{{ row.action.task_text }}</h3>
+                        </div>
+                        <p>Подразделение: {{ row.action.department.name }} · Срок: {{ row.action.due_date|date:'d.m.Y' }}</p>
+                        <p>Исполнители:
+                            {% for user in row.assignees %}{{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
+                        </p>
+                        {% comment %}
+                        Each measure has at most one task, by database
+                        constraint — the link is to that task, never to a search.
+                        {% endcomment %}
+                        {% if row.task %}
+                            <p><a class="table-link" href="{% url 'tasks:detail' row.task.pk %}">Задача №{{ row.task.pk }}</a> — {{ row.task.status }}</p>
+                        {% endif %}
+                    </article>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

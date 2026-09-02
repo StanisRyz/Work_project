@@ -31,6 +31,10 @@ class UserProfile(models.Model):
         # Manufacturing supervisors are ordinary operational users. Their
         # organisational department is separate metadata and grants no rights.
         MAS = 'mas', 'Мастер производства'
+        # Отдел СМК: owns the quality-management-system corrective actions.
+        # A first-class role like the others — never a department check, and
+        # it grants nothing outside the SMK module.
+        SMK = 'smk', 'СМК'
         MANAGER = 'manager', 'Руководитель'
         ADMIN = 'admin', 'Администратор'
 

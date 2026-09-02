@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Задача СМК - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260902-1">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+The whole СМК record in one form, stored by one explicit «Создать задачи».
+There is no draft stage: the record, its findings, its measures and the real
+tasks are written together by `smk.services.create_smk_source()` or not at all.
+
+Each block is a `<details>` section with a `[data-row-list]`, a `<template>`
+prototype and a `TOTAL_FORMS` counter — the same shape the protocol editor
+uses, so `smk_form.js` only clones, removes and renumbers rows. Every rule is
+re-checked on the server.
+{% endcomment %}
+<div class="protocol-create-page">
+    <header class="protocol-page-header">
+        <a class="act-back-link" href="{% url 'tasks:list' %}" aria-label="К списку задач">←</a>
+        <div>
+            <h1>Задача СМК</h1>
+            <p>Корректирующие мероприятия по результатам аудита. Каждое мероприятие становится отдельной задачей.</p>
+        </div>
+    </header>
+
+    <form class="protocol-editor" method="post" data-smk-form>
+        {% csrf_token %}
+
+        {% for error in form.non_field_errors %}<p class="field-error protocol-editor__error">{{ error }}</p>{% endfor %}
+
+        <details class="protocol-section" open>
+            <summary class="protocol-section__summary">
+                <span class="protocol-section__title">Источник</span>
+                <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+            </summary>
+            <div class="protocol-section__body">
+                <label>
+                    <span>Источник</span>
+                    <select name="origin" required>
+                        <option value="">Выберите источник</option>
+                        {% for value, label in form.origin_choices %}
+                            <option value="{{ value }}"{% if form.origin == value %} selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if form.origin_error %}<span class="field-error">{{ form.origin_error }}</span>{% endif %}
+                </label>
+            </div>
+        </details>
+
+        <details class="protocol-section" data-block="nonconformities" open>
+            <summary class="protocol-section__summary">
+                <span class="protocol-section__title">Выявленные несоответствия</span>
+                <span class="protocol-section__count" data-section-count>{{ form.non_conformity_rows|length }}</span>
+                <button class="link-button link-button--secondary link-button--compact protocol-section__add" type="button" data-add-row>+ Несоответствие</button>
+                <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+            </summary>
+            <div class="protocol-section__body">
+                <input type="hidden" name="nonconformities-TOTAL_FORMS" value="{{ form.non_conformity_rows|length }}" data-total>
+                <div class="protocol-card-grid" data-row-list>
+                    {% for row in form.non_conformity_rows %}
+                        {% include 'smk/includes/nonconformity_row.html' %}
+                    {% endfor %}
+                </div>
+                <template data-row-template>
+                    {% include 'smk/includes/nonconformity_row.html' with row=empty_row %}
+                </template>
+            </div>
+        </details>
+
+        <details class="protocol-section protocol-section--accent" data-block="actions" open>
+            <summary class="protocol-section__summary">
+                <span class="protocol-section__title">Корректирующие мероприятия</span>
+                <span class="protocol-section__count" data-section-count>{{ form.action_rows|length }}</span>
+                <button class="link-button link-button--secondary link-button--compact protocol-section__add" type="button" data-add-row>+ Мероприятие</button>
+                <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
+            </summary>
+            <div class="protocol-section__body">
+                <p class="protocol-section__hint">Каждое мероприятие создаёт отдельную задачу в разделе «Задачи» на всех указанных исполнителей.</p>
+                <input type="hidden" name="actions-TOTAL_FORMS" value="{{ form.action_rows|length }}" data-total>
+                <div class="protocol-card-grid" data-row-list>
+                    {% for row in form.action_rows %}
+                        {% include 'smk/includes/action_row.html' %}
+                    {% endfor %}
+                </div>
+                <template data-row-template>
+                    {% include 'smk/includes/action_row.html' with row=empty_action_row %}
+                </template>
+                <template data-assignee-template>
+                    {% include 'smk/includes/assignee_row.html' with assignee=empty_assignee action_index=0 %}
+                </template>
+            </div>
+        </details>
+
+        <div class="protocol-editor__actions">
+            <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}">К списку задач</a>
+            <button class="link-button" type="submit">Создать задачи</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/smk_form.js' %}?v=20260902-1" defer></script>
+{% endblock %}

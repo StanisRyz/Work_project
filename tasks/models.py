@@ -31,6 +31,7 @@ from accounts.models import Department
 from acts.models import Act, ActCorrectiveAction, ActRootAnalysis
 from protocols.models import Protocol, ProtocolAction
 from references.models import TaskStatus
+from smk.models import SmkCorrectiveAction, SmkSource
 
 
 class Task(models.Model):
@@ -50,6 +51,11 @@ class Task(models.Model):
         # the КО decision rather than from the ТО analysis, so it has no
         # corrective-action chain to hang on.
         ACT_REJECTION = 'ACT_REJECTION', 'Брак по акту'
+        # A корректирующее мероприятие from an Отдел СМК audit record. An
+        # ordinary work item — completed by its исполнитель with an execution
+        # comment, exactly like `PROTOCOL_ACTION` — and its own source type so
+        # the registry can name and filter it without reading a relation.
+        SMK = 'SMK', 'СМК'
 
     class WorkflowStage(models.TextChoices):
         """Which act stage an `ACT_WORKFLOW` task represents.
@@ -119,6 +125,25 @@ class Task(models.Model):
         null=True,
         blank=True,
         verbose_name='Задача протокола',
+    )
+    smk_source = models.ForeignKey(
+        SmkSource,
+        on_delete=models.PROTECT,
+        related_name='tasks',
+        null=True,
+        blank=True,
+        verbose_name='Запись СМК',
+    )
+    # One task per measure, stated by the unique constraint below rather than
+    # by the relation: an СМК record is written once and its measures are not
+    # split between their исполнители, so there is no fan-out to allow for.
+    smk_action = models.ForeignKey(
+        SmkCorrectiveAction,
+        on_delete=models.PROTECT,
+        related_name='tasks',
+        null=True,
+        blank=True,
+        verbose_name='Корректирующее мероприятие СМК',
     )
     # Which single assignee this task was split off for — of `source_action`
     # for an act task, of `protocol_action` for a protocol one — and NULL for a
@@ -199,6 +224,8 @@ class Task(models.Model):
                     # relaxes nothing for the source types that already exist.
                     Q(
                         source_type='ACT',
+                        smk_source__isnull=True,
+                        smk_action__isnull=True,
                         act__isnull=False,
                         root_analysis__isnull=False,
                         source_action__isnull=False,
@@ -209,6 +236,8 @@ class Task(models.Model):
                     )
                     | Q(
                         source_type='PROTOCOL_APPROVAL',
+                        smk_source__isnull=True,
+                        smk_action__isnull=True,
                         act__isnull=True,
                         root_analysis__isnull=True,
                         source_action__isnull=True,
@@ -220,6 +249,8 @@ class Task(models.Model):
                     )
                     | Q(
                         source_type='PROTOCOL_ACTION',
+                        smk_source__isnull=True,
+                        smk_action__isnull=True,
                         act__isnull=True,
                         root_analysis__isnull=True,
                         source_action__isnull=True,
@@ -234,6 +265,8 @@ class Task(models.Model):
                     # stage, and nobody to split it between.
                     | Q(
                         source_type='ACT_REJECTION',
+                        smk_source__isnull=True,
+                        smk_action__isnull=True,
                         act__isnull=False,
                         root_analysis__isnull=True,
                         source_action__isnull=True,
@@ -249,6 +282,8 @@ class Task(models.Model):
                     | (
                         Q(
                             source_type='ACT_WORKFLOW',
+                            smk_source__isnull=True,
+                            smk_action__isnull=True,
                             act__isnull=False,
                             root_analysis__isnull=True,
                             source_action__isnull=True,
@@ -259,6 +294,24 @@ class Task(models.Model):
                         # `workflow_stage` is a `CharField`, so "must be
                         # filled" is stated as "is not the empty string".
                         & ~Q(workflow_stage='')
+                    )
+                    # An СМК корректирующее мероприятие: the audit record and
+                    # the measure together, no act and no protocol, a
+                    # department like every real work item, and nobody to
+                    # split it between — an СМК measure produces exactly one
+                    # task however many исполнителя it names.
+                    | Q(
+                        source_type='SMK',
+                        act__isnull=True,
+                        root_analysis__isnull=True,
+                        source_action__isnull=True,
+                        protocol__isnull=True,
+                        protocol_action__isnull=True,
+                        smk_source__isnull=False,
+                        smk_action__isnull=False,
+                        individual_assignee__isnull=True,
+                        department__isnull=False,
+                        workflow_stage='',
                     )
                 ),
                 name='task_source_relations_match_source_type',
@@ -294,6 +347,15 @@ class Task(models.Model):
                 fields=['source_action', 'individual_assignee'],
                 name='unique_individual_act_action_task',
             ),
+            # One task per СМК мероприятие, so a retried or concurrent
+            # submission of the same record cannot hand its исполнители a
+            # second copy. Rows of every other source type have a NULL
+            # `smk_action`, and NULLs are distinct to a unique index, so none
+            # is affected.
+            models.UniqueConstraint(
+                fields=['smk_action'],
+                name='unique_smk_action_task',
+            ),
             # One rejection task per act, stated by the database rather than by
             # a service check: a retried or concurrent КО transition must not
             # be able to hand ПДО the same notice twice, whatever the service
@@ -324,6 +386,10 @@ class Task(models.Model):
     @property
     def is_act_rejection_task(self):
         return self.source_type == self.SourceType.ACT_REJECTION
+
+    @property
+    def is_smk_task(self):
+        return self.source_type == self.SourceType.SMK
 
     @property
     def is_routing_task(self):
@@ -378,17 +444,37 @@ class Task(models.Model):
                 ('root_analysis', 'source_action', 'protocol', 'protocol_action',
                  'individual_assignee'),
             ),
+            self.SourceType.SMK: (
+                ('smk_source', 'smk_action'),
+                ('act', 'root_analysis', 'source_action', 'protocol',
+                 'protocol_action', 'individual_assignee'),
+            ),
         }.get(self.source_type, ((), ()))
         if not required:
             raise ValidationError({'source_type': 'Неизвестный тип источника задачи.'})
         errors = {}
         source_name = self.get_source_type_display()
+        # The two СМК relations are forbidden everywhere except the СМК source
+        # itself. Added here rather than restated in five `forbidden` tuples,
+        # for the same reason the check constraint lists them once per branch:
+        # a relation that is not part of a shape must be provably absent, not
+        # merely unmentioned.
+        if self.source_type != self.SourceType.SMK:
+            forbidden = (*forbidden, 'smk_source', 'smk_action')
         for name in required:
             if getattr(self, f'{name}_id') is None:
                 errors[name] = f'Обязательно для источника «{source_name}».'
         for name in forbidden:
             if getattr(self, f'{name}_id') is not None:
                 errors[name] = f'Недопустимо для источника «{source_name}».'
+        if (
+            self.smk_action_id is not None
+            and self.smk_source_id is not None
+            and self.smk_action.source_id != self.smk_source_id
+        ):
+            errors['smk_action'] = (
+                'Корректирующее мероприятие должно относиться к той же записи СМК.'
+            )
         if (
             self.protocol_action_id is not None
             and self.protocol_id is not None

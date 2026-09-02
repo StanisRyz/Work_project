@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Создание задачи - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260902-1">
+{% endblock %}
+
+{% block content %}
+<div class="protocol-create-page">
+    <header class="protocol-page-header">
+        <a class="act-back-link" href="{% url 'tasks:list' %}" aria-label="К списку задач">←</a>
+        <div>
+            <h1>Создание задачи</h1>
+            <p>Выберите тип задачи — форма зависит от выбранного типа.</p>
+        </div>
+    </header>
+
+    {% comment %}
+    The options come from `tasks.views.task_create`, built from the user's own
+    rights: no kind of task is written into this template. A user with exactly
+    one kind never reaches this page — the view sends them straight to its form.
+    {% endcomment %}
+    <div class="protocol-type-grid">
+        {% for option in task_type_options %}
+            <a class="protocol-type-card" href="{{ option.url }}">
+                <strong>{{ option.label }}</strong>
+                <span>{{ option.description }}</span>
+            </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

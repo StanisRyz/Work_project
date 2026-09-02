@@ -35,6 +35,9 @@ urlpatterns = [
     path('quality/acts/', include('acts.urls')),
     path('quality/tasks/', include('tasks.urls')),
     path('quality/protocols/', include('protocols.urls')),
+    # СМК records live under the same hierarchy; the work they create is read
+    # in «Задачи» like every other task, so they have no registry of their own.
+    path('quality/smk/', include('smk.urls')),
     path('calculators/winding/', include('calculator.urls')),
     path('calculators/plate-cutting/', include('plate_cutting.urls')),
 

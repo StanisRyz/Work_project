@@ -10,6 +10,7 @@ from django.views.decorators.http import require_GET
 from ecosystem.attachments import format_file_size
 from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
+from smk.permissions import can_create_smk_task, requires_task_type_choice
 
 from .forms import TaskAttachmentForm
 from .models import Task, TaskAttachment
@@ -34,7 +35,40 @@ from .services import TaskWorkflowError, add_task_attachment, attachment_logger,
 def task_list(request):
     state = build_task_list_state(request.user, request.GET)
     return render(request, 'tasks/list.html', {
-        'active_page': 'tasks', 'header_title': 'Задачи', **state,
+        'active_page': 'tasks', 'header_title': 'Задачи',
+        # Whether «Создать задачу» is offered at all. The same answer the
+        # chooser below re-asks, so the button and the endpoint cannot
+        # disagree — the button is not the permission.
+        'can_create_task': can_create_smk_task(request.user),
+        **state,
+    })
+
+
+@login_required
+def task_create(request):
+    """Which kind of task to create — the step before any creation form.
+
+    Most tasks are still produced by a workflow and have no form at all. The
+    ones that do are listed here, and the list is built from the user's own
+    rights: today it holds exactly one entry, «Задача СМК».
+
+    An СМК employee has that single kind and nothing else, so they are taken
+    straight to its form — a one-option menu is not a choice. Руководитель and
+    администратор choose, because more kinds will be added under them.
+    """
+    if not can_create_smk_task(request.user):
+        raise Http404('No task type is available.')
+    options = [{
+        'code': 'smk',
+        'label': 'Задача СМК',
+        'description': 'Корректирующие мероприятия по результатам аудита.',
+        'url': reverse('smk:create'),
+    }]
+    if not requires_task_type_choice(request.user) and len(options) == 1:
+        return redirect(options[0]['url'])
+    return render(request, 'tasks/create.html', {
+        'active_page': 'tasks', 'header_title': 'Создание задачи',
+        'task_type_options': options,
     })
 
 

@@ -36,6 +36,16 @@ def is_to(user):
     return get_user_role(user) == UserProfile.Role.TO
 
 
+def is_smk(user):
+    """The Отдел СМК role — read exactly like every other role check.
+
+    It grants nothing on acts or protocols; `smk.permissions` is where it
+    means something. It lives here so no module invents a second way of
+    asking what role a user has.
+    """
+    return get_user_role(user) == UserProfile.Role.SMK
+
+
 def is_manager(user):
     return get_user_role(user) == UserProfile.Role.MANAGER
 

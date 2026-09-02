@@ -364,6 +364,42 @@ def create_protocol_action_task(
     return _save_new_task(task, unique_ids, actor=created_by)
 
 
+# --------------------------------------------------------------------------
+# СМК workflow task lifecycle
+#
+# Written *only* through `create_smk_action_task()`, called only from
+# `smk/services.py` inside the transaction that stores the record. Not
+# transactional on its own, for the same reason the protocol functions above
+# are not: a record that fails halfway must take every task it created with it.
+# --------------------------------------------------------------------------
+
+
+def create_smk_action_task(source, action, assignee_ids, *, created_by):
+    """The real task an СМК корректирующее мероприятие becomes.
+
+    One shape only, unlike the act and protocol variants: an СМК measure is
+    never split per исполнитель, so there is no `individual_assignee` argument
+    and the task always carries every assignee. The wording, the department and
+    the deadline are read from the measure itself, so a caller cannot pair a
+    task with the wrong record; `Task.clean()` inside `_save_new_task()` then
+    re-checks that the measure really belongs to the record it was given.
+
+    «One task per measure» is the `unique_smk_action_task` constraint on
+    `Task`, not a check here.
+    """
+    task = Task(
+        source_type=Task.SourceType.SMK,
+        smk_source=source,
+        smk_action=action,
+        task_text=action.task_text,
+        department=action.department,
+        due_date=action.due_date,
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    return _save_new_task(task, sorted(set(assignee_ids)), actor=created_by)
+
+
 def _close_approval_task(task, *, approver, decided_at, reason):
     if task is None:
         return None

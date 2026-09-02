@@ -1,0 +1,42 @@
+{% comment %}
+One корректирующее мероприятие. Unlike a protocol decision this becomes a real
+`tasks.Task` immediately — the record has no draft stage — so the row asks for
+everything the task needs: wording, срок and at least one исполнитель.
+
+There is no task-level «Подразделение» on purpose: the department of the real
+task is the one chosen next to its first исполнитель, exactly as the protocol
+editor settled it.
+{% endcomment %}
+<div class="protocol-action-card" data-row>
+    <div class="protocol-action-card__head">
+        <span class="protocol-action-card__number" aria-hidden="true"></span>
+        <h3>Мероприятие</h3>
+        <button class="protocol-remove-button" type="button" data-remove-row aria-label="Удалить мероприятие" title="Удалить мероприятие">×</button>
+    </div>
+    <div class="protocol-action-card__statement">
+        <label>
+            <span>Что необходимо сделать</span>
+            <textarea name="actions-{{ row.index }}-text" rows="2" placeholder="Что необходимо сделать">{{ row.text }}</textarea>
+            {% if row.errors.text %}<span class="field-error">{{ row.errors.text }}</span>{% endif %}
+        </label>
+    </div>
+    <div class="protocol-action-card__fields">
+        <label>
+            <span>Срок</span>
+            <input type="date" name="actions-{{ row.index }}-due_date" value="{{ row.due_date }}" required>
+            {% if row.errors.due_date %}<span class="field-error">{{ row.errors.due_date }}</span>{% endif %}
+        </label>
+    </div>
+    <div class="protocol-action-card__assignees">
+        <span class="protocol-action-card__assignees-label">Исполнители</span>
+        <div class="protocol-assignee-list" data-assignee-list>
+            {% for assignee in row.assignees %}
+                {% include 'smk/includes/assignee_row.html' with assignee=assignee action_index=row.index %}
+            {% empty %}
+                {% include 'smk/includes/assignee_row.html' with assignee=empty_assignee action_index=row.index %}
+            {% endfor %}
+        </div>
+        {% if row.errors.assignees %}<span class="field-error">{{ row.errors.assignees }}</span>{% endif %}
+        <button class="link-button link-button--secondary link-button--compact" type="button" data-add-assignee>+ Исполнитель</button>
+    </div>
+</div>

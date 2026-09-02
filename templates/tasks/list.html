@@ -3,11 +3,21 @@
 {% block title %}Задачи - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block content %}
-<nav class="act-registry-tabs" aria-label="Область списка задач">
-    <a class="act-registry-tabs__link{% if tab == 'my' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.my }}">Мои задачи</a>
-    <a class="act-registry-tabs__link{% if tab == 'all' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.all }}">Все задачи</a>
-    <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.archive }}">Архив</a>
-</nav>
+{% comment %}
+The tabs share their row with «Создать задачу», exactly as the act registry
+does. The button is only the entry point — `tasks:create` re-asks the same
+permission, and so does the СМК form behind it.
+{% endcomment %}
+<div class="act-registry-toolbar">
+    <nav class="act-registry-tabs" aria-label="Область списка задач">
+        <a class="act-registry-tabs__link{% if tab == 'my' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.my }}">Мои задачи</a>
+        <a class="act-registry-tabs__link{% if tab == 'all' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.all }}">Все задачи</a>
+        <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.archive }}">Архив</a>
+    </nav>
+    {% if can_create_task %}
+        <a class="link-button" href="{% url 'tasks:create' %}">Создать задачу</a>
+    {% endif %}
+</div>
 
 <form class="filter-form act-filter-panel task-filter-panel" method="get">
     <input type="hidden" name="tab" value="{{ tab }}">
