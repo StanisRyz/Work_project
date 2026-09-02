@@ -38,6 +38,10 @@ urlpatterns = [
     path('calculators/winding/', include('calculator.urls')),
     path('calculators/plate-cutting/', include('plate_cutting.urls')),
 
+    # The documentation library is its own top-level section: one navigation
+    # item that opens the file browser directly, with no submenu.
+    path('documents/', include('documents.urls')),
+
     # Infrastructure stays outside that hierarchy.
     path('notifications/', include('notifications.urls')),
     path('accounts/', include('accounts.urls')),

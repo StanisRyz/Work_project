@@ -1,0 +1,155 @@
+/*
+ * Документация — the file browser.
+ *
+ * Layout only. Every surface, button and table here is a project component
+ * (`.table-card`, `.data-table`, `.link-button`, `.empty-state`); this file
+ * places them and adds the two things a file list needs that no other page
+ * has — a breadcrumb path and a row that reads as a folder or a file. No new
+ * colours, no new typography, no second design system.
+ */
+
+.doc-breadcrumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.doc-breadcrumbs__link {
+    color: var(--color-primary-dark);
+    font-weight: 600;
+}
+
+.doc-breadcrumbs__link:hover {
+    text-decoration: underline;
+}
+
+.doc-breadcrumbs__separator {
+    color: var(--color-border);
+}
+
+.doc-breadcrumbs__current {
+    color: var(--color-text);
+    font-weight: 700;
+}
+
+.doc-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.doc-toolbar__nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.doc-toolbar__title {
+    margin: 0;
+    font-size: 22px;
+}
+
+.doc-toolbar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* The management strip: shown only to a user who may change the library. */
+.doc-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 18px;
+    margin-bottom: 16px;
+    padding: 16px 18px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+.doc-tools__form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.doc-tools__field {
+    display: grid;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.doc-tools__field input {
+    padding: 9px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.doc-tools__field-optional {
+    font-style: italic;
+}
+
+.doc-tools__hint {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+/* A file list is narrow: the registry's 980px minimum would scroll for
+   nothing, so the documents table sets its own. */
+.doc-table {
+    min-width: 620px;
+}
+
+.doc-table__muted {
+    color: var(--color-muted);
+    white-space: nowrap;
+}
+
+.doc-table__actions-head,
+.doc-table__actions {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.doc-table__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.doc-entry {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.doc-entry__icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+@media (max-width: 760px) {
+    .doc-tools {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .doc-tools__form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

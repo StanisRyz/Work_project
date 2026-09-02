@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'calculator',
     'plate_cutting',
     'notifications',
+    'documents',
     'maintenance',
     'realtime',
     'django.contrib.admin',
@@ -848,6 +849,8 @@ LOGGING = {
         'ecosystem.workflow': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
         # Protected attachment upload, download and refusal.
         'ecosystem.attachments': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
+        # Documentation library: folder and document changes, and refusals.
+        'ecosystem.documents': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
         # Delivery attempts and their outcomes — never the message body.
         'notifications.email': {'handlers': _LOG_HANDLERS, 'level': LOG_LEVEL, 'propagate': False},
         # Migration/transfer tooling.

@@ -25,6 +25,16 @@ All open/close state lives in `static/js/app.js`.
                 <a class="sidebar__link{% if active_page == 'protocols' %} sidebar__link--active{% endif %}" href="{% url 'protocols:list' %}">Протоколы</a>
             </div>
         </div>
+        {% comment %}
+        A first-level item that is a link, not a toggle: the documentation
+        library is a single page and has no submenu, so «Документация» opens
+        the file browser directly.
+        {% endcomment %}
+        <div class="sidebar__group">
+            <a class="sidebar__category{% if active_page == 'documents' %} sidebar__category--active{% endif %}" href="{% url 'documents:browse' %}">
+                <span>Документация</span>
+            </a>
+        </div>
         <div class="sidebar__group" data-nav-group>
             <button class="sidebar__category{% if active_page == 'calculator' or active_page == 'plate_cutting' %} sidebar__category--active{% endif %}"
                     type="button" aria-expanded="false" aria-controls="sidebar-submenu-calculators" data-nav-category>
