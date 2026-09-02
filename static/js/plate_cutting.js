@@ -130,11 +130,25 @@
     popup.innerHTML = html + '</dl>';
   }
 
+  /**
+   * The popup belonging to one details chevron.
+   *
+   * Resolved from the whole `__result-row`, not from the chevron's parent: the
+   * chevron sits inside the `__time` value box while the popup is anchored to
+   * the row beside the confirm button, so a `parentNode` lookup finds nothing.
+   * Returns null rather than throwing if the markup ever changes again.
+   */
+  function detailsPopupFor(toggle) {
+    var row = toggle.closest('.pcut-package__result-row');
+    return row ? row.querySelector('[data-details-popup]') : null;
+  }
+
   function closeDetails(except) {
     Array.prototype.forEach.call(root.querySelectorAll('[data-details-toggle]'), function (toggle) {
       if (toggle === except) return;
       toggle.setAttribute('aria-expanded', 'false');
-      toggle.parentNode.querySelector('[data-details-popup]').hidden = true;
+      var popup = detailsPopupFor(toggle);
+      if (popup) popup.hidden = true;
     });
   }
 
@@ -691,7 +705,8 @@
     var open = toggle.getAttribute('aria-expanded') !== 'true';
     closeDetails(toggle);
     toggle.setAttribute('aria-expanded', String(open));
-    toggle.parentNode.querySelector('[data-details-popup]').hidden = !open;
+    var popup = detailsPopupFor(toggle);
+    if (popup) popup.hidden = !open;
   });
 
   document.addEventListener('click', function (event) {
