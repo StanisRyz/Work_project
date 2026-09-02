@@ -686,7 +686,14 @@ def ensure_act_rejection_task(act, defects, *, created_by):
         created_by=created_by,
         status=_active_status('IN_PROGRESS', 'В работе'),
     )
-    return _save_new_task(task, [user.pk for user in recipients], actor=created_by)
+    task = _save_new_task(task, [user.pk for user in recipients], actor=created_by)
+    # Only after the task and its assignees exist, and only on the one call
+    # that really created it — the early returns above are what keeps a
+    # repeated or concurrent КО transition from notifying ПДО twice.
+    from notifications.services import notify_act_rejection_task_assigned
+
+    notify_act_rejection_task_assigned(task, created_by, recipients)
+    return task
 
 
 # --------------------------------------------------------------------------

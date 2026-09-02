@@ -1,11 +1,15 @@
 Экосистема качества
 
 Событие: {{ event_name }}
-Акт: {{ act_number }}
-Требуемое действие: {{ required_action }}
+{{ source_type_label }}: {{ source_label }}{% if source_context %}
+Основание: {{ source_context }}{% endif %}
+{{ notification_message }}
+{% if due_date %}Срок выполнения: {{ due_date|date:"d.m.Y" }}
+{% endif %}{% if requires_attachment %}Для завершения задачи требуется вложение.
+{% endif %}Требуемое действие: {{ required_action }}
 Инициатор: {{ actor_name }}
 Дата: {{ event_date|date:"d.m.Y H:i" }}
 
-Открыть акт (требуется вход в систему): {{ act_url }}
+{{ open_label }} (требуется вход в систему): {{ source_url }}
 
 Это автоматическое уведомление. Не отвечайте на него.

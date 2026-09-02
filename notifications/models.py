@@ -42,6 +42,7 @@ class Notification(models.Model):
         )
         PROTOCOL_APPROVED = 'PROTOCOL_APPROVED', 'Протокол согласован'
         PROTOCOL_TASK_ASSIGNED = 'PROTOCOL_TASK_ASSIGNED', 'Назначена задача по протоколу'
+        ACT_REJECTION_ASSIGNED = 'ACT_REJECTION_ASSIGNED', 'Назначена задача ПДО по браку'
 
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -54,6 +54,7 @@ from protocols.services import (
 )
 from references.models import ActStatus, DefectType, Operation, TaskStatus
 from tasks.models import Task
+from tasks.services import ensure_act_rejection_task
 
 
 class NotificationTestMixin:
@@ -182,9 +183,31 @@ class NotificationRoutingTests(NotificationTestMixin, TestCase):
         self.assert_recipients(Notification.EventType.ACT_SENT_TO_OTK, ['notify_otk'])
 
     def test_every_return_routes_to_previous_processing_stage_without_comment_duplicate(self):
+        # A second ОТК employee, so «the creator» and «all ОТК» differ here.
+        self.create_user('notify_otk_second', UserProfile.Role.OTK, email='otk2@example.test')
+
         returned_otk = self.create_act('KO_REVIEW')
         return_to_otk(returned_otk, self.ko, 'Исправить данные.')
+        # The creator still holds the ОТК role, so the rework is theirs alone —
+        # the same ownership rule `can_work_on_created_otk_act()` enforces.
         self.assert_recipients(Notification.EventType.ACT_RETURNED_TO_OTK, ['notify_otk'])
+
+        # An author who is no longer an eligible ОТК employee would strand the
+        # act, so the rework falls back to ОТК at large.
+        former = self.create_user('former_otk', UserProfile.Role.OTK, email='former@example.test')
+        orphaned = self.create_act('KO_REVIEW', created_by=former)
+        former.is_active = False
+        former.save(update_fields=['is_active'])
+        return_to_otk(orphaned, self.ko, 'Автор недоступен.')
+        self.assertSetEqual(
+            set(
+                Notification.objects.filter(
+                    event_type=Notification.EventType.ACT_RETURNED_TO_OTK,
+                    related_act=orphaned,
+                ).values_list('recipient__username', flat=True)
+            ),
+            {'notify_otk', 'notify_otk_second'},
+        )
 
         returned_ko = self.create_act('TO_ANALYSIS')
         return_to_ko(returned_ko, self.to, 'Уточнить решение.')
@@ -228,10 +251,12 @@ class NotificationRoutingTests(NotificationTestMixin, TestCase):
             Notification.EventType.ACT_APPROVED,
             ['notify_ko', 'notify_to', 'notify_to_second'],
         )
-        self.assertFalse(
+        # Informational, but still mailed: one delivery per participant.
+        self.assertEqual(
             NotificationDelivery.objects.filter(
                 notification__event_type=Notification.EventType.ACT_APPROVED,
-            ).exists()
+            ).count(),
+            3,
         )
 
         comment_act = self.create_act('KO_REVIEW')
@@ -763,9 +788,9 @@ class NotificationSourceTests(NotificationTestMixin, TestCase):
         self.assertEqual(first.related_label, 'Открыть протокол')
         # An approval queue task is not work: it adds no assignment notification.
         self.assertEqual(self._of(Notification.EventType.PROTOCOL_TASK_ASSIGNED), [])
-        # In-app only — no protocol event is email-eligible.
-        self.assertFalse(
-            NotificationDelivery.objects.filter(notification__in=required).exists()
+        # Protocol approval is a required action, so it is mailed too.
+        self.assertEqual(
+            NotificationDelivery.objects.filter(notification__in=required).count(), 2
         )
         # Repeating the service for the same round changes nothing.
         approval = ProtocolApproval.objects.get(protocol=protocol, user=self.ko)
@@ -835,3 +860,144 @@ class NotificationSourceTests(NotificationTestMixin, TestCase):
                 event_type=Notification.EventType.PROTOCOL_APPROVED,
             ).exists()
         )
+
+
+@override_settings(
+    EMAIL_NOTIFICATIONS_ENABLED=True,
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    APP_BASE_URL='https://quality.example.test',
+    DEFAULT_FROM_EMAIL='quality@example.test',
+)
+class GenericNotificationEmailTests(NotificationTestMixin, TestCase):
+    """One email worker for all three sources.
+
+    The regression this guards is the renderer's old assumption that every
+    email notification has a `related_act`: a protocol or task notification
+    would raise on `notification.related_act.number` and the delivery would
+    fail forever. Each case therefore renders a real notification produced by
+    its own workflow and checks the link it points at.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.quality = ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE)
+        # Seeded by the department migration in most databases.
+        cls.pdo_department, _ = Department.objects.get_or_create(
+            code='PDO', defaults={'name': 'ПДО'}
+        )
+        cls.pdo = cls.create_user('notify_pdo', UserProfile.Role.KO, email='pdo@example.test')
+        cls.pdo.userprofile.department = cls.pdo_department
+        cls.pdo.userprofile.save(update_fields=['department'])
+        for user in (cls.otk, cls.ko, cls.to):
+            user.userprofile.department = cls.department
+            user.userprofile.position = 'Специалист'
+            user.userprofile.save(update_fields=['department', 'position'])
+
+    def send_one(self, **filters):
+        """Process the single delivery matching `filters` and return its email."""
+        delivery = NotificationDelivery.objects.get(**filters)
+        self.assertEqual(process_delivery(delivery.pk), NotificationDelivery.Status.SENT)
+        return mail.outbox[-1]
+
+    def test_act_protocol_and_task_notifications_all_render_and_link_to_their_source(self):
+        # ACT — unchanged behaviour, still keyed on the act number and link.
+        act = self.create_act()
+        send_to_ko(act, self.otk)
+        message = self.send_one(
+            notification__event_type=Notification.EventType.ACT_SENT_TO_KO,
+            notification__recipient=self.ko,
+        )
+        self.assertIn(act.number, message.subject)
+        self.assertIn(f'https://quality.example.test/quality/acts/{act.pk}/', message.body)
+
+        # PROTOCOL — no `related_act` at all, and a protocol link.
+        protocol = create_protocol(self.quality, self.otk)
+        add_participant(
+            protocol, self.ko, department=self.department,
+            requires_approval=True, display_order=1,
+        )
+        ProtocolAgendaItem.objects.create(protocol=protocol, text='Вопрос', display_order=0)
+        add_speech(protocol, protocol.participants.get(user=self.otk), 'Доложил.')
+        action = ProtocolAction.objects.create(
+            protocol=protocol, task_text='Проверить оснастку',
+            department=self.department,
+            due_date=timezone.localdate() + timedelta(days=7),
+            display_order=0,
+        )
+        ProtocolActionAssignee.objects.create(action=action, user=self.to)
+        send_protocol_for_approval(protocol, self.otk)
+        protocol.refresh_from_db()
+
+        approval_notification = Notification.objects.get(
+            event_type=Notification.EventType.PROTOCOL_APPROVAL_REQUIRED,
+            recipient=self.ko,
+        )
+        self.assertIsNone(approval_notification.related_act_id)
+        message = self.send_one(notification=approval_notification)
+        self.assertIn(f'Протокол Качество №{protocol.number}', message.body)
+        self.assertIn(f'https://quality.example.test/quality/protocols/{protocol.pk}/', message.body)
+        self.assertIn('Открыть протокол', message.body)
+
+        # TASK — the generated protocol task, named as a task and linked to it.
+        approve_protocol(protocol, self.ko)
+        approve_protocol(protocol, self.to)
+        task = Task.objects.get(source_type=Task.SourceType.PROTOCOL_ACTION)
+        task_notification = Notification.objects.get(
+            event_type=Notification.EventType.PROTOCOL_TASK_ASSIGNED,
+            recipient=self.to,
+        )
+        self.assertIsNone(task_notification.related_act_id)
+        message = self.send_one(notification=task_notification)
+        self.assertIn(f'Задача №{task.pk}', message.body)
+        self.assertIn(f'Протокол Качество №{protocol.number}', message.body)
+        self.assertIn(f'https://quality.example.test/quality/tasks/{task.pk}/', message.body)
+        self.assertIn(task.due_date.strftime('%d.%m.%Y'), message.body)
+        # The stored source code is never what the recipient reads.
+        self.assertNotIn('PROTOCOL_ACTION', message.body)
+
+    def test_rejection_task_notifies_every_pdo_recipient_once_and_only_when_created(self):
+        second_pdo = self.create_user('notify_pdo_second', UserProfile.Role.TO, email='pdo2@example.test')
+        second_pdo.userprofile.department = self.pdo_department
+        second_pdo.userprofile.save(update_fields=['department'])
+        act = self.create_act('KO_REVIEW', order_number='42', due_date=timezone.localdate())
+        defect = ActDefect.objects.create(
+            act=act,
+            workshop=ActDefect.Workshop.MP_SHOP,
+            defect_type=self.defect_type,
+            description='Описание дефекта.',
+            detected_at=timezone.localdate(),
+            nonconforming_quantity=3,
+            znp_number='7',
+            party_number='9',
+        )
+
+        apply_ko_decision(act, self.ko, [(defect, Act.KoDecision.PROHIBIT_USE, 'Запрет.')])
+
+        task = Task.objects.get(source_type=Task.SourceType.ACT_REJECTION, act=act)
+        assigned = Notification.objects.filter(
+            event_type=Notification.EventType.ACT_REJECTION_ASSIGNED,
+        )
+        self.assertSetEqual(
+            set(assigned.values_list('recipient__username', flat=True)),
+            {'notify_pdo', 'notify_pdo_second'},
+        )
+        for notification in assigned:
+            self.assertEqual(notification.source_type, Notification.SourceType.TASK)
+            self.assertEqual(notification.related_task, task)
+            self.assertIsNone(notification.related_act_id)
+            self.assertEqual(notification.deliveries.count(), 1)
+
+        # Идемпотентность: the task already exists, so a repeated call creates
+        # neither a second task nor a second notification.
+        self.assertIsNone(
+            ensure_act_rejection_task(act, [defect], created_by=self.ko)
+        )
+        self.assertEqual(Task.objects.filter(source_type=Task.SourceType.ACT_REJECTION).count(), 1)
+        self.assertEqual(assigned.count(), 2)
+
+        message = self.send_one(notification=assigned.order_by('pk').first())
+        self.assertIn(f'Задача №{task.pk}', message.body)
+        self.assertIn(f'Брак по акту {act.number}', message.body)
+        self.assertIn(f'https://quality.example.test/quality/tasks/{task.pk}/', message.body)
+        self.assertNotIn('ACT_REJECTION', message.body)

@@ -6,11 +6,15 @@
         <tr><td style="padding:24px">
             <h1 style="margin:0 0 20px;font-size:22px;color:#183b73">{{ notification_title }}</h1>
             <p><strong>Событие:</strong> {{ event_name }}</p>
-            <p><strong>Акт:</strong> {{ act_number }}</p>
+            <p><strong>{{ source_type_label }}:</strong> {{ source_label }}</p>
+            {% if source_context %}<p><strong>Основание:</strong> {{ source_context }}</p>{% endif %}
+            <p>{{ notification_message }}</p>
+            {% if due_date %}<p><strong>Срок выполнения:</strong> {{ due_date|date:"d.m.Y" }}</p>{% endif %}
+            {% if requires_attachment %}<p><strong>Вложение:</strong> для завершения задачи требуется вложение.</p>{% endif %}
             <p><strong>Требуемое действие:</strong> {{ required_action }}</p>
             <p><strong>Инициатор:</strong> {{ actor_name }}</p>
             <p><strong>Дата:</strong> {{ event_date|date:"d.m.Y H:i" }}</p>
-            <p style="margin:24px 0"><a href="{{ act_url }}" style="padding:10px 16px;border-radius:6px;background:#2459a9;color:#fff;text-decoration:none">Открыть акт</a></p>
+            <p style="margin:24px 0"><a href="{{ source_url }}" style="padding:10px 16px;border-radius:6px;background:#2459a9;color:#fff;text-decoration:none">{{ open_label }}</a></p>
             <p style="margin:20px 0 0;color:#64748b;font-size:13px">Для просмотра требуется вход в систему. Письмо не содержит производственных подробностей, комментариев или вложений.</p>
         </td></tr>
     </table>

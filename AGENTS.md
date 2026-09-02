@@ -132,7 +132,11 @@ tasks never live inside `acts`.
   `can_contribute_to_act()`, `can_edit_act()`, `can_send_to_ko()` and the `my`
   queryset, and `_move_act_workflow_task()` routes the `OTK_REWORK` entry the
   same way, so whoever receives the task may act on it; it never widens access
-  while the author is still there.
+  while the author is still there. Notification routing follows the same two
+  rules and imports `creator_is_eligible_otk()` rather than restating them:
+  `ACT_SENT_TO_OTK` (final `OTK_REVIEW`) goes to **all** active ОТК employees,
+  and `ACT_RETURNED_TO_OTK` (`KO → CREATED_OTK`) to the creator alone while
+  they are still eligible, falling back to ОТК at large when they are not.
   Manager and administrator behaviour is unchanged, and the UI reads the
   same helpers through `get_available_act_actions()`. Global read access never grants comments, uploads, workflow
   actions or editing; editing remains limited to authorised `CREATED_OTK` acts.
@@ -422,7 +426,7 @@ tasks never live inside `acts`.
   add the constraint. Never recreate notifications or their `NotificationDelivery`
   rows — read state, `read_at`, deduplication keys and delivery state are live
   production data.
-- **Protocol notifications are in-app only, and one per business fact.**
+- **Protocol notifications are one per business fact.**
   `notify_protocol_approval_required()` (one per `ProtocolApproval`, keyed on
   its pk, so a new revision notifies again), `notify_protocol_returned()` and
   `notify_protocol_approved()` (the author, keyed on protocol + revision) are
@@ -435,12 +439,65 @@ tasks never live inside `acts`.
   one, and `notify_protocol_task_assigned()` refuses any task that is not
   `PROTOCOL_ACTION`. `notify_protocol_approved()` uses `exclude_actor=False` on
   purpose: a protocol nobody had to approve is archived by its own author.
-- **No protocol email.** The protocol event types are deliberately absent from
-  `EMAIL_ELIGIBLE_EVENTS`, so no `NotificationDelivery` is ever created for
-  them; act email behaviour is unchanged. `notification.created` carries
-  identifiers only — recipient, actor, `source_type`, the nullable
-  act/protocol/task ids and the event type — and never protocol text, a return
-  comment, a task description, a name or an address.
+- **The email matrix is a fixed list of business facts, not "every
+  notification".** `EMAIL_ELIGIBLE_EVENTS` in `notifications/services.py` is the
+  single authority for which events also leave the application by mail:
+
+  | source | email | in-app only |
+  | --- | --- | --- |
+  | act | `ACT_SENT_TO_KO`, `ACT_SENT_TO_TO`, `ACT_SENT_TO_OTK`, `ACT_RETURNED_TO_OTK`, `ACT_RETURNED_TO_KO`, `ACT_RETURNED_TO_TO`, `ACTION_ASSIGNED`, `ACT_APPROVED` | `COMMENT_ADDED` |
+  | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
+  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED` | — |
+
+  `COMMENT_ADDED` stays out on purpose: comments are frequent, carry no
+  required action of their own and would turn the mailbox into noise.
+  `ACT_APPROVED` is informational — its required action is «дополнительных
+  действий не требуется», and the link still opens the act.
+- **One renderer serves `ACT`, `PROTOCOL` and `TASK`.** `_send_email()` builds a
+  single normalized context through `notifications.services` —
+  `describe_notification_source()`, `get_required_action()`,
+  `get_notification_url(absolute=True)`, `get_notification_open_label()` — and
+  never dereferences `related_act`. One SMTP worker, one template pair
+  (`notifications/email/notification.{txt,html}`), no per-domain copy. A task
+  email names «Задача №<pk>» plus what it came from («Брак по акту …»,
+  «Протокол …»), its due date and whether an attachment is required; the stored
+  source codes (`ACT_REJECTION`, `PROTOCOL_ACTION`) are never user-facing text.
+- **Routing tasks never produce a second email.** `ACT_WORKFLOW` and
+  `PROTOCOL_APPROVAL` rows create no notification at all — the act transition
+  and `PROTOCOL_APPROVAL_REQUIRED` already tell the same person the same thing.
+  Likewise a corrective action sends `ACTION_ASSIGNED` and *not* an additional
+  generic "вам назначена задача". One meaningful email per assignment event.
+  Email is driven by intentional `Notification` events, never by a generic
+  "task created" signal.
+- **`ACT_REJECTION` notifies ПДО once.** `ensure_act_rejection_task()` calls
+  `notify_act_rejection_task_assigned()` only on the one invocation that really
+  creates the task, so its two idempotency guards (the existence check and
+  `unique_act_rejection_task`) also guarantee exactly one notification per
+  assigned ПДО employee. It is `TASK`-sourced, keyed on `task:<pk>`, uses
+  `exclude_actor=False` — a КО employee may work in ПДО and must still get
+  their own work item — and is email-eligible.
+- **`send_welcome_email <username|ALL>` is an administrative command, not a
+  business event.** It mails initial onboarding credentials (login = password =
+  username) through the same configured backend, creates no `Notification` and
+  no `NotificationDelivery`, and refuses to run while
+  `EMAIL_NOTIFICATIONS_ENABLED=false`. It sends only after
+  `user.check_password(user.username)` confirms the initial password is still
+  in force — a changed password is skipped, never guessed — and `ALL` sends one
+  personalized message per active user, never a shared BCC. Failures are
+  reported through `sanitize_error()`; passwords, bodies and SMTP credentials
+  never reach stdout or the log.
+- **SMTP stays provider-independent.** `EMAIL_BACKEND`, `EMAIL_HOST`,
+  `EMAIL_PORT`, `EMAIL_USE_TLS`/`EMAIL_USE_SSL`, `EMAIL_HOST_USER`,
+  `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL`, `EMAIL_TIMEOUT` and the queue
+  settings come from the environment alone. Never hard-code a provider's host
+  or credentials in settings or code; production picks its relay through
+  `.env`. `ecosystem/checks.py` validates the *structure* of that configuration
+  when email is enabled and never opens an SMTP connection during startup or a
+  readiness check — connectivity is an explicit operational smoke test.
+- **`notification.created` carries identifiers only** — recipient, actor,
+  `source_type`, the nullable act/protocol/task ids and the event type — and
+  never protocol text, a return comment, a task description, a name or an
+  address.
 - **The protocol lifecycle is `DRAFT → APPROVAL → REVISION → ARCHIVED`, and
   every transition lives in `protocols/services.py` under the protocol row
   lock.** Submission is author-only and opens a *new* revision with a full

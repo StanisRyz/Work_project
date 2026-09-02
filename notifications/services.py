@@ -59,8 +59,16 @@ SOURCE_ROUTES = {
     Notification.SourceType.TASK: ('tasks:detail', 'Открыть задачу'),
 }
 
-# Email stays exactly as it was: act events only. Protocol events are in-app
-# for now, and adding one here would start creating deliveries for them.
+# Which events also leave the application by email. The list is deliberately
+# a list of *business facts a person has to act on or wants to know about* —
+# not of every notification. `COMMENT_ADDED` is the one act event kept out on
+# purpose: comments are frequent, they carry no required action of their own,
+# and mailing each one turns the mailbox into noise nobody reads.
+#
+# Routing tasks (`ACT_WORKFLOW`, `PROTOCOL_APPROVAL`) appear nowhere here
+# because they produce no notification at all — their domain event already
+# tells the same person the same thing, and a second mail for the queue entry
+# would be a duplicate.
 EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.ACT_SENT_TO_KO,
     Notification.EventType.ACT_SENT_TO_TO,
@@ -69,6 +77,12 @@ EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.ACT_RETURNED_TO_KO,
     Notification.EventType.ACT_RETURNED_TO_TO,
     Notification.EventType.ACTION_ASSIGNED,
+    Notification.EventType.ACT_APPROVED,
+    Notification.EventType.PROTOCOL_APPROVAL_REQUIRED,
+    Notification.EventType.PROTOCOL_RETURNED_FOR_REVISION,
+    Notification.EventType.PROTOCOL_APPROVED,
+    Notification.EventType.PROTOCOL_TASK_ASSIGNED,
+    Notification.EventType.ACT_REJECTION_ASSIGNED,
 }
 
 
@@ -186,6 +200,30 @@ def notify_protocol_task_assigned(task, actor, assignees):
         raise ValueError('Уведомление о назначении создаётся только для задачи по протоколу.')
     return create_notifications(
         event_type=Notification.EventType.PROTOCOL_TASK_ASSIGNED,
+        task=task,
+        actor=actor,
+        recipients=assignees,
+        source_key=f'task:{task.pk}',
+        exclude_actor=False,
+    )
+
+
+def notify_act_rejection_task_assigned(task, actor, assignees):
+    """Tell every ПДО employee assigned the rejection task that it now exists.
+
+    Task-sourced, keyed on the task itself, so the idempotent
+    `ensure_act_rejection_task()` — which only reaches this call the one time
+    it really creates the task — can never hand the same person a second
+    notification. `exclude_actor=False` because the КО employee who applied the
+    decision may themselves work in ПДО, and their own work item must still
+    reach them.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.ACT_REJECTION:
+        raise ValueError('Уведомление о браке создаётся только для задачи ПДО по браку.')
+    return create_notifications(
+        event_type=Notification.EventType.ACT_REJECTION_ASSIGNED,
         task=task,
         actor=actor,
         recipients=assignees,
@@ -355,6 +393,63 @@ def get_notification_open_label(notification):
     return SOURCE_ROUTES[notification.source_type][1]
 
 
+def describe_notification_source(notification):
+    """A user-facing description of *what* a notification is about.
+
+    One dict for all three source types, so the email renderer needs no
+    `source_type` conditional of its own and never dereferences a relation
+    belonging to another type:
+
+    - `label` — the identifier a person recognises: «Акт 12-25»,
+      «Протокол Качество №3», «Задача №7». Never a source code such as
+      `ACT_REJECTION`, and never a raw database id presented as a name.
+    - `context` — for a task, what it came from («Брак по акту 12-25»,
+      «Протокол Качество №3»); empty for act and protocol sources, whose
+      label already says everything.
+    - `due_date` / `requires_attachment` — task facts worth putting in an
+      assignment email, and `None`/`False` everywhere else.
+    """
+    source = get_notification_source(notification)
+    if notification.source_type == Notification.SourceType.ACT:
+        return {
+            'label': f'Акт {source.number}',
+            'context': '',
+            'due_date': None,
+            'requires_attachment': False,
+        }
+    if notification.source_type == Notification.SourceType.PROTOCOL:
+        return {
+            'label': f'Протокол {_protocol_label(source)}',
+            'context': '',
+            'due_date': None,
+            'requires_attachment': False,
+        }
+    return {
+        'label': f'Задача №{source.pk}',
+        'context': _task_source_context(source),
+        'due_date': source.due_date,
+        'requires_attachment': bool(source.requires_attachment),
+    }
+
+
+def _task_source_context(task):
+    """Where a task came from, in the plant's own words.
+
+    Branching is on `source_type`, like everywhere else, and the wording is the
+    business one — «Брак по акту …», not the `ACT_REJECTION` code the column
+    stores.
+    """
+    from tasks.models import Task
+
+    if task.source_type == Task.SourceType.ACT_REJECTION and task.act_id:
+        return f'Брак по акту {task.act.number}'
+    if task.protocol_id:
+        return f'Протокол {_protocol_label(task.protocol)}'
+    if task.act_id:
+        return f'Акт {task.act.number}'
+    return ''
+
+
 def _create_email_delivery(notification):
     if not getattr(settings, 'EMAIL_NOTIFICATIONS_ENABLED', False):
         status = NotificationDelivery.Status.SKIPPED
@@ -378,13 +473,34 @@ def _recipients_for_event(event_type, act):
         return _active_users_for_role(UserProfile.Role.KO)
     if event_type in {Notification.EventType.ACT_SENT_TO_TO, Notification.EventType.ACT_RETURNED_TO_TO}:
         return _active_users_for_role(UserProfile.Role.TO)
-    if event_type in {Notification.EventType.ACT_SENT_TO_OTK, Notification.EventType.ACT_RETURNED_TO_OTK}:
-        return [act.created_by]
+    if event_type == Notification.EventType.ACT_SENT_TO_OTK:
+        # `OTK_REVIEW` is the department's queue, not the author's: any active
+        # ОТК employee may review and approve the act, so all of them are told.
+        return _active_users_for_role(UserProfile.Role.OTK)
+    if event_type == Notification.EventType.ACT_RETURNED_TO_OTK:
+        return _returned_otk_recipients(act)
     if event_type == Notification.EventType.ACT_RETURNED_TO_KO:
         return _active_users_for_role(UserProfile.Role.KO)
     if event_type == Notification.EventType.ACT_APPROVED:
         return get_act_participants(act)
     return []
+
+
+def _returned_otk_recipients(act):
+    """Who is told a `KO -> CREATED_OTK` rework landed back in ОТК.
+
+    The same ownership rule `acts.permissions.can_work_on_created_otk_act()`
+    enforces and `acts/services._move_act_workflow_task()` routes the
+    `OTK_REWORK` queue entry by — imported rather than restated, so the person
+    who is notified is exactly the person who may act. Its author while the
+    author is still an eligible active ОТК employee, and ОТК at large once
+    they are not, so a returned act is never left with nobody to fix it.
+    """
+    from acts.permissions import creator_is_eligible_otk
+
+    if creator_is_eligible_otk(act):
+        return [act.created_by]
+    return _active_users_for_role(UserProfile.Role.OTK)
 
 
 def _active_users_for_role(role):
@@ -453,6 +569,19 @@ def _protocol_event_text(event_type, protocol):
 
 
 def _task_event_text(event_type, task):
+    """Text for a task-sourced notification, without assuming a protocol.
+
+    Two source types reach this — a protocol decision and a ПДО rejection —
+    and only the first has a protocol to name. Each branch reads its own
+    source relation, so neither can dereference the other's NULL.
+    """
+    if event_type == Notification.EventType.ACT_REJECTION_ASSIGNED:
+        number = task.act.number
+        return NotificationText(
+            f'Назначена задача ПДО по браку (акт {number})',
+            f'Вы назначены исполнителем задачи ПДО по браку, выявленному актом {number}.',
+            'Откройте задачу, спланируйте замену забракованной продукции и выполните её в срок.',
+        )
     label = _protocol_label(task.protocol)
     return {
         Notification.EventType.PROTOCOL_TASK_ASSIGNED: NotificationText(

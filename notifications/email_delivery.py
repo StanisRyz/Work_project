@@ -13,7 +13,12 @@ from django.utils import timezone
 from ecosystem.logging_utils import log_event
 
 from .models import NotificationDelivery
-from .services import get_notification_url, get_required_action
+from .services import (
+    describe_notification_source,
+    get_notification_open_label,
+    get_notification_url,
+    get_required_action,
+)
 
 
 logger = logging.getLogger('notifications.email')
@@ -24,6 +29,19 @@ PERMANENT_SMTP_EXCEPTIONS = (
     smtplib.SMTPSenderRefused,
     smtplib.SMTPNotSupportedError,
     BadHeaderError,
+)
+
+# Every source relation a rendered email may read, LEFT JOINed in one query.
+# Selecting a relation the notification does not have costs nothing, and
+# listing them all is what keeps the renderer free of per-source queries —
+# including a task's own origin, which its email names.
+DELIVERY_SELECT_RELATED = (
+    'notification__recipient',
+    'notification__actor',
+    'notification__related_act',
+    'notification__related_protocol__protocol_type',
+    'notification__related_task__act',
+    'notification__related_task__protocol__protocol_type',
 )
 
 
@@ -79,7 +97,7 @@ def process_delivery(delivery_id):
 def _process_delivery(delivery_id):
     delivery = (
         NotificationDelivery.objects
-        .select_related('notification__recipient', 'notification__actor', 'notification__related_act')
+        .select_related(*DELIVERY_SELECT_RELATED)
         .get(pk=delivery_id)
     )
     if delivery.status != NotificationDelivery.Status.PENDING:
@@ -183,18 +201,30 @@ def _process_delivery(delivery_id):
 
 
 def _send_email(notification):
-    act_url = get_notification_url(notification, absolute=True)
+    """One normalized context for act, protocol and task notifications alike.
+
+    The source is described through `notifications.services`, so nothing here
+    knows which relation a given source type stores and no branch dereferences
+    another type's NULL. Exactly one email worker serves all three domains.
+    """
+    source = describe_notification_source(notification)
     actor_name = 'Система'
     if notification.actor:
         actor_name = notification.actor.get_full_name() or notification.actor.get_username()
     context = {
         'notification_title': notification.title,
         'event_name': notification.get_event_type_display(),
-        'act_number': notification.related_act.number,
+        'source_type_label': notification.get_source_type_display(),
+        'source_label': source['label'],
+        'source_context': source['context'],
+        'notification_message': notification.message,
+        'due_date': source['due_date'],
+        'requires_attachment': source['requires_attachment'],
         'required_action': get_required_action(notification),
         'actor_name': actor_name,
         'event_date': timezone.localtime(notification.created_at),
-        'act_url': act_url,
+        'source_url': get_notification_url(notification, absolute=True),
+        'open_label': get_notification_open_label(notification),
     }
     subject = f'[Экосистема качества] {notification.title}'
     text_body = render_to_string('notifications/email/notification.txt', context)
@@ -219,7 +249,7 @@ def _record_failure(delivery_id, attempt_number, exc, *, notification=None):
     updates = {
         'status': status,
         'started_at': None,
-        'last_error': _sanitize_error(exc),
+        'last_error': sanitize_error(exc),
         'updated_at': now,
     }
     if can_retry:
@@ -265,7 +295,12 @@ def _is_retryable(exc):
     return isinstance(exc, (OSError, TimeoutError, smtplib.SMTPException))
 
 
-def _sanitize_error(exc):
+def sanitize_error(exc):
+    """An error line safe to store or print: the type plus a scrubbed message.
+
+    Public because the administrative welcome-email command reports SMTP
+    failures to an operator and must scrub them exactly the same way.
+    """
     message = re.sub(r'[\r\n\t]+', ' ', str(exc)).strip()
     for secret in (settings.EMAIL_HOST_PASSWORD, settings.EMAIL_HOST_USER):
         if secret:
