@@ -15,8 +15,8 @@ from django.urls import reverse
 
 from accounts.models import UserProfile
 
-from .models import Document, DocumentFolder
-from .services import DEFAULT_FOLDERS, ensure_default_folders
+from .models import CORPORATE_FOLDER_CODE, Document, DocumentFolder
+from .services import DEFAULT_FOLDERS, ensure_default_folders, get_corporate_root
 
 
 # Uploads go to a throwaway directory: a test must never write into the real
@@ -45,7 +45,9 @@ class DocumentAccessTests(TestCase):
 
     def setUp(self):
         self.user = _make_user('reader', UserProfile.Role.OTK)
-        self.folder = DocumentFolder.objects.create(name='Инструкции ОТК')
+        self.folder = DocumentFolder.objects.create(
+            name='Инструкции ОТК', parent=get_corporate_root()
+        )
         self.document = Document.objects.create(
             folder=self.folder,
             file=_sample_file(),
@@ -106,8 +108,13 @@ class DocumentAdminOperationTests(TestCase):
         self.client.force_login(self.admin)
 
     def test_admin_manages_corporate_documents(self):
-        self.client.post(reverse('documents:folder_create'), {'name': 'Производство'})
+        corporate = get_corporate_root()
+        self.client.post(
+            reverse('documents:subfolder_create', args=[corporate.pk]),
+            {'name': 'Производство'},
+        )
         folder = DocumentFolder.objects.get(name='Производство')
+        self.assertEqual(folder.parent, corporate)
         self.assertEqual(folder.created_by, self.admin)
 
         self.client.post(
@@ -122,7 +129,7 @@ class DocumentAdminOperationTests(TestCase):
         self.assertFalse(Document.objects.filter(pk=document.pk).exists())
 
     def test_executable_upload_is_refused(self):
-        folder = DocumentFolder.objects.create(name='Обмен')
+        folder = DocumentFolder.objects.create(name='Обмен', parent=get_corporate_root())
         response = self.client.post(
             reverse('documents:document_upload', args=[folder.pk]),
             {'file': SimpleUploadedFile('setup.exe', b'MZ', content_type='application/octet-stream')},
@@ -136,12 +143,22 @@ class DefaultFolderTests(TestCase):
     """The initial structure exists after migration and is never duplicated."""
 
     def test_default_folders_exist_once(self):
-        expected = {name for _code, name in DEFAULT_FOLDERS}
+        corporate = get_corporate_root()
+        self.assertIsNotNone(corporate)
+        self.assertIsNone(corporate.parent)
         self.assertEqual(
-            set(DocumentFolder.objects.filter(is_system=True).values_list('name', flat=True)),
-            expected,
+            set(DocumentFolder.objects.filter(parent=corporate).values_list('name', flat=True)),
+            {name for _code, name in DEFAULT_FOLDERS},
+        )
+        # «Корпоративные документы» is the only folder at the root: the other
+        # branch, «Вложения», is generated and has no row.
+        self.assertEqual(
+            list(DocumentFolder.objects.filter(parent__isnull=True).values_list('code', flat=True)),
+            [CORPORATE_FOLDER_CODE],
         )
         # Running the setup again — a re-applied migration, a deploy check —
         # must add nothing.
         self.assertEqual(ensure_default_folders(), [])
-        self.assertEqual(DocumentFolder.objects.filter(is_system=True).count(), len(DEFAULT_FOLDERS))
+        self.assertEqual(
+            DocumentFolder.objects.filter(is_system=True).count(), len(DEFAULT_FOLDERS) + 1
+        )

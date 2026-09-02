@@ -17,7 +17,13 @@ from django.db import transaction
 
 from ecosystem.logging_utils import log_event
 
-from .models import MAX_FOLDER_DEPTH, Document, DocumentFolder
+from .models import (
+    CORPORATE_FOLDER_CODE,
+    CORPORATE_FOLDER_NAME,
+    MAX_FOLDER_DEPTH,
+    Document,
+    DocumentFolder,
+)
 from .permissions import (
     can_create_folder,
     can_delete_document,
@@ -41,9 +47,10 @@ class DocumentError(Exception):
 
 # The folders the project ships with, addressed by `code` so the data
 # migration is idempotent: re-running it finds the same five rows and can
-# never produce a second «Инструкции». They sit at the top level — directly
-# under the «Документация» browse root — which is what leaves room for the
-# future «Вложения» branch beside them.
+# never produce a second «Инструкции». They live inside «Корпоративные
+# документы», the one writable branch of the library; the other branch,
+# «Вложения», is generated from the source attachment tables and is not
+# stored here at all.
 DEFAULT_FOLDERS = (
     ('instructions', 'Инструкции'),
     ('notes', 'Служебные записки'),
@@ -53,20 +60,32 @@ DEFAULT_FOLDERS = (
 )
 
 
-def ensure_default_folders(folder_model=None):
-    """Create the initial folders if they are missing. Safe to run repeatedly.
+def get_corporate_root(folder_model=None):
+    """The «Корпоративные документы» folder, or None before it is created."""
+    model = folder_model or DocumentFolder
+    return model.objects.filter(code=CORPORATE_FOLDER_CODE).first()
 
-    `folder_model` lets the data migration pass its historical model; ordinary
+
+def ensure_default_folders(folder_model=None):
+    """Create the initial structure if it is missing. Safe to run repeatedly.
+
+    `folder_model` lets a data migration pass its historical model; ordinary
     callers (a deploy check, a test) pass nothing and get the real one.
     Matching on `code` and not on `name` is what makes a second run a no-op
     even after somebody has renamed a folder in Admin.
     """
     model = folder_model or DocumentFolder
     created = []
+    corporate, was_created = model.objects.get_or_create(
+        code=CORPORATE_FOLDER_CODE,
+        defaults={'name': CORPORATE_FOLDER_NAME, 'parent': None, 'is_system': True},
+    )
+    if was_created:
+        created.append(corporate)
     for code, name in DEFAULT_FOLDERS:
         folder, was_created = model.objects.get_or_create(
             code=code,
-            defaults={'name': name, 'parent': None, 'is_system': True},
+            defaults={'name': name, 'parent': corporate, 'is_system': True},
         )
         if was_created:
             created.append(folder)
@@ -82,6 +101,13 @@ def create_folder(parent, name, user):
     """Create a subfolder of `parent`, or a top-level one when it is None."""
     if not can_create_folder(parent, user):
         raise DocumentError('Недостаточно прав для создания папки.')
+    if parent is None:
+        # The root holds exactly «Корпоративные документы» and «Вложения»;
+        # both are system-defined, and neither is created from the page.
+        raise DocumentError(
+            'В корне документации новые папки не создаются — откройте '
+            '«Корпоративные документы».'
+        )
     clean_name = (name or '').strip()
     if not clean_name:
         raise DocumentError('Укажите название папки.')

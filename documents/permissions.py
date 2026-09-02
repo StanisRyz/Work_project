@@ -75,6 +75,42 @@ def can_view_folder(folder, user):
     return can_view_documents(user)
 
 
+# ---------------------------------------------------------------------------
+# The «Вложения» branch
+#
+# Act, protocol and task attachments are shown here through the read-only
+# references in `documents/references.py`. Documentation is a *view* of them:
+# the file, its name and its lifetime belong to the act, protocol or task that
+# owns it, and the quality history that records it. Changing one from this
+# module would edit another domain's record behind its own workflow's back.
+#
+# So there is no manager exemption and no superuser exemption — the answer is
+# False for everybody, permanently, and `can_manage_documents()` is not
+# consulted at all. Whoever needs to remove such a file does it where it was
+# uploaded, where the owning app writes its history event.
+# ---------------------------------------------------------------------------
+
+
+def can_view_system_attachments(user):
+    """Browsing «Вложения» follows browsing the library: any authenticated user.
+
+    *Which* attachments are then listed is not decided here — every source
+    adapter asks the owning app for the records that user may read, so an act
+    invisible in `acts` is invisible here too.
+    """
+    return can_view_documents(user)
+
+
+def can_modify_system_attachments(user):
+    """Always False. Upload, rename, replace, move and delete, for every role.
+
+    A function and not an inline `False` so the refusal has one name, one
+    place, and one docstring saying why — and so a future stage that wants to
+    argue with the rule has to change it here, in the open.
+    """
+    return False
+
+
 def can_download_document(document, user):
     return can_view_documents(user)
 

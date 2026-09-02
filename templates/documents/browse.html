@@ -4,7 +4,7 @@
 {% block title %}Документация - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-1">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-2">
 {% endblock %}
 
 {% block content %}
@@ -63,10 +63,10 @@ hiding a button is presentation, not permission.
     {% endif %}
 </div>
 
-{% if can_manage %}
+{% if can_create_here %}
 <section class="doc-tools" aria-label="Управление документацией">
     <form class="doc-tools__form" method="post"
-          action="{% if folder %}{% url 'documents:subfolder_create' folder.pk %}{% else %}{% url 'documents:folder_create' %}{% endif %}">
+          action="{% url 'documents:subfolder_create' folder.pk %}">
         {% csrf_token %}
         <label class="doc-tools__field">
             <span>Новая папка</span>
@@ -95,13 +95,32 @@ hiding a button is presentation, not permission.
 </section>
 {% endif %}
 
-{% if subfolders or documents %}
+{% if subfolders or documents or system_entry %}
 <section class="table-card doc-card">
     <table class="data-table doc-table">
         <thead>
             <tr><th>Название</th><th>Размер</th><th>Обновлено</th><th class="doc-table__actions-head">Действия</th></tr>
         </thead>
         <tbody>
+        {% comment %}
+        The «Вложения» branch, at the root only. It is generated from the act,
+        protocol and task attachment tables and has no folder row, so it is
+        rendered here rather than coming out of `subfolders` — and it carries
+        no management controls, because nothing in it is editable by anyone.
+        {% endcomment %}
+        {% if system_entry %}
+            <tr>
+                <td>
+                    <a class="table-link doc-entry" href="{{ system_entry.url }}">
+                        <span class="doc-entry__icon" aria-hidden="true">🔒</span>{{ system_entry.name }}
+                    </a>
+                    <span class="doc-entry__source">{{ system_entry.description }}</span>
+                </td>
+                <td class="doc-table__muted">—</td>
+                <td class="doc-table__muted">—</td>
+                <td class="doc-table__actions"></td>
+            </tr>
+        {% endif %}
         {% for subfolder in subfolders %}
             <tr>
                 <td>

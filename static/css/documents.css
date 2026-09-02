@@ -153,3 +153,52 @@
         align-items: stretch;
     }
 }
+
+/*
+ * System attachments.
+ *
+ * The same table, told apart by two additions and nothing else: the 🔒 icon
+ * in the name cell (in the markup, not here) and the source line under it.
+ * No second palette and no separate card style — a system file must read as
+ * part of the same browser, only clearly not editable.
+ */
+
+.doc-system-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.doc-system-note {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-muted);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+/* «Источник: Акт №123» — what the file actually belongs to. */
+.doc-entry__source {
+    display: block;
+    margin-top: 4px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.doc-entry__source a {
+    color: var(--color-primary-dark);
+    font-weight: 600;
+}
+
+.doc-entry__source a:hover {
+    text-decoration: underline;
+}

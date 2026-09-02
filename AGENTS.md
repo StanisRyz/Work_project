@@ -26,7 +26,7 @@ model without explicit approval.
 | `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
-| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree) and `Document` (files under `media/documents/library/`), the file browser, and every mutation in `documents/services.py` |
+| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree) and `Document` (files under `media/documents/library/`) for corporate documents, the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the file browser, and every mutation in `documents/services.py` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -967,14 +967,14 @@ tasks never live inside `acts`.
   (`file`, `name`, `folder`, `original_name`, `file_size`, `content_type`,
   `uploaded_by`, timestamps). Never `UserFile` or `UploadedFile`: the same
   tables are meant to carry the future attachments branch.
-- **«Документация» is not a row.** It is the browse root; the initial folders
+- **«Документация» is not a row.** It is the browse root, and it holds exactly
+  two branches: «Корпоративные документы» (a system folder, `code='corporate'`)
+  and «Вложения» (generated, no rows at all). Nothing else may be created at
+  the root — `create_folder()` refuses `parent=None`. The initial folders
   («Инструкции», «Служебные записки», «Нормативные документы», «Обучение»,
-  «Шаблоны») sit at `parent = NULL` and are created by
-  `documents/migrations/0002_default_folders.py` through
+  «Шаблоны») live inside «Корпоративные документы» and are created by
   `ensure_default_folders()`, which matches on `code` and is therefore
-  idempotent. That is what leaves room for the planned sibling branch
-  «Вложения» (Акты / Протоколы / Задачи) — **not implemented in this stage**,
-  and nothing here may block it.
+  idempotent.
 - **Storage is its own tree.** `media/documents/library/<folder_id>/<uuid>.<ext>`,
   untouched by and untouching `acts/attachments/`, `protocols/attachments/` and
   task attachments. The stored path carries no user text; files are served only
@@ -992,6 +992,39 @@ tasks never live inside `acts`.
   first, then an allowlist, then 25 MB. Own policy, not
   `ecosystem/attachments.py` — an act attachment and a library document are
   different things and must not drift into one set.
+
+#### Corporate documents vs system attachments
+
+- **Corporate documents** are the library's own rows and are writable by a
+  document manager. Everything above applies to them.
+- **System attachments** («Вложения» → Акты / Протоколы / Задачи) are act,
+  protocol and task files shown through `documents/references.py`.
+  `DocumentReference` is a **frozen dataclass, not a table**: it is built per
+  request from `ActAttachment` / `ProtocolAttachment` / `TaskAttachment`, so
+  Documentation never holds a second copy of a file, a second row describing
+  it, or a `DocumentFolder` for it. Never add a mirror table — a stored copy
+  would have to be synchronised with three other apps and would drift on the
+  first missed hook. The generated folders are views, not `DocumentFolder`
+  rows.
+- **Never re-implement another module's rules.** One `AttachmentSource`
+  subclass per module answers four questions — readable records, record label,
+  record link, download rule — and each delegates: `acts`
+  `get_all_visible_acts_queryset()` / `can_download_attachment()`, `protocols`
+  `get_readable_protocols_queryset()` / `can_download_protocol_attachment()`,
+  `tasks` `get_readable_tasks_queryset()` / `can_download_task_attachment()`.
+  A record invisible in the owning module is invisible here in the same
+  request. Adding a fourth source is a subclass plus a `SOURCES` entry.
+- **System attachments are immutable from Documentation, for everybody.**
+  `can_modify_system_attachments()` returns False unconditionally —
+  administrators and superusers included, and `can_manage_documents()` is not
+  consulted. Upload-, delete- and rename-shaped URLs under `system/` are
+  registered onto `system_readonly`, which answers 403 on GET and POST alike,
+  so a direct attempt is refused rather than 404'd. A file is changed where it
+  was uploaded, so the owning workflow writes its history event. Do not add an
+  exemption; a stage that wants one changes that single function in the open.
+- The reference carries a stable `(source, attachment_id)` identity and a
+  `created_at`, which is the interface a later search index, version chain,
+  audit entry or approval flow attaches to. None of those is implemented.
 
 ## Security and permissions
 

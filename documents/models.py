@@ -37,6 +37,14 @@ MAX_FOLDER_DEPTH = 10
 # What the breadcrumb shows before the first real folder.
 ROOT_FOLDER_LABEL = 'Документация'
 
+# The two branches directly under that root. «Корпоративные документы» is a
+# real (system) folder and holds everything users upload; «Вложения» is not a
+# row at all — it is generated from the act, protocol and task attachment
+# tables by `documents/references.py`. Nothing may be created at the root
+# beside them.
+CORPORATE_FOLDER_CODE = 'corporate'
+CORPORATE_FOLDER_NAME = 'Корпоративные документы'
+
 
 class DocumentFolder(models.Model):
     """One directory in the library, nested through a self-reference.
