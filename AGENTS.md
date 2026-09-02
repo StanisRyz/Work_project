@@ -26,7 +26,7 @@ model without explicit approval.
 | `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
-| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
+| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` + `DocumentFavorite` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -1064,11 +1064,40 @@ tasks never live inside `acts`.
   `created_at`, which is the interface a later version chain, audit entry or
   approval flow attaches to. None of those is implemented.
 
+#### Archive conveniences
+
+- **One card for every file.** `documents/cards.py` owns `DocumentCard` (a
+  frozen dataclass, not a table) and the two builders — `corporate_card()` from
+  a `Document` + its current version, `reference_card()` from a
+  `DocumentReference`. `templates/documents/includes/document_card.html` renders
+  it in folder listings, search results, «Избранное» and «Недавние документы».
+  Its only branch is `is_readonly`; never add a per-source rendering path.
+  `file_icon()` picks the emoji (PDF/Word/Excel/image/text), and a system
+  attachment always shows 🔒 — read-only matters more than the file type.
+- **`DocumentFavorite` is a private join row** (`user`, `document`, unique
+  together). Starring is a personal bookmark, not a permission:
+  `can_favorite_document()` is «may read the library». `build_favorite_documents()`
+  filters on `request.user` with no parameter that could widen it, and
+  `DocumentFavorite.ids_for()` resolves a whole listing in one query. Corporate
+  documents only — a system attachment has no `Document` row to point at.
+- **«Недавние документы» means recently *uploaded/updated*.** There is no
+  per-user access log and none is to be added for a shortcut block; ordering is
+  `Document.updated_at`, which `add_document_version()` touches.
+- **Folder deletion refuses non-empty folders.** `delete_folder()` checks the
+  whole subtree and raises `DocumentError` if it holds any document or any
+  subfolder. This is an archive: removing a folder must never be a way to
+  destroy documents and their version history in one click. System folders are
+  still undeletable, and «Вложения» is not a folder at all.
+- `build_archive_statistics()` is three aggregate queries behind
+  `can_view_archive_statistics()` (manager-only): folder/document/version
+  counts, total stored bytes, last update. Not a dashboard, not stored.
+
 #### Search (`documents/search/`)
 
-- **A package, in dependency order:** `types.py` (`SearchResult` and the scope
-  constants, no queries) → `services.py` (what matches, and what is recent) →
-  `selectors.py` (what the page renders). `documents/search/__init__.py`
+- **A package, in dependency order:** `types.py` (the scope constants;
+  `SearchResult` is an alias of `documents.cards.DocumentCard`) →
+  `services.py` (what matches, and what is recent) → `selectors.py` (what the
+  page renders). `documents/search/__init__.py`
   re-exports the public names; import from `documents.search`, never from a
   submodule. `documents/selectors.py` is separate and belongs to the *browser*
   — breadcrumbs and «Недавние документы» — so a search backend change cannot

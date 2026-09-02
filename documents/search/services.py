@@ -21,23 +21,18 @@ each source's `search()`, and keeps both.
 """
 
 from django.db.models import Q
-from django.urls import reverse
 
-from documents.models import ROOT_FOLDER_LABEL, Document
+from documents.cards import corporate_card, reference_card
+from documents.models import ROOT_FOLDER_LABEL, Document, DocumentFavorite
 from documents.permissions import can_view_documents, can_view_system_attachments
 from documents.references import SOURCES
 
 from .types import (
-    DOCUMENT_TYPE_LABELS,
-    KIND_CORPORATE,
-    KIND_SYSTEM,
     MIN_QUERY_LENGTH,
     RESULT_LIMIT,
     SCOPE_ALL,
-    SCOPE_CORPORATE,
     SEARCH_SCOPES,
     SEARCH_SCOPE_VALUES,
-    SearchResult,
 )
 
 
@@ -46,54 +41,11 @@ def _folder_path(folder):
     return ' / '.join([ROOT_FOLDER_LABEL, *(entry.name for entry in folder.breadcrumbs())])
 
 
-def _corporate_result(document):
-    # A document always has a current version — `upload_document()` creates
-    # both together — but a row whose version was somehow removed still has to
-    # render, so the card degrades to «no download» rather than raising.
-    version = document.current_version
-    return SearchResult(
-        kind=KIND_CORPORATE,
-        scope=SCOPE_CORPORATE,
-        document_type=DOCUMENT_TYPE_LABELS[KIND_CORPORATE],
-        source_label='Корпоративные документы',
-        title=document.name,
+def _corporate_result(document, favorite_ids):
+    return corporate_card(
+        document,
         path=_folder_path(document.folder),
-        size=version.file_size if version is not None else 0,
-        # When the *current version* was uploaded, not when the document row
-        # was created: a card says how fresh the file is.
-        created_at=version.uploaded_at if version is not None else document.uploaded_at,
-        version_label=version.label if version is not None else '',
-        open_url=reverse('documents:document_detail', args=[document.pk]),
-        open_label=document.name,
-        open_action_label='Открыть документ',
-        download_url=(
-            reverse('documents:document_download', args=[document.pk])
-            if version is not None
-            else ''
-        ),
-        can_download=version is not None,
-        is_readonly=False,
-    )
-
-
-def _system_result(source, reference):
-    return SearchResult(
-        kind=KIND_SYSTEM,
-        scope=source.slug,
-        document_type=DOCUMENT_TYPE_LABELS[KIND_SYSTEM],
-        source_label=source.label,
-        title=reference.name,
-        path=f'Вложения / {source.label} / {reference.object_label}',
-        size=reference.size,
-        created_at=reference.created_at,
-        # System attachments have no versions, by design.
-        version_label='',
-        open_url=reference.object_url,
-        open_label=reference.object_label,
-        open_action_label='Открыть источник',
-        download_url=reference.download_url,
-        can_download=True,
-        is_readonly=True,
+        is_favorite=document.pk in favorite_ids,
     )
 
 
@@ -116,7 +68,9 @@ def _search_corporate(user, query, limit):
         | Q(versions__original_name__icontains=query)
         | Q(folder__name__icontains=query)
     ).distinct().order_by('name', 'pk')[:limit]
-    return [_corporate_result(document) for document in documents]
+    documents = list(documents)
+    favorites = DocumentFavorite.ids_for(user, documents)
+    return [_corporate_result(document, favorites) for document in documents]
 
 
 def normalise_query(raw):
@@ -149,7 +103,7 @@ def search_documents(user, query, limit=RESULT_LIMIT):
     if can_view_system_attachments(user):
         for source in SOURCES.values():
             results.extend(
-                _system_result(source, reference)
+                reference_card(source, reference)
                 for reference in source.search(user, query, limit=limit)
             )
     return results
@@ -186,12 +140,13 @@ def recent_documents(user, limit=5):
     if can_view_documents(user):
         # `updated_at` and not `uploaded_at`: `add_document_version()` touches
         # it, so a document that just received a new revision counts as recent.
-        documents = _corporate_queryset().order_by('-updated_at', '-pk')[:limit]
-        results.extend(_corporate_result(document) for document in documents)
+        documents = list(_corporate_queryset().order_by('-updated_at', '-pk')[:limit])
+        favorites = DocumentFavorite.ids_for(user, documents)
+        results.extend(_corporate_result(document, favorites) for document in documents)
     if can_view_system_attachments(user):
         for source in SOURCES.values():
             results.extend(
-                _system_result(source, reference)
+                reference_card(source, reference)
                 for reference in source.recent(user, limit=limit)
             )
     # One merged list, newest first. A row with no timestamp sorts last rather

@@ -4,7 +4,7 @@
 {% block title %}{{ document.name }} - Документация{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-5">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-6">
 {% endblock %}
 
 {% block content %}
@@ -32,6 +32,15 @@ act, protocol and task files, carry no versions and are never editable.
     </div>
     <div class="doc-toolbar__side">
         {% include 'documents/includes/search_form.html' %}
+        {% if can_favorite %}
+            {# The viewer's own shortcut — private, and visible to nobody else. #}
+            <form method="post" action="{% url 'documents:favorite_toggle' document.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.path }}">
+                <button class="link-button link-button--secondary link-button--compact" type="submit"
+                        aria-pressed="{% if is_favorite %}true{% else %}false{% endif %}">{% if is_favorite %}★ В избранном{% else %}☆ В избранное{% endif %}</button>
+            </form>
+        {% endif %}
         {% if current_version %}
             <a class="link-button link-button--compact" href="{% url 'documents:document_download' document.pk %}">Скачать текущую</a>
         {% endif %}

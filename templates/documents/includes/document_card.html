@@ -1,0 +1,51 @@
+{% comment %}
+The one card every file in Documentation is rendered from — folder listings,
+search results, «Избранное» and «Недавние документы» alike.
+
+There is deliberately no per-source rendering path: `documents/cards.py`
+flattens both a `Document` and a `DocumentReference` into a `DocumentCard`, so
+the only branch here is `card.is_readonly`, which decides whether the location
+reads as a source record and whether the read-only marker is drawn. The icon,
+the version label and whether a download is offered are decided there too.
+
+Expects `card`. Optional `card_next` — a path the favourite toggle returns to.
+{% endcomment %}
+<article class="doc-result{% if card.is_readonly %} doc-result--system{% endif %}">
+    <div class="doc-result__head">
+        <a class="doc-result__name" href="{{ card.open_url }}">
+            <span class="doc-entry__icon" aria-hidden="true">{{ card.icon }}</span>{{ card.title }}
+        </a>
+        <div class="doc-result__marks">
+            {% if card.version_label %}<span class="doc-version-badge">{{ card.version_label }}</span>{% endif %}
+            <span class="doc-result__tag">{{ card.document_type }}</span>
+            {% if card.favorite_url and user.is_authenticated %}
+                {# A personal shortcut: this star reflects the viewer's own row and nobody else's. #}
+                <form class="doc-favorite" method="post" action="{{ card.favorite_url }}">
+                    {% csrf_token %}
+                    {% if card_next %}<input type="hidden" name="next" value="{{ card_next }}">{% endif %}
+                    <button class="doc-favorite__button{% if card.is_favorite %} doc-favorite__button--on{% endif %}"
+                            type="submit"
+                            title="{% if card.is_favorite %}Убрать из избранного{% else %}Добавить в избранное{% endif %}"
+                            aria-pressed="{% if card.is_favorite %}true{% else %}false{% endif %}"
+                            aria-label="{% if card.is_favorite %}Убрать «{{ card.title }}» из избранного{% else %}Добавить «{{ card.title }}» в избранное{% endif %}">{% if card.is_favorite %}★{% else %}☆{% endif %}</button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+    {# The path already reads as the location, so the meta line adds only what it does not say. #}
+    <p class="doc-result__path">{{ card.path }}</p>
+    <div class="doc-result__meta">
+        {% if card.is_readonly %}
+            <span>{{ card.source_label }}: <a href="{{ card.open_url }}">{{ card.open_label }}</a></span>
+            <span class="doc-result__readonly">Только чтение</span>
+        {% endif %}
+        <span>{{ card.size|filesizeformat }}</span>
+        <span>{{ card.created_at|date:'d.m.Y H:i' }}</span>
+    </div>
+    <div class="doc-result__actions">
+        {% if card.can_download %}
+            <a class="link-button link-button--secondary link-button--compact" href="{{ card.download_url }}">Скачать</a>
+        {% endif %}
+        <a class="link-button link-button--secondary link-button--compact" href="{{ card.open_url }}">{{ card.open_action_label }}</a>
+    </div>
+</article>

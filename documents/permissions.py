@@ -177,6 +177,24 @@ def can_add_document_version(document, user):
     return can_manage_documents(user)
 
 
+def can_favorite_document(document, user):
+    """Starring a document is a personal bookmark, not a permission.
+
+    Anyone who may read the library may keep their own shortcuts to it — the
+    row is private to the user and changes nothing anybody else can see. It is
+    stated here anyway so the rule has a name and a place to become stricter.
+
+    System attachments are absent from this by construction: they have no
+    `Document` row, so there is nothing to star.
+    """
+    return can_view_documents(user)
+
+
+def can_view_archive_statistics(user):
+    """The folder/file/size counters — an operational detail, for managers."""
+    return can_manage_documents(user)
+
+
 def can_restore_document_version(document, user):
     """Making an earlier revision current again — a management action.
 

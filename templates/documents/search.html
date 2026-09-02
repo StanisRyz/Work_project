@@ -4,7 +4,7 @@
 {% block title %}Поиск по документации{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-5">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-6">
 {% endblock %}
 
 {% block content %}
@@ -41,7 +41,7 @@ where it lives.
     {% if results %}
         <p class="doc-search__summary">Найдено: {{ results|length }} из {{ total_count }} по запросу «{{ query }}».</p>
         <section class="doc-results" aria-label="Результаты поиска">
-            {% for result in results %}{% include 'documents/includes/result_card.html' %}{% endfor %}
+            {% for card in results %}{% include 'documents/includes/document_card.html' %}{% endfor %}
         </section>
     {% else %}
         {% include 'acts/includes/empty_state.html' with title='Ничего не найдено' message='Попробуйте другой запрос или снимите фильтр.' %}

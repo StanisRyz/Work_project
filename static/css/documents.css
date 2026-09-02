@@ -491,3 +491,57 @@
 .doc-history__text {
     color: var(--color-muted);
 }
+
+/* Favourites, statistics and the card marks --------------------------------
+ *
+ * The star is a one-button form so it posts with CSRF like every other
+ * mutation in the project; it is styled as a plain glyph, not a link-button,
+ * so a row of cards does not read as a row of toolbars.
+ */
+
+.doc-result__marks {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.doc-favorite {
+    display: inline-flex;
+    margin: 0;
+}
+
+.doc-favorite__button {
+    padding: 2px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.doc-favorite__button:hover {
+    background: #f4f7fc;
+    color: var(--color-primary-dark);
+}
+
+.doc-favorite__button--on {
+    color: #d97706;
+}
+
+.doc-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    margin-bottom: 20px;
+    padding: 14px 18px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.doc-stats > div {
+    display: grid;
+    gap: 2px;
+}

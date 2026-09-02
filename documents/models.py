@@ -328,6 +328,67 @@ class DocumentVersion(models.Model):
         return parts[1].lower() if len(parts) == 2 else ''
 
 
+class DocumentFavorite(models.Model):
+    """One user's shortcut to one corporate document. Private to that user.
+
+    A join row and nothing more: no name, no order, no sharing. Two people
+    starring the same document get two independent rows, and neither can see
+    or affect the other's — the uniqueness is per `(user, document)`, so the
+    table cannot express «everybody's favourite» even by accident.
+
+    Corporate documents only. A system attachment has no `Document` row to
+    point at, which is exactly why it cannot be favourited: the shortcut would
+    have to name a file this module does not own.
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='document_favorites',
+        verbose_name='Пользователь',
+    )
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name='favorites',
+        verbose_name='Документ',
+    )
+    created_at = models.DateTimeField('Добавлен', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-pk']
+        verbose_name = 'Избранный документ'
+        verbose_name_plural = 'Избранные документы'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'document'],
+                name='documents_favorite_unique_per_user',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.user}: {self.document}'
+
+    @staticmethod
+    def ids_for(user, documents):
+        """Which of `documents` this user has starred, as a set of ids.
+
+        One query for a whole listing instead of one per card, and an empty
+        set for an anonymous user — a card then simply renders without the
+        star, which is what an unauthenticated viewer should see.
+        """
+        if not getattr(user, 'is_authenticated', False):
+            return frozenset()
+        ids = [document.pk for document in documents]
+        if not ids:
+            return frozenset()
+        return frozenset(
+            DocumentFavorite.objects.filter(user=user, document_id__in=ids).values_list(
+                'document_id', flat=True
+            )
+        )
+
+
 class DocumentHistoryEvent(models.Model):
     """What happened to a corporate document, in one small append-only table.
 

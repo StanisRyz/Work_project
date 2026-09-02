@@ -29,6 +29,12 @@ urlpatterns = [
     path('files/<int:document_id>/', views.document_detail, name='document_detail'),
     path('files/<int:document_id>/download/', views.document_download, name='document_download'),
     path('files/<int:document_id>/delete/', views.document_delete, name='document_delete'),
+    # A personal shortcut, private to whoever posts it.
+    path(
+        'files/<int:document_id>/favorite/',
+        views.favorite_toggle,
+        name='favorite_toggle',
+    ),
     path(
         'files/<int:document_id>/versions/add/',
         views.document_version_add,

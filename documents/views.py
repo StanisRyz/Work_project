@@ -41,16 +41,25 @@ from .permissions import (
     can_download_document,
     can_download_document_version,
     can_manage_documents,
+    can_favorite_document,
     can_modify_system_attachments,
     can_rename_folder,
     can_restore_document_version,
+    can_view_archive_statistics,
     can_view_document_history,
     can_view_documents,
     can_view_system_attachments,
 )
 from .references import SOURCES, SYSTEM_AREA_LABEL, get_source
 from .search import build_search_state
-from .selectors import build_breadcrumbs, build_document_breadcrumbs, build_recent_documents
+from .selectors import (
+    build_archive_statistics,
+    build_breadcrumbs,
+    build_document_breadcrumbs,
+    build_document_cards,
+    build_favorite_documents,
+    build_recent_documents,
+)
 from .services import (
     DocumentError,
     add_document_version,
@@ -59,6 +68,7 @@ from .services import (
     delete_folder,
     rename_folder,
     restore_document_version,
+    toggle_document_favorite,
     upload_document,
 )
 
@@ -101,16 +111,18 @@ def browse(request, folder_id=None):
     )
     # The root is a label, not a row, so nothing can be stored directly in it:
     # every document belongs to a real folder.
-    documents = (
-        list(
+    document_cards = []
+    if folder is not None:
+        document_cards = build_document_cards(
             Document.objects.filter(folder=folder)
             .select_related('uploaded_by')
             .prefetch_related(Document.current_version_prefetch())
-            .order_by('name', 'pk')
+            .order_by('name', 'pk'),
+            request.user,
+            # Every document in a folder shares its location, so the path is
+            # built once rather than per card.
+            path=' / '.join([ROOT_FOLDER_LABEL, *(entry.name for entry in folder.breadcrumbs())]),
         )
-        if folder is not None
-        else []
-    )
 
     can_manage = can_manage_documents(request.user)
     context = {
@@ -121,7 +133,7 @@ def browse(request, folder_id=None):
         'parent_url': _browse_url(folder.parent) if folder is not None else None,
         'breadcrumbs': build_breadcrumbs(folder),
         'subfolders': subfolders,
-        'documents': documents,
+        'documents': document_cards,
         'can_manage': can_manage,
         'can_rename_current': folder is not None and can_rename_folder(folder, request.user),
         'can_delete_current': folder is not None and can_delete_folder(folder, request.user),
@@ -140,9 +152,15 @@ def browse(request, folder_id=None):
             if folder is None and can_view_system_attachments(request.user)
             else None
         ),
-        # A shortcut into the newest files, root page only: deeper levels
-        # already show the folder's own listing.
+        # Personal shortcuts, root page only: deeper levels already show the
+        # folder's own listing. Favourites are this user's and nobody else's.
+        'favorite_documents': build_favorite_documents(request.user) if folder is None else [],
         'recent_documents': build_recent_documents(request.user) if folder is None else [],
+        'archive_statistics': (
+            build_archive_statistics()
+            if folder is None and can_view_archive_statistics(request.user)
+            else None
+        ),
         'folder_form': FolderForm(),
         'upload_form': DocumentUploadForm(),
     }
@@ -368,11 +386,61 @@ def document_detail(request, document_id):
             else []
         ),
         'can_manage': can_manage,
+        'can_favorite': can_favorite_document(document, request.user),
+        'is_favorite': (
+            document.favorites.filter(user=request.user).exists()
+            if request.user.is_authenticated
+            else False
+        ),
         'can_restore': can_restore_document_version(document, request.user),
         'can_delete': can_delete_document(document, request.user),
         'version_form': DocumentVersionForm(),
     }
     return render(request, 'documents/document.html', context)
+
+
+@login_required
+def favorite_toggle(request, document_id):
+    """Star or unstar one document, for the user who asked.
+
+    Personal state: the row is keyed on `request.user`, so nothing here can
+    change what anybody else sees. Only corporate documents have this — a
+    system attachment has no `Document` row to point at.
+    """
+    document = get_object_or_404(Document.objects.select_related('folder'), pk=document_id)
+    if not can_favorite_document(document, request.user):
+        raise PermissionDenied('Недостаточно прав для работы с избранным.')
+
+    fallback = reverse('documents:document_detail', args=[document.pk])
+    if request.method != 'POST':
+        return redirect(fallback)
+    try:
+        is_favorite = toggle_document_favorite(document, request.user)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+        return redirect(fallback)
+
+    messages.success(
+        request,
+        'Документ добавлен в избранное.' if is_favorite else 'Документ убран из избранного.',
+    )
+    # Back to the page the star was clicked on, when it is one of ours: a
+    # favourite is toggled from the folder listing and from the root just as
+    # often as from the document page.
+    return redirect(_safe_next(request, fallback))
+
+
+def _safe_next(request, fallback):
+    """The posted `next`, but only when it is a path inside this site.
+
+    An absolute or scheme-relative value is discarded: a redirect target that
+    came from a form is user input, and following it off-site would turn this
+    endpoint into an open redirect.
+    """
+    target = (request.POST.get('next') or '').strip()
+    if target.startswith('/') and not target.startswith('//'):
+        return target
+    return fallback
 
 
 @login_required

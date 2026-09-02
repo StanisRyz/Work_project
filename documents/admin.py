@@ -12,7 +12,13 @@ from django.contrib import admin
 
 from ecosystem.admin import ReadOnlyAdminMixin
 
-from .models import Document, DocumentFolder, DocumentHistoryEvent, DocumentVersion
+from .models import (
+    Document,
+    DocumentFavorite,
+    DocumentFolder,
+    DocumentHistoryEvent,
+    DocumentVersion,
+)
 
 
 @admin.register(DocumentFolder)
@@ -59,3 +65,18 @@ class DocumentHistoryEventAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     search_fields = ('document_name', 'description')
     ordering = ('-created_at',)
     list_select_related = ('document', 'user')
+
+
+@admin.register(DocumentFavorite)
+class DocumentFavoriteAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """Personal shortcuts, visible here for support only.
+
+    Read-only like everything else that is written through a service: a
+    favourite belongs to the user who created it, and an administrator adding
+    or removing one from Admin would be changing somebody else's private list.
+    """
+
+    list_display = ('user', 'document', 'created_at')
+    search_fields = ('user__username', 'document__name')
+    ordering = ('-created_at',)
+    list_select_related = ('user', 'document')

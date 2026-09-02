@@ -23,6 +23,7 @@ from .models import (
     CORPORATE_FOLDER_NAME,
     MAX_FOLDER_DEPTH,
     Document,
+    DocumentFavorite,
     DocumentFolder,
     DocumentHistoryEvent,
     DocumentVersion,
@@ -32,6 +33,7 @@ from .permissions import (
     can_create_folder,
     can_delete_document,
     can_delete_folder,
+    can_favorite_document,
     can_rename_folder,
     can_restore_document_version,
     can_upload_document,
@@ -188,33 +190,37 @@ def _subtree_ids(folder):
 
 
 def delete_folder(folder, user):
-    """Delete a folder with everything below it, files included."""
+    """Delete an **empty** folder.
+
+    Deliberately stricter than the FK cascade allows. This module is an
+    archive: removing a folder must never be a way to destroy documents and
+    their version history in one click, so a folder that still holds anything —
+    a subfolder or a document, at any depth — is refused and the administrator
+    is told what is in the way. Emptying it first is an explicit act, document
+    by document, each one recorded in the history.
+    """
     if not can_delete_folder(folder, user):
         raise DocumentError('Эту папку удалить нельзя.')
 
     folder_ids = _subtree_ids(folder)
+    document_count = Document.objects.filter(folder_id__in=folder_ids).count()
+    if document_count:
+        raise DocumentError(
+            'В папке есть документы — удалите или перенесите их, '
+            'прежде чем удалять папку.'
+        )
+    if len(folder_ids) > 1:
+        raise DocumentError('В папке есть вложенные папки — сначала удалите их.')
+
     parent = folder.parent
     with transaction.atomic():
-        documents = list(Document.objects.filter(folder_id__in=folder_ids))
-        versions = list(DocumentVersion.objects.filter(document__in=documents))
-        for version in versions:
-            _delete_stored_file(version)
-        _record_history(
-            [
-                _deletion_event(document, user, 'Папка удалена вместе с документом.')
-                for document in documents
-            ]
-        )
-        # The FK cascade removes the descendant folders, the document rows and
-        # their versions; the history rows survive on a nulled document FK.
         folder.delete()
     log_event(
         logger,
         'INFO',
         'documents.folder_deleted',
         folder_id=folder.pk,
-        folder_count=len(folder_ids),
-        document_count=len(documents),
+        parent_id=parent.pk if parent is not None else None,
         user_id=getattr(user, 'pk', None),
         outcome='ok',
     )
@@ -514,3 +520,44 @@ def delete_document(document, user):
         outcome='ok',
     )
     return folder
+
+
+# ---------------------------------------------------------------------------
+# Favourites
+#
+# A personal shortcut, not a permission and not shared state: a row here says
+# «this user keeps a link to this document» and nothing else. Corporate
+# documents only — a system attachment has no `Document` row to point at.
+# ---------------------------------------------------------------------------
+
+
+def toggle_document_favorite(document, user):
+    """Star or unstar one document for one user. Returns the new state.
+
+    Idempotent in both directions: starring what is already starred and
+    unstarring what is not are both no-ops that report the state truthfully,
+    so a double-submitted form cannot produce a duplicate row or an error.
+    """
+    if not can_favorite_document(document, user):
+        raise DocumentError('Недостаточно прав для работы с избранным.')
+
+    existing = DocumentFavorite.objects.filter(user=user, document=document).first()
+    if existing is not None:
+        existing.delete()
+        is_favorite = False
+    else:
+        # `get_or_create` and not `create`: the unique constraint is the real
+        # guard, and two rapid clicks must not raise at the user.
+        DocumentFavorite.objects.get_or_create(user=user, document=document)
+        is_favorite = True
+
+    log_event(
+        logger,
+        'INFO',
+        'documents.favorite_toggled',
+        document_id=document.pk,
+        user_id=getattr(user, 'pk', None),
+        is_favorite=is_favorite,
+        outcome='ok',
+    )
+    return is_favorite
