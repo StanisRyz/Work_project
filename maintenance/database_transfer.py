@@ -90,8 +90,9 @@ MIGRATION_SEEDED_ROWS = {
     'accounts.Department': ('PDO', 'MAS', 'SMK'),
     # acts.0014 / acts.0015 create these two act statuses.
     'references.ActStatus': ('ARCHIVED', 'OTK_REVIEW'),
-    # references.0002 / references.0003 create these two task statuses.
-    'references.TaskStatus': ('COMPLETED', 'IN_PROGRESS'),
+    # references.0002 / references.0003 / references.0004 create these three
+    # task statuses.
+    'references.TaskStatus': ('COMPLETED', 'IN_PROGRESS', 'CANCELLED'),
 }
 
 SHA256_PATTERN = re.compile(r'^[0-9a-f]{64}$')

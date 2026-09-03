@@ -16,7 +16,6 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import include, path, re_path
-from django.views.generic.base import RedirectView
 
 from . import health
 from .legacy_urls import legacy_prefix_alias
@@ -26,7 +25,10 @@ urlpatterns = [
     # able to probe these. Neither reveals anything about the infrastructure.
     path('health/live/', health.health_live, name='health_live'),
     path('health/ready/', health.health_ready, name='health_ready'),
-    path('', RedirectView.as_view(pattern_name='acts:list', permanent=False)),
+    # The landing page. `/` is the dashboard itself rather than a redirect to
+    # a module, and it is where login sends a user with no `?next=`
+    # (`accounts/navigation.py`).
+    path('', include('dashboard.urls')),
 
     # User-facing modules live under a two-level hierarchy that mirrors the
     # navigation: `/quality/<module>/` and `/calculators/<module>/`. New

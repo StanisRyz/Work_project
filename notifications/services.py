@@ -580,12 +580,12 @@ def _protocol_event_text(event_type, protocol):
         Notification.EventType.PROTOCOL_APPROVAL_REQUIRED: NotificationText(
             f'Требуется согласование протокола {label}',
             f'Протокол {label} ожидает вашего согласования.',
-            'Откройте протокол и согласуйте его или верните на доработку.',
+            'Ознакомьтесь с протоколом и согласуйте его или верните на доработку.',
         ),
         Notification.EventType.PROTOCOL_RETURNED_FOR_REVISION: NotificationText(
             f'Протокол {label} возвращён на доработку',
             f'Протокол {label} возвращён на доработку согласующим.',
-            'Откройте протокол, ознакомьтесь с причиной возврата и внесите исправления.',
+            'Ознакомьтесь с протоколом и внесите необходимые исправления.',
         ),
         Notification.EventType.PROTOCOL_APPROVED: NotificationText(
             f'Протокол {label} согласован',
@@ -607,21 +607,21 @@ def _task_event_text(event_type, task):
         return NotificationText(
             f'Назначена задача ПДО по браку (акт {number})',
             f'Вы назначены исполнителем задачи ПДО по браку, выявленному актом {number}.',
-            'Откройте задачу, спланируйте замену забракованной продукции и выполните её в срок.',
+            'Ознакомьтесь с задачей в системе.',
         )
     if event_type == Notification.EventType.SMK_TASK_ASSIGNED:
         label = task.smk_source.label
         return NotificationText(
             f'Назначена задача по записи {label}',
             f'Вы назначены исполнителем корректирующего мероприятия по записи {label}.',
-            'Откройте задачу и выполните мероприятие в указанный срок.',
+            'Ознакомьтесь с задачей в системе',
         )
     label = _protocol_label(task.protocol)
     return {
         Notification.EventType.PROTOCOL_TASK_ASSIGNED: NotificationText(
             f'Назначена задача по протоколу {label}',
             f'Вы назначены исполнителем задачи, созданной по протоколу {label}.',
-            'Откройте задачу и выполните её в указанный срок.',
+            'Ознакомьтесь с задачей в системе',
         ),
     }[event_type]
 
@@ -655,17 +655,17 @@ def _act_event_text(event_type, act):
         Notification.EventType.ACT_RETURNED_TO_OTK: NotificationText(
             f'Акт {number} возвращён в ОТК',
             f'Акт {number} возвращён в ОТК на доработку.',
-            'Откройте акт, ознакомьтесь с комментарием возврата и внесите исправления.',
+            'Ознакомьтесь с комментарием возврата и внесите исправления.',
         ),
         Notification.EventType.ACT_RETURNED_TO_KO: NotificationText(
             f'Акт {number} возвращён в КО',
             f'Акт {number} возвращён в КО на доработку.',
-            'Откройте акт, ознакомьтесь с комментарием возврата и уточните решение.',
+            'Ознакомьтесь с комментарием возврата и уточните решение.',
         ),
         Notification.EventType.ACT_RETURNED_TO_TO: NotificationText(
             f'Акт {number} возвращён в ТО',
             f'Акт {number} возвращён в ТО на доработку.',
-            'Откройте акт, ознакомьтесь с комментарием возврата и уточните анализ.',
+            'Ознакомьтесь с комментарием возврата и уточните анализ.',
         ),
         Notification.EventType.ACTION_ASSIGNED: NotificationText(
             f'Назначено мероприятие по акту {number}',

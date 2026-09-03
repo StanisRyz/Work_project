@@ -1,19 +1,25 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Задача СМК - Единая цифровая экосистема управления качеством{% endblock %}
+{% block title %}{{ page_title }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
 {# The editor reuses the protocol editor's row styling; `smk.css` adds only what is СМК's own. #}
-<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260902-3">
-<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-3">
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260903-1">
+<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-9">
 {% endblock %}
 
 {% block content %}
 {% comment %}
-The whole СМК record in one form, stored by one explicit «Создать задачи».
-There is no draft stage: the record, its findings, its measures and the real
-tasks are written together by `smk.services.create_smk_source()` or not at all.
+The whole СМК record in one form, stored by one explicit submission. There is
+no draft stage: the record, its findings, its measures and the real tasks are
+written together by `smk.services.create_smk_source()` or not at all.
+
+The same page serves the correction of a live record — `editing` is what tells
+them apart. It posts the identical structure to `smk:edit`, where
+`update_smk_source()` cancels the record's current tasks and issues new ones;
+the confirmation dialog says so, because that is the consequence a person has
+to agree to and it is not one the creation step has.
 
 Each block is a `<details>` section with a `[data-row-list]`, a `<template>`
 prototype and a `TOTAL_FORMS` counter — the same shape the protocol editor
@@ -22,14 +28,14 @@ re-checked on the server.
 {% endcomment %}
 <div class="protocol-create-page">
     <header class="protocol-page-header">
-        <a class="act-back-link" href="{% url 'smk:list' %}" aria-label="К списку записей СМК">←</a>
+        <a class="act-back-link" href="{{ back_url }}" aria-label="{{ back_label }}">←</a>
         <div>
-            <h1>Задача СМК</h1>
-            <p>Корректирующие мероприятия по результатам аудита. Каждое мероприятие становится отдельной задачей.</p>
+            <h1>{{ page_title }}</h1>
+            <p>{{ page_lead }}</p>
         </div>
     </header>
 
-    <form class="protocol-editor" method="post" data-smk-form>
+    <form class="protocol-editor" method="post" action="{{ form_action }}" data-smk-form>
         {% csrf_token %}
 
         {% for error in form.non_field_errors %}<p class="field-error protocol-editor__error">{{ error }}</p>{% endfor %}
@@ -110,8 +116,8 @@ re-checked on the server.
         </details>
 
         <div class="protocol-editor__actions">
-            <a class="link-button link-button--secondary" href="{% url 'smk:list' %}">К списку СМК</a>
-            <button class="link-button" type="submit">Создать задачи</button>
+            <a class="link-button link-button--secondary" href="{{ back_url }}">{{ back_label }}</a>
+            <button class="link-button" type="submit">{{ submit_label }}</button>
         </div>
 
         {% comment %}
@@ -127,8 +133,25 @@ re-checked on the server.
         {% endcomment %}
         <dialog class="app-modal" data-smk-confirm aria-labelledby="smk-confirm-title"{% if confirmation %} open{% endif %}>
             <div class="app-modal__form">
-                <h2 id="smk-confirm-title">Подтверждение создания задачи СМК</h2>
-                <p>Проверьте данные — задачи будут созданы сразу после подтверждения.</p>
+                <h2 id="smk-confirm-title">{{ confirm_title }}</h2>
+                {% if editing %}
+                    {% comment %}
+                    The consequences of a correction, spelled out before it is
+                    applied: `update_smk_source()` really does cancel every
+                    live task of the record and issue new ones, and an
+                    исполнитель whose мероприятие did not change is notified
+                    again. Saying it here is what makes the confirmation
+                    informed rather than a formality.
+                    {% endcomment %}
+                    <p>Проверьте данные — изменения будут применены сразу после подтверждения.</p>
+                    <ul class="smk-confirm-warning">
+                        <li>Текущие задачи по этой записи будут <strong>отменены</strong> и останутся в архиве задач.</li>
+                        <li>По актуальным мероприятиям будут созданы <strong>новые задачи</strong> — даже если мероприятие не изменилось.</li>
+                        <li>Все указанные исполнители получат <strong>новые уведомления</strong>.</li>
+                    </ul>
+                {% else %}
+                    <p>Проверьте данные — задачи будут созданы сразу после подтверждения.</p>
+                {% endif %}
                 <dl class="smk-confirm-summary">
                     <dt>Источник</dt>
                     <dd data-smk-confirm-origin>{{ confirmation.origin_label|default:'—' }}</dd>
@@ -148,7 +171,7 @@ re-checked on the server.
                     the no-JavaScript path needs nothing else: pressing it posts
                     the whole form again with `confirmed=1`.
                     {% endcomment %}
-                    <button class="link-button" type="submit" name="{{ confirmation_field }}" value="{{ confirmation_value }}" data-smk-confirm-accept>Создать</button>
+                    <button class="link-button" type="submit" name="{{ confirmation_field }}" value="{{ confirmation_value }}" data-smk-confirm-accept>{{ confirm_accept_label }}</button>
                 </div>
             </div>
         </dialog>

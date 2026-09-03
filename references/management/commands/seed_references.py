@@ -57,6 +57,11 @@ class Command(BaseCommand):
         task_statuses = [
             ('IN_PROGRESS', 'В работе', 10, False),
             ('COMPLETED', 'Выполнено', 20, True),
+            # A task closed without being done: the source document it came
+            # out of was corrected, and the work it asked for was reissued as
+            # a new task. Final, so it leaves «Мои задачи» and stays readable
+            # in «Архив»; never reached by `complete_task()`.
+            ('CANCELLED', 'Отменена', 30, True),
         ]
         priorities = [
             ('LOW', 'Низкий', 10, 'gray'),

@@ -37,7 +37,7 @@ the Django login, never the employee's name.
         {% endcomment %}
         {% if task_source.url %}<div class="task-detail-info-row"><dt>Источник</dt><dd class="user-text"><a class="table-link" href="{{ task_source.url }}">{{ task_source.label }}</a></dd></div>{% endif %}
         <div class="task-detail-info-row"><dt>Подразделение</dt><dd class="user-text">{{ task.department }}</dd></div>
-        <div class="task-detail-info-row"><dt>Срок</dt><dd><span class="{% if task.status.code != 'COMPLETED' and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></dd></div>
+        <div class="task-detail-info-row"><dt>Срок</dt><dd><span class="{% if not task.status.is_final and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></dd></div>
     </section>
 
     <section class="task-detail-assignee-card">
@@ -114,6 +114,18 @@ still completed with the execution comment and nothing attached.
                 <button class="link-button" type="submit">Завершить задачу</button>
             </div>
         </form>
+    {% elif task.is_cancelled %}
+        {% comment %}
+        A cancelled task was never performed, so it has no «Выполнение» to
+        show — what it has is why it was withdrawn. The reason is written by
+        the workflow that cancelled it (today only «запись СМК
+        отредактирована»), and the replacement task is on that document.
+        {% endcomment %}
+        <section class="task-detail-execution-card">
+            <h2>Отмена</h2>
+            <div class="task-comment-block user-text">{{ task.cancellation_reason|linebreaksbr }}</div>
+            <p class="task-completion-meta">Отменил {{ task.cancelled_by|person_name|default:'Система' }}, {{ task.cancelled_at|date:'d.m.Y H:i' }}</p>
+        </section>
     {% elif task.completed_by %}
         <section class="task-detail-execution-card">
             <h2>Выполнение</h2>

@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Главная - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20260903-1">{% endblock %}
+
+{% block content %}
+{% comment %}
+The landing page. Two blocks side by side on a wide screen and stacked on a
+narrow one: «Быстрый доступ» — only the sections this user may open, decided in
+`dashboard/sections.py` — and «Мои задачи», the shortened «Мои» tab of the task
+registry, built from the registry's own queryset and row description.
+
+The icons live in one inline sprite below and are referenced by `<use>`, so a
+card carries an icon *name* and no markup is assembled in Python.
+{% endcomment %}
+<svg class="dashboard-sprite" aria-hidden="true" focusable="false">
+    <symbol id="dash-icon-acts" viewBox="0 0 24 24">
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+        <path d="M14 3v5h5M9 13h6M9 17h4"/>
+    </symbol>
+    <symbol id="dash-icon-protocols" viewBox="0 0 24 24">
+        <path d="M9 4H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/>
+        <path d="M9 3h6v3H9zM9 14h6"/>
+    </symbol>
+    <symbol id="dash-icon-smk" viewBox="0 0 24 24">
+        <path d="M12 3l7 3v5c0 4.4-2.9 8.4-7 10-4.1-1.6-7-5.6-7-10V6z"/>
+        <path d="m9 12 2.2 2.2L15.5 10"/>
+    </symbol>
+    <symbol id="dash-icon-tasks" viewBox="0 0 24 24">
+        <path d="M11 6h9M11 12h9M11 18h9"/>
+        <path d="m4 5 1.5 1.5L8 4M4 11l1.5 1.5L8 10M4 17l1.5 1.5L8 15"/>
+    </symbol>
+    <symbol id="dash-icon-calculator" viewBox="0 0 24 24">
+        <path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>
+        <path d="M8 7h8M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/>
+    </symbol>
+    <symbol id="dash-icon-documents" viewBox="0 0 24 24">
+        <path d="M4 7a2 2 0 0 1 2-2h3.4l2 2.4H18a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/>
+    </symbol>
+</svg>
+
+<section class="dashboard-intro">
+    <h1>Добро пожаловать, {{ user.get_full_name|default:user.username }}!</h1>
+    <p class="dashboard-intro__lead">Быстрый доступ к ключевым разделам системы</p>
+</section>
+
+<div class="dashboard-layout">
+    <section class="dashboard-sections" aria-label="Быстрый доступ">
+        {% for section in quick_access_sections %}
+            <a class="dashboard-card" href="{{ section.url }}">
+                <span class="dashboard-card__icon dashboard-card__icon--{{ section.accent }}" aria-hidden="true">
+                    <svg class="ui-icon"><use href="#dash-icon-{{ section.icon }}"></use></svg>
+                </span>
+                <strong class="dashboard-card__title">{{ section.label }}</strong>
+                <span class="dashboard-card__description">{{ section.description }}</span>
+                <svg class="ui-icon dashboard-card__arrow dashboard-card__arrow--{{ section.accent }}" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </a>
+        {% endfor %}
+    </section>
+
+    {% comment %}
+    «Мои задачи»: the same rows the registry's «Мои» tab renders, the five
+    nearest by deadline. The status is the task's *real* business state — for a
+    protocol approval that is the decision, not the queue's own «Выполнено» —
+    and an overdue row says so instead, in the pill the rest of the application
+    uses for a returned document.
+
+    Three grid rows — heading, list, link — with the list taking the middle
+    `1fr`, so «Перейти ко всем задачам» sits on the bottom edge of the panel and
+    the panel ends level with the card grid beside it.
+    {% endcomment %}
+    <section class="dashboard-tasks table-card" aria-label="Мои задачи">
+        <div class="dashboard-tasks__heading">
+            <h2>Мои задачи</h2>
+            <a class="dashboard-tasks__all" href="{% url 'tasks:list' %}">Перейти ко всем</a>
+        </div>
+        {% if task_rows %}
+            <ul class="dashboard-tasks__list">
+                {% for row in task_rows %}
+                    <li class="dashboard-task">
+                        {% comment %}
+                        Display limits only, from the shared `text.css` helpers:
+                        the задача is cut at two lines and the источник at one,
+                        both carrying the whole value on `title`. Nothing here
+                        shortens what is stored or what «Задачи» shows.
+                        {% endcomment %}
+                        <a class="dashboard-task__text" href="{% url 'tasks:detail' row.task.pk %}">
+                            <strong class="user-text text-clamp-2" title="{{ row.task.task_text }}">{{ row.task.task_text }}</strong>
+                            <span class="user-text text-ellipsis" title="{% if row.source.label %}{{ row.source.label }}{% else %}{{ row.type_label }}{% endif %}">{% if row.source.label %}{{ row.source.label }}{% else %}{{ row.type_label }}{% endif %}</span>
+                        </a>
+                        <span class="dashboard-task__meta">
+                            {% if row.task.due_date < today %}
+                                <span class="approval-status approval-status--returned">Просрочено</span>
+                            {% elif row.state.variant %}
+                                <span class="approval-status approval-status--{{ row.state.variant }}">{{ row.state.label }}</span>
+                            {% else %}
+                                <span class="status-badge status-badge--in_progress">{{ row.state.label }}</span>
+                            {% endif %}
+                            <span class="{% if row.task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ row.task.due_date|date:'d.m.Y' }}</span>
+                        </span>
+                    </li>
+                {% endfor %}
+            </ul>
+            <a class="dashboard-tasks__footer-link" href="{% url 'tasks:list' %}">Перейти ко всем задачам</a>
+        {% else %}
+            <p class="dashboard-tasks__empty">Активных задач нет.</p>
+            <a class="dashboard-tasks__footer-link" href="{% url 'tasks:list' %}">Перейти ко всем задачам</a>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

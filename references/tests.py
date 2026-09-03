@@ -19,7 +19,7 @@ class SeedReferencesCommandTests(TestCase):
         self.assertIn(f'{Priority.objects.count()} priorities', output)
         # The historical bug: the printed task status count did not match the
         # two rows the command actually creates.
-        self.assertIn('2 task statuses', output)
+        self.assertIn('3 task statuses', output)
 
     def test_is_idempotent_and_safe_to_run_twice(self):
         call_command('seed_references', stdout=StringIO())

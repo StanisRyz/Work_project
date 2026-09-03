@@ -13,15 +13,10 @@
 /* ---------------------------------------------------------------- registry */
 
 /* The list of records. Card, table, tabs and badges all come from
-   `components.css`/`acts.css`; only the row-wide link and a minimum width the
-   seven columns need are added here. */
+   `components.css`/`acts.css`, and so does whole-row navigation with its
+   cursor and hover (`[data-row-url]`); only the minimum width the seven
+   columns need is added here. */
 .smk-table { min-width: 820px; }
-.smk-table tbody tr { position: relative; }
-.smk-table tbody tr:hover { background: #f7f9ff; }
-
-/* One click anywhere on the row opens the record; the number stays a real
-   link, so keyboard and «open in new tab» keep working. */
-.smk-row-link::after { content: ''; position: absolute; inset: 0; }
 
 /* ------------------------------------------------------------------ header */
 

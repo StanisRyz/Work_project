@@ -190,6 +190,19 @@ class Task(models.Model):
     )
     completed_at = models.DateTimeField('Завершена', null=True, blank=True)
     execution_comment = models.TextField('Результат выполнения', blank=True)
+    # Why this task was closed without being done, and by whom. Filled only by
+    # `tasks.services.cancel_task()`, which is reached only when the source
+    # document a task came out of was corrected and the work was reissued as a
+    # new task. Deliberately separate from `completed_by`/`completed_at`: a
+    # cancelled task was never performed, and presenting it as one that was
+    # would be a false record. The reason is written by the calling workflow —
+    # it is the sentence a person reads on the task page, not a code.
+    cancelled_at = models.DateTimeField('Отменена', null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        User, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='cancelled_tasks', verbose_name='Отменил',
+    )
+    cancellation_reason = models.TextField('Причина отмены', blank=True)
     # A snapshot, taken from `ProtocolAction.requires_attachment` or
     # `ActCorrectiveAction.requires_attachment` when the task is created, of
     # whether finishing this work needs at least one `TaskAttachment`.
@@ -390,6 +403,16 @@ class Task(models.Model):
     @property
     def is_smk_task(self):
         return self.source_type == self.SourceType.SMK
+
+    @property
+    def is_cancelled(self):
+        """Read off the stored status, never off `cancelled_at`.
+
+        `TaskStatus` is the authority on what a task *is*; the timestamp only
+        says when it got there. Asking the status keeps the page, the registry
+        and the completion guard on one answer.
+        """
+        return self.status_id is not None and self.status.code == 'CANCELLED'
 
     @property
     def is_routing_task(self):

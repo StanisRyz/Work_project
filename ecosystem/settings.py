@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     # The project package itself: no models, only the deployment system checks.
     'ecosystem',
     'accounts',
+    'dashboard',
     'references',
     'acts',
     'tasks',

@@ -28,8 +28,17 @@ from tasks.models import Task
 from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
 
 from .models import SmkHistoryEvent, SmkSource
-from .permissions import can_archive_smk_source, can_create_smk_task
-from .services import SmkWorkflowError, archive_smk_source, create_smk_source
+from .permissions import (
+    can_archive_smk_source,
+    can_create_smk_task,
+    can_edit_smk_source,
+)
+from .services import (
+    SmkWorkflowError,
+    archive_smk_source,
+    create_smk_source,
+    update_smk_source,
+)
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='smk-attachments-'))
@@ -571,6 +580,168 @@ class SmkTests(TestCase):
         self.assertIn(f'https://quality.example.test/quality/tasks/{task.pk}/', message.body)
         # The stored source code is never what the recipient reads.
         self.assertNotIn('SMK_TASK_ASSIGNED', message.body)
+
+
+    # ------------------------------------------------------------------ editing
+
+    def test_only_permitted_roles_edit_and_only_while_the_record_is_live(self):
+        """The button, the page and the service give one answer.
+
+        The three roles that may create a record may correct one, and nobody
+        may correct a shelved one — asked of the permission, of the page and of
+        the service, so a user cannot reach the endpoint by typing its URL.
+        """
+        source = self._source()
+        for user in (self.smk, self.manager, self.admin):
+            self.assertTrue(can_edit_smk_source(source, user), user)
+        self.assertFalse(can_edit_smk_source(source, self.employee))
+
+        # Offered on the record and reachable, prefilled with what is stored.
+        self.client.force_login(self.smk)
+        detail = self.client.get(reverse('smk:detail', args=[source.pk]))
+        self.assertTrue(detail.context['can_edit'])
+        self.assertContains(detail, reverse('smk:edit', args=[source.pk]))
+        page = self.client.get(reverse('smk:edit', args=[source.pk]))
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.context['form'].origin, source.origin)
+        self.assertEqual(
+            [row['text'] for row in page.context['form'].non_conformity_rows],
+            ['Не ведётся журнал поверки'],
+        )
+
+        # Neither offered nor reachable for a regular employee.
+        self.client.force_login(self.employee)
+        detail = self.client.get(reverse('smk:detail', args=[source.pk]))
+        self.assertFalse(detail.context['can_edit'])
+        self.assertEqual(
+            self.client.get(reverse('smk:edit', args=[source.pk])).status_code, 404
+        )
+
+        # And an archived record has no edit page for anybody.
+        archive_smk_source(source, actor=self.smk)
+        source.refresh_from_db()
+        self.assertFalse(can_edit_smk_source(source, self.smk))
+        self.client.force_login(self.smk)
+        self.assertEqual(
+            self.client.get(reverse('smk:edit', args=[source.pk])).status_code, 404
+        )
+        with self.assertRaises(SmkWorkflowError):
+            update_smk_source(
+                source,
+                origin=SmkSource.Origin.EXTERNAL_AUDIT,
+                audit_date=self.audit_date,
+                non_conformities=['Другое несоответствие'],
+                actions=self._actions(),
+                actor=self.smk,
+            )
+
+    def test_editing_cancels_the_old_tasks_and_creates_new_ones(self):
+        """The old task is withdrawn, never rewritten, and stays readable.
+
+        Also the point of the whole design: a *new* task is created even
+        though the measure and its исполнитель are unchanged, because the
+        record was corrected as a whole.
+        """
+        source = self._source()
+        old_task = Task.objects.get(smk_source=source)
+        old_action = old_task.smk_action
+
+        self.client.force_login(self.smk)
+        response = self.client.post(
+            reverse('smk:edit', args=[source.pk]),
+            self._post_data(**{
+                'origin': SmkSource.Origin.EXTERNAL_AUDIT,
+                'nonconformities-0-text': 'Журнал поверки ведётся с ошибками',
+                # Word for word what it already said: an unchanged measure must
+                # still produce a new task.
+                'actions-0-text': 'Завести журнал поверки',
+                'confirmed': '1',
+            }),
+        )
+        self.assertRedirects(response, reverse('smk:detail', args=[source.pk]))
+
+        # The old task is kept, cancelled, and says why.
+        old_task.refresh_from_db()
+        self.assertEqual(old_task.status.code, 'CANCELLED')
+        self.assertTrue(old_task.status.is_final)
+        self.assertIsNotNone(old_task.cancelled_at)
+        self.assertEqual(old_task.cancelled_by, self.smk)
+        self.assertIn(source.label, old_task.cancellation_reason)
+        self.assertIsNone(old_task.completed_by)
+        # Its measure is superseded rather than edited, so the wording the
+        # исполнитель was given is still the wording on the task.
+        old_action.refresh_from_db()
+        self.assertIsNotNone(old_action.superseded_at)
+
+        # And a new task exists, on a new measure, for the same person.
+        new_task = Task.objects.exclude(pk=old_task.pk).get(smk_source=source)
+        self.assertEqual(new_task.status.code, 'IN_PROGRESS')
+        self.assertNotEqual(new_task.smk_action_id, old_action.pk)
+        self.assertEqual(
+            list(new_task.assignees.values_list('user', flat=True)), [self.employee.pk]
+        )
+        source.refresh_from_db()
+        self.assertEqual(source.origin, SmkSource.Origin.EXTERNAL_AUDIT)
+        self.assertEqual(
+            [finding.text for finding in source.current_non_conformities],
+            ['Журнал поверки ведётся с ошибками'],
+        )
+
+        # The correction is one event naming both halves; nothing is deleted.
+        edited = source.history_events.get(
+            event_type=SmkHistoryEvent.EventType.EDITED
+        )
+        self.assertIn(f'№{old_task.pk}', edited.message)
+        self.assertIn(f'№{new_task.pk}', edited.message)
+
+        # The cancelled task is still in the system: on the record and in the
+        # task archive, and out of the active tabs.
+        detail = self.client.get(
+            reverse('smk:detail', args=[source.pk]), {'tab': 'activities'}
+        )
+        self.assertEqual(
+            [task.pk for task in detail.context['cancelled_tasks']], [old_task.pk]
+        )
+        self.client.force_login(self.employee)
+        archive = self.client.get(reverse('tasks:list'), {'tab': 'archive'})
+        self.assertIn(old_task.pk, [row['task'].pk for row in archive.context['rows']])
+        active = self.client.get(reverse('tasks:list'), {'tab': 'my'})
+        self.assertEqual(
+            [row['task'].pk for row in active.context['rows']], [new_task.pk]
+        )
+
+    def test_editing_notifies_every_assignee_again(self):
+        """Through the existing workflow, with no СМК path of its own.
+
+        The исполнитель did not change, so the point is that they are told
+        again: one more `SMK_TASK_ASSIGNED` keyed on the *new* task, with its
+        own delivery in the common email queue.
+        """
+        source = self._source()
+        old_task = Task.objects.get(smk_source=source)
+        Notification.objects.all().delete()
+
+        update_smk_source(
+            source,
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            non_conformities=['Журнал поверки ведётся с ошибками'],
+            actions=self._actions(),
+            actor=self.smk,
+        )
+
+        new_task = Task.objects.exclude(pk=old_task.pk).get(smk_source=source)
+        notification = Notification.objects.get(
+            event_type=Notification.EventType.SMK_TASK_ASSIGNED,
+            recipient=self.employee,
+        )
+        self.assertEqual(notification.related_task, new_task)
+        self.assertEqual(notification.source_type, Notification.SourceType.TASK)
+        self.assertEqual(notification.deliveries.count(), 1)
+        self.assertEqual(
+            get_notification_header_state(self.employee)['items'][0].related_task,
+            new_task,
+        )
 
     # ----------------------------------------------------------- permissions
 

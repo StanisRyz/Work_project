@@ -90,7 +90,7 @@ class DemoAccountCommandTests(TestCase):
 
 
 class LandingRedirectTests(TestCase):
-    """`/quality/acts/` is the working page for every authenticated user, including administrators."""
+    """The dashboard at `/` is where every authenticated user lands, including administrators."""
 
     def _create_user(self, username, role):
         user = User.objects.create_user(username=username, password='demo12345')
@@ -99,7 +99,7 @@ class LandingRedirectTests(TestCase):
         profile.save()
         return user
 
-    def test_login_and_root_send_a_normal_user_to_the_acts_registry(self):
+    def test_login_sends_a_normal_user_to_the_dashboard(self):
         self._create_user('otk_landing', UserProfile.Role.OTK)
 
         response = self.client.post(
@@ -107,10 +107,11 @@ class LandingRedirectTests(TestCase):
             {'username': 'otk_landing', 'password': 'demo12345'},
         )
 
-        self.assertRedirects(response, reverse('acts:list'))
-        self.assertRedirects(self.client.get('/'), reverse('acts:list'))
+        self.assertRedirects(response, reverse('dashboard:home'))
+        # `/` is the dashboard itself now, not a redirect to a module.
+        self.assertEqual(self.client.get('/').status_code, 200)
 
-    def test_an_administrator_also_lands_on_the_acts_registry(self):
+    def test_an_administrator_also_lands_on_the_dashboard(self):
         self._create_user('admin_landing', UserProfile.Role.ADMIN)
 
         response = self.client.post(
@@ -118,7 +119,7 @@ class LandingRedirectTests(TestCase):
             {'username': 'admin_landing', 'password': 'demo12345'},
         )
 
-        self.assertRedirects(response, reverse('acts:list'))
+        self.assertRedirects(response, reverse('dashboard:home'))
 
     def test_login_still_honours_next_for_a_protected_page(self):
         self._create_user('otk_next', UserProfile.Role.OTK)

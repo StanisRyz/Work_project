@@ -7,8 +7,9 @@ counts are annotations, so the table stays one database read however long it
 gets, and the status is derived from those counts rather than stored — a record
 therefore reads the same here as on its own page. Ordering is the model's own
 `-created_at, -pk`, like every other registry in the project; no list here
-offers column sorting. The whole row is a link to the record through `::after`
-in `smk.css`, exactly as the protocol table does it.
+offers column sorting. One click anywhere on the row opens the record —
+`data-row-url` and `static/js/clickable_rows.js`, exactly as every other
+registry does it.
 {% endcomment %}
 {% if sources %}
 <section class="table-card act-table-card">
@@ -16,8 +17,8 @@ in `smk.css`, exactly as the protocol table does it.
         <thead><tr><th>№</th><th>Тип аудита</th><th>Дата аудита</th><th>Создал</th><th>Задач</th><th>Дата создания</th><th>Статус</th></tr></thead>
         <tbody>
         {% for row in sources %}
-            <tr>
-                <td><a class="table-link smk-row-link" href="{% url 'smk:detail' row.source.pk %}">{{ row.source.label }}</a></td>
+            <tr data-row-url="{% url 'smk:detail' row.source.pk %}">
+                <td><a class="table-link" href="{% url 'smk:detail' row.source.pk %}">{{ row.source.label }}</a></td>
                 <td>{{ row.source.get_origin_display }}</td>
                 <td>{{ row.source.audit_date|date:'d.m.Y'|default:'—' }}</td>
                 <td class="user-text">{{ row.source.created_by|person_name }}</td>

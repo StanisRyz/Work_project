@@ -101,6 +101,20 @@ class SmkSource(models.Model):
         is spelled out once and never as a status comparison in markup."""
         return self.status == self.Status.ARCHIVED
 
+    # The record as it reads *now*. Editing does not rewrite the findings and
+    # the measures — it stamps `superseded_at` on the ones that were there and
+    # writes a fresh set — because the tasks the old measures produced are
+    # kept, and a `PROTECT`ed row cannot be deleted out from under them. Every
+    # read side asks these two, so a superseded row can never surface as if it
+    # were still the record.
+    @property
+    def current_non_conformities(self):
+        return self.non_conformities.filter(superseded_at__isnull=True)
+
+    @property
+    def current_actions(self):
+        return self.actions.filter(superseded_at__isnull=True)
+
 
 class SmkHistoryEvent(models.Model):
     """The record's own audit trail, in the shape acts and protocols already use.
@@ -117,10 +131,10 @@ class SmkHistoryEvent(models.Model):
         CREATED = 'CREATED', 'Запись СМК создана'
         TASK_CREATED = 'TASK_CREATED', 'Задача по мероприятию создана'
         ARCHIVED = 'ARCHIVED', 'Запись СМК помещена в архив'
-        # Written by nothing today: the record is immutable by design, and the
-        # only field that moves is `status`, which has its own event above. It
-        # is named here so an edit path, if one is ever added, records the fact
-        # rather than inventing a type for it.
+        # Written by `update_smk_source()`, once per correction, naming both
+        # the tasks it cancelled and the ones it created in their place. The
+        # `TASK_CREATED` events beside it are the new tasks themselves, so the
+        # trail reads as one story rather than two.
         EDITED = 'EDITED', 'Запись СМК отредактирована'
 
     source = models.ForeignKey(
@@ -169,6 +183,10 @@ class SmkNonConformity(models.Model):
     )
     text = models.TextField('Выявленное несоответствие')
     display_order = models.PositiveIntegerField('Порядок отображения', default=0)
+    # When an edit replaced this row. NULL is the record as it reads now; a
+    # timestamp is what it said before a correction. Kept rather than deleted
+    # so a measure superseded alongside it still names the finding it answered.
+    superseded_at = models.DateTimeField('Заменено', null=True, blank=True)
 
     class Meta:
         ordering = ['display_order', 'pk']
@@ -229,6 +247,12 @@ class SmkCorrectiveAction(models.Model):
     # as permissive as it was.
     requires_attachment = models.BooleanField('Обязательно вложение', default=False)
     display_order = models.PositiveIntegerField('Порядок отображения', default=0)
+    # Same meaning as on the finding, and the reason an edit never touches an
+    # existing measure: its task is `PROTECT`ed and stays, so the corrected
+    # wording is a *new* row and this one becomes the record's earlier text.
+    # `unique_smk_action_task` therefore keeps holding — the new task hangs on
+    # the new measure, the cancelled one on this.
+    superseded_at = models.DateTimeField('Заменено', null=True, blank=True)
 
     class Meta:
         ordering = ['display_order', 'pk']

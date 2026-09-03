@@ -19,6 +19,7 @@ model without explicit approval.
 | App | Owns |
 | --- | --- |
 | `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware, working-day arithmetic (`workdays.py`). No models |
+| `dashboard` | the landing page at `/`: the «Быстрый доступ» grid declared in `dashboard/sections.py` (each card carries the owning section's existing permission rule) and the shortened «Мои задачи» block in `dashboard/selectors.py` (the task registry's own queryset and `tasks.presentation.describe_task()`). Read-only. No models, no migrations, no services |
 | `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`). No user-facing pages beyond login/logout — user/department management is Django Admin only |
 | `references` | operations, defect types, act/task statuses, priorities; `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
@@ -27,19 +28,23 @@ model without explicit approval.
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` + `DocumentFavorite` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
-| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and two write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), and `archive_smk_source()`, the record's only state change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
+| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by superseding its findings/measures, cancelling its live tasks and issuing new ones, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
 
-The user-facing sections are Акты (`/quality/acts/`), Задачи
+The user-facing sections are Главная (`/`), Акты (`/quality/acts/`), Задачи
 (`/quality/tasks/`), Протоколы (`/quality/protocols/`), СМК (`/quality/smk/`),
 Калькулятор времени навивки (`/calculators/winding/`), Калькулятор рубки пластин
 (`/calculators/plate-cutting/`) and Документация (`/documents/`). Под «Качество»
 пункты идут Акты · Протоколы · СМК · Задачи; the СМК form is reachable both from
-its own registry and, as before, from «Задачи» through `tasks:create`. `/` redirects to
-`/quality/acts/` and so does the login fallback, for every role including
-superusers. Django Admin (`/admin/`) is reached directly, not from the sidebar.
+its own registry and, as before, from «Задачи» through `tasks:create`. `/` is the
+dashboard itself — not a redirect — and it is the login fallback for every role
+including superusers (`accounts/navigation.py` → `dashboard:home`); the topbar and
+sidebar brand links open it. It has no navigation entry of its own and adds no
+rights: each card asks the owning section's existing rule, so today only
+«Документация» is conditional. Django Admin (`/admin/`) is reached directly, not
+from the sidebar.
 
 Public URLs follow the two-level convention `/quality/<module>/` and
 `/calculators/<module>/`, mirroring the navigation; a new user-facing module is
@@ -113,6 +118,14 @@ tasks never live inside `acts`.
   the textarea stays visible on forward actions. Never branch on an action name
   in JavaScript, and never treat the hidden field as validation: the server
   still rejects an empty return comment.
+- One clickable-row system: a `<tr data-row-url="…">` opens that object when the
+  row is clicked anywhere. `static/js/clickable_rows.js` (one delegated
+  `document` listener, loaded in `base.html`) and the `[data-row-url]` cursor and
+  hover in `components.css` are the whole of it — never a per-table script or a
+  `::after` overlay. A click landing on a control inside the row (`a`, `button`,
+  input, label, `[data-confirm]`, …) is that control's click and never the row's,
+  and the number cell stays a real link, so keyboard use and «open in new tab»
+  keep working. A row with nothing to open simply carries no attribute.
 - One button system: `.link-button` fixes font, size, height, padding, radius and
   states; a modifier (`--secondary`, `--warning`, `--danger`, `--success`,
   `--compact`) changes only colour or density.
@@ -256,6 +269,20 @@ tasks never live inside `acts`.
   `tasks.services.replace_task_assignees()`. Every authenticated user may read
   every task through `all`, `archive` and task detail; only active assigned
   tasks appear in `my`, and read access never grants completion rights.
+- **`TaskStatus` has three codes, and «закрыта» is `is_final`, never a code
+  list.** `IN_PROGRESS`, `COMPLETED` and `CANCELLED` (`references.0004`,
+  seeded by `seed_references`). A cancelled task was closed *without* being
+  done — the document it came out of was corrected and the work reissued — so
+  it carries `cancelled_at`/`cancelled_by`/`cancellation_reason` and leaves
+  `completed_by`/`execution_comment` empty; presenting it as completed would be
+  a false record. `tasks.selectors` and `dashboard.selectors` therefore split
+  on `status__is_final`, not on `code='COMPLETED'`: «Архив» is every task that
+  is over, and `my`/`all` exclude the same set, so a cancelled task leaves
+  somebody's queue without a second rule naming every final code. The archive
+  orders by `Coalesce(completed_at, cancelled_at)`, since a cancelled task has
+  no completion time. `can_complete_task()` is unchanged and already refuses
+  anything but `IN_PROGRESS`. Written **only** by
+  `tasks.services.cancel_smk_source_tasks()`, inside the caller's transaction.
 - **A task's origin is `source_type`, never a nullable relation.** Six values
   exist — `ACT`, `ACT_WORKFLOW`, `ACT_REJECTION`, `PROTOCOL_APPROVAL`,
   `PROTOCOL_ACTION`, `SMK` — and exactly one relation shape is valid for each,
@@ -344,7 +371,10 @@ tasks never live inside `acts`.
   (`SMK_TASK_ASSIGNED`, `TASK`-sourced, keyed on the task, `exclude_actor=False`),
   called inside the same transaction *after* the task and its assignees exist —
   the bell entry and the email delivery come from the common notification
-  service, and СМК has no notification or email path of its own.
+  service, and СМК has no notification or email path of its own. Creation and
+  correction both go through `smk.services._write_content()`, the one place a
+  record's findings, measures, tasks and notifications are written, so the two
+  paths cannot store them differently.
 - **`SmkSource.audit_date` is the audit's own date and `created_at` is not.** A
   record is often written up days after the audit it describes, so the page
   shows `audit_date` and never the timestamp. Nullable only because the column
@@ -362,6 +392,42 @@ tasks never live inside `acts`.
   text, «Выявлено» (the audit date) and «Источник» — and nothing else: what is
   being done about it is the state of the measures naming it, and a second
   answer on the finding could only disagree with them.
+- **Correcting an СМК record reissues its work; it never edits a task.**
+  `smk.services.update_smk_source()` is the whole rule, in one `atomic()` block
+  over a `select_for_update()`d record: it cancels every *live* task of the
+  record through `tasks.services.cancel_smk_source_tasks()` (a `COMPLETED` one
+  is left alone — it really happened), stamps `superseded_at` on the findings
+  and measures that were there, writes the corrected `origin`/`audit_date`, and
+  then calls `_write_content()` for a fresh set of findings, measures, tasks and
+  notifications. **An unchanged мероприятие still produces a new task and an
+  unchanged исполнитель still gets a new notification** — the record was
+  corrected as a whole, and that is the point of the design rather than a
+  missing optimisation. Nothing is deleted and nothing is edited underneath the
+  person holding it. Superseding rather than rewriting is also what keeps the
+  schema honest: the cancelled task `PROTECT`s its `SmkCorrectiveAction`, and
+  the `unique_smk_action_task` constraint keeps holding because the new task
+  hangs on a new measure. `SmkSource.current_actions`/`current_non_conformities`
+  are the record as it reads now, and every read side — the detail page, the
+  registry's `Count` annotations, the edit form's prefill — asks them, so a
+  superseded row can never surface as if it were still the record. Who may do
+  it is `smk.permissions.can_edit_smk_source()` — the same three roles as
+  creation and archiving, and only while the record is live — asked once by the
+  view for the button and re-checked inside the service under the lock; an
+  archived record has no edit page at all. The correction is one `EDITED`
+  history event naming the cancelled and the new tasks by number, and the
+  cancelled tasks stay visible on «Связанные мероприятия» under «Отменённые
+  задачи» as well as in «Архив» of «Задачи».
+- **Correcting a record is the same two-step POST as creating one, on
+  `smk:edit`.** `smk/views.py` renders one template (`smk/form.html`) for both:
+  `_form_context(form, …, source=…)` is what tells them apart, and
+  `SmkSourceForm(instance=source)` fills the unbound rows from the current
+  findings and measures — writing the «связано с несоответствием» link as a
+  *row index*, never a primary key, because that is what the template,
+  `smk_form.js` and `_clean_actions()` all speak. The confirmation dialog is
+  the creation dialog plus the three consequences the correction has
+  (`.smk-confirm-warning`): current tasks cancelled, new tasks created,
+  исполнители notified again. As on creation, a valid POST without
+  `confirmed=1` writes nothing.
 - **`SmkSource.status` is a shelf, not a workflow.** Two values, `ACTIVE` and
   `ARCHIVED`, and exactly one transition: `smk.services.archive_smk_source()`,
   driven solely by «Архивировать» on the record page. Completing the tasks a
@@ -401,7 +467,8 @@ tasks never live inside `acts`.
   nor a link to a task appears on «Акт аудита»: that tab is what was *decided*,
   the live state of the work belongs to «Связанные мероприятия» alone, and two
   answers on two tabs could only drift apart. The heading carries the identifier, the
-  state pill and «Архивировать» — those two act on the record as a whole. The
+  state pill, «Редактировать» and «Архивировать» — those act on the record as a
+  whole. The
   six facts (тип аудита, дата аудита, автор, дата создания, статус, количество
   задач) live in the information card below it and are not repeated anywhere
   else on the page; статус appears in both places on purpose, as the pill and
@@ -414,7 +481,9 @@ tasks never live inside `acts`.
 - **«Связанные мероприятия» reports the task and never restates it.** The same
   five columns the protocol table has — №, мероприятие, исполнители, срок,
   статус — and the same markup, so the two read alike; the статус is the
-  `Task`'s own. Acting on the work (completing it, attaching a file) happens on
+  `Task`'s own. A second table, «Отменённые задачи», appears below it only when
+  a correction withdrew something (`get_cancelled_smk_tasks()`); it reads the
+  task's own `task_text`, which is the measure exactly as it was worded then. Acting on the work (completing it, attaching a file) happens on
   the task's page, which the № column links to.
 - **All three related-activities tables clamp for display only.** Акт, протокол
   and СМК share the markup: the мероприятие is a `.user-text.text-clamp-3`, and
@@ -425,12 +494,13 @@ tasks never live inside `acts`.
   and nothing is truncated in the database or on the task page. The act table's
   columns are untouched by this — only how its cells render.
 - **`SmkHistoryEvent` is a short list of facts, not an audit system.**
-  `CREATED`, `TASK_CREATED` and `ARCHIVED` are written by `smk/services.py`
-  alone, through `_record()`, inside the same `atomic()` block as the change
-  they describe — a rolled-back write takes its event with it, and a refused
-  archive writes nothing. `EDITED` is named but written by nothing: the record
-  is immutable and `status` has its own event; it exists so a future edit path
-  records rather than invents a type. There are no history fragments and no
+  `CREATED`, `TASK_CREATED`, `EDITED` and `ARCHIVED` are written by
+  `smk/services.py` alone, through `_record()`, inside the same `atomic()`
+  block as the change they describe — a rolled-back write takes its event with
+  it, and a refused archive writes nothing. `EDITED` is written once per
+  correction by `update_smk_source()` and names the задачи it cancelled and the
+  ones it created, so the trail says which replaced which; the `TASK_CREATED`
+  events beside it are those new tasks. There are no history fragments and no
   filters. `smk.0006` backfills records stored before the trail from facts
   already in the database (`SmkSource.created_at`/`created_by`, each `Task`'s
   own `created_at`/`created_by`), stamping `created_at` after insert because it
@@ -907,8 +977,8 @@ tasks never live inside `acts`.
   Admin privilege.
 - **`UserProfile.Role.SMK` (`smk`, «СМК») is a first-class role, read through
   `acts.permissions.is_smk()` like every other.** It grants exactly two things:
-  creating an СМК record and the tasks it produces
-  (`smk.permissions.can_create_smk_task()`, which also admits руководитель and
+  creating an СМК record and the tasks it produces, correcting a live one
+  (`smk.permissions.can_create_smk_task()`/`can_edit_smk_source()`, which also admit руководитель and
   администратор), and archiving one
   (`smk.permissions.can_archive_smk_source()`, the same three roles). It changes no act, protocol, calculator or admin right, and
   no check keys on the department. The department «Отдел СМК» (`SMK`, seeded

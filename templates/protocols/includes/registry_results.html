@@ -9,9 +9,13 @@ table than a reload would.
         <thead><tr><th>№</th><th>Тип протокола</th><th>Автор</th><th>Дата создания</th><th>Статус</th></tr></thead>
         <tbody>
         {% for protocol in protocols %}
-            <tr>
-                {# The link covers the whole row through `::after` in protocols.css. #}
-                <td><a class="table-link protocol-row-link" href="{% url 'protocols:detail' protocol.pk %}">№{{ protocol.number }}</a></td>
+            {% comment %}
+            One click anywhere on the row opens the protocol; the number stays
+            a real link, so keyboard and «open in new tab» keep working.
+            Behaviour: `static/js/clickable_rows.js`.
+            {% endcomment %}
+            <tr data-row-url="{% url 'protocols:detail' protocol.pk %}">
+                <td><a class="table-link" href="{% url 'protocols:detail' protocol.pk %}">№{{ protocol.number }}</a></td>
                 <td class="user-text">{{ protocol.protocol_type.name }}</td>
                 <td class="user-text">{{ protocol.author.get_full_name|default:protocol.author.username }}</td>
                 <td>{{ protocol.created_at|date:'d.m.Y' }}</td>

@@ -8,13 +8,9 @@
 
 /* Registry -------------------------------------------------------------- */
 
+/* Cursor, hover and whole-row navigation are the shared `[data-row-url]`
+   rules in `components.css`; only the width the five columns need is local. */
 .protocol-table { min-width: 720px; }
-.protocol-table tbody tr { position: relative; }
-.protocol-table tbody tr:hover { background: #f7f9ff; }
-
-/* One click anywhere on the row opens the protocol; the number stays a real
-   link, so keyboard and «open in new tab» keep working. */
-.protocol-row-link::after { content: ''; position: absolute; inset: 0; }
 
 /* Type selection --------------------------------------------------------- */
 
@@ -690,3 +686,24 @@
     .smk-confirm-summary { grid-template-columns: minmax(0, 1fr); }
     .smk-confirm-summary dd { margin-bottom: 6px; }
 }
+
+/* The consequences of correcting a record, shown in the same dialog above the
+   summary. A warning tint rather than a plain list: cancelling the current
+   tasks and reissuing them is what the person is agreeing to, and it is not
+   something the creation step does. */
+
+.smk-confirm-warning {
+    margin: 0 0 4px;
+    padding: 10px 12px 10px 28px;
+    border: 1px solid #fcd9a4;
+    border-left-width: 3px;
+    border-radius: var(--radius);
+    /* The same warning tint `.link-button--warning` already uses, so the
+       dialog and the button that leads to it read as one warning. */
+    background: #fff7ed;
+    color: #92400e;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.smk-confirm-warning li + li { margin-top: 4px; }

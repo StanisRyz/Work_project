@@ -367,10 +367,12 @@ def create_protocol_action_task(
 # --------------------------------------------------------------------------
 # СМК workflow task lifecycle
 #
-# Written *only* through `create_smk_action_task()`, called only from
-# `smk/services.py` inside the transaction that stores the record. Not
-# transactional on its own, for the same reason the protocol functions above
-# are not: a record that fails halfway must take every task it created with it.
+# Written *only* through `create_smk_action_task()` and `cancel_smk_source_tasks()`,
+# called only from `smk/services.py` inside the transaction that stores or
+# corrects the record. Not transactional on their own, for the same reason the
+# protocol functions above are not: a record that fails halfway must take every
+# task it created with it — and a correction that fails must give the cancelled
+# ones back.
 # --------------------------------------------------------------------------
 
 
@@ -403,6 +405,63 @@ def create_smk_action_task(source, action, assignee_ids, *, created_by):
         status=_active_status('IN_PROGRESS', 'В работе'),
     )
     return _save_new_task(task, sorted(set(assignee_ids)), actor=created_by)
+
+
+def cancel_smk_source_tasks(source, *, actor, reason):
+    """Close every live task an СМК record produced, without completing one.
+
+    Called by `smk.services.update_smk_source()` before it writes the corrected
+    record: the measures the tasks came out of are about to be superseded, so
+    the work as it was stated is withdrawn rather than edited underneath the
+    people holding it. The rows stay — nothing is deleted — and `reason` is the
+    sentence a person reads on the task page.
+
+    Tasks in a final status are left exactly as they are: a completed task is a
+    thing that really happened, and cancelling it would rewrite that. So is a
+    task already cancelled by an earlier correction.
+
+    Returns the tasks it closed, so the caller can name them in the record's
+    history.
+    """
+    cancelled_status = _active_status('CANCELLED', 'Отменена')
+    cancelled_at = timezone.now()
+    closed = []
+    tasks = (
+        Task.objects.select_for_update()
+        .filter(source_type=Task.SourceType.SMK, smk_source=source)
+        .exclude(status__is_final=True)
+        .order_by('pk')
+    )
+    for task in tasks:
+        previous_status = task.status.code
+        task.status = cancelled_status
+        task.cancelled_at = cancelled_at
+        task.cancelled_by = actor
+        task.cancellation_reason = reason
+        # `auto_now` is only applied to fields named in `update_fields`, so
+        # `updated_at` — and the real-time revision token derived from it — is
+        # listed explicitly, exactly as `complete_task()` lists it.
+        task.save(
+            update_fields=[
+                'status', 'cancelled_at', 'cancelled_by', 'cancellation_reason',
+                'updated_at',
+            ]
+        )
+        emit_task_updated(task, changed_fields=('status',))
+        log_event(
+            logger,
+            'INFO',
+            'task.cancelled',
+            task_id=task.pk,
+            source_type=task.source_type,
+            smk_source_id=task.smk_source_id,
+            actor_user_id=_pk_of(actor),
+            previous_status=previous_status,
+            next_status=cancelled_status.code,
+            outcome='ok',
+        )
+        closed.append(task)
+    return closed
 
 
 def _close_approval_task(task, *, approver, decided_at, reason):

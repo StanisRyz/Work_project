@@ -26,10 +26,18 @@ MAX_ROWS = 60
 
 
 class SmkSourceForm:
-    """Validates the whole СМК record submitted from the creation page."""
+    """Validates the whole СМК record submitted from the creation page.
 
-    def __init__(self, data=None):
+    The same form serves the correction page: passing `instance` fills the
+    unbound rows from the record as it currently reads. Validation is
+    unchanged, and so is the structure handed to the service — an edit is the
+    same shape of answer, written by `update_smk_source()` instead of
+    `create_smk_source()`.
+    """
+
+    def __init__(self, data=None, instance=None):
         self.data = data
+        self.instance = instance
         self.is_bound = data is not None
         self.non_field_errors = []
         self.cleaned = None
@@ -41,10 +49,69 @@ class SmkSourceForm:
         self.non_conformity_rows = []
         self.action_rows = []
         if not self.is_bound:
-            self.non_conformity_rows = [{'index': 0, 'text': '', 'errors': {}}]
-            self.action_rows = [self._empty_action_row(0)]
+            if instance is not None:
+                self._load_instance(instance)
+            else:
+                self.non_conformity_rows = [{'index': 0, 'text': '', 'errors': {}}]
+                self.action_rows = [self._empty_action_row(0)]
 
     # ------------------------------------------------------------------ initial
+
+    def _load_instance(self, source):
+        """Fill the rows from the record as it reads *now*.
+
+        Only the current findings and measures — a superseded set belongs to
+        the cancelled tasks that answer it, and re-offering it for editing
+        would resurrect wording the record has already left behind.
+
+        The measure's «связано с несоответствием» is written as the finding's
+        *row index*, never its primary key, because that is what the template,
+        `smk_form.js` and `_clean_actions()` all speak: the browser renumbers
+        rows freely, and an id would stop meaning anything the moment one was
+        added or removed.
+        """
+        self.origin = source.origin
+        self.audit_date = source.audit_date.isoformat() if source.audit_date else ''
+        positions = {}
+        for index, finding in enumerate(source.current_non_conformities):
+            positions[finding.pk] = index
+            self.non_conformity_rows.append(
+                {'index': index, 'text': finding.text, 'errors': {}}
+            )
+        if not self.non_conformity_rows:
+            self.non_conformity_rows.append({'index': 0, 'text': '', 'errors': {}})
+        actions = source.current_actions.prefetch_related('assignees__user__userprofile')
+        for index, action in enumerate(actions):
+            position = positions.get(action.non_conformity_id)
+            self.action_rows.append(
+                {
+                    'index': index,
+                    'text': action.task_text,
+                    'due_date': action.due_date.isoformat(),
+                    'non_conformity': '' if position is None else str(position),
+                    'requires_attachment': action.requires_attachment,
+                    # Strings, because the option partials compare against
+                    # `pk|stringformat:'s'` — the same values a POST carries.
+                    # The department is each исполнитель's own, so a measure
+                    # whose people have since moved still redisplays them.
+                    'assignees': [
+                        {
+                            'user': str(item.user_id),
+                            'department': str(
+                                getattr(
+                                    getattr(item.user, 'userprofile', None),
+                                    'department_id', '',
+                                ) or ''
+                            ),
+                        }
+                        for item in action.assignees.all()
+                    ]
+                    or [{'user': '', 'department': ''}],
+                    'errors': {},
+                }
+            )
+        if not self.action_rows:
+            self.action_rows.append(self._empty_action_row(0))
 
     @staticmethod
     def _empty_action_row(index):

@@ -6,6 +6,7 @@ queue from the global authenticated read scope on the server.
 """
 
 from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from .models import Task
@@ -84,11 +85,16 @@ def build_task_list_state(user, query_params):
     else:
         tasks = get_readable_tasks_queryset(user)
         if tab == 'archive':
-            tasks = tasks.filter(status__code='COMPLETED')
+            tasks = tasks.filter(status__is_final=True)
         else:
-            tasks = tasks.exclude(status__code='COMPLETED')
+            tasks = tasks.exclude(status__is_final=True)
+    # `is_final`, not `code='COMPLETED'`: «Архив» is where a task that is over
+    # lives, and a task can be over without having been done — a `CANCELLED`
+    # one was withdrawn when the document behind it was corrected. Asking the
+    # flag is what keeps a cancelled task out of «Мои задачи» without naming
+    # every final code here.
     if tab != 'archive':
-        tasks = tasks.exclude(status__code='COMPLETED')
+        tasks = tasks.exclude(status__is_final=True)
 
     if selected['number']:
         if selected['number'].isdigit():
@@ -109,7 +115,12 @@ def build_task_list_state(user, query_params):
     elif selected['sort'] == 'farthest':
         tasks = tasks.order_by('-due_date', 'pk')
     elif tab == 'archive':
-        tasks = tasks.order_by('-completed_at', 'pk')
+        # Newest first by when the task actually ended: a cancelled one has no
+        # `completed_at` — it was never performed — so `cancelled_at` stands in
+        # for it rather than letting a NULL decide the order.
+        tasks = tasks.annotate(
+            closed_at=Coalesce('completed_at', 'cancelled_at')
+        ).order_by('-closed_at', 'pk')
     else:
         tasks = tasks.annotate(
             overdue_order=Case(

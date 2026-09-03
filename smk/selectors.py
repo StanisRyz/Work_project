@@ -56,10 +56,20 @@ def build_smk_list_state(params):
         SmkSource.objects.filter(status=LIST_TABS[tab])
         .select_related('created_by')
         .annotate(
-            task_count=Count('actions__tasks', distinct=True),
+            # Only the measures the record reads by *now*: a correction
+            # supersedes the old ones and cancels their tasks, and counting
+            # those would leave the registry claiming work nobody holds.
+            task_count=Count(
+                'actions__tasks',
+                filter=Q(actions__superseded_at__isnull=True),
+                distinct=True,
+            ),
             completed_task_count=Count(
                 'actions__tasks',
-                filter=Q(actions__tasks__status__code='COMPLETED'),
+                filter=Q(
+                    actions__superseded_at__isnull=True,
+                    actions__tasks__status__code='COMPLETED',
+                ),
                 distinct=True,
             ),
         )
@@ -165,6 +175,27 @@ def get_smk_history_groups(source):
     return groups
 
 
+def get_cancelled_smk_tasks(source):
+    """The record's tasks that a correction withdrew, newest first.
+
+    Read straight off `Task`, not through the measures: a cancelled task hangs
+    on a superseded `SmkCorrectiveAction`, and that row is exactly what keeps
+    its original wording readable. Nothing is deleted, so this list only grows.
+    """
+    from tasks.models import Task
+
+    return list(
+        Task.objects.filter(
+            source_type=Task.SourceType.SMK,
+            smk_source=source,
+            status__code='CANCELLED',
+        )
+        .select_related('status', 'smk_action', 'cancelled_by')
+        .prefetch_related('assignees__user')
+        .order_by('-cancelled_at', '-pk')
+    )
+
+
 def get_source_detail(source):
     """One СМК record: its findings, its measures and the real tasks.
 
@@ -177,7 +208,7 @@ def get_source_detail(source):
     """
     rows = [
         _measure_row(action)
-        for action in source.actions.select_related('department', 'non_conformity')
+        for action in source.current_actions.select_related('department', 'non_conformity')
         .prefetch_related('assignees__user', 'tasks__status')
     ]
     # What «Количество задач» in the information card counts: the real tasks
@@ -190,7 +221,7 @@ def get_source_detail(source):
         # could only disagree with them. The wrapper stays so the template
         # keeps one shape to read.
         'non_conformities': [
-            {'item': finding} for finding in source.non_conformities.all()
+            {'item': finding} for finding in source.current_non_conformities
         ],
         'actions': rows,
         'task_count': task_count,
@@ -206,4 +237,8 @@ def get_source_detail(source):
             ),
         ),
         'history_groups': get_smk_history_groups(source),
+        # What a correction withdrew, kept on the page rather than only in the
+        # task registry: «Связанные мероприятия» is where the work of this
+        # record is read, and a cancelled task is part of that story.
+        'cancelled_tasks': get_cancelled_smk_tasks(source),
     }

@@ -22,7 +22,7 @@ file — happens on the task's page, which the № column links to.
             <table class="related-activities__table">
                 <colgroup><col class="related-activities__number"><col class="related-activities__action"><col class="related-activities__assignees"><col class="related-activities__due"><col class="related-activities__status"></colgroup>
                 <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
-                <tbody>{% for row in actions %}<tr>
+                <tbody>{% for row in actions %}<tr{% if row.task %} data-row-url="{% url 'tasks:detail' row.task.pk %}"{% endif %}>
                     <td>{% if row.task %}<a class="related-activities__task-link" href="{% url 'tasks:detail' row.task.pk %}">#{{ row.task.pk }}</a>{% else %}—{% endif %}</td>
                     {% comment %}
                     Three lines, then the clamp's own ellipsis — a display limit
@@ -42,3 +42,33 @@ file — happens on the task's page, which the № column links to.
         <p class="related-activities__empty">Связанные мероприятия пока не созданы.</p>
     {% endif %}
 </section>
+
+{% comment %}
+What a correction withdrew. A редактирование of the record never edits the
+tasks it already produced: the live ones are cancelled and new ones issued, and
+the cancelled rows stay — here and in «Архив» of «Задачи» — so the wording
+somebody was once given is still readable. Shown only when there is something
+to show, and read-only like the table above it.
+{% endcomment %}
+{% if cancelled_tasks %}
+    <section class="detail-section related-activities">
+        <header class="related-activities__header">
+            <div><h2>Отменённые задачи</h2><p>Задачи, отменённые при редактировании записи; заменены задачами выше</p></div>
+            <span class="related-activities__count">Задач: {{ cancelled_tasks|length }}</span>
+        </header>
+        <div class="related-activities__table-wrap">
+            <table class="related-activities__table">
+                <colgroup><col class="related-activities__number"><col class="related-activities__action"><col class="related-activities__assignees"><col class="related-activities__due"><col class="related-activities__status"></colgroup>
+                <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Исполнители</th><th>Отменена</th><th>Статус</th></tr></thead>
+                <tbody>{% for task in cancelled_tasks %}<tr data-row-url="{% url 'tasks:detail' task.pk %}">
+                    <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
+                    {# The task's own text, which is the measure exactly as it was worded then. #}
+                    <td><strong class="user-text text-clamp-3" title="{{ task.task_text }}">{{ task.task_text }}</strong></td>
+                    <td><span class="user-text text-clamp-3" title="{% for item in task.assignees.all %}{{ item.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for item in task.assignees.all %}<span class="related-activities__assignee">{{ item.user|person_name }}</span>{% empty %}—{% endfor %}</span></td>
+                    <td>{{ task.cancelled_at|date:'d.m.Y' }}</td>
+                    <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>
+                </tr>{% endfor %}</tbody>
+            </table>
+        </div>
+    </section>
+{% endif %}

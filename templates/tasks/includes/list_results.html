@@ -14,7 +14,12 @@ the `ProtocolApproval` decision, never the queue's own «Выполнено».
         <thead><tr><th>№ задачи</th><th>Тип задачи</th><th>Источник</th><th>Статус</th><th>Срок <a class="task-sort-link{% if selected.sort %} task-sort-link--active{% endif %}" href="{{ sort_url }}" aria-label="Изменить сортировку по сроку" title="{% if selected.sort == 'nearest' %}Дальние сначала{% else %}Ближайшие сначала{% endif %}">⇅</a></th></tr></thead>
         <tbody>
         {% for row in rows %}
-            <tr data-task-row="{{ row.task.pk }}"{% if tab != 'archive' and row.task.due_date < today %} class="task-row--overdue"{% endif %}>
+            {% comment %}
+            Whole-row navigation (`static/js/clickable_rows.js`) to the same
+            URL as the number, list query included. The «Источник» link keeps
+            its own target: a click on it is its click.
+            {% endcomment %}
+            <tr data-task-row="{{ row.task.pk }}" data-row-url="{% url 'tasks:detail' row.task.pk %}{% if list_query %}?{{ list_query }}{% endif %}"{% if tab != 'archive' and row.task.due_date < today %} class="task-row--overdue"{% endif %}>
                 <td><a class="table-link" href="{% url 'tasks:detail' row.task.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{{ row.task.pk }}</a></td>
                 <td class="user-text">{{ row.type_label }}</td>
                 <td class="user-text">{% if row.source.url %}<a class="table-link" href="{{ row.source.url }}">{{ row.source.label }}</a>{% else %}—{% endif %}</td>

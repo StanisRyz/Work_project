@@ -564,6 +564,17 @@
     font-weight: 700;
 }
 
+/* Clickable object rows -------------------------------------------------
+   A row that carries `data-row-url` opens that object when clicked anywhere
+   that is not a control of its own; `static/js/clickable_rows.js` is the one
+   handler behind it. The rules live here, not in a module stylesheet, so the
+   акт, задача, протокол, СМК and «Связанные мероприятия» tables all look and
+   behave the same. A row without the attribute — a мероприятие whose task was
+   never created — keeps the default cursor and no hover, which is what tells
+   the user there is nothing to open. */
+tr[data-row-url] { cursor: pointer; }
+tr[data-row-url]:hover { background: #f7f9ff; }
+
 .status-badge {
     display: inline-flex;
     width: fit-content;

@@ -22,7 +22,7 @@ protocol counterpart.
         <table class="related-activities__table">
             <colgroup><col class="related-activities__number"><col class="related-activities__action"><col class="related-activities__assignees"><col class="related-activities__due"><col class="related-activities__status"></colgroup>
             <thead><tr><th>№ задачи</th><th>Задача</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
-            <tbody>{% for task in related_tasks %}<tr data-related-task="{{ task.pk }}">
+            <tbody>{% for task in related_tasks %}<tr data-related-task="{{ task.pk }}" data-row-url="{% url 'tasks:detail' task.pk %}">
                 <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
                 {% comment %}
                 Three lines, then the clamp's own ellipsis — a display limit

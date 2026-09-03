@@ -714,6 +714,14 @@
     background: #fef2f2;
 }
 
+/* The tint above is painted on the cells, so the shared `tr[data-row-url]`
+   hover sits behind it and would never show — an overdue row would be the one
+   clickable row in the project that does not answer the pointer. A slightly
+   deeper red of the same family keeps the overdue identity and restores it. */
+.task-row--overdue[data-row-url]:hover td {
+    background: #fde4e4;
+}
+
 .act-work-sequence {
     display: grid;
     gap: 10px;

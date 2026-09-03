@@ -25,7 +25,7 @@ from django.db import connection
 # repeated here as a second literal list: `_check_reference_data()` reads them
 # from `acts.models.ACT_STATUS_CODES`, the same constant the workflow itself
 # uses, so this check and the workflow can never silently drift apart.
-REQUIRED_TASK_STATUS_CODES = ('IN_PROGRESS', 'COMPLETED')
+REQUIRED_TASK_STATUS_CODES = ('IN_PROGRESS', 'COMPLETED', 'CANCELLED')
 
 # Markers left by the local demo and performance tooling.
 SYNTHETIC_MARKER = 'PERF-SYNTHETIC'

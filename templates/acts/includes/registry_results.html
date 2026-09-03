@@ -21,7 +21,8 @@ replaces a control the user may be typing into.
             </thead>
             <tbody>
                 {% for act in acts %}
-                    <tr data-act-row="{{ act.pk }}">
+                    {# Whole-row navigation: `static/js/clickable_rows.js`. #}
+                    <tr data-act-row="{{ act.pk }}" data-row-url="{% url 'acts:detail' act.pk %}">
                         <td><a class="table-link" href="{% url 'acts:detail' act.pk %}">{{ act.number }}</a></td>
                         <td>
                             {% if scope == 'archive' %}
