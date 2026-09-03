@@ -287,5 +287,11 @@ class ProtocolRelatedActivitiesTests(TestCase):
         for task in related:
             self.assertContains(page, f'#{task.pk}')
             self.assertContains(page, reverse('tasks:detail', args=[task.pk]))
+        # Display limits only: the мероприятие and the исполнители are clamped
+        # to three lines by the browser, each name on a line of its own, and the
+        # text still reaches the page in full.
+        self.assertContains(page, 'text-clamp-3')
+        self.assertContains(page, 'related-activities__assignee')
+        self.assertContains(page, related[0].task_text)
         # The decision itself stays single wherever the document is rendered.
         self.assertEqual(protocol.actions.count(), 1)

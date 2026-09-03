@@ -389,8 +389,8 @@ tasks never live inside `acts`.
   keeps them on one line, with the finding and measure text shown *in full* —
   `.user-text`, not a clamp: on that tab the text is the content, and a
   two-line limit with the rest only on a `title` hides it from touch),
-  «Связанные мероприятия» (the tasks, in the act page's own table shape, ending
-  in an «Открыть задачу» button) and «История», all built from one
+  «Связанные мероприятия» (the tasks, in the protocol table's own five columns)
+  and «История», all built from one
   `get_source_detail()` read so they cannot disagree. Neither the task status
   nor a link to a task appears on «Акт аудита»: that tab is what was *decided*,
   the live state of the work belongs to «Связанные мероприятия» alone, and two
@@ -405,14 +405,19 @@ tasks never live inside `acts`.
   `related-activities`, and the whole `history-feed` timeline verbatim);
   `static/css/smk.css` adds only the information card, the findings timeline,
   the measure card and the registry table.
-- **«Связанные мероприятия» reports the task and never restates it.** Статус,
-  «Требуется вложение» and the attachment count in that table are read from the
-  `Task` — `Task.requires_attachment` is the authority once the snapshot is
-  taken, and `complete_task()` is the only place the rule is enforced — so the
-  record cannot promise something the task would refuse. `_measure_row()` falls
-  back to the measure's own flag only when no task exists at all. Acting on the
-  work (completing it, attaching a file) happens on the task's page, which the
-  № column links to.
+- **«Связанные мероприятия» reports the task and never restates it.** The same
+  five columns the protocol table has — №, мероприятие, исполнители, срок,
+  статус — and the same markup, so the two read alike; the статус is the
+  `Task`'s own. Acting on the work (completing it, attaching a file) happens on
+  the task's page, which the № column links to.
+- **All three related-activities tables clamp for display only.** Акт, протокол
+  and СМК share the markup: the мероприятие is a `.user-text.text-clamp-3`, and
+  the исполнители are one `.related-activities__assignee` block per name inside
+  another — the clamp's `-webkit-box` treats each block child as a line, so
+  three names show and the rest are cut with the ellipsis the clamp draws. Both
+  cells carry the full value on `title`, the response still contains it whole,
+  and nothing is truncated in the database or on the task page. The act table's
+  columns are untouched by this — only how its cells render.
 - **`SmkHistoryEvent` is a short list of facts, not an audit system.**
   `CREATED`, `TASK_CREATED` and `ARCHIVED` are written by `smk/services.py`
   alone, through `_record()`, inside the same `atomic()` block as the change

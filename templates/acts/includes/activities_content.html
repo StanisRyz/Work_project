@@ -14,9 +14,19 @@ by `get_related_tasks`, so it is safe to replace live.
             <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Причина</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
             <tbody>{% for task in related_tasks %}<tr data-related-task="{{ task.pk }}">
                 <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
-                <td class="user-text"><strong>{{ task.task_text }}</strong></td>
-                <td class="user-text">{{ task.root_analysis.root_cause|default:'—' }}</td>
-                <td>{% for assignee in task.assignees.all %}{{ assignee.user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
+                {% comment %}
+                Мероприятие, причина and исполнители are each clamped to three
+                lines, then the clamp's own ellipsis — a display limit only: the
+                text is stored and posted in full, each cell's `title` carries
+                the whole of it, and the task page it links to shows it
+                complete. Without it one long root cause sets the height of the
+                whole row.
+                {% endcomment %}
+                <td><strong class="user-text text-clamp-3" title="{{ task.task_text }}">{{ task.task_text }}</strong></td>
+                {# The same three-line limit, for the same reason. #}
+                <td><span class="user-text text-clamp-3" title="{{ task.root_analysis.root_cause|default:'—' }}">{{ task.root_analysis.root_cause|default:'—' }}</span></td>
+                {# One name per line, three of them, then «…». #}
+                <td><span class="user-text text-clamp-3" title="{% for assignee in task.assignees.all %}{{ assignee.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for assignee in task.assignees.all %}<span class="related-activities__assignee">{{ assignee.user|person_name }}</span>{% empty %}—{% endfor %}</span></td>
                 <td>{{ task.due_date|date:'d.m.Y' }}</td>
                 <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>
             </tr>{% endfor %}</tbody>

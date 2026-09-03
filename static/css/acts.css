@@ -340,6 +340,14 @@
 .related-activities__assignees { width: 18%; }
 .related-activities__due { width: 11%; }
 .related-activities__status { width: 8%; }
+/* One исполнитель per line, so a cell holding several never runs as a comma
+   list across the column. The names live inside a `.text-clamp-3`, whose
+   `-webkit-box` treats each block child as one line — so three names show and
+   the rest are cut with the ellipsis the clamp already draws. The cell's
+   `title` keeps the full list readable on hover, and the task page keeps it in
+   full regardless. Shared by the акт, протокол and СМК tables. */
+.related-activities__assignee { display: block; }
+
 .related-activities__task-link { color: var(--color-primary); font-size: 15px; font-weight: 700; }
 .related-activities__table td strong { color: #162852; font-size: 15px; font-weight: 700; }
 .related-activities__empty { margin: 2px 0 0; color: #6a7b9d; font-size: 13px; }

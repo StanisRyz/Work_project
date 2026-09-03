@@ -378,38 +378,41 @@ class SmkTests(TestCase):
 
     # --------------------------------------------------- related activities
 
-    def test_the_activities_tab_reports_the_task_and_its_attachment_state(self):
-        """The record references the task; it never restates the task's rules.
+    def test_the_activities_tab_references_the_task_in_five_columns(self):
+        """The record points at the task; it never restates it.
 
-        Both columns that could drift — статус and «Требуется вложение» — are
-        read from the `Task`, so attaching a file to the task is what changes
-        this page, and no СМК-side copy is consulted.
+        The same five columns the protocol table has — №, мероприятие,
+        исполнители, срок, статус — and the статус is the task's own, so the
+        page cannot drift from the work it describes. The long мероприятие text
+        is clamped for display only: it is rendered in full, and the browser is
+        what cuts it at three lines.
         """
+        long_text = 'Провести обучение персонала. ' * 20
+        actions = self._actions(assignees=[self.employee])
+        actions[0]['text'] = long_text
         source = create_smk_source(
             origin=SmkSource.Origin.INTERNAL_AUDIT,
             audit_date=self.audit_date,
             non_conformities=['Не ведётся журнал поверки'],
-            actions=self._actions(assignees=[self.employee], requires_attachment=True),
+            actions=actions,
             created_by=self.smk,
         )
         task = Task.objects.get(smk_source=source)
         self.client.force_login(self.employee)
-        url = reverse('smk:detail', args=[source.pk])
 
-        response = self.client.get(url, {'tab': 'activities'})
-        row = response.context['actions'][0]
-        self.assertEqual(row['task'], task)
-        self.assertTrue(row['requires_attachment'])
-        self.assertEqual(row['attachment_count'], 0)
-        self.assertContains(response, 'Требуется')
+        response = self.client.get(
+            reverse('smk:detail', args=[source.pk]), {'tab': 'activities'},
+        )
+        self.assertEqual(response.context['actions'][0]['task'], task)
         # The link to the task is how the record points at the work.
         self.assertContains(response, reverse('tasks:detail', args=[task.pk]))
-
-        add_task_attachment(
-            task, self.employee, SimpleUploadedFile('report.txt', b'done'),
-        )
-        row = self.client.get(url, {'tab': 'activities'}).context['actions'][0]
-        self.assertEqual(row['attachment_count'], 1)
+        # Clamped in the browser, never in the database or the response.
+        self.assertContains(response, 'text-clamp-3')
+        self.assertContains(response, long_text.strip())
+        # The columns the СМК table no longer carries.
+        self.assertNotContains(response, 'Несоответствие')
+        self.assertNotContains(response, 'Вложение')
+        self.assertNotContains(response, 'Открыть задачу')
 
     # --------------------------------------------------------------- history
 

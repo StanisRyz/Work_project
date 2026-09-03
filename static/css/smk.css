@@ -208,52 +208,12 @@
     font-weight: 600;
 }
 
-/* --------------------------------------------------------- related activities */
-
-/* The act page's own table, with one modifier. It carries eight columns here
-   rather than the act's six, and `.related-activities__table` is
-   `table-layout: fixed` with `min-width: 0` — so without a floor the columns
-   would divide a narrow screen into strips too thin for the status pill or the
-   «Открыть задачу» button. A floor makes the wrapper scroll instead, which is
-   what it already has `overflow-x: auto` for. */
-.smk-activities-table { min-width: 1000px; }
-
 /* ------------------------------------------------------------------- text */
 
 /* The finding and the measure carry `.user-text` from `text.css` and are shown
    in full: on «Акт аудита» that text is the content, so it is not clamped —
    `.user-text` still wraps it and breaks a pasted, unbroken identifier, so a
    long one cannot widen the card. Dense rows elsewhere keep their clamps. */
-
-/* ------------------------------------------------------------------- state */
-
-/* Whether a task's attachment requirement is met, as a pill in «Связанные
-   мероприятия»: green once a file is there, muted while one is still owed.
-   Two variants only — the requirement is either met or outstanding. The
-   document's own state is `.status-badge--<code>` in `components.css`, not
-   this. */
-.smk-state {
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 700;
-    white-space: nowrap;
-}
-
-.smk-state::before {
-    content: '';
-    width: 7px;
-    height: 7px;
-    border-radius: 999px;
-    background: currentcolor;
-}
-
-.smk-state--running { background: #ecfdf5; color: #15803d; }
-.smk-state--closed { background: var(--color-bg); color: var(--color-muted); }
 
 /* ---------------------------------------------------------------- measures */
 

@@ -146,13 +146,6 @@ def _measure_row(action):
         'action': action,
         'assignees': [item.user for item in action.assignees.all()],
         'task': task,
-        # Whether the requirement the measure set has actually been met. Read
-        # from the *task* — its `requires_attachment` is the authority once the
-        # snapshot is taken, and its own attachments are what
-        # `complete_task()` checks — so this page can never promise something
-        # the task would refuse, or refuse something it would accept.
-        'requires_attachment': task.requires_attachment if task else action.requires_attachment,
-        'attachment_count': len(task.attachments.all()) if task else 0,
     }
 
 
@@ -185,7 +178,7 @@ def get_source_detail(source):
     rows = [
         _measure_row(action)
         for action in source.actions.select_related('department', 'non_conformity')
-        .prefetch_related('assignees__user', 'tasks__status', 'tasks__attachments')
+        .prefetch_related('assignees__user', 'tasks__status')
     ]
     # What «Количество задач» in the information card counts: the real tasks
     # that exist, not the measures that should have produced them.
