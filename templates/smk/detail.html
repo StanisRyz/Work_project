@@ -5,20 +5,19 @@
 {% block title %}{{ source.label }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-4">
+<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-5">
 {% endblock %}
 
 {% block content %}
 {% comment %}
-The record behind an СМК task, read-only and in two tabs.
+The record behind an СМК task, read-only and in three tabs.
 
 The heading carries the identifier, its state and «Архивировать»: тип аудита,
 дата, автор and the task count live in the information card below it and are
-never repeated — one fact, one place on the page. There is no history block:
-an СМК record has no workflow, so there would be no events to show.
+never repeated — one fact, one place on the page.
 
-Both tabs come from one `get_source_detail()` read, so they cannot describe
-different work.
+All three tabs come from one `get_source_detail()` read, so they cannot
+describe different work.
 {% endcomment %}
 <section class="act-detail-heading">
     <a class="act-back-link" href="{% url 'smk:list' %}" aria-label="К списку записей СМК">←</a>
@@ -46,10 +45,10 @@ different work.
 </section>
 
 {% comment %}
-The information card: four facts, each read once. «Дата аудита» is the audit's
-own date, stored separately from `created_at` — a record is often written up
+The information card: six facts, each read once. «Дата аудита» is the audit's
+own date, stored separately from «Дата создания» — a record is often written up
 days after the audit it describes — and «Количество задач» counts the real
-tasks the measures produced.
+tasks the measures produced, not the measures that should have produced them.
 {% endcomment %}
 <section class="smk-info-card" aria-label="Сведения об аудите">
     <div class="smk-info-card__item">
@@ -65,6 +64,14 @@ tasks the measures produced.
         <div><span>Создал</span><strong>{{ source.created_by|person_name }}</strong></div>
     </div>
     <div class="smk-info-card__item">
+        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M8 14h8"/></svg></span>
+        <div><span>Дата создания</span><strong>{{ source.created_at|date:'d.m.Y' }}</strong></div>
+    </div>
+    <div class="smk-info-card__item">
+        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 7h10l6 5-6 5H4z"/></svg></span>
+        <div><span>Статус</span><strong>{{ source.get_status_display }}</strong></div>
+    </div>
+    <div class="smk-info-card__item">
         <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 12l3 3 5-5"/></svg></span>
         <div><span>Количество задач</span><strong>{{ task_count }}</strong></div>
     </div>
@@ -73,10 +80,13 @@ tasks the measures produced.
 <nav class="act-detail-tabs" aria-label="Разделы записи СМК">
     <a class="act-detail-tabs__link{% if detail_tab == 'act' %} act-detail-tabs__link--active{% endif %}" href="?tab=act"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Акт аудита</a>
     <a class="act-detail-tabs__link{% if detail_tab == 'activities' %} act-detail-tabs__link--active{% endif %}" href="?tab=activities"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 13 4-4M7 17l-1 1a3 3 0 1 1-4-4l4-4a3 3 0 0 1 4 0M17 7l1-1a3 3 0 1 1 4 4l-4 4a3 3 0 0 1-4 0"/></svg>Связанные мероприятия</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/></svg>История</a>
 </nav>
 
 {% if detail_tab == 'activities' %}
     {% include 'smk/includes/activities_content.html' %}
+{% elif detail_tab == 'history' %}
+    {% include 'smk/includes/history_content.html' %}
 {% else %}
     {% include 'smk/includes/audit_content.html' %}
 {% endif %}

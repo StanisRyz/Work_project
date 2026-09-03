@@ -102,6 +102,56 @@ class SmkSource(models.Model):
         return self.status == self.Status.ARCHIVED
 
 
+class SmkHistoryEvent(models.Model):
+    """The record's own audit trail, in the shape acts and protocols already use.
+
+    Deliberately thin: an СМК record is written once and has a single
+    transition, so the trail is a short list of facts — «создана», one line per
+    задача the measures produced, and «в архив». There are no fragments, no
+    filters and no editing: `smk/services.py` is the only writer, inside the
+    same `atomic()` block as the change it describes, so an event without its
+    change (or the other way round) cannot be stored.
+    """
+
+    class EventType(models.TextChoices):
+        CREATED = 'CREATED', 'Запись СМК создана'
+        TASK_CREATED = 'TASK_CREATED', 'Задача по мероприятию создана'
+        ARCHIVED = 'ARCHIVED', 'Запись СМК помещена в архив'
+        # Written by nothing today: the record is immutable by design, and the
+        # only field that moves is `status`, which has its own event above. It
+        # is named here so an edit path, if one is ever added, records the fact
+        # rather than inventing a type for it.
+        EDITED = 'EDITED', 'Запись СМК отредактирована'
+
+    source = models.ForeignKey(
+        SmkSource,
+        on_delete=models.CASCADE,
+        related_name='history_events',
+        verbose_name='Запись СМК',
+    )
+    # `SET_NULL`, like the act and protocol trails: a deleted account must not
+    # take the history of what it did with it.
+    actor = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='smk_history_events',
+        blank=True,
+        null=True,
+        verbose_name='Пользователь',
+    )
+    event_type = models.CharField('Тип события', max_length=40, choices=EventType.choices)
+    message = models.TextField('Сообщение')
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-pk']
+        verbose_name = 'Событие истории СМК'
+        verbose_name_plural = 'События истории СМК'
+
+    def __str__(self):
+        return f'{self.source}: {self.get_event_type_display()}'
+
+
 class SmkNonConformity(models.Model):
     """One несоответствие found by the audit.
 

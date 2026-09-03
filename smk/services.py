@@ -22,6 +22,7 @@ from ecosystem.logging_utils import log_event
 from .models import (
     SmkActionAssignee,
     SmkCorrectiveAction,
+    SmkHistoryEvent,
     SmkNonConformity,
     SmkSource,
 )
@@ -33,6 +34,18 @@ logger = logging.getLogger('ecosystem.workflow')
 
 class SmkWorkflowError(Exception):
     pass
+
+
+def _record(source, actor, event_type, message):
+    """One history event.
+
+    Always called inside the `atomic()` block of the change it describes, so a
+    rolled-back write takes its event with it and the trail can never claim
+    something that did not happen.
+    """
+    return SmkHistoryEvent.objects.create(
+        source=source, actor=actor, event_type=event_type, message=message,
+    )
 
 
 def create_smk_source(*, origin, audit_date, non_conformities, actions, created_by):
@@ -94,7 +107,7 @@ def create_smk_source(*, origin, audit_date, non_conformities, actions, created_
                 ]
             )
             try:
-                create_smk_action_task(
+                task = create_smk_action_task(
                     source,
                     action,
                     [user.pk for user in item['assignees']],
@@ -105,6 +118,21 @@ def create_smk_source(*, origin, audit_date, non_conformities, actions, created_
                 # measures assigned and others silently lost, is not a state
                 # this module ever leaves behind.
                 raise SmkWorkflowError(str(exc)) from exc
+            _record(
+                source,
+                created_by,
+                SmkHistoryEvent.EventType.TASK_CREATED,
+                f'По мероприятию №{index + 1} создана задача №{task.pk}.',
+            )
+        # Last, so the trail's oldest event is «создана» even when several
+        # rows share the same timestamp: `ordering` breaks a tie by `-pk`.
+        _record(
+            source,
+            created_by,
+            SmkHistoryEvent.EventType.CREATED,
+            f'{source.label} создана: несоответствий — {len(non_conformities)}, '
+            f'корректирующих мероприятий — {len(actions)}.',
+        )
     log_event(
         logger,
         'INFO',
@@ -150,6 +178,12 @@ def archive_smk_source(source, *, actor):
         locked.archived_at = timezone.now()
         locked.archived_by = actor
         locked.save(update_fields=['status', 'archived_at', 'archived_by', 'updated_at'])
+        _record(
+            locked,
+            actor,
+            SmkHistoryEvent.EventType.ARCHIVED,
+            f'{locked.label} перенесена в архив.',
+        )
     log_event(
         logger,
         'INFO',

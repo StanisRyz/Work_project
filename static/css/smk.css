@@ -25,12 +25,14 @@
 
 /* ------------------------------------------------------------------ header */
 
-/* Four facts in one row, each read once on the page. Collapses to two columns
+/* Six facts, each read once on the page. Collapses to two columns
    on a tablet and one on a phone, so a long department or name never squeezes
-   the others out. */
+   the others out. Three columns, not six: six facts across one line would give
+   each a column too narrow for a full name or «Внутренний аудит», so they read
+   as two rows of three. */
 .smk-info-card {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     padding: 6px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -44,10 +46,15 @@
     padding: 12px 16px;
 }
 
-/* A divider between the cells rather than around them: one card, four facts. */
+/* Dividers between the cells rather than around them: one card, six facts.
+   The vertical rule is skipped on whichever cell opens a row, and rows after
+   the first are separated horizontally instead. */
 .smk-info-card__item + .smk-info-card__item {
     border-left: 1px solid var(--color-border);
 }
+
+.smk-info-card__item:nth-child(3n + 1) { border-left: 0; }
+.smk-info-card__item:nth-child(n + 4) { border-top: 1px solid var(--color-border); }
 
 .smk-info-card__icon {
     display: inline-grid;
@@ -336,11 +343,13 @@
 
 @media (max-width: 900px) {
     .smk-info-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    /* The vertical rule only makes sense between cells on one line. */
-    .smk-info-card__item + .smk-info-card__item { border-left: 0; }
+    /* Two per line: the vertical rule only makes sense between cells that
+       share one, and the three-column pattern above has to be undone first. */
+    .smk-info-card__item + .smk-info-card__item,
+    .smk-info-card__item:nth-child(3n + 1) { border-left: 0; }
     .smk-info-card__item:nth-child(even) { border-left: 1px solid var(--color-border); }
+    .smk-info-card__item:nth-child(n + 4) { border-top: 0; }
     .smk-info-card__item:nth-child(n + 3) { border-top: 1px solid var(--color-border); }
-
 }
 
 @media (max-width: 600px) {

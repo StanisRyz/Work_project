@@ -22,7 +22,7 @@ from accounts.models import Department, UserProfile
 from tasks.models import Task
 from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
 
-from .models import SmkSource
+from .models import SmkHistoryEvent, SmkSource
 from .permissions import can_create_smk_task
 from .services import SmkWorkflowError, archive_smk_source, create_smk_source
 
@@ -274,6 +274,14 @@ class SmkTests(TestCase):
         response = self.client.get(reverse('smk:detail', args=[source.pk]), {'tab': 'activities'})
         self.assertEqual(response.context['detail_tab'], 'activities')
         self.assertContains(response, reverse('tasks:detail', args=[task.pk]))
+
+        # «История» is the third tab, and it opens on the trail the creation
+        # wrote: «создана» plus one line per задача a measure produced.
+        response = self.client.get(reverse('smk:detail', args=[source.pk]), {'tab': 'history'})
+        self.assertEqual(response.context['detail_tab'], 'history')
+        self.assertContains(response, 'История записи СМК')
+        self.assertContains(response, 'Запись СМК создана')
+        self.assertContains(response, f'создана задача №{task.pk}')
         # An unknown tab falls back to the record rather than answering 404.
         self.assertEqual(
             self.client.get(
@@ -361,3 +369,70 @@ class SmkTests(TestCase):
         detail = self.client.get(reverse('smk:detail', args=[source.pk]))
         self.assertEqual(detail.status_code, 200)
         self.assertFalse(detail.context['can_archive'])
+
+    # --------------------------------------------------- related activities
+
+    def test_the_activities_tab_reports_the_task_and_its_attachment_state(self):
+        """The record references the task; it never restates the task's rules.
+
+        Both columns that could drift — статус and «Требуется вложение» — are
+        read from the `Task`, so attaching a file to the task is what changes
+        this page, and no СМК-side copy is consulted.
+        """
+        source = create_smk_source(
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            non_conformities=['Не ведётся журнал поверки'],
+            actions=self._actions(assignees=[self.employee], requires_attachment=True),
+            created_by=self.smk,
+        )
+        task = Task.objects.get(smk_source=source)
+        self.client.force_login(self.employee)
+        url = reverse('smk:detail', args=[source.pk])
+
+        response = self.client.get(url, {'tab': 'activities'})
+        row = response.context['actions'][0]
+        self.assertEqual(row['task'], task)
+        self.assertTrue(row['requires_attachment'])
+        self.assertEqual(row['attachment_count'], 0)
+        self.assertContains(response, 'Требуется')
+        # The link to the task is how the record points at the work.
+        self.assertContains(response, reverse('tasks:detail', args=[task.pk]))
+
+        add_task_attachment(
+            task, self.employee, SimpleUploadedFile('report.txt', b'done'),
+        )
+        row = self.client.get(url, {'tab': 'activities'}).context['actions'][0]
+        self.assertEqual(row['attachment_count'], 1)
+
+    # --------------------------------------------------------------- history
+
+    def test_archiving_is_recorded_in_the_history(self):
+        """The trail gains «в архив» — and only for a user allowed to do it."""
+        source = create_smk_source(
+            origin=SmkSource.Origin.EXTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            non_conformities=['Не ведётся журнал поверки'],
+            actions=self._actions(),
+            created_by=self.smk,
+        )
+        self.assertFalse(
+            source.history_events.filter(
+                event_type=SmkHistoryEvent.EventType.ARCHIVED,
+            ).exists(),
+        )
+
+        # A refused attempt writes no event: `_record()` runs inside the same
+        # transaction as the change it describes, and there was no change.
+        with self.assertRaises(SmkWorkflowError):
+            archive_smk_source(source, actor=self.employee)
+        self.assertFalse(source.history_events.filter(event_type='ARCHIVED').exists())
+
+        self.client.force_login(self.manager)
+        self.client.post(reverse('smk:archive', args=[source.pk]))
+        event = source.history_events.get(event_type=SmkHistoryEvent.EventType.ARCHIVED)
+        self.assertEqual(event.actor, self.manager)
+        # And the record is still readable, with its trail, from the archive.
+        response = self.client.get(reverse('smk:detail', args=[source.pk]), {'tab': 'history'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Запись СМК помещена в архив')

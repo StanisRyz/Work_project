@@ -7,6 +7,12 @@ two sections of the system read alike. Every row comes from a measure's own
 `tasks` relation — a measure has at most one task by database constraint — and
 a measure whose task is missing is still listed, with «—» where the link would
 be, rather than being silently dropped.
+
+The record references the task and never restates it: статус, «Требуется
+вложение» and the attachments counted here are read from the `Task` itself, so
+this page cannot promise something `complete_task()` would refuse. Everything
+that acts on the work — completing it, attaching a file — happens on the task's
+own page, which the № column links to.
 {% endcomment %}
 <section class="detail-section related-activities">
     <header class="related-activities__header">
@@ -16,13 +22,31 @@ be, rather than being silently dropped.
     {% if actions %}
         <div class="related-activities__table-wrap">
             <table class="related-activities__table">
-                <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Несоответствие</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
+                <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Несоответствие</th><th>Исполнители</th><th>Срок</th><th>Вложение</th><th>Статус</th></tr></thead>
                 <tbody>{% for row in actions %}<tr>
                     <td>{% if row.task %}<a class="related-activities__task-link" href="{% url 'tasks:detail' row.task.pk %}">#{{ row.task.pk }}</a>{% else %}—{% endif %}</td>
                     <td class="user-text"><strong>{{ row.action.task_text }}</strong></td>
                     <td>{% if row.action.non_conformity %}№{{ row.action.non_conformity.number }}{% else %}—{% endif %}</td>
-                    <td>{% for user in row.assignees %}{{ user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
+                    <td class="user-text">{% for user in row.assignees %}{{ user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
                     <td>{{ row.action.due_date|date:'d.m.Y' }}</td>
+                    {% comment %}
+                    Requirement and fulfilment in one cell: «Требуется» while
+                    nothing is attached, the count once something is, and «—»
+                    when the measure never demanded a file. The numbers are the
+                    task's own attachments — the rule is enforced by
+                    `complete_task()` and only reported here.
+                    {% endcomment %}
+                    <td>
+                        {% if row.requires_attachment %}
+                            {% if row.attachment_count %}
+                                <span class="smk-state smk-state--running">Вложений: {{ row.attachment_count }}</span>
+                            {% else %}
+                                <span class="smk-state smk-state--closed">Требуется</span>
+                            {% endif %}
+                        {% elif row.attachment_count %}
+                            Вложений: {{ row.attachment_count }}
+                        {% else %}—{% endif %}
+                    </td>
                     <td>{% if row.task %}<span class="act-badge act-badge--status">{{ row.task.status }}</span>{% else %}—{% endif %}</td>
                 </tr>{% endfor %}</tbody>
             </table>

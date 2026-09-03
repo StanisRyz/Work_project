@@ -27,7 +27,7 @@ model without explicit approval.
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` + `DocumentFavorite` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
-| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, the registry/form/record pages under `/quality/smk/`, and two write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), and `archive_smk_source()`, the record's only state change. No task system of its own |
+| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and two write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), and `archive_smk_source()`, the record's only state change. No task system of its own |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -371,19 +371,40 @@ tasks never live inside `acts`.
   splits, «Работа» and «Архив», with «Количество задач» annotated in the query
   rather than counted per row; reading it is open to every authenticated user,
   «Создать» is not.
-- **The record page is two tabs and no history.** «Акт аудита» (findings as a
+- **The record page is three tabs.** «Акт аудита» (findings as a
   timeline, measures as one-row cards whose подразделение/исполнитель/срок/
   задача are grid items of the card itself, not a nested grid — that is what
-  keeps them on one line) and «Связанные мероприятия» (the tasks,
-  in the act page's own table shape), both built from one `get_source_detail()`
-  read so they cannot disagree. The heading carries only the identifier — тип
+  keeps them on one line), «Связанные мероприятия» (the tasks,
+  in the act page's own table shape) and «История», all built from one
+  `get_source_detail()` read so they cannot disagree. The heading carries only the identifier — тип
   аудита, дата аудита, автор and the task count live in the information card
-  and are never repeated, save for «Архивировать» and the status badge, which
-  belong to the heading because they act on the record as a whole. There is no
-  event timeline: an СМК record has no workflow. Styling reuses `acts.css`/`components.css`
+  (six of them: тип аудита, дата аудита, автор, дата создания, статус,
+  количество задач) and are never repeated, save for «Архивировать» and the
+  status badge, which belong to the heading because they act on the record as a
+  whole. Styling reuses `acts.css`/`components.css`
   (`act-detail-heading`, `act-detail-tabs`, `detail-section`, `act-badge`,
-  `related-activities`); `static/css/smk.css` adds only the information card,
-  the timeline and the measure card.
+  `related-activities`, and the whole `history-feed` timeline verbatim);
+  `static/css/smk.css` adds only the information card, the findings timeline,
+  the measure card and the registry table.
+- **«Связанные мероприятия» reports the task and never restates it.** Статус,
+  «Требуется вложение» and the attachment count in that table are read from the
+  `Task` — `Task.requires_attachment` is the authority once the snapshot is
+  taken, and `complete_task()` is the only place the rule is enforced — so the
+  record cannot promise something the task would refuse. `_measure_row()` falls
+  back to the measure's own flag only when no task exists at all. Acting on the
+  work (completing it, attaching a file) happens on the task's page, which the
+  № column links to.
+- **`SmkHistoryEvent` is a short list of facts, not an audit system.**
+  `CREATED`, `TASK_CREATED` and `ARCHIVED` are written by `smk/services.py`
+  alone, through `_record()`, inside the same `atomic()` block as the change
+  they describe — a rolled-back write takes its event with it, and a refused
+  archive writes nothing. `EDITED` is named but written by nothing: the record
+  is immutable and `status` has its own event; it exists so a future edit path
+  records rather than invents a type. There are no history fragments and no
+  filters. `smk.0006` backfills records stored before the trail from facts
+  already in the database (`SmkSource.created_at`/`created_by`, each `Task`'s
+  own `created_at`/`created_by`), stamping `created_at` after insert because it
+  is `auto_now_add`; nothing is invented and no `ARCHIVED` event is backfilled.
 - **Creating an СМК record takes two POSTs to `smk:create`, and the flag is the
   server's rule, not the dialog's.** A valid POST without
   `confirmed=1` writes **nothing** — it comes back as the same page carrying

@@ -6,6 +6,7 @@ Reads only — every write stays in `smk/services.py`, and every permission in
 
 from django.contrib.auth.models import User
 from django.db.models import Count
+from django.utils import timezone
 
 from accounts.models import Department
 
@@ -84,10 +85,10 @@ def build_confirmation_summary(cleaned):
     }
 
 
-# The two tabs of the record page. `act` is the default, exactly as the act
+# The three tabs of the record page. `act` is the default, exactly as the act
 # page defaults to its own first tab, and an unknown value falls back to it
 # rather than 404ing on a bookmark.
-DETAIL_TABS = ('act', 'activities')
+DETAIL_TABS = ('act', 'activities', 'history')
 
 
 def resolve_detail_tab(value):
@@ -96,13 +97,37 @@ def resolve_detail_tab(value):
 
 def _measure_row(action):
     """One корректирующее мероприятие with everything its card shows."""
+    # At most one task per measure, by the `unique_smk_action_task` constraint
+    # — the card links to that task, never to a search.
+    task = next(iter(action.tasks.all()), None)
     return {
         'action': action,
         'assignees': [item.user for item in action.assignees.all()],
-        # At most one task per measure, by the `unique_smk_action_task`
-        # constraint — the card links to that task, never to a search.
-        'task': next(iter(action.tasks.all()), None),
+        'task': task,
+        # Whether the requirement the measure set has actually been met. Read
+        # from the *task* — its `requires_attachment` is the authority once the
+        # snapshot is taken, and its own attachments are what
+        # `complete_task()` checks — so this page can never promise something
+        # the task would refuse, or refuse something it would accept.
+        'requires_attachment': task.requires_attachment if task else action.requires_attachment,
+        'attachment_count': len(task.attachments.all()) if task else 0,
     }
+
+
+def get_smk_history_groups(source):
+    """History events in local-date buckets, newest first.
+
+    The same shape `protocols.selectors.get_protocol_history_groups()` returns,
+    so «История» renders through the very same timeline markup the protocol and
+    act pages use.
+    """
+    groups = []
+    for event in source.history_events.select_related('actor'):
+        event_date = timezone.localtime(event.created_at).date()
+        if not groups or groups[-1]['date'] != event_date:
+            groups.append({'date': event_date, 'events': []})
+        groups[-1]['events'].append(event)
+    return groups
 
 
 def get_source_detail(source):
@@ -112,13 +137,13 @@ def get_source_detail(source):
     up by source type: the relation is what links a measure to the work it
     produced, and each measure has at most one task by database constraint.
 
-    Both tabs are built from this one read, so «Акт аудита» and «Связанные
-    мероприятия» can never describe different work.
+    All three tabs are built from this one read, so «Акт аудита», «Связанные
+    мероприятия» and «История» can never describe different work.
     """
     rows = [
         _measure_row(action)
         for action in source.actions.select_related('department', 'non_conformity')
-        .prefetch_related('assignees__user', 'tasks__status')
+        .prefetch_related('assignees__user', 'tasks__status', 'tasks__attachments')
     ]
     return {
         'source': source,
@@ -133,4 +158,5 @@ def get_source_detail(source):
         # What «Количество задач» in the information card counts: the real
         # tasks that exist, not the measures that should have produced them.
         'task_count': sum(1 for row in rows if row['task'] is not None),
+        'history_groups': get_smk_history_groups(source),
     }
