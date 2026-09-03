@@ -3,7 +3,7 @@
 Deliberately small: everything else here is already covered where it lives —
 the completion guard by `tasks.tests`, the assignee/department pairing by the
 protocol editor's own tests. What is new, and therefore tested, is who may
-create an СМК record, that a measure really becomes a `Task`, that the task
+create and archive an СМК record, that a measure really becomes a `Task`, that the task
 reaches the common registry with its СМК source named, that «Требуется
 вложение» travels onto the task and is enforced there, and that nothing is
 written before the creation is confirmed.
@@ -24,7 +24,7 @@ from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
 
 from .models import SmkSource
 from .permissions import can_create_smk_task
-from .services import SmkWorkflowError, create_smk_source
+from .services import SmkWorkflowError, archive_smk_source, create_smk_source
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='smk-attachments-'))
@@ -281,3 +281,83 @@ class SmkTests(TestCase):
             ).context['detail_tab'],
             'act',
         )
+
+    # ---------------------------------------------------------------- registry
+
+    def _source(self):
+        return create_smk_source(
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            non_conformities=['Не ведётся журнал поверки'],
+            actions=self._actions(),
+            created_by=self.smk,
+        )
+
+    def test_the_registry_lists_a_new_record_under_work(self):
+        """The section exists, is reachable from «Качество», and opens on «Работа».
+
+        A record is live the moment it is created and stays there — nothing but
+        «Архивировать» moves it — so a freshly created one must be in the first
+        tab and absent from the second.
+        """
+        source = self._source()
+        self.client.force_login(self.employee)
+
+        response = self.client.get(reverse('smk:list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['tab'], 'work')
+        self.assertIn(source, list(response.context['sources']))
+        # The row carries what the table promises: the record, its audit type
+        # and the real tasks its measures produced.
+        self.assertContains(response, source.label)
+        self.assertContains(response, reverse('smk:detail', args=[source.pk]))
+        self.assertEqual(response.context['sources'][0].task_count, 1)
+        # The navigation entry itself — rendered on every page by the sidebar.
+        self.assertContains(response, f'href="{reverse("smk:list")}"')
+
+        archive = self.client.get(reverse('smk:list'), {'tab': 'archive'})
+        self.assertNotIn(source, list(archive.context['sources']))
+
+    # --------------------------------------------------------------- archiving
+
+    def test_only_permitted_roles_archive_and_the_record_moves_to_the_archive(self):
+        """СМК/руководитель/администратор may archive; an ordinary user may not.
+
+        And archiving only moves the record: its task, and the link between
+        them, are exactly what they were before.
+        """
+        source = self._source()
+        task = Task.objects.get(smk_source=source)
+
+        # An ordinary assignee reads the record but is offered nothing.
+        self.client.force_login(self.employee)
+        self.assertFalse(
+            self.client.get(reverse('smk:detail', args=[source.pk])).context['can_archive'],
+        )
+        with self.assertRaises(SmkWorkflowError):
+            archive_smk_source(source, actor=self.employee)
+        source.refresh_from_db()
+        self.assertEqual(source.status, SmkSource.Status.ACTIVE)
+
+        self.client.force_login(self.smk)
+        response = self.client.post(
+            reverse('smk:archive', args=[source.pk]), follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        source.refresh_from_db()
+        self.assertEqual(source.status, SmkSource.Status.ARCHIVED)
+        self.assertEqual(source.archived_by, self.smk)
+        self.assertIsNotNone(source.archived_at)
+        # Untouched by the transition.
+        task.refresh_from_db()
+        self.assertEqual(task.smk_source_id, source.pk)
+
+        # It is now in «Архив», gone from «Работа», and still readable — the
+        # button being the only thing that disappeared.
+        archive = self.client.get(reverse('smk:list'), {'tab': 'archive'})
+        self.assertIn(source, list(archive.context['sources']))
+        work = self.client.get(reverse('smk:list'))
+        self.assertNotIn(source, list(work.context['sources']))
+        detail = self.client.get(reverse('smk:detail', args=[source.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertFalse(detail.context['can_archive'])

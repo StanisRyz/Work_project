@@ -14,15 +14,16 @@ All open/close state lives in `static/js/app.js`.
     </div>
     <nav class="sidebar__nav">
         <div class="sidebar__group" data-nav-group>
-            <button class="sidebar__category{% if active_page == 'acts' or active_page == 'tasks' or active_page == 'protocols' %} sidebar__category--active{% endif %}"
+            <button class="sidebar__category{% if active_page == 'acts' or active_page == 'tasks' or active_page == 'protocols' or active_page == 'smk' %} sidebar__category--active{% endif %}"
                     type="button" aria-expanded="false" aria-controls="sidebar-submenu-quality" data-nav-category>
                 <span>Качество</span>
                 <svg class="ui-icon sidebar__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
             </button>
             <div class="sidebar__submenu" id="sidebar-submenu-quality" data-nav-submenu hidden>
                 <a class="sidebar__link{% if active_page == 'acts' %} sidebar__link--active{% endif %}" href="{% url 'acts:list' %}">Акты</a>
-                <a class="sidebar__link{% if active_page == 'tasks' %} sidebar__link--active{% endif %}" href="{% url 'tasks:list' %}">Задачи</a>
                 <a class="sidebar__link{% if active_page == 'protocols' %} sidebar__link--active{% endif %}" href="{% url 'protocols:list' %}">Протоколы</a>
+                <a class="sidebar__link{% if active_page == 'smk' %} sidebar__link--active{% endif %}" href="{% url 'smk:list' %}">СМК</a>
+                <a class="sidebar__link{% if active_page == 'tasks' %} sidebar__link--active{% endif %}" href="{% url 'tasks:list' %}">Задачи</a>
             </div>
         </div>
         {% comment %}

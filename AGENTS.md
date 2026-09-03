@@ -27,18 +27,17 @@ model without explicit approval.
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` + `DocumentFavorite` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
-| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, the pages under `/quality/smk/`, and the single write path `smk/services.create_smk_source()` — which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction, reached only through the confirmation step in `smk/views.py`. No task system of its own |
+| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, the registry/form/record pages under `/quality/smk/`, and two write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), and `archive_smk_source()`, the record's only state change. No task system of its own |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
 
 The user-facing sections are Акты (`/quality/acts/`), Задачи
-(`/quality/tasks/`), Протоколы (`/quality/protocols/`), Калькулятор времени
-навивки (`/calculators/winding/`), Калькулятор рубки пластин
-(`/calculators/plate-cutting/`) and Документация (`/documents/`). `/quality/smk/`
-is mounted the same way but has no navigation item of its own: the СМК form is
-reached from «Задачи» through `tasks:create`, and the record it produces is read
-from the task that links to it. `/` redirects to
+(`/quality/tasks/`), Протоколы (`/quality/protocols/`), СМК (`/quality/smk/`),
+Калькулятор времени навивки (`/calculators/winding/`), Калькулятор рубки пластин
+(`/calculators/plate-cutting/`) and Документация (`/documents/`). Под «Качество»
+пункты идут Акты · Протоколы · СМК · Задачи; the СМК form is reachable both from
+its own registry and, as before, from «Задачи» through `tasks:create`. `/` redirects to
 `/quality/acts/` and so does the login fallback, for every role including
 superusers. Django Admin (`/admin/`) is reached directly, not from the sidebar.
 
@@ -357,6 +356,21 @@ tasks never live inside `acts`.
   text, «Выявлено» (the audit date) and «Источник» — and nothing else: what is
   being done about it is the state of the measures naming it, and a second
   answer on the finding could only disagree with them.
+- **`SmkSource.status` is a shelf, not a workflow.** Two values, `ACTIVE` and
+  `ARCHIVED`, and exactly one transition: `smk.services.archive_smk_source()`,
+  driven solely by «Архивировать» on the record page. Completing the tasks a
+  record produced never moves it — the tasks are tracked in «Задачи» and the
+  record is the document they came out of. The transition writes `status`,
+  `archived_at` and `archived_by` and nothing else: findings, measures, tasks
+  and every link between them stay as they were, and an archived record is
+  still opened and read at the same URL. Who may do it is
+  `smk.permissions.can_archive_smk_source()` — the same three roles as
+  creation, and only while the record is live — asked once by the view for the
+  button and re-checked inside the service under `select_for_update()`. The
+  registry (`smk:list`, `build_smk_list_state()`) is the two tabs this status
+  splits, «Работа» and «Архив», with «Количество задач» annotated in the query
+  rather than counted per row; reading it is open to every authenticated user,
+  «Создать» is not.
 - **The record page is two tabs and no history.** «Акт аудита» (findings as a
   timeline, measures as one-row cards whose подразделение/исполнитель/срок/
   задача are grid items of the card itself, not a nested grid — that is what
@@ -364,8 +378,9 @@ tasks never live inside `acts`.
   in the act page's own table shape), both built from one `get_source_detail()`
   read so they cannot disagree. The heading carries only the identifier — тип
   аудита, дата аудита, автор and the task count live in the information card
-  and are never repeated. There is no event timeline: an СМК record has no
-  workflow. Styling reuses `acts.css`/`components.css`
+  and are never repeated, save for «Архивировать» and the status badge, which
+  belong to the heading because they act on the record as a whole. There is no
+  event timeline: an СМК record has no workflow. Styling reuses `acts.css`/`components.css`
   (`act-detail-heading`, `act-detail-tabs`, `detail-section`, `act-badge`,
   `related-activities`); `static/css/smk.css` adds only the information card,
   the timeline and the measure card.
@@ -839,10 +854,11 @@ tasks never live inside `acts`.
   authenticated-user Plate Cutting preset Save/Search/Load. MAS has no Django
   Admin privilege.
 - **`UserProfile.Role.SMK` (`smk`, «СМК») is a first-class role, read through
-  `acts.permissions.is_smk()` like every other.** It grants exactly one thing:
+  `acts.permissions.is_smk()` like every other.** It grants exactly two things:
   creating an СМК record and the tasks it produces
   (`smk.permissions.can_create_smk_task()`, which also admits руководитель and
-  администратор). It changes no act, protocol, calculator or admin right, and
+  администратор), and archiving one
+  (`smk.permissions.can_archive_smk_source()`, the same three roles). It changes no act, protocol, calculator or admin right, and
   no check keys on the department. The department «Отдел СМК» (`SMK`, seeded
   idempotently by `accounts.0007` and listed in `MIGRATION_SEEDED_ROWS`) is
   organisational only. Руководитель and администратор are shown a task-type

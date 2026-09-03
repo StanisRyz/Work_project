@@ -5,8 +5,40 @@ Reads only — every write stays in `smk/services.py`, and every permission in
 """
 
 from django.contrib.auth.models import User
+from django.db.models import Count
 
 from accounts.models import Department
+
+from .models import SmkSource
+
+
+# The two halves of the registry. «Работа» is every live record — a record
+# stays there until somebody archives it by hand, so completing its tasks
+# changes nothing here — and «Архив» is what was shelved. The dict is the only
+# place the mapping is written, exactly as the protocol registry keeps its own.
+LIST_TABS = {
+    'work': SmkSource.Status.ACTIVE,
+    'archive': SmkSource.Status.ARCHIVED,
+}
+DEFAULT_LIST_TAB = 'work'
+
+
+def build_smk_list_state(params):
+    """The СМК registry for one tab.
+
+    «Количество задач» is counted in the query rather than per row: it is the
+    real `tasks.Task` rows the record's measures produced, and one annotation
+    keeps the table to a single database read no matter how long it gets.
+    """
+    tab = params.get('tab') if params else None
+    if tab not in LIST_TABS:
+        tab = DEFAULT_LIST_TAB
+    sources = (
+        SmkSource.objects.filter(status=LIST_TABS[tab])
+        .select_related('created_by')
+        .annotate(task_count=Count('actions__tasks', distinct=True))
+    )
+    return {'tab': tab, 'sources': sources}
 
 
 def get_editor_directory():
@@ -37,8 +69,6 @@ def build_confirmation_summary(cleaned):
     server-side confirmation step) and, by `smk_form.js`, into the dialog
     without a round trip.
     """
-    from .models import SmkSource
-
     assignees = []
     for action in cleaned['actions']:
         for user in action['assignees']:

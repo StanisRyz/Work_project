@@ -21,8 +21,10 @@ from accounts.models import Department
 class SmkSource(models.Model):
     """One СМК record: an audit, its findings and the measures it produced.
 
-    It has no status and no workflow: the record is written once and the work
-    it creates lives in «Задачи», where it is tracked like every other task.
+    It has no workflow: the record is written once and the work it creates
+    lives in «Задачи», where it is tracked like every other task. Its only
+    state is where it is filed — «В работе» or «Архив» — and that moves solely
+    because somebody pressed «Архивировать», never because a task closed.
     The pk is the number people see — no separate series is allocated, because
     nothing here is numbered per type the way a protocol is.
     """
@@ -31,8 +33,23 @@ class SmkSource(models.Model):
         EXTERNAL_AUDIT = 'EXTERNAL_AUDIT', 'Внешний аудит'
         INTERNAL_AUDIT = 'INTERNAL_AUDIT', 'Внутренний аудит'
 
+    class Status(models.TextChoices):
+        """Where the record is read, and nothing more.
+
+        Two values on purpose: this is a shelf, not a workflow. A record stays
+        `ACTIVE` until somebody archives it by hand — completing its tasks
+        never moves it, because the tasks are tracked in «Задачи» and the
+        record is the document they came out of.
+        """
+
+        ACTIVE = 'ACTIVE', 'В работе'
+        ARCHIVED = 'ARCHIVED', 'Архив'
+
     origin = models.CharField(
         'Источник', max_length=32, choices=Origin.choices,
+    )
+    status = models.CharField(
+        'Статус', max_length=16, choices=Status.choices, default=Status.ACTIVE,
     )
     # When the audit actually happened — the author's own answer, and never
     # `created_at`. The two are deliberately separate: a record is often
@@ -48,6 +65,18 @@ class SmkSource(models.Model):
     )
     created_at = models.DateTimeField('Создан', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлен', auto_now=True)
+    # Who put the record on the shelf and when. Kept next to `status` rather
+    # than in a history table: there is exactly one transition and it happens
+    # at most once, so a timeline of it would hold a single row.
+    archived_at = models.DateTimeField('Архивирован', null=True, blank=True)
+    archived_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='archived_smk_sources',
+        null=True,
+        blank=True,
+        verbose_name='Архивировал',
+    )
 
     class Meta:
         ordering = ['-created_at', '-pk']
@@ -65,6 +94,12 @@ class SmkSource(models.Model):
         the record and the task row can never name it differently.
         """
         return f'СМК №{self.pk}'
+
+    @property
+    def is_archived(self):
+        """Read by the template and the permission check, so «архивирована»
+        is spelled out once and never as a status comparison in markup."""
+        return self.status == self.Status.ARCHIVED
 
 
 class SmkNonConformity(models.Model):

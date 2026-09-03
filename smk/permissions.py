@@ -1,4 +1,4 @@
-"""Who may create and read an СМК record.
+"""Who may create, read and archive an СМК record.
 
 One module, one answer: the views, the templates and the task-type chooser all
 ask these functions, so the button a user sees and the request the server
@@ -35,6 +35,17 @@ def requires_task_type_choice(user):
     taken straight to it — a one-option menu is not a choice.
     """
     return is_manager_or_admin(user)
+
+
+def can_archive_smk_source(source, user):
+    """Отдел СМК, руководители и администраторы — and only while it is live.
+
+    The same three roles that may create a record may shelve one; an ordinary
+    assignee may read it and complete its tasks, never file it away. The
+    already-archived check lives here rather than in the service alone so the
+    button disappears exactly when the POST would be refused.
+    """
+    return not source.is_archived and can_create_smk_task(user)
 
 
 def can_view_smk_source(source, user):

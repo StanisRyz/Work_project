@@ -5,24 +5,44 @@
 {% block title %}{{ source.label }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-3">
+<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-4">
 {% endblock %}
 
 {% block content %}
 {% comment %}
 The record behind an СМК task, read-only and in two tabs.
 
-The heading carries the identifier and nothing else: тип аудита, дата, автор and
-the task count live in the information card below it and are never repeated —
-one fact, one place on the page. There is no history block: an СМК record has
-no workflow, so there would be no events to show.
+The heading carries the identifier, its state and «Архивировать»: тип аудита,
+дата, автор and the task count live in the information card below it and are
+never repeated — one fact, one place on the page. There is no history block:
+an СМК record has no workflow, so there would be no events to show.
 
 Both tabs come from one `get_source_detail()` read, so they cannot describe
 different work.
 {% endcomment %}
 <section class="act-detail-heading">
-    <a class="act-back-link" href="{% url 'tasks:list' %}" aria-label="К списку задач">←</a>
-    <div class="act-detail-heading__title"><h1>{{ source.label }}</h1></div>
+    <a class="act-back-link" href="{% url 'smk:list' %}" aria-label="К списку записей СМК">←</a>
+    <div class="act-detail-heading__title">
+        <h1>{{ source.label }}</h1>
+        {% if source.is_archived %}<span class="act-badge act-badge--status">{{ source.get_status_display }}</span>{% endif %}
+    </div>
+    {% comment %}
+    «Архивировать» is shown only to the roles that may do it and only while the
+    record is live — `can_archive` is the one answer the view computed, and
+    `archive_smk_source()` re-checks it under a lock. It goes through the one
+    application confirmation modal, never a browser `confirm()`.
+    {% endcomment %}
+    {% if can_archive %}
+        <div class="smk-detail-heading__actions">
+            <button class="link-button link-button--warning" type="button"
+                    data-confirm
+                    data-confirm-title="Архивировать {{ source.label }}?"
+                    data-confirm-text="Запись перейдёт во вкладку «Архив». Задачи и связи останутся без изменений."
+                    data-confirm-label="Архивировать"
+                    data-confirm-variant="warning"
+                    data-confirm-url="{% url 'smk:archive' source.pk %}">Архивировать</button>
+        </div>
+    {% endif %}
 </section>
 
 {% comment %}

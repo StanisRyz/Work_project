@@ -10,6 +10,19 @@
  * `acts.css` already uses for the same meaning.
  */
 
+/* ---------------------------------------------------------------- registry */
+
+/* The list of records. Card, table, tabs and badges all come from
+   `components.css`/`acts.css`; only the row-wide link and a minimum width the
+   seven columns need are added here. */
+.smk-table { min-width: 820px; }
+.smk-table tbody tr { position: relative; }
+.smk-table tbody tr:hover { background: #f7f9ff; }
+
+/* One click anywhere on the row opens the record; the number stays a real
+   link, so keyboard and «open in new tab» keep working. */
+.smk-row-link::after { content: ''; position: absolute; inset: 0; }
+
 /* ------------------------------------------------------------------ header */
 
 /* Four facts in one row, each read once on the page. Collapses to two columns
@@ -353,4 +366,13 @@
 
 @media (max-width: 600px) {
     .smk-source-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The record heading's right-hand side. The heading itself is `acts.css`'s
+   `.act-detail-heading`; this only pushes the action away from the title, so
+   the two never sit next to each other on a wide screen. */
+.smk-detail-heading__actions { margin-left: auto; display: flex; gap: 10px; }
+
+@media (max-width: 640px) {
+    .smk-detail-heading__actions { margin-left: 0; }
 }

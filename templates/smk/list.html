@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}СМК - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-4">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+The СМК registry, in the same toolbar/tabs/table shape as Акты, Протоколы and
+Задачи. «Работа» holds every live record and «Архив» what somebody shelved by
+hand — completing the tasks a record produced never moves it between the two.
+
+«Создать» is rendered only for the roles that may create, and the form re-checks
+that right anyway; the tabs and the table are open to every reader.
+{% endcomment %}
+<div class="act-registry-toolbar">
+    <nav class="act-registry-tabs" aria-label="Область списка СМК">
+        <a class="act-registry-tabs__link{% if tab == 'work' %} act-registry-tabs__link--active{% endif %}" href="?tab=work">Работа</a>
+        <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?tab=archive">Архив</a>
+    </nav>
+    {% if can_create %}
+        <a class="link-button" href="{% url 'smk:create' %}">+ Создать запись СМК</a>
+    {% endif %}
+</div>
+
+{% include 'smk/includes/registry_results.html' %}
+{% endblock %}

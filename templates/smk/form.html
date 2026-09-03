@@ -22,7 +22,7 @@ re-checked on the server.
 {% endcomment %}
 <div class="protocol-create-page">
     <header class="protocol-page-header">
-        <a class="act-back-link" href="{% url 'tasks:list' %}" aria-label="К списку задач">←</a>
+        <a class="act-back-link" href="{% url 'smk:list' %}" aria-label="К списку записей СМК">←</a>
         <div>
             <h1>Задача СМК</h1>
             <p>Корректирующие мероприятия по результатам аудита. Каждое мероприятие становится отдельной задачей.</p>
@@ -110,7 +110,7 @@ re-checked on the server.
         </details>
 
         <div class="protocol-editor__actions">
-            <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}">К списку задач</a>
+            <a class="link-button link-button--secondary" href="{% url 'smk:list' %}">К списку СМК</a>
             <button class="link-button" type="submit">Создать задачи</button>
         </div>
 

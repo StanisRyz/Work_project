@@ -1,9 +1,11 @@
 """The one way an СМК record — and the tasks it produces — is written.
 
-A single entry point: `create_smk_source()`. The record, its findings, its
-measures and the real `tasks.Task` rows appear together or not at all, because
-a record whose measures reached nobody is worse than no record. The permission
-is re-checked here, under the transaction, and not only in the view.
+Two entry points: `create_smk_source()` writes the record, and
+`archive_smk_source()` files it away — nothing else here changes an СМК
+record. On creation the record, its findings, its measures and the real
+`tasks.Task` rows appear together or not at all, because a record whose
+measures reached nobody is worse than no record. Both entry points re-check
+the permission here, under the transaction, and not only in the view.
 
 `tasks.services.create_smk_action_task()` owns the task itself; this module
 owns the decision to create one. That split is the same one
@@ -13,6 +15,7 @@ owns the decision to create one. That split is the same one
 import logging
 
 from django.db import transaction
+from django.utils import timezone
 
 from ecosystem.logging_utils import log_event
 
@@ -22,7 +25,7 @@ from .models import (
     SmkNonConformity,
     SmkSource,
 )
-from .permissions import can_create_smk_task
+from .permissions import can_archive_smk_source, can_create_smk_task
 
 
 logger = logging.getLogger('ecosystem.workflow')
@@ -114,3 +117,45 @@ def create_smk_source(*, origin, audit_date, non_conformities, actions, created_
         outcome='ok',
     )
     return source
+
+
+def archive_smk_source(source, *, actor):
+    """Move one record to «Архив» — the only state change it has.
+
+    Deliberately narrow. It touches `status`, `archived_at` and `archived_by`
+    and nothing else: the findings, the measures, the tasks they became and
+    every link between them stay exactly as they were, and an archived record
+    is still opened and read at the same URL. Archiving is not a closure and
+    never completes anything.
+
+    The right is re-checked here, not only in the view, and the row is locked
+    while it is read so two people pressing the button at once cannot both
+    write the transition.
+    """
+    with transaction.atomic():
+        locked = SmkSource.objects.select_for_update().get(pk=source.pk)
+        if not can_archive_smk_source(locked, actor):
+            log_event(
+                logger,
+                'INFO',
+                'smk.operation_rejected',
+                operation='archive_source',
+                smk_source_id=locked.pk,
+                actor_user_id=getattr(actor, 'pk', None),
+                reason='already_archived' if locked.is_archived else 'not_permitted',
+                outcome='rejected',
+            )
+            raise SmkWorkflowError('Архивирование записи СМК недоступно.')
+        locked.status = SmkSource.Status.ARCHIVED
+        locked.archived_at = timezone.now()
+        locked.archived_by = actor
+        locked.save(update_fields=['status', 'archived_at', 'archived_by', 'updated_at'])
+    log_event(
+        logger,
+        'INFO',
+        'smk.source_archived',
+        smk_source_id=locked.pk,
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return locked
