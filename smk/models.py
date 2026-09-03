@@ -34,6 +34,12 @@ class SmkSource(models.Model):
     origin = models.CharField(
         'Источник', max_length=32, choices=Origin.choices,
     )
+    # When the audit actually happened — the author's own answer, and never
+    # `created_at`. The two are deliberately separate: a record is often
+    # written up days after the audit it describes, and the page shows this
+    # one. Nullable only so the column could be added to rows stored before it
+    # existed; the form has required it ever since.
+    audit_date = models.DateField('Дата аудита', null=True, blank=True)
     created_by = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
@@ -87,6 +93,11 @@ class SmkNonConformity(models.Model):
     def __str__(self):
         return f'{self.source}: {self.text[:60]}'
 
+    @property
+    def number(self):
+        """«№1» as the page shows it — the stored order, not the primary key."""
+        return self.display_order + 1
+
 
 class SmkCorrectiveAction(models.Model):
     """One корректирующее мероприятие, and the task it becomes.
@@ -112,6 +123,26 @@ class SmkCorrectiveAction(models.Model):
         verbose_name='Подразделение',
     )
     due_date = models.DateField('Срок')
+    # Which finding this measure answers, when the author said so. Optional and
+    # `SET_NULL` on purpose: one measure often answers several findings at once,
+    # so the link is a statement the author may make rather than a rule the
+    # record must satisfy, and a measure never disappears with a finding.
+    non_conformity = models.ForeignKey(
+        'SmkNonConformity',
+        on_delete=models.SET_NULL,
+        related_name='corrective_actions',
+        null=True,
+        blank=True,
+        verbose_name='Выявленное несоответствие',
+    )
+    # Whether the real task this measure becomes may only be completed with a
+    # file attached. Stored on the measure because the requirement is the
+    # author's decision; the task copies it once, at creation, and never reads
+    # it back — `Task.requires_attachment` is the authority from then on, and
+    # `tasks.services.complete_task()` is the only place it is enforced.
+    # `default=False` keeps every row stored before this field existed exactly
+    # as permissive as it was.
+    requires_attachment = models.BooleanField('Обязательно вложение', default=False)
     display_order = models.PositiveIntegerField('Порядок отображения', default=0)
 
     class Meta:

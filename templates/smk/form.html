@@ -4,7 +4,9 @@
 {% block title %}Задача СМК - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260902-1">
+{# The editor reuses the protocol editor's row styling; `smk.css` adds only what is СМК's own. #}
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260902-3">
+<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-2">
 {% endblock %}
 
 {% block content %}
@@ -38,16 +40,28 @@ re-checked on the server.
                 <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
             </summary>
             <div class="protocol-section__body">
-                <label>
-                    <span>Источник</span>
-                    <select name="origin" required>
-                        <option value="">Выберите источник</option>
-                        {% for value, label in form.origin_choices %}
-                            <option value="{{ value }}"{% if form.origin == value %} selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                    {% if form.origin_error %}<span class="field-error">{{ form.origin_error }}</span>{% endif %}
-                </label>
+                {% comment %}
+                The audit's own type and its own date, side by side. «Дата
+                аудита» is not the creation timestamp — a record is often
+                written up days after the audit — and both are stored.
+                {% endcomment %}
+                <div class="smk-source-fields">
+                    <label>
+                        <span>Тип аудита</span>
+                        <select name="origin" required>
+                            <option value="">Выберите источник</option>
+                            {% for value, label in form.origin_choices %}
+                                <option value="{{ value }}"{% if form.origin == value %} selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        {% if form.origin_error %}<span class="field-error">{{ form.origin_error }}</span>{% endif %}
+                    </label>
+                    <label>
+                        <span>Дата аудита</span>
+                        <input type="date" name="audit_date" value="{{ form.audit_date }}" required>
+                        {% if form.audit_date_error %}<span class="field-error">{{ form.audit_date_error }}</span>{% endif %}
+                    </label>
+                </div>
             </div>
         </details>
 
@@ -99,10 +113,49 @@ re-checked on the server.
             <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}">К списку задач</a>
             <button class="link-button" type="submit">Создать задачи</button>
         </div>
+
+        {% comment %}
+        СМК's own dialog rather than the shared `includes/confirm_modal.html`:
+        that one is deliberately action-agnostic and shows one static line of
+        text, while this summary is structured and computed from the form. It
+        borrows the `app-modal` styling so the two look the same, and posts the
+        page's own form — no second endpoint and no duplicated fields.
+
+        Rendered `open` when the server built a summary, which is what makes
+        the confirmation step work with JavaScript disabled; `smk_form.js`
+        otherwise fills the same elements and opens it without a round trip.
+        {% endcomment %}
+        <dialog class="app-modal" data-smk-confirm aria-labelledby="smk-confirm-title"{% if confirmation %} open{% endif %}>
+            <div class="app-modal__form">
+                <h2 id="smk-confirm-title">Подтверждение создания задачи СМК</h2>
+                <p>Проверьте данные — задачи будут созданы сразу после подтверждения.</p>
+                <dl class="smk-confirm-summary">
+                    <dt>Источник</dt>
+                    <dd data-smk-confirm-origin>{{ confirmation.origin_label|default:'—' }}</dd>
+                    <dt>Дата аудита</dt>
+                    <dd data-smk-confirm-date>{{ confirmation.audit_date|date:'d.m.Y'|default:'—' }}</dd>
+                    <dt>Выявленных несоответствий</dt>
+                    <dd data-smk-confirm-nonconformities>{{ confirmation.non_conformity_count|default:'0' }}</dd>
+                    <dt>Корректирующих мероприятий</dt>
+                    <dd data-smk-confirm-actions>{{ confirmation.action_count|default:'0' }}</dd>
+                    <dt>Исполнители</dt>
+                    <dd data-smk-confirm-assignees>{% for name in confirmation.assignees %}{{ name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd>
+                </dl>
+                <div class="app-modal__actions">
+                    <button class="link-button link-button--secondary" type="button" data-smk-confirm-cancel>Отмена</button>
+                    {% comment %}
+                    A real submit button carrying the flag as its own value, so
+                    the no-JavaScript path needs nothing else: pressing it posts
+                    the whole form again with `confirmed=1`.
+                    {% endcomment %}
+                    <button class="link-button" type="submit" name="{{ confirmation_field }}" value="{{ confirmation_value }}" data-smk-confirm-accept>Создать</button>
+                </div>
+            </div>
+        </dialog>
     </form>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'js/smk_form.js' %}?v=20260902-1" defer></script>
+<script src="{% static 'js/smk_form.js' %}?v=20260902-3" defer></script>
 {% endblock %}

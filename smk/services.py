@@ -32,11 +32,14 @@ class SmkWorkflowError(Exception):
     pass
 
 
-def create_smk_source(*, origin, non_conformities, actions, created_by):
+def create_smk_source(*, origin, audit_date, non_conformities, actions, created_by):
     """Store one СМК record and turn every measure into a real task.
 
     `non_conformities` is a list of strings; `actions` a list of
-    `{'text', 'department', 'due_date', 'assignees'}` dicts as
+    `{'text', 'department', 'due_date', 'non_conformity', 'requires_attachment',
+    'assignees'}` dicts, whose `non_conformity` is a *position* in
+    `non_conformities` or `None` — the findings have no primary keys until this
+    function creates them — as
     `SmkSourceForm` produces them. Both are already validated — this function
     checks the *right* to write, not the shape of what is written, and a
     malformed structure is a programming error rather than a user error.
@@ -58,19 +61,27 @@ def create_smk_source(*, origin, non_conformities, actions, created_by):
         raise SmkWorkflowError('Добавьте хотя бы одно корректирующее мероприятие.')
 
     with transaction.atomic():
-        source = SmkSource.objects.create(origin=origin, created_by=created_by)
-        SmkNonConformity.objects.bulk_create(
-            [
-                SmkNonConformity(source=source, text=text, display_order=index)
-                for index, text in enumerate(non_conformities)
-            ]
+        source = SmkSource.objects.create(
+            origin=origin, audit_date=audit_date, created_by=created_by,
         )
+        # Created one by one rather than in bulk: a measure may point at a
+        # finding, and `bulk_create` does not reliably return primary keys on
+        # every backend this project runs on.
+        findings = [
+            SmkNonConformity.objects.create(
+                source=source, text=text, display_order=index,
+            )
+            for index, text in enumerate(non_conformities)
+        ]
         for index, item in enumerate(actions):
+            position = item.get('non_conformity')
             action = SmkCorrectiveAction.objects.create(
                 source=source,
                 task_text=item['text'],
                 department=item['department'],
                 due_date=item['due_date'],
+                non_conformity=findings[position] if position is not None else None,
+                requires_attachment=item['requires_attachment'],
                 display_order=index,
             )
             SmkActionAssignee.objects.bulk_create(

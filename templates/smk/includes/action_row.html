@@ -19,12 +19,38 @@ editor settled it.
             <textarea name="actions-{{ row.index }}-text" rows="2" placeholder="Что необходимо сделать">{{ row.text }}</textarea>
             {% if row.errors.text %}<span class="field-error">{{ row.errors.text }}</span>{% endif %}
         </label>
+        {% comment %}
+        The one requirement that belongs to the wording, next to it — the same
+        checkbox a protocol decision and a ТО corrective action already carry.
+        It is copied onto the real task once, at creation, and enforced only by
+        `complete_task()`: there is no second attachment rule for СМК.
+        {% endcomment %}
+        <div class="protocol-action-card__requirement">
+            <label class="protocol-checkbox">
+                <input type="checkbox" name="actions-{{ row.index }}-requires_attachment"{% if row.requires_attachment %} checked{% endif %}>
+                <span>Требуется вложение</span>
+            </label>
+        </div>
     </div>
-    <div class="protocol-action-card__fields">
+    <div class="smk-source-fields">
         <label>
             <span>Срок</span>
             <input type="date" name="actions-{{ row.index }}-due_date" value="{{ row.due_date }}" required>
             {% if row.errors.due_date %}<span class="field-error">{{ row.errors.due_date }}</span>{% endif %}
+        </label>
+        {% comment %}
+        Which finding this measure answers — optional, because one measure often
+        answers several at once. The options are the несоответствия added above,
+        rebuilt by `smk_form.js` as they are typed, added and removed; the value
+        is the row's position, since the findings have no ids until the record
+        is stored. The server resolves it against the rows *this* request kept.
+        {% endcomment %}
+        <label>
+            <span>Связано с несоответствием</span>
+            <select name="actions-{{ row.index }}-non_conformity" data-non-conformity-select data-selected="{{ row.non_conformity }}">
+                <option value="">Не указано</option>
+            </select>
+            {% if row.errors.non_conformity %}<span class="field-error">{{ row.errors.non_conformity }}</span>{% endif %}
         </label>
     </div>
     <div class="protocol-action-card__assignees">

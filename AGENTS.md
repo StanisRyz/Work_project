@@ -27,7 +27,7 @@ model without explicit approval.
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` + `DocumentFavorite` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
-| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, the pages under `/quality/smk/`, and the single write path `smk/services.create_smk_source()` — which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction. No task system of its own |
+| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, the pages under `/quality/smk/`, and the single write path `smk/services.create_smk_source()` — which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction, reached only through the confirmation step in `smk/views.py`. No task system of its own |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -313,6 +313,48 @@ tasks never live inside `acts`.
   `smk.permissions.can_create_smk_task()` — the СМК role, руководитель or
   администратор — re-checked inside the service, not only in the view;
   completion rights are `tasks.permissions.can_complete_task()`, unchanged.
+  `SmkCorrectiveAction.requires_attachment` («Требуется вложение») is copied
+  onto the task exactly as the protocol and act variants copy theirs, and is
+  enforced only by `complete_task()`: СМК adds no attachment rule of its own.
+- **`SmkSource.audit_date` is the audit's own date and `created_at` is not.** A
+  record is often written up days after the audit it describes, so the page
+  shows `audit_date` and never the timestamp. Nullable only because the column
+  was added to existing rows, and deliberately *not* backfilled from
+  `created_at` — guessing one from the other would store a fabricated fact.
+- **`SmkCorrectiveAction.non_conformity` is optional, and the form names it by
+  row, not by id.** One measure often answers several findings, so the link is
+  a statement the author may make rather than a rule; `SET_NULL` keeps a
+  measure when a finding goes. The findings have no primary keys while the form
+  is being filled, so the selector posts a *row index*, `SmkSourceForm` maps it
+  onto the rows that request actually kept, and `create_smk_source()` resolves
+  it against the findings it has just created. A link therefore cannot survive
+  the row it pointed at being emptied.
+- **A finding carries no status of its own.** It is shown as it was recorded —
+  text, «Выявлено» (the audit date) and «Источник» — and nothing else: what is
+  being done about it is the state of the measures naming it, and a second
+  answer on the finding could only disagree with them.
+- **The record page is two tabs and no history.** «Акт аудита» (findings as a
+  timeline, measures as one-row cards whose подразделение/исполнитель/срок/
+  задача are grid items of the card itself, not a nested grid — that is what
+  keeps them on one line) and «Связанные мероприятия» (the tasks,
+  in the act page's own table shape), both built from one `get_source_detail()`
+  read so they cannot disagree. The heading carries only the identifier — тип
+  аудита, дата аудита, автор and the task count live in the information card
+  and are never repeated. There is no event timeline: an СМК record has no
+  workflow. Styling reuses `acts.css`/`components.css`
+  (`act-detail-heading`, `act-detail-tabs`, `detail-section`, `act-badge`,
+  `related-activities`); `static/css/smk.css` adds only the information card,
+  the timeline and the measure card.
+- **Creating an СМК record takes two POSTs to `smk:create`, and the flag is the
+  server's rule, not the dialog's.** A valid POST without
+  `confirmed=1` writes **nothing** — it comes back as the same page carrying
+  `build_confirmation_summary()` (источник, counts, исполнители, all built from
+  the *validated* structure) with the form redisplayed exactly as it was typed.
+  Only a POST carrying the flag reaches `create_smk_source()`. The page's own
+  `<dialog>` — SMK-specific because the summary is structured, unlike the
+  action-agnostic `includes/confirm_modal.html` — is the fast path to that
+  second POST; its «Создать» is a submit button whose `name`/`value` *is* the
+  flag, so the step works with JavaScript disabled too.
 - **A routing task is never completed by an employee.** `Task.is_routing_task`
   covers `PROTOCOL_APPROVAL` and `ACT_WORKFLOW` alike, and both
   `can_complete_task()` and `complete_task()` refuse it: the real action is

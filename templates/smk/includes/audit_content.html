@@ -1,0 +1,102 @@
+{% load people %}
+{% comment %}
+«Акт аудита»: what the audit found, and what is being done about it.
+
+The two blocks read the same `get_source_detail()` result, so a measure's card
+and the finding it hangs under can never disagree. Nothing here is editable —
+an СМК record is written once, and the work it created is tracked in «Задачи».
+{% endcomment %}
+<section class="detail-section smk-block">
+    <header class="smk-block__header">
+        <h2>Выявленные несоответствия</h2>
+        <span class="smk-block__count">{{ non_conformities|length }}</span>
+    </header>
+    {% if non_conformities %}
+        {% comment %}
+        A timeline: the marker carries the finding's own number — the stored
+        order, not its primary key — so «Связано с несоответствием №2» on a
+        measure below names the same row a reader sees here.
+        {% endcomment %}
+        <ol class="smk-timeline">
+            {% for row in non_conformities %}
+                <li class="smk-timeline__item">
+                    <span class="smk-timeline__marker" aria-hidden="true">{{ row.item.number }}</span>
+                    {% comment %}
+                    The finding as it was recorded, and nothing else. It carries
+                    no status of its own: what is being done about it is the
+                    state of the measures below, and saying it twice would let
+                    the two disagree.
+                    {% endcomment %}
+                    <article class="smk-timeline__card">
+                        {% comment %}
+                        Clamped to two lines with an ellipsis — a display limit
+                        only: the text is stored and posted in full, and the
+                        whole of it is on the element's `title`.
+                        {% endcomment %}
+                        <h3 class="smk-clamp" title="{{ row.item.text }}">{{ row.item.text }}</h3>
+                        <p class="smk-timeline__meta">
+                            <span>Выявлено: <strong>{{ source.audit_date|date:'d.m.Y'|default:'—' }}</strong></span>
+                            <span aria-hidden="true">·</span>
+                            <span>Источник: <strong>{{ source.get_origin_display }}</strong></span>
+                        </p>
+                    </article>
+                </li>
+            {% endfor %}
+        </ol>
+    {% else %}
+        <p class="smk-block__empty">Несоответствия не зафиксированы.</p>
+    {% endif %}
+</section>
+
+<section class="detail-section smk-block">
+    <header class="smk-block__header">
+        <h2>Корректирующие мероприятия</h2>
+        <span class="smk-block__count">{{ actions|length }}</span>
+    </header>
+    {% if actions %}
+        <div class="smk-measure-list">
+            {% for row in actions %}
+                <article class="smk-measure">
+                    <span class="smk-measure__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M9 4h6v3H9zM8 5H6v15h12V5h-2M9 13l2 2 4-4"/></svg></span>
+                    <div class="smk-measure__statement">
+                        <h3 class="smk-clamp" title="{{ row.action.task_text }}">{{ row.action.task_text }}</h3>
+                        {% comment %}
+                        Optional by design: one measure often answers several
+                        findings at once, and then it names none rather than an
+                        arbitrary one.
+                        {% endcomment %}
+                        {% if row.action.non_conformity %}
+                            <p class="smk-measure__link">Связано с несоответствием №{{ row.action.non_conformity.number }}</p>
+                        {% endif %}
+                        {% if row.task %}
+                            <span class="smk-state smk-state--{% if row.task.status.code == 'COMPLETED' %}closed{% else %}running{% endif %}">{{ row.task.status }}</span>
+                        {% endif %}
+                    </div>
+                    {% comment %}
+                    The three facts are grid items of the card itself, not a
+                    nested grid: that is what makes them run across one line —
+                    исполнители, срок, задача — instead of wrapping into a
+                    block of their own. Подразделение is deliberately not shown:
+                    it is the measure's routing detail, still stored and still
+                    carried onto the task, but the исполнители are who a reader
+                    of this page actually needs.
+                    {% endcomment %}
+                    <div class="smk-measure__fact">
+                        <span>Исполнител{{ row.assignees|length|pluralize:'ь,и' }}</span>
+                        <p>{% for user in row.assignees %}{{ user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</p>
+                    </div>
+                    <div class="smk-measure__fact">
+                        <span>Срок</span>
+                        <p>{{ row.action.due_date|date:'d.m.Y' }}{% if row.action.requires_attachment %}<span class="smk-measure__requirement" title="Задачу нельзя завершить без вложения">Требуется вложение</span>{% endif %}</p>
+                    </div>
+                    <div class="smk-measure__fact">
+                        <span>Задача</span>
+                        <p>{% if row.task %}<a class="table-link" href="{% url 'tasks:detail' row.task.pk %}">Задача №{{ row.task.pk }}</a>{% else %}—{% endif %}</p>
+                    </div>
+                </article>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="smk-block__empty">Корректирующие мероприятия не назначены.</p>
+    {% endif %}
+</section>

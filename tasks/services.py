@@ -394,6 +394,11 @@ def create_smk_action_task(source, action, assignee_ids, *, created_by):
         task_text=action.task_text,
         department=action.department,
         due_date=action.due_date,
+        # A snapshot, exactly as the act and protocol variants take one: the
+        # measure is stored a moment earlier in the same transaction, and a
+        # completed task must keep saying what was required of it. The
+        # requirement itself is enforced only by `complete_task()`.
+        requires_attachment=action.requires_attachment,
         created_by=created_by,
         status=_active_status('IN_PROGRESS', 'В работе'),
     )

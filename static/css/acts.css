@@ -330,7 +330,10 @@
 .related-activities__table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--color-border); border-radius: 6px; }
 .related-activities__table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
 .related-activities__table th,
-.related-activities__table td { padding: 14px 12px; border: 1px solid var(--color-border); color: #253b66; font-size: 15px; text-align: center; vertical-align: middle; }
+.related-activities__table td {
+    /* Same reason as `.task-comment-block`: a long unbroken мероприятие must
+       wrap inside its cell rather than widen the table indefinitely. */
+    overflow-wrap: anywhere; padding: 14px 12px; border: 1px solid var(--color-border); color: #253b66; font-size: 15px; text-align: center; vertical-align: middle; }
 .related-activities__table th { padding: 13px 12px; border: 1px solid var(--color-border); background: #fbfcff; color: #4f648c; font-size: 14px; font-weight: 700; text-align: center; vertical-align: middle; }
 .related-activities__number { width: 9%; }
 .related-activities__action { width: 25%; }
@@ -617,12 +620,18 @@
     text-transform: uppercase;
 }
 
+/* The task's own text, the root cause behind it and the execution result —
+   one block for every source type, so an act, a protocol and an СМК task all
+   read alike. `anywhere` rather than `break-word`: people paste identifiers
+   and paths with no spaces in them, and a single unbroken token used to push
+   the card past the right edge of the page instead of wrapping. */
 .task-comment-block {
     padding: 12px 14px;
     border-radius: 6px;
     background: var(--color-bg);
     font-size: 16px;
     line-height: 1.5;
+    overflow-wrap: anywhere;
 }
 
 .task-detail-execution-card textarea {

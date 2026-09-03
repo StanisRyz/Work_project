@@ -670,3 +670,23 @@
     .protocol-section__add { order: 1; margin-left: 0; }
     .protocol-workflow__step { min-width: 78px; }
 }
+
+/* The СМК confirmation summary (`templates/smk/form.html`). Its dialog reuses
+   the shared `app-modal` styling; only this definition list is its own, and it
+   is a two-column grid so the labels and the numbers line up. */
+
+.smk-confirm-summary {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 6px 16px;
+    margin: 0;
+    font-size: 14px;
+}
+
+.smk-confirm-summary dt { color: var(--color-muted); }
+.smk-confirm-summary dd { margin: 0; font-weight: 600; }
+
+@media (max-width: 520px) {
+    .smk-confirm-summary { grid-template-columns: minmax(0, 1fr); }
+    .smk-confirm-summary dd { margin-bottom: 6px; }
+}

@@ -1,60 +1,63 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load people %}
 
 {% block title %}{{ source.label }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260902-1">
+<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-2">
 {% endblock %}
 
 {% block content %}
 {% comment %}
-The record behind an СМК task, read-only. It has no workflow of its own: the
-work it created lives in «Задачи», and each measure below links to the one task
-it produced.
+The record behind an СМК task, read-only and in two tabs.
+
+The heading carries the identifier and nothing else: тип аудита, дата, автор and
+the task count live in the information card below it and are never repeated —
+one fact, one place on the page. There is no history block: an СМК record has
+no workflow, so there would be no events to show.
+
+Both tabs come from one `get_source_detail()` read, so they cannot describe
+different work.
 {% endcomment %}
-<div class="protocol-create-page">
-    <header class="protocol-page-header">
-        <a class="act-back-link" href="{% url 'tasks:list' %}" aria-label="К списку задач">←</a>
-        <div>
-            <h1>{{ source.label }}</h1>
-            <p>{{ source.get_origin_display }} · создал {{ source.created_by.get_full_name|default:source.created_by.username }} · {{ source.created_at|date:'d.m.Y' }}</p>
-        </div>
-    </header>
+<section class="act-detail-heading">
+    <a class="act-back-link" href="{% url 'tasks:list' %}" aria-label="К списку задач">←</a>
+    <div class="act-detail-heading__title"><h1>{{ source.label }}</h1></div>
+</section>
 
-    <section class="protocol-section">
-        <div class="protocol-section__body">
-            <h2 class="protocol-section__title">Выявленные несоответствия</h2>
-            <ol class="protocol-readonly-list">
-                {% for item in non_conformities %}<li>{{ item.text }}</li>{% endfor %}
-            </ol>
-        </div>
-    </section>
+{% comment %}
+The information card: four facts, each read once. «Дата аудита» is the audit's
+own date, stored separately from `created_at` — a record is often written up
+days after the audit it describes — and «Количество задач» counts the real
+tasks the measures produced.
+{% endcomment %}
+<section class="smk-info-card" aria-label="Сведения об аудите">
+    <div class="smk-info-card__item">
+        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M9 4h6v3H9zM8 5H6v15h12V5h-2M9 12h6M9 16h4"/></svg></span>
+        <div><span>Тип аудита</span><strong>{{ source.get_origin_display }}</strong></div>
+    </div>
+    <div class="smk-info-card__item">
+        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M9 3v4M15 3v4"/></svg></span>
+        <div><span>Дата аудита</span><strong>{{ source.audit_date|date:'d.m.Y'|default:'—' }}</strong></div>
+    </div>
+    <div class="smk-info-card__item">
+        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M5 20a7 7 0 0 1 14 0"/></svg></span>
+        <div><span>Создал</span><strong>{{ source.created_by|person_name }}</strong></div>
+    </div>
+    <div class="smk-info-card__item">
+        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 12l3 3 5-5"/></svg></span>
+        <div><span>Количество задач</span><strong>{{ task_count }}</strong></div>
+    </div>
+</section>
 
-    <section class="protocol-section protocol-section--accent">
-        <div class="protocol-section__body">
-            <h2 class="protocol-section__title">Корректирующие мероприятия</h2>
-            <div class="protocol-card-grid">
-                {% for row in actions %}
-                    <article class="protocol-action-card">
-                        <div class="protocol-action-card__head">
-                            <h3>{{ row.action.task_text }}</h3>
-                        </div>
-                        <p>Подразделение: {{ row.action.department.name }} · Срок: {{ row.action.due_date|date:'d.m.Y' }}</p>
-                        <p>Исполнители:
-                            {% for user in row.assignees %}{{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
-                        </p>
-                        {% comment %}
-                        Each measure has at most one task, by database
-                        constraint — the link is to that task, never to a search.
-                        {% endcomment %}
-                        {% if row.task %}
-                            <p><a class="table-link" href="{% url 'tasks:detail' row.task.pk %}">Задача №{{ row.task.pk }}</a> — {{ row.task.status }}</p>
-                        {% endif %}
-                    </article>
-                {% endfor %}
-            </div>
-        </div>
-    </section>
-</div>
+<nav class="act-detail-tabs" aria-label="Разделы записи СМК">
+    <a class="act-detail-tabs__link{% if detail_tab == 'act' %} act-detail-tabs__link--active{% endif %}" href="?tab=act"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Акт аудита</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'activities' %} act-detail-tabs__link--active{% endif %}" href="?tab=activities"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 13 4-4M7 17l-1 1a3 3 0 1 1-4-4l4-4a3 3 0 0 1 4 0M17 7l1-1a3 3 0 1 1 4 4l-4 4a3 3 0 0 1-4 0"/></svg>Связанные мероприятия</a>
+</nav>
+
+{% if detail_tab == 'activities' %}
+    {% include 'smk/includes/activities_content.html' %}
+{% else %}
+    {% include 'smk/includes/audit_content.html' %}
+{% endif %}
 {% endblock %}

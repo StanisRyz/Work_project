@@ -36,6 +36,8 @@ class SmkSourceForm:
         self._valid = None
         self.origin = ''
         self.origin_error = ''
+        self.audit_date = ''
+        self.audit_date_error = ''
         self.non_conformity_rows = []
         self.action_rows = []
         if not self.is_bound:
@@ -50,6 +52,8 @@ class SmkSourceForm:
             'index': index,
             'text': '',
             'due_date': '',
+            'non_conformity': '',
+            'requires_attachment': False,
             'assignees': [{'user': '', 'department': ''}],
             'errors': {},
         }
@@ -79,12 +83,17 @@ class SmkSourceForm:
         }
 
         origin = self._clean_origin()
+        audit_date = self._clean_audit_date()
+        # The findings are cleaned first because a measure may name one of
+        # them: `_clean_actions()` resolves that name against the rows this
+        # very request kept, never against what is stored.
         non_conformities = self._clean_non_conformities()
         actions = self._clean_actions()
 
         self._valid = (
             not self.non_field_errors
             and not self.origin_error
+            and not self.audit_date_error
             and not any(
                 row['errors']
                 for row in (*self.non_conformity_rows, *self.action_rows)
@@ -93,6 +102,7 @@ class SmkSourceForm:
         if self._valid:
             self.cleaned = {
                 'origin': origin,
+                'audit_date': audit_date,
                 'non_conformities': non_conformities,
                 'actions': actions,
             }
@@ -105,9 +115,26 @@ class SmkSourceForm:
             return ''
         return self.origin
 
+    def _clean_audit_date(self):
+        """When the audit happened — required, and never `created_at`."""
+        self.audit_date = self.data.get('audit_date', '').strip()
+        try:
+            return date.fromisoformat(self.audit_date)
+        except (TypeError, ValueError):
+            self.audit_date_error = 'Укажите дату аудита.'
+            return None
+
     def _clean_non_conformities(self):
-        """At least one finding: an audit record with none states nothing."""
+        """At least one finding: an audit record with none states nothing.
+
+        Also records, in `self._kept_non_conformities`, which submitted row
+        became which position in the kept list. A measure names a finding by
+        its row on screen, and blank rows are dropped here — so without that
+        map «мероприятие №2 отвечает на несоответствие №2» would silently point
+        at the wrong finding.
+        """
         cleaned = []
+        self._kept_non_conformities = {}
         for index in range(self._count('nonconformities')):
             row = {
                 'index': index,
@@ -116,6 +143,7 @@ class SmkSourceForm:
             }
             self.non_conformity_rows.append(row)
             if row['text']:
+                self._kept_non_conformities[index] = len(cleaned)
                 cleaned.append(row['text'])
         if not self.non_conformity_rows:
             self.non_conformity_rows.append({'index': 0, 'text': '', 'errors': {}})
@@ -136,6 +164,14 @@ class SmkSourceForm:
                 'index': index,
                 'text': self.data.get(f'{prefix}-text', '').strip(),
                 'due_date': self.data.get(f'{prefix}-due_date', '').strip(),
+                # The finding this measure answers, as the row index on screen.
+                # Optional: a measure that answers several findings, or the
+                # record as a whole, simply names none.
+                'non_conformity': self.data.get(f'{prefix}-non_conformity', '').strip(),
+                # A plain answer, never normalized away: a required file means
+                # the same on a measure with one исполнитель as on one with
+                # five, and an СМК measure is never split between them anyway.
+                'requires_attachment': bool(self.data.get(f'{prefix}-requires_attachment')),
                 'assignees': [
                     {'user': user, 'department': department}
                     for user, department in zip(assignee_users, assignee_departments)
@@ -145,6 +181,16 @@ class SmkSourceForm:
             self.action_rows.append(row)
             if not row['text']:
                 row['errors']['text'] = 'Укажите корректирующее мероприятие.'
+            # Resolved against the findings *this request* kept, so a link can
+            # never survive the row it pointed at being emptied.
+            non_conformity = None
+            if row['non_conformity']:
+                try:
+                    non_conformity = self._kept_non_conformities[int(row['non_conformity'])]
+                except (KeyError, TypeError, ValueError):
+                    row['errors']['non_conformity'] = (
+                        'Выберите несоответствие из добавленных выше.'
+                    )
             due_date = None
             try:
                 due_date = date.fromisoformat(row['due_date'])
@@ -193,6 +239,10 @@ class SmkSourceForm:
                     'text': row['text'],
                     'department': department,
                     'due_date': due_date,
+                    # A position in `non_conformities`, or `None` — never a
+                    # primary key: the findings do not exist yet.
+                    'non_conformity': non_conformity,
+                    'requires_attachment': row['requires_attachment'],
                     'assignees': assignees,
                 }
             )

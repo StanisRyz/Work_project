@@ -1,0 +1,33 @@
+{% load people %}
+{% comment %}
+«Связанные мероприятия»: the real tasks this record created.
+
+Deliberately the same table the act page shows for its own related work, so the
+two sections of the system read alike. Every row comes from a measure's own
+`tasks` relation — a measure has at most one task by database constraint — and
+a measure whose task is missing is still listed, with «—» where the link would
+be, rather than being silently dropped.
+{% endcomment %}
+<section class="detail-section related-activities">
+    <header class="related-activities__header">
+        <div><h2>Связанные мероприятия</h2><p>Задачи, созданные по этому акту аудита</p></div>
+        <span class="related-activities__count">Задач: {{ task_count }}</span>
+    </header>
+    {% if actions %}
+        <div class="related-activities__table-wrap">
+            <table class="related-activities__table">
+                <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Несоответствие</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
+                <tbody>{% for row in actions %}<tr>
+                    <td>{% if row.task %}<a class="related-activities__task-link" href="{% url 'tasks:detail' row.task.pk %}">#{{ row.task.pk }}</a>{% else %}—{% endif %}</td>
+                    <td><strong>{{ row.action.task_text }}</strong></td>
+                    <td>{% if row.action.non_conformity %}№{{ row.action.non_conformity.number }}{% else %}—{% endif %}</td>
+                    <td>{% for user in row.assignees %}{{ user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
+                    <td>{{ row.action.due_date|date:'d.m.Y' }}</td>
+                    <td>{% if row.task %}<span class="act-badge act-badge--status">{{ row.task.status }}</span>{% else %}—{% endif %}</td>
+                </tr>{% endfor %}</tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="related-activities__empty">Связанные мероприятия пока не созданы.</p>
+    {% endif %}
+</section>

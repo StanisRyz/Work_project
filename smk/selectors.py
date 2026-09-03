@@ -26,26 +26,81 @@ def get_editor_directory():
     }
 
 
+def build_confirmation_summary(cleaned):
+    """What the confirmation step shows before anything is written.
+
+    Built from the *validated* structure, never from the raw POST: the numbers
+    and names on screen are exactly what `create_smk_source()` would store, so
+    a row the form rejected can never be counted in.
+
+    Read-only and side-effect free — it is rendered both into the page (for the
+    server-side confirmation step) and, by `smk_form.js`, into the dialog
+    without a round trip.
+    """
+    from .models import SmkSource
+
+    assignees = []
+    for action in cleaned['actions']:
+        for user in action['assignees']:
+            label = user.get_full_name() or user.username
+            if label not in assignees:
+                assignees.append(label)
+    return {
+        'origin_label': SmkSource.Origin(cleaned['origin']).label,
+        'audit_date': cleaned['audit_date'],
+        'non_conformity_count': len(cleaned['non_conformities']),
+        'action_count': len(cleaned['actions']),
+        'assignees': assignees,
+    }
+
+
+# The two tabs of the record page. `act` is the default, exactly as the act
+# page defaults to its own first tab, and an unknown value falls back to it
+# rather than 404ing on a bookmark.
+DETAIL_TABS = ('act', 'activities')
+
+
+def resolve_detail_tab(value):
+    return value if value in DETAIL_TABS else DETAIL_TABS[0]
+
+
+def _measure_row(action):
+    """One корректирующее мероприятие with everything its card shows."""
+    return {
+        'action': action,
+        'assignees': [item.user for item in action.assignees.all()],
+        # At most one task per measure, by the `unique_smk_action_task`
+        # constraint — the card links to that task, never to a search.
+        'task': next(iter(action.tasks.all()), None),
+    }
+
+
 def get_source_detail(source):
-    """One СМК record with its findings, its measures and their real tasks.
+    """One СМК record: its findings, its measures and the real tasks.
 
     The tasks are read through `SmkCorrectiveAction.tasks` rather than looked
     up by source type: the relation is what links a measure to the work it
     produced, and each measure has at most one task by database constraint.
+
+    Both tabs are built from this one read, so «Акт аудита» and «Связанные
+    мероприятия» can never describe different work.
     """
-    actions = (
-        source.actions.select_related('department')
+    rows = [
+        _measure_row(action)
+        for action in source.actions.select_related('department', 'non_conformity')
         .prefetch_related('assignees__user', 'tasks__status')
-    )
+    ]
     return {
         'source': source,
-        'non_conformities': list(source.non_conformities.all()),
-        'actions': [
-            {
-                'action': action,
-                'assignees': [item.user for item in action.assignees.all()],
-                'task': next(iter(action.tasks.all()), None),
-            }
-            for action in actions
+        # A finding carries no status of its own: what is being done about it
+        # is the state of the measures that name it, and a second answer here
+        # could only disagree with them. The wrapper stays so the template
+        # keeps one shape to read.
+        'non_conformities': [
+            {'item': finding} for finding in source.non_conformities.all()
         ],
+        'actions': rows,
+        # What «Количество задач» in the information card counts: the real
+        # tasks that exist, not the measures that should have produced them.
+        'task_count': sum(1 for row in rows if row['task'] is not None),
     }

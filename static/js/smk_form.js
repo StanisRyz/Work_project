@@ -4,14 +4,20 @@
  * Two repeatable blocks (несоответствия and мероприятия), each a
  * `[data-block]` section with a `[data-row-list]`, a `<template>` prototype and
  * a `TOTAL_FORMS` counter; a мероприятие additionally holds repeatable
- * assignee rows. This file only clones, removes and renumbers rows and filters
- * the employee selectors by the chosen department.
+ * assignee rows. This file only clones, removes and renumbers rows, filters the
+ * employee selectors by the chosen department, and keeps each measure's
+ * «Связано с несоответствием» list in step with the findings above it.
  *
  * Deliberately the same row mechanics `protocol_editor.js` uses, minus what
  * only a protocol has (participants, speakers, the approval hint and the split
- * option). No business rule lives here: the server re-parses and re-validates
- * everything — required fields, duplicate исполнители and the department an
- * employee really belongs to.
+ * option). It additionally holds back the submit and shows the confirmation
+ * dialog, filled from the form as it stands.
+ *
+ * No business rule lives here, and the dialog is not the guarantee: the server
+ * re-parses and re-validates everything — required fields, duplicate
+ * исполнители, the department an employee really belongs to — and writes
+ * nothing at all until a POST arrives carrying the confirmation flag. This
+ * only spares the user a round trip.
  */
 (() => {
     'use strict';
@@ -82,6 +88,41 @@
             : '';
     };
 
+    /**
+     * Rebuild every «Связано с несоответствием» selector from the findings
+     * currently on screen.
+     *
+     * The value is a finding's *row index*, because the findings do not exist
+     * in the database yet; the server maps that index onto the rows it kept,
+     * so a link can never survive the row it pointed at being emptied. A row
+     * with no text is not offered — there would be nothing to point at.
+     *
+     * A selection already made is preserved whenever its row is still offered,
+     * including the one the server rendered into `data-selected` after a failed
+     * or unconfirmed submission.
+     */
+    const syncNonConformityOptions = () => {
+        const options = [];
+        form.querySelectorAll(
+            '[data-block="nonconformities"] [data-row] textarea[name$="-text"]',
+        ).forEach((field, index) => {
+            const text = field.value.trim();
+            if (!text) return;
+            const short = text.length > 60 ? `${text.slice(0, 60)}…` : text;
+            options.push({ value: String(index), label: `№${index + 1} — ${short}` });
+        });
+        form.querySelectorAll('[data-non-conformity-select]').forEach((select) => {
+            // `data-selected` is the server's answer and is only consulted
+            // while the field has not been rebuilt yet; afterwards the live
+            // value wins, so a user's own choice is never overwritten.
+            const current = select.value || select.dataset.selected || '';
+            select.textContent = '';
+            select.append(new Option('Не указано', ''));
+            options.forEach((item) => select.append(new Option(item.label, item.value)));
+            select.value = options.some((item) => item.value === current) ? current : '';
+        });
+    };
+
     const syncAllPairs = () => {
         form.querySelectorAll('[data-employee-pair]').forEach(syncPair);
     };
@@ -99,6 +140,7 @@
             list.append(block.querySelector('[data-row-template]').content.cloneNode(true));
             renumber(block);
             syncAllPairs();
+            syncNonConformityOptions();
             return;
         }
         if (target.matches('[data-remove-row]')) {
@@ -115,6 +157,7 @@
             }
             renumber(block);
             syncAllPairs();
+            syncNonConformityOptions();
             return;
         }
         if (target.matches('[data-add-assignee]')) {
@@ -141,6 +184,88 @@
         if (pair) syncPair(pair);
     });
 
+    // Typing a finding changes what the measures below may point at. `input`
+    // rather than `change`, so the list follows the text as it is written.
+    form.addEventListener('input', (event) => {
+        if (event.target.matches('[data-block="nonconformities"] textarea')) {
+            syncNonConformityOptions();
+        }
+    });
+
+    // ------------------------------------------------------------ confirmation
+
+    const dialog = form.querySelector('[data-smk-confirm]');
+
+    /**
+     * Fill the dialog from the form as it stands right now.
+     *
+     * Counts a row only if it carries text, and an исполнитель only if one is
+     * named — the same rows the server would keep — so the summary cannot
+     * promise more than would actually be created. Names are read from the
+     * selected `<option>`, deduplicated in the order they appear.
+     */
+    const fillSummary = () => {
+        // Scoped by block, so «несоответствия» and «мероприятия» are counted
+        // apart even though both name their text field `…-text`.
+        const filled = (block) => [...form.querySelectorAll(
+            `[data-block="${block}"] [data-row] textarea[name$="-text"]`,
+        )].filter((field) => field.value.trim()).length;
+
+        const origin = form.querySelector('[name="origin"]');
+        const originLabel = origin && origin.selectedIndex > 0
+            ? origin.options[origin.selectedIndex].textContent.trim()
+            : '—';
+
+        const assignees = [];
+        form.querySelectorAll('[data-assignee-row] [data-employee-select]').forEach((select) => {
+            if (!select.value) return;
+            const label = select.options[select.selectedIndex].textContent.trim();
+            if (label && !assignees.includes(label)) assignees.push(label);
+        });
+
+        const set = (selector, text) => {
+            const node = dialog.querySelector(selector);
+            if (node) node.textContent = text;
+        };
+        const auditDate = form.querySelector('[name="audit_date"]');
+        set('[data-smk-confirm-origin]', originLabel);
+        set('[data-smk-confirm-date]', auditDate && auditDate.value
+            ? auditDate.value.split('-').reverse().join('.')
+            : '—');
+        set('[data-smk-confirm-nonconformities]', String(filled('nonconformities')));
+        set('[data-smk-confirm-actions]', String(filled('actions')));
+        set('[data-smk-confirm-assignees]', assignees.length ? assignees.join(', ') : '—');
+    };
+
+    if (dialog && typeof dialog.showModal === 'function') {
+        // The server renders the dialog with a plain `open` attribute so the
+        // step works without JavaScript; re-open it modally so both paths look
+        // and behave the same once scripting is available.
+        if (dialog.open) {
+            dialog.close();
+            dialog.showModal();
+        }
+
+        form.addEventListener('submit', (event) => {
+            // The dialog's own «Создать» is a submit button carrying the
+            // confirmation flag as its value — letting it through is exactly
+            // how the confirmed POST is made.
+            if (event.submitter && event.submitter.hasAttribute('data-smk-confirm-accept')) {
+                return;
+            }
+            event.preventDefault();
+            // A dialog makes the page behind it inert, so the browser must
+            // point at a missing required field first.
+            if (typeof form.reportValidity === 'function' && !form.reportValidity()) return;
+            fillSummary();
+            dialog.showModal();
+        });
+
+        dialog.querySelector('[data-smk-confirm-cancel]').addEventListener('click', () => {
+            dialog.close();
+        });
+    }
+
     /**
      * A required field inside a collapsed section cannot be focused, and the
      * browser then refuses to submit without saying why. Opening its section
@@ -158,4 +283,5 @@
 
     blocks.forEach(renumber);
     syncAllPairs();
+    syncNonConformityOptions();
 })();
