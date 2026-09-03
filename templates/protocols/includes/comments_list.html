@@ -12,7 +12,7 @@ authoritative copy of that decision stays on the approval row.
         {% for comment in comments %}
             <article class="comment-card">
                 <span class="comment-card__avatar" aria-hidden="true">{{ comment.author.first_name|first|default:comment.author.username|first|upper }}{{ comment.author.last_name|first|upper }}</span>
-                <div><div class="comment-card__meta"><strong>{{ comment.author.get_full_name|default:comment.author.username|default:'Без автора' }}</strong><time datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:'d.m.Y H:i' }}</time></div><p>{{ comment.text|linebreaksbr }}</p></div>
+                <div><div class="comment-card__meta"><strong>{{ comment.author.get_full_name|default:comment.author.username|default:'Без автора' }}</strong><time datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:'d.m.Y H:i' }}</time></div><p class="user-text">{{ comment.text|linebreaksbr }}</p></div>
             </article>
         {% endfor %}
     </div>

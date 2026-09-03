@@ -14,8 +14,8 @@ by `get_related_tasks`, so it is safe to replace live.
             <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Причина</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
             <tbody>{% for task in related_tasks %}<tr data-related-task="{{ task.pk }}">
                 <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
-                <td><strong>{{ task.task_text }}</strong></td>
-                <td>{{ task.root_analysis.root_cause|default:'—' }}</td>
+                <td class="user-text"><strong>{{ task.task_text }}</strong></td>
+                <td class="user-text">{{ task.root_analysis.root_cause|default:'—' }}</td>
                 <td>{% for assignee in task.assignees.all %}{{ assignee.user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
                 <td>{{ task.due_date|date:'d.m.Y' }}</td>
                 <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>

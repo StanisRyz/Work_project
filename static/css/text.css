@@ -1,0 +1,311 @@
+/*
+ * Правила отображения пользовательского текста — общий слой безопасности.
+ *
+ * Every string a person types — описание дефекта, комментарий КО, корневая
+ * причина, решение протокола, имя документа, название сохранённого набора —
+ * arrives with no length limit and no guarantee of a space in it. People paste
+ * identifiers, URLs, 1С paths and words glued together, and a single unbroken
+ * token has no wrap opportunity at all: it used to run past the right edge of
+ * its card, widen a table column without bound and give the whole page a
+ * horizontal scrollbar.
+ *
+ * This file is the one place that answers that, in four layers:
+ *
+ *   1. `:root` sets `overflow-wrap: break-word`, which every element inherits.
+ *      That alone keeps text inside a block whose width is already decided.
+ *   2. The layout containers are pinned to the viewport (`min-width: 0`,
+ *      `max-width: 100%`), so a wide child scrolls inside itself instead of
+ *      stretching the page.
+ *   3. Table cells get `overflow-wrap: anywhere` — unlike `break-word` it also
+ *      shrinks the cell's *min-content* width, which is what actually stops an
+ *      auto-layout column from growing forever — and the scroll a wide table
+ *      still needs is confined to its own wrapper.
+ *   4. `.user-text` and the clamp/ellipsis helpers are the opt-in classes for
+ *      the blocks that hold free-form text: use one of them instead of adding
+ *      another one-off `overflow-wrap` rule to a module stylesheet.
+ *
+ * Loaded last in `base.html` and in both print templates, so it is the floor
+ * under every other stylesheet. A module may still say something stronger for
+ * its own element; it must not need to repeat what is already here.
+ */
+
+/* ---------------------------------------------------------------- layer 1 */
+
+/* Inherited by everything, including markup rendered by JavaScript and by
+   `|linebreaksbr`, so there is nothing to remember to opt in. */
+:root {
+    overflow-wrap: break-word;
+}
+
+/* A picture, an embedded viewer or a pasted <table> never widens its column. */
+img,
+svg,
+video,
+iframe,
+canvas {
+    max-width: 100%;
+}
+
+/* ---------------------------------------------------------------- layer 2 */
+
+/* The page itself never scrolls sideways: a grid or flex child defaults to
+   `min-width: auto`, which refuses to shrink below its content, and that is
+   how one long word used to push the whole shell wider than the viewport.
+ *
+ * Declared on `body` alone, and `clip` rather than `hidden`, deliberately.
+ * With `html` left at `visible` the body's value is the one propagated to the
+ * viewport, so `body` itself never becomes a scroll container — which is what
+ * keeps the sticky `.topbar` sticking to the window instead of to the page.
+ * A table that genuinely needs to scroll sideways does it inside its own
+ * `overflow-x: auto` wrapper (layer 3), never out here. */
+body {
+    max-width: 100%;
+    overflow-x: clip;
+}
+
+.app-shell,
+.app-main,
+.content,
+.page-container {
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* Every card surface the application composes pages from. Stated once here
+   rather than per module: each of these is a grid or flex item somewhere. */
+.detail-section,
+.table-card,
+.form-card,
+.action-panel,
+.status-card,
+.reference-card,
+.placeholder-card,
+.page-header,
+.notification-card,
+.notification-card__content,
+.doc-result,
+.doc-result__head,
+.smk-info-card__item,
+.smk-measure,
+.task-detail-info-card,
+.task-detail-info-row,
+.task-detail-assignee-card,
+.task-detail-analysis-card,
+.task-detail-execution-card,
+.task-detail-attachments-card,
+.task-detail-assignee-primary,
+.task-detail-assignee-popup li,
+.task-attachment-row,
+.history-event,
+.history-event__content,
+.comment-card,
+.attachment-card,
+.protocol-task-card,
+.protocol-participant-card,
+.protocol-agenda-card,
+.protocol-speech-card {
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* ---------------------------------------------------------------- layer 3 */
+
+/* A wide table scrolls inside its own frame. The wrapper — not the page. */
+.table-card,
+.act-defects-table-wrap,
+.related-activities__table-wrap,
+.calc-table-wrap,
+.doc-table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* `anywhere`, not `break-word`: only `anywhere` is taken into account when the
+   browser computes a column's min-content width, and an auto-layout table
+   sizes its columns from exactly that. Without it a 400-character description
+   makes its column 400 characters wide and every other column collapse. */
+.data-table th,
+.data-table td,
+.act-defects-table th,
+.act-defects-table td,
+.to-analysis-table th,
+.to-analysis-table td,
+.related-activities__table th,
+.related-activities__table td,
+.doc-table th,
+.doc-table td,
+.print-section th,
+.print-section td {
+    overflow-wrap: anywhere;
+}
+
+/* The one exception the rule above must not fight: a cell that deliberately
+   holds a date, a size or a row of buttons keeps its `white-space: nowrap`,
+   which already suppresses wrapping and needs no help from here. */
+
+/* ---------------------------------------------------------------- layer 4 */
+
+/*
+ * `.user-text` — the block that holds free-form text somebody typed.
+ *
+ * Put it on the element that renders a description, a comment, a decision or a
+ * name, and nothing else is needed: it wraps, it breaks an unbroken token, and
+ * it cannot grow its parent. `--pre` keeps the line breaks of a raw textarea
+ * value that was not run through `|linebreaksbr`.
+ */
+.user-text {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    /* User text wraps by definition. Stated here so the class also answers the
+       surrounding component when it holds its own cells or rows on one line —
+       a `white-space: nowrap` meant for a date or a size must not decide how a
+       pasted name behaves. `--pre` below overrides it for a raw value. */
+    white-space: normal;
+}
+
+.user-text--pre {
+    white-space: pre-wrap;
+}
+
+/*
+ * Display limits, never input ones: the text is always stored and posted in
+ * full, and the element carries the whole of it on its `title`.
+ */
+.text-clamp-1,
+.text-clamp-2,
+.text-clamp-3 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+
+.text-clamp-1 { -webkit-line-clamp: 1; line-clamp: 1; }
+.text-clamp-2 { -webkit-line-clamp: 2; line-clamp: 2; }
+.text-clamp-3 { -webkit-line-clamp: 3; line-clamp: 3; }
+
+/* One line, cut with an ellipsis. For a file name in a dense row, where a
+   wrapped second line would break the row's alignment. */
+.text-ellipsis {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ forms */
+
+/* A field never outgrows the card around it, and a long typed value never
+   widens the row it sits in. `resize: vertical` on textareas for the same
+   reason: the horizontal handle let a user drag a field past its own form. */
+input,
+select,
+textarea {
+    max-width: 100%;
+}
+
+/* Every form in the project lays its fields out with grid or flex, and a
+   `<label>` is the item. `min-width: auto` is what let one long option text,
+   one long placeholder or one typed value refuse to shrink and push the row —
+   and a dynamically cloned row (an assignee, a defect, a protocol decision)
+   inherits exactly the same behaviour, which is why this is stated on the
+   element rather than per form. */
+label,
+fieldset {
+    min-width: 0;
+    max-width: 100%;
+}
+
+form,
+.filter-form,
+.form-card,
+.auth-form {
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* Horizontal resizing let a user drag a field out past its own card, and the
+   card is what holds the page together. Vertical is the useful axis anyway. */
+textarea {
+    resize: vertical;
+}
+
+/* A `<select>` sizes itself from its widest `<option>`, and those options are
+   employee and department names — user data. */
+select {
+    text-overflow: ellipsis;
+}
+
+/* Validation messages wrap like any other text: a server error can quote the
+   value it rejected, and that value is user text too. */
+.errorlist,
+.field-error,
+.form-error,
+.message,
+.app-modal__error {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+/* ----------------------------------------------------------------- modals */
+
+/* The shared confirmation dialog quotes what it is about — a set's name, an
+   act's number, a document's title — and that quote is user text. */
+.app-modal__form h2,
+.app-modal__form > p,
+.app-modal__comment {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ print */
+
+/*
+ * Paper has a hard right edge: there is no scrollbar to fall back on, so a
+ * cell that does not wrap simply loses its text off the sheet.
+ *
+ * `table-layout: fixed` is the half that matters. An auto-layout table asks
+ * its content how wide it wants to be, and «Описание» always answers «wider
+ * than A4»; fixed layout hands every column an equal share of the page and
+ * makes the text wrap into it instead.
+ */
+.print-document {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.print-section table {
+    table-layout: fixed;
+}
+
+@media print {
+    body {
+        overflow-x: visible;
+    }
+
+    .protocol-print__signatures {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    .protocol-print__list li,
+    .protocol-print__speech,
+    .protocol-print__speaker,
+    .protocol-print__people,
+    .protocol-print__signatures td {
+        overflow-wrap: anywhere;
+    }
+
+    /* A row of text must be allowed to break across pages; only the blocks
+       that are meaningless when split say otherwise, and they say it in
+       `print.css`. */
+    .print-section tr,
+    .print-section td {
+        break-inside: auto;
+    }
+}

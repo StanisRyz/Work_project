@@ -9,7 +9,7 @@ destination.
 {% endcomment %}
 <nav class="doc-breadcrumbs" aria-label="Путь по документации">
     {% for crumb in breadcrumbs %}
-        <a class="doc-breadcrumbs__link{% if crumb.is_current %} doc-breadcrumbs__link--current{% endif %}"
+        <a class="doc-breadcrumbs__link user-text{% if crumb.is_current %} doc-breadcrumbs__link--current{% endif %}"
            href="{{ crumb.url }}"{% if crumb.is_current %} aria-current="page"{% endif %}>{{ crumb.name }}</a>
         {% if not forloop.last %}<span class="doc-breadcrumbs__separator" aria-hidden="true">/</span>{% endif %}
     {% endfor %}

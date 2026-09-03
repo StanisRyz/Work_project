@@ -6,8 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Печатная форма {{ act.number }}</title>
     <link rel="stylesheet" href="{% static 'css/base.css' %}">
-    <link rel="stylesheet" href="{% static 'css/components.css' %}">
+    <link rel="stylesheet" href="{% static 'css/components.css' %}?v=20260903-1">
     <link rel="stylesheet" href="{% static 'css/print.css' %}">
+    {# Last: the shared user-text rules, see `static/css/text.css`. #}
+    <link rel="stylesheet" href="{% static 'css/text.css' %}?v=20260903-1">
 </head>
 <body class="print-page">
     <main class="print-document">

@@ -33,7 +33,7 @@ an СМК record is written once, and the work it created is tracked in «Зад
                         only: the text is stored and posted in full, and the
                         whole of it is on the element's `title`.
                         {% endcomment %}
-                        <h3 class="smk-clamp" title="{{ row.item.text }}">{{ row.item.text }}</h3>
+                        <h3 class="text-clamp-2" title="{{ row.item.text }}">{{ row.item.text }}</h3>
                         <p class="smk-timeline__meta">
                             <span>Выявлено: <strong>{{ source.audit_date|date:'d.m.Y'|default:'—' }}</strong></span>
                             <span aria-hidden="true">·</span>
@@ -59,7 +59,7 @@ an СМК record is written once, and the work it created is tracked in «Зад
                 <article class="smk-measure">
                     <span class="smk-measure__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M9 4h6v3H9zM8 5H6v15h12V5h-2M9 13l2 2 4-4"/></svg></span>
                     <div class="smk-measure__statement">
-                        <h3 class="smk-clamp" title="{{ row.action.task_text }}">{{ row.action.task_text }}</h3>
+                        <h3 class="text-clamp-2" title="{{ row.action.task_text }}">{{ row.action.task_text }}</h3>
                         {% comment %}
                         Optional by design: one measure often answers several
                         findings at once, and then it names none rather than an
@@ -83,7 +83,7 @@ an СМК record is written once, and the work it created is tracked in «Зад
                     {% endcomment %}
                     <div class="smk-measure__fact">
                         <span>Исполнител{{ row.assignees|length|pluralize:'ь,и' }}</span>
-                        <p>{% for user in row.assignees %}{{ user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</p>
+                        <p class="user-text">{% for user in row.assignees %}{{ user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</p>
                     </div>
                     <div class="smk-measure__fact">
                         <span>Срок</span>

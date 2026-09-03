@@ -190,22 +190,11 @@
 
 /* ------------------------------------------------------------------- text */
 
-/* A display limit, never an input one: the text is stored and posted in full,
-   the card shows the first two lines and ends them with an ellipsis, and the
-   element's `title` carries the whole of it.
- *
- * `overflow-wrap: anywhere` is the half that matters most here. People paste
- * identifiers and pasted-together words with no spaces in them, and a single
- * unbroken token has no wrap opportunity at all — it used to run straight past
- * the right edge of the card and widen the page. */
-.smk-clamp {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    overflow: hidden;
-    overflow-wrap: anywhere;
-}
+/* The finding and the measure are clamped to two lines with `.text-clamp-2`
+   from `text.css` — a display limit, never an input one: the text is stored
+   and posted in full and the element's `title` carries the whole of it. The
+   rule used to live here as `.smk-clamp`; it is shared now, so an СМК card and
+   an act card cut a pasted, unbroken identifier the same way. */
 
 /* ------------------------------------------------------------------- state */
 
@@ -312,7 +301,6 @@
 .smk-measure__fact p {
     margin: 4px 0 0;
     font-size: 14px;
-    word-break: break-word;
 }
 
 .smk-measure__requirement {

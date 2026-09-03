@@ -4,7 +4,7 @@
 {% block title %}Документация - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-9">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260903-1">
 {% endblock %}
 
 {% block content %}
@@ -25,7 +25,7 @@ hiding a button is presentation, not permission.
         {% if parent_url %}
             <a class="link-button link-button--secondary link-button--compact" href="{{ parent_url }}">← Наверх</a>
         {% endif %}
-        <h1 class="doc-toolbar__title">{{ page_title }}</h1>
+        <h1 class="doc-toolbar__title user-text">{{ page_title }}</h1>
     </div>
     <div class="doc-toolbar__side">
         {% include 'documents/includes/search_form.html' %}
@@ -131,7 +131,7 @@ shared card, the same one search and the blocks above use.
                     <a class="table-link doc-entry" href="{{ system_entry.url }}">
                         <span class="doc-entry__icon" aria-hidden="true">🔒</span>{{ system_entry.name }}
                     </a>
-                    <span class="doc-entry__source">{{ system_entry.description }}</span>
+                    <span class="doc-entry__source user-text">{{ system_entry.description }}</span>
                 </td>
                 <td class="doc-table__muted">—</td>
                 <td class="doc-table__actions"></td>

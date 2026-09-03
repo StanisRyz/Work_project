@@ -31,7 +31,7 @@
                     <time datetime="{{ notification.created_at|date:'c' }}">{{ notification.created_at|date:"d.m.Y H:i" }}</time>
                 </div>
                 <h2><a href="{{ notification.related_url }}">{{ notification.title }}</a></h2>
-                <p>{{ notification.message }}</p>
+                <p class="user-text">{{ notification.message }}</p>
                 {% if notification.actor %}<small>Инициатор: {{ notification.actor.get_full_name|default:notification.actor.username }}</small>{% endif %}
             </div>
             <div class="notification-card__actions">

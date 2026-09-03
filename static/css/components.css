@@ -790,9 +790,10 @@
     font-size: 13px;
 }
 
+/* Colour and size only: the title and the body are the notification's own
+   text and carry `.user-text`, which is where their wrapping comes from. */
 .toast__message {
     margin: 0;
-    overflow-wrap: anywhere;
     color: var(--color-muted);
     font-size: 12px;
     line-height: 1.4;

@@ -31,11 +31,11 @@
                                     {% if event.from_status or event.to_status %}
                                         <span class="history-event__transition">{{ event.from_status|default:'—' }} → {{ event.to_status|default:'—' }}</span>
                                     {% endif %}
-                                    <p>{{ event.message }}</p>
+                                    <p class="user-text">{{ event.message }}</p>
                                 </div>
                                 <div class="history-event__meta">
                                     <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:'d.m.Y H:i' }}</time>
-                                    <span>{{ event.user.get_full_name|default:event.user.username|default:'Система' }}</span>
+                                    <span class="user-text">{{ event.user.get_full_name|default:event.user.username|default:'Система' }}</span>
                                 </div>
                             </article>
                         {% endfor %}

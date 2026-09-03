@@ -530,10 +530,10 @@
         var info = document.createElement('div');
         info.className = 'pcut-preset__info';
         var name = document.createElement('p');
-        name.className = 'pcut-preset__name';
+        name.className = 'pcut-preset__name user-text';
         name.textContent = preset.name;
         var meta = document.createElement('p');
-        meta.className = 'pcut-preset__meta';
+        meta.className = 'pcut-preset__meta user-text';
         meta.textContent = preset.author + ' · ' + preset.created_at
           + ' · пакетов: ' + preset.package_count + ' · наборов: ' + preset.set_quantity;
         info.appendChild(name);

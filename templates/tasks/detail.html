@@ -35,8 +35,8 @@ the Django login, never the employee's name.
         resolved the label and the `reverse()`d link, so the template does not
         branch on which relation happens to be filled.
         {% endcomment %}
-        {% if task_source.url %}<div class="task-detail-info-row"><dt>Источник</dt><dd><a class="table-link" href="{{ task_source.url }}">{{ task_source.label }}</a></dd></div>{% endif %}
-        <div class="task-detail-info-row"><dt>Подразделение</dt><dd>{{ task.department }}</dd></div>
+        {% if task_source.url %}<div class="task-detail-info-row"><dt>Источник</dt><dd class="user-text"><a class="table-link" href="{{ task_source.url }}">{{ task_source.label }}</a></dd></div>{% endif %}
+        <div class="task-detail-info-row"><dt>Подразделение</dt><dd class="user-text">{{ task.department }}</dd></div>
         <div class="task-detail-info-row"><dt>Срок</dt><dd><span class="{% if task.status.code != 'COMPLETED' and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></dd></div>
     </section>
 
@@ -86,13 +86,13 @@ the Django login, never the employee's name.
     <section class="task-detail-analysis-card">
         <span class="task-detail-eyebrow">Анализ ТО</span>
         <h2>Корневая причина</h2>
-        <div class="task-comment-block">{{ task.root_analysis.root_cause|linebreaksbr }}</div>
+        <div class="task-comment-block user-text">{{ task.root_analysis.root_cause|linebreaksbr }}</div>
     </section>
     {% endif %}
     <section class="task-detail-analysis-card">
         <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% elif task.is_act_rejection_task %}Решение КО{% else %}Решение протокола{% endif %}</span>
         <h2>Задача</h2>
-        <div class="task-comment-block">{{ task.task_text|linebreaksbr }}</div>
+        <div class="task-comment-block user-text">{{ task.task_text|linebreaksbr }}</div>
     </section>
 </div>
 
@@ -117,7 +117,7 @@ still completed with the execution comment and nothing attached.
     {% elif task.completed_by %}
         <section class="task-detail-execution-card">
             <h2>Выполнение</h2>
-            <div class="task-comment-block">{{ task.execution_comment|linebreaksbr }}</div>
+            <div class="task-comment-block user-text">{{ task.execution_comment|linebreaksbr }}</div>
             <p class="task-completion-meta">Завершил {{ task.completed_by|person_name }}, {{ task.completed_at|date:'d.m.Y H:i' }}</p>
         </section>
     {% endif %}
@@ -148,7 +148,7 @@ still completed with the execution comment and nothing attached.
             <ul class="task-attachment-list">
                 {% for item in attachments %}
                     <li class="task-attachment-row">
-                        <a class="table-link" href="{% url 'tasks:download_attachment' task.pk item.object.pk %}">{{ item.object.original_name }}</a>
+                        <a class="table-link user-text" href="{% url 'tasks:download_attachment' task.pk item.object.pk %}">{{ item.object.original_name }}</a>
                         <span class="task-attachment-meta">{{ item.formatted_size }} · {{ item.object.uploaded_by|person_name|default:'Без автора' }} · {{ item.object.created_at|date:'d.m.Y H:i' }}</span>
                     </li>
                 {% endfor %}

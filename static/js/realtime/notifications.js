@@ -44,14 +44,14 @@
         toast.tabIndex = -1;
 
         const heading = document.createElement('strong');
-        heading.className = 'toast__title';
+        heading.className = 'toast__title user-text';
         // textContent everywhere: server text is inserted as text, never markup.
         heading.textContent = title;
         toast.append(heading);
 
         if (message) {
             const body = document.createElement('p');
-            body.className = 'toast__message';
+            body.className = 'toast__message user-text';
             body.textContent = message;
             toast.append(body);
         }

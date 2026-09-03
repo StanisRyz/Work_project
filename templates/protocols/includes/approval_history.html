@@ -29,7 +29,7 @@ must never make a previous round look active. Built by
                                 <time datetime="{{ row.approval.decided_at|date:'c' }}">{{ row.approval.decided_at|date:'d.m.Y H:i' }}</time>
                             {% endif %}
                             {% if row.approval.return_comment %}
-                                <p class="protocol-approval-item__comment">Причина возврата: {{ row.approval.return_comment|linebreaksbr }}</p>
+                                <p class="protocol-approval-item__comment user-text">Причина возврата: {{ row.approval.return_comment|linebreaksbr }}</p>
                             {% endif %}
                         </div>
                     </li>

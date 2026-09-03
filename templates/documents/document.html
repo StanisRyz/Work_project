@@ -4,7 +4,7 @@
 {% block title %}{{ document.name }} - Документация{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260902-10">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260903-1">
 {% endblock %}
 
 {% block content %}
@@ -41,7 +41,7 @@ A) The information block: what this document is, and what can be done with it.
     <span class="doc-head__icon" aria-hidden="true">{{ icon }}</span>
     <div class="doc-head__body">
         <h1 class="doc-head__title">
-            {{ document.name }}
+            <span class="user-text">{{ document.name }}</span>
             {% if current_version %}<span class="doc-version-badge">{{ current_version.label }}</span>{% endif %}
         </h1>
         {% if selected_version %}
@@ -165,11 +165,11 @@ this is where its result is visible.
                     {% if row.is_current %}<span class="doc-version-badge doc-version-badge--current">Текущая</span>{% endif %}
                 </td>
                 <td>
-                    {{ row.version.original_name }}
-                    {% if row.version.comment %}<span class="doc-entry__source">{{ row.version.comment }}</span>{% endif %}
+                    <span class="user-text">{{ row.version.original_name }}</span>
+                    {% if row.version.comment %}<span class="doc-entry__source user-text">{{ row.version.comment }}</span>{% endif %}
                 </td>
                 <td class="doc-table__muted">{{ row.version.uploaded_at|date:'d.m.Y H:i' }}</td>
-                <td class="doc-table__muted">{{ row.version.uploaded_by.get_full_name|default:row.version.uploaded_by.username|default:'—' }}</td>
+                <td class="doc-table__muted user-text">{{ row.version.uploaded_by.get_full_name|default:row.version.uploaded_by.username|default:'—' }}</td>
                 <td class="doc-table__actions"><div class="doc-actions">
                     <a class="link-button link-button--secondary link-button--compact" href="{{ row.view_url }}">Открыть</a>
                     <a class="link-button link-button--secondary link-button--compact" href="{{ row.download_url }}">Скачать</a>
@@ -199,7 +199,7 @@ this is where its result is visible.
         <span class="doc-history__when">{{ event.created_at|date:'d.m.Y H:i' }}</span>
         <span class="doc-history__action">{{ event.get_action_display }}{% if event.version_number %} · v{{ event.version_number }}{% endif %}</span>
         <span class="doc-history__who">{{ event.user.get_full_name|default:event.user.username|default:'Система' }}</span>
-        {% if event.description %}<span class="doc-history__text">{{ event.description }}</span>{% endif %}
+        {% if event.description %}<span class="doc-history__text user-text">{{ event.description }}</span>{% endif %}
     </li>
     {% endfor %}
 </ol>

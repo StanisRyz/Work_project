@@ -19,7 +19,7 @@ is rendered here.
             <div class="protocol-card-grid">
                 {% for participant in participants %}
                     <div class="protocol-participant-card protocol-participant-card--static{% if participant.user_id == protocol.author_id %} protocol-participant-card--author{% endif %}">
-                        <div class="protocol-participant-card__who">
+                        <div class="protocol-participant-card__who user-text">
                             <strong>{{ participant.display_name }}</strong>
                             <span>{{ participant.department_name|default:'—' }}{% if participant.position %} · {{ participant.position }}{% endif %}</span>
                         </div>
@@ -49,7 +49,7 @@ is rendered here.
                 {% for item in agenda_items %}
                     <div class="protocol-agenda-card protocol-agenda-card--static">
                         <span class="protocol-agenda-card__number" aria-hidden="true"></span>
-                        <p>{{ item.text|linebreaksbr }}</p>
+                        <p class="user-text">{{ item.text|linebreaksbr }}</p>
                     </div>
                 {% endfor %}
             </div>
@@ -71,8 +71,8 @@ is rendered here.
             <div class="protocol-card-grid">
                 {% for speech in speeches %}
                     <div class="protocol-speech-card protocol-speech-card--static">
-                        <strong>{{ speech.speaker.display_name }}</strong>
-                        <p>{{ speech.text|linebreaksbr }}</p>
+                        <strong class="user-text">{{ speech.speaker.display_name }}</strong>
+                        <p class="user-text">{{ speech.text|linebreaksbr }}</p>
                     </div>
                 {% endfor %}
             </div>
@@ -103,15 +103,15 @@ is rendered here.
                     <div class="protocol-task-card">
                         <div class="protocol-task-card__head">
                             <span class="protocol-task-card__number" aria-hidden="true"></span>
-                            <p class="protocol-task-card__text">{{ action.task_text|linebreaksbr }}</p>
+                            <p class="protocol-task-card__text user-text">{{ action.task_text|linebreaksbr }}</p>
                             {% for task in action.tasks.all %}
-                                <a class="status-badge protocol-task-card__link" href="{% url 'tasks:detail' task.pk %}">Задача {{ task.pk }}{% if task.individual_assignee %} · {{ task.individual_assignee.get_full_name|default:task.individual_assignee.username }}{% endif %} · {{ task.status }}</a>
+                                <a class="status-badge protocol-task-card__link user-text" href="{% url 'tasks:detail' task.pk %}">Задача {{ task.pk }}{% if task.individual_assignee %} · {{ task.individual_assignee.get_full_name|default:task.individual_assignee.username }}{% endif %} · {{ task.status }}</a>
                             {% endfor %}
                         </div>
                         <dl class="protocol-task-card__facts">
-                            <div><dt>Исполнители</dt><dd>{% for assignee in action.assignees.all %}{{ assignee.user.get_full_name|default:assignee.user.username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd></div>
+                            <div><dt>Исполнители</dt><dd class="user-text">{% for assignee in action.assignees.all %}{{ assignee.user.get_full_name|default:assignee.user.username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd></div>
                             {% if action.split_for_assignees %}<div><dt>Исполнение</dt><dd>Отдельная задача каждому исполнителю</dd></div>{% endif %}
-                            <div><dt>Подразделение</dt><dd>{{ action.department.name|default:'—' }}</dd></div>
+                            <div><dt>Подразделение</dt><dd class="user-text">{{ action.department.name|default:'—' }}</dd></div>
                             <div><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y'|default:'—' }}</dd></div>
                         </dl>
                     </div>

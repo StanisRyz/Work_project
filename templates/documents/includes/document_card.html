@@ -12,7 +12,7 @@ Expects `card`. Optional `card_next` — a path the favourite toggle returns to.
 {% endcomment %}
 <article class="doc-result{% if card.is_readonly %} doc-result--system{% endif %}">
     <div class="doc-result__head">
-        <a class="doc-result__name" href="{{ card.open_url }}">
+        <a class="doc-result__name user-text" href="{{ card.open_url }}">
             <span class="doc-entry__icon" aria-hidden="true">{{ card.icon }}</span>{{ card.title }}
         </a>
         <div class="doc-result__marks">
@@ -33,7 +33,7 @@ Expects `card`. Optional `card_next` — a path the favourite toggle returns to.
         </div>
     </div>
     {# The path already reads as the location, so the meta line adds only what it does not say. #}
-    <p class="doc-result__path">{{ card.path }}</p>
+    <p class="doc-result__path user-text">{{ card.path }}</p>
     <div class="doc-result__meta">
         {% if card.is_readonly %}
             <span>{{ card.source_label }}: <a href="{{ card.open_url }}">{{ card.open_label }}</a></span>

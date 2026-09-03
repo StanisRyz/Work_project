@@ -692,8 +692,8 @@
     align-items: center;
     gap: 10px;
     margin: 0;
+    min-width: 0;
     font-size: 20px;
-    overflow-wrap: anywhere;
 }
 
 .doc-head__meta {

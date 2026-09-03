@@ -12,22 +12,22 @@
 <section class="detail-section act-context act-close-context">
     <h2>Контекст акта</h2>
     <dl>
-        <dt>Номер</dt><dd>{{ act.number }}</dd>
-        <dt>Номенклатура</dt><dd>{{ act.nomenclature }}</dd>
+        <dt>Номер</dt><dd class="user-text">{{ act.number }}</dd>
+        <dt>Номенклатура</dt><dd class="user-text">{{ act.nomenclature }}</dd>
         {% comment %}
         One line per defect: ЗНП, партия, операция and вид дефекта belong to
         the defect, and a ПиР defect simply has no партия or операция.
         {% endcomment %}
         {% for defect in defects %}
             <dt>Дефект {{ forloop.counter }}</dt>
-            <dd>{{ defect.get_workshop_display|default:'—' }} · ЗНП {{ defect.znp_number|default:'—' }} · партия {{ defect.party_number|default:'—' }} · операция {{ defect.operation|default:'—' }} · {{ defect.defect_type }}</dd>
+            <dd class="user-text">{{ defect.get_workshop_display|default:'—' }} · ЗНП {{ defect.znp_number|default:'—' }} · партия {{ defect.party_number|default:'—' }} · операция {{ defect.operation|default:'—' }} · {{ defect.defect_type }}</dd>
         {% empty %}
             <dt>Дефекты</dt><dd>—</dd>
         {% endfor %}
         <dt>Статус</dt><dd>{% include 'acts/includes/status_badge.html' with status=act.status %}</dd>
         <dt>Решение КО</dt><dd>{{ act.get_ko_decision_display|default:'-' }}</dd>
-        <dt>Корневая причина ТО</dt><dd>{{ act.to_root_cause|default:'-' }}</dd>
-        <dt>Мероприятия ТО</dt><dd>{{ act.to_action_summary|default:'-' }}</dd>
+        <dt>Корневая причина ТО</dt><dd class="user-text">{{ act.to_root_cause|default:'-' }}</dd>
+        <dt>Мероприятия ТО</dt><dd class="user-text">{{ act.to_action_summary|default:'-' }}</dd>
     </dl>
 </section>
 

@@ -12,8 +12,8 @@ table than a reload would.
             <tr>
                 {# The link covers the whole row through `::after` in protocols.css. #}
                 <td><a class="table-link protocol-row-link" href="{% url 'protocols:detail' protocol.pk %}">№{{ protocol.number }}</a></td>
-                <td>{{ protocol.protocol_type.name }}</td>
-                <td>{{ protocol.author.get_full_name|default:protocol.author.username }}</td>
+                <td class="user-text">{{ protocol.protocol_type.name }}</td>
+                <td class="user-text">{{ protocol.author.get_full_name|default:protocol.author.username }}</td>
                 <td>{{ protocol.created_at|date:'d.m.Y' }}</td>
                 <td><span class="status-badge">{{ protocol.get_status_display }}</span></td>
             </tr>

@@ -116,6 +116,30 @@ tasks never live inside `acts`.
 - One button system: `.link-button` fixes font, size, height, padding, radius and
   states; a modifier (`--secondary`, `--warning`, `--danger`, `--success`,
   `--compact`) changes only colour or density.
+- One text system: `static/css/text.css`, loaded **last** in `base.html` (after
+  `{% block extra_head %}`) and in both print templates. It is the floor under
+  every other stylesheet — never add a one-off `overflow-wrap`, `word-break` or
+  `min-width: 0` to a module file to fix a long string. Four layers: `:root`
+  inherits `overflow-wrap: break-word`; the layout containers and card surfaces
+  are pinned with `min-width: 0` / `max-width: 100%`; table cells get
+  `overflow-wrap: anywhere` (the only value that shrinks a column's *min-content*
+  width, so an auto-layout column cannot grow without bound) with the sideways
+  scroll confined to `.table-card` / `*-table-wrap`; and the opt-in classes.
+  - Mark every element rendering free-form text with **`.user-text`** — defect
+    descriptions, КО comments, корневые причины, protocol agenda/speeches/
+    decisions, task text and execution notes, comments, document and folder
+    names, СМК findings, saved-set names. It also forces `white-space: normal`,
+    so it beats a `nowrap` its column set for dates or sizes.
+  - `.user-text--pre` for a raw value not run through `|linebreaksbr`;
+    `.text-clamp-1|2|3` for a display limit (always pair it with the full text
+    on `title`); `.text-ellipsis` for a one-line cut in a dense row.
+  - Page-level horizontal scrolling is off: `body { overflow-x: clip }` on
+    `body` alone, so the value propagates to the viewport and `body` never
+    becomes a scroll container — that is what keeps the sticky `.topbar` stuck
+    to the window.
+  - Print: `.print-section table` is `table-layout: fixed`. Paper has no
+    scrollbar, and an auto-layout «Описание» column always asks for more than
+    A4. Cover is `ecosystem/test_text_rendering.py`.
 - `accounts.navigation.get_default_landing_url()` is the one answer to where a
   user belongs: `/quality/acts/` for everyone, including administrators and
   superusers.

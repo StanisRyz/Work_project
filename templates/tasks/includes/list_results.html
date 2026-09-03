@@ -16,8 +16,8 @@ the `ProtocolApproval` decision, never the queue's own «Выполнено».
         {% for row in rows %}
             <tr data-task-row="{{ row.task.pk }}"{% if tab != 'archive' and row.task.due_date < today %} class="task-row--overdue"{% endif %}>
                 <td><a class="table-link" href="{% url 'tasks:detail' row.task.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{{ row.task.pk }}</a></td>
-                <td>{{ row.type_label }}</td>
-                <td>{% if row.source.url %}<a class="table-link" href="{{ row.source.url }}">{{ row.source.label }}</a>{% else %}—{% endif %}</td>
+                <td class="user-text">{{ row.type_label }}</td>
+                <td class="user-text">{% if row.source.url %}<a class="table-link" href="{{ row.source.url }}">{{ row.source.label }}</a>{% else %}—{% endif %}</td>
                 <td>{% if row.state.variant %}<span class="approval-status approval-status--{{ row.state.variant }}">{{ row.state.label }}</span>{% else %}{{ row.state.label }}{% endif %}</td>
                 <td><span class="{% if tab != 'archive' and row.task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ row.task.due_date|date:'d.m.Y' }}</span></td>
             </tr>

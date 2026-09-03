@@ -19,7 +19,7 @@ be, rather than being silently dropped.
                 <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Несоответствие</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
                 <tbody>{% for row in actions %}<tr>
                     <td>{% if row.task %}<a class="related-activities__task-link" href="{% url 'tasks:detail' row.task.pk %}">#{{ row.task.pk }}</a>{% else %}—{% endif %}</td>
-                    <td><strong>{{ row.action.task_text }}</strong></td>
+                    <td class="user-text"><strong>{{ row.action.task_text }}</strong></td>
                     <td>{% if row.action.non_conformity %}№{{ row.action.non_conformity.number }}{% else %}—{% endif %}</td>
                     <td>{% for user in row.assignees %}{{ user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
                     <td>{{ row.action.due_date|date:'d.m.Y' }}</td>

@@ -380,12 +380,13 @@
     min-width: 0;
 }
 
+/* Colour and weight only: a saved set's name is user text and carries
+   `.user-text` from `text.css`, which is where its wrapping comes from. */
 .plate-cutting-module .pcut-preset__name {
     margin: 0;
     color: var(--color-text);
     font-size: 14px;
     font-weight: 700;
-    overflow-wrap: anywhere;
 }
 
 .plate-cutting-module .pcut-preset__meta {
