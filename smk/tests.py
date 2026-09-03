@@ -4,7 +4,8 @@ Deliberately small: everything else here is already covered where it lives —
 the completion guard by `tasks.tests`, the assignee/department pairing by the
 protocol editor's own tests. What is new, and therefore tested, is who may
 create and archive an СМК record, that a measure really becomes a `Task`, that the task
-reaches the common registry with its СМК source named, that «Требуется
+reaches the common registry with its СМК source named, that its исполнители
+are notified through the common notification and email queue, that «Требуется
 вложение» travels onto the task and is enforced there, and that nothing is
 written before the creation is confirmed.
 """
@@ -13,12 +14,16 @@ import tempfile
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Department, UserProfile
+from notifications.email_delivery import process_delivery
+from notifications.models import Notification, NotificationDelivery
+from notifications.services import get_notification_header_state
 from tasks.models import Task
 from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
 
@@ -490,6 +495,82 @@ class SmkTests(TestCase):
         # Archiving overrides the derived answer, in the list as on the page.
         archive_smk_source(source, actor=self.smk)
         self.assertEqual(self.client.get(url).context['state']['label'], 'Архив')
+
+    # --------------------------------------------------------- notifications
+
+    def test_every_assignee_is_notified_of_the_smk_task(self):
+        """The measure reaches its исполнитель the same way every task does.
+
+        One notification per assignee, sourced from the task itself, visible in
+        the bell and carrying exactly one email delivery — created through
+        `notifications.services`, so there is nothing СМК-specific to keep in
+        step with the rest of the system.
+        """
+        second = self._user('smk_second_assignee', UserProfile.Role.TO)
+        source = create_smk_source(
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            non_conformities=['Не ведётся журнал поверки'],
+            actions=self._actions(assignees=[self.employee, second]),
+            created_by=self.smk,
+        )
+        task = Task.objects.get(smk_source=source)
+
+        assigned = Notification.objects.filter(
+            event_type=Notification.EventType.SMK_TASK_ASSIGNED,
+        )
+        self.assertSetEqual(
+            {item.recipient for item in assigned}, {self.employee, second}
+        )
+        for item in assigned:
+            self.assertEqual(item.source_type, Notification.SourceType.TASK)
+            self.assertEqual(item.related_task, task)
+            self.assertIsNone(item.related_act_id)
+            self.assertIsNone(item.related_protocol_id)
+            self.assertEqual(item.related_url, reverse('tasks:detail', args=[task.pk]))
+            self.assertEqual(item.title, f'Назначена задача по записи {source.label}')
+            # Queued for email through the common delivery table, once.
+            self.assertEqual(item.deliveries.count(), 1)
+
+        # And the bell really shows it to the assignee.
+        header = get_notification_header_state(self.employee)
+        self.assertEqual(header['unread_count'], 1)
+        self.assertEqual(header['items'][0].related_task, task)
+
+    @override_settings(
+        EMAIL_NOTIFICATIONS_ENABLED=True,
+        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        APP_BASE_URL='https://quality.example.test',
+        DEFAULT_FROM_EMAIL='quality@example.test',
+    )
+    def test_the_smk_notification_is_sent_by_the_common_email_worker(self):
+        """No СМК email path: the existing queue renders and sends this one."""
+        self.employee.email = 'smk_assignee@example.test'
+        self.employee.save(update_fields=['email'])
+        source = create_smk_source(
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            non_conformities=['Не ведётся журнал поверки'],
+            actions=self._actions(),
+            created_by=self.smk,
+        )
+        task = Task.objects.get(smk_source=source)
+        delivery = NotificationDelivery.objects.get(
+            notification__related_task=task,
+            notification__recipient=self.employee,
+        )
+        self.assertEqual(delivery.status, NotificationDelivery.Status.PENDING)
+
+        self.assertEqual(
+            process_delivery(delivery.pk), NotificationDelivery.Status.SENT
+        )
+        message = mail.outbox[-1]
+        self.assertEqual(message.to, ['smk_assignee@example.test'])
+        self.assertIn(f'Задача №{task.pk}', message.body)
+        self.assertIn(source.label, message.body)
+        self.assertIn(f'https://quality.example.test/quality/tasks/{task.pk}/', message.body)
+        # The stored source code is never what the recipient reads.
+        self.assertNotIn('SMK_TASK_ASSIGNED', message.body)
 
     # ----------------------------------------------------------- permissions
 

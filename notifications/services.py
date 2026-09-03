@@ -42,6 +42,7 @@ NOTIFICATION_SOURCE_SELECT_RELATED = (
     'related_act',
     'related_protocol__protocol_type',
     'related_task__protocol__protocol_type',
+    'related_task__smk_source',
 )
 
 # Where each source type lives on the row, which route opens it, and how the
@@ -83,6 +84,7 @@ EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.PROTOCOL_APPROVED,
     Notification.EventType.PROTOCOL_TASK_ASSIGNED,
     Notification.EventType.ACT_REJECTION_ASSIGNED,
+    Notification.EventType.SMK_TASK_ASSIGNED,
 }
 
 
@@ -224,6 +226,29 @@ def notify_act_rejection_task_assigned(task, actor, assignees):
         raise ValueError('Уведомление о браке создаётся только для задачи ПДО по браку.')
     return create_notifications(
         event_type=Notification.EventType.ACT_REJECTION_ASSIGNED,
+        task=task,
+        actor=actor,
+        recipients=assignees,
+        source_key=f'task:{task.pk}',
+        exclude_actor=False,
+    )
+
+
+def notify_smk_task_assigned(task, actor, assignees):
+    """Tell the assignees of a real СМК task that it now exists.
+
+    Task-sourced and keyed on the task, exactly like the protocol and
+    rejection variants: an СМК record has no notification of its own, so this
+    is the only thing that tells an исполнитель the measure is theirs.
+    `exclude_actor=False` because the author of the record may name themselves
+    among the assignees, and their own work item must still reach them.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.SMK:
+        raise ValueError('Уведомление СМК создаётся только для задачи по записи СМК.')
+    return create_notifications(
+        event_type=Notification.EventType.SMK_TASK_ASSIGNED,
         task=task,
         actor=actor,
         recipients=assignees,
@@ -443,6 +468,8 @@ def _task_source_context(task):
 
     if task.source_type == Task.SourceType.ACT_REJECTION and task.act_id:
         return f'Брак по акту {task.act.number}'
+    if task.smk_source_id:
+        return task.smk_source.label
     if task.protocol_id:
         return f'Протокол {_protocol_label(task.protocol)}'
     if task.act_id:
@@ -571,9 +598,9 @@ def _protocol_event_text(event_type, protocol):
 def _task_event_text(event_type, task):
     """Text for a task-sourced notification, without assuming a protocol.
 
-    Two source types reach this — a protocol decision and a ПДО rejection —
-    and only the first has a protocol to name. Each branch reads its own
-    source relation, so neither can dereference the other's NULL.
+    Three source types reach this — a protocol decision, a ПДО rejection and
+    an СМК measure — and each has a different record to name. Each branch
+    reads its own source relation, so none can dereference another's NULL.
     """
     if event_type == Notification.EventType.ACT_REJECTION_ASSIGNED:
         number = task.act.number
@@ -581,6 +608,13 @@ def _task_event_text(event_type, task):
             f'Назначена задача ПДО по браку (акт {number})',
             f'Вы назначены исполнителем задачи ПДО по браку, выявленному актом {number}.',
             'Откройте задачу, спланируйте замену забракованной продукции и выполните её в срок.',
+        )
+    if event_type == Notification.EventType.SMK_TASK_ASSIGNED:
+        label = task.smk_source.label
+        return NotificationText(
+            f'Назначена задача по записи {label}',
+            f'Вы назначены исполнителем корректирующего мероприятия по записи {label}.',
+            'Откройте задачу и выполните мероприятие в указанный срок.',
         )
     label = _protocol_label(task.protocol)
     return {

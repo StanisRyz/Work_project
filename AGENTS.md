@@ -27,7 +27,7 @@ model without explicit approval.
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` + `DocumentFavorite` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
-| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and two write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), and `archive_smk_source()`, the record's only state change. No task system of its own |
+| `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and two write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), and `archive_smk_source()`, the record's only state change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -340,6 +340,11 @@ tasks never live inside `acts`.
   `SmkCorrectiveAction.requires_attachment` («Требуется вложение») is copied
   onto the task exactly as the protocol and act variants copy theirs, and is
   enforced only by `complete_task()`: СМК adds no attachment rule of its own.
+  Every assignee is told through `notifications.services.notify_smk_task_assigned()`
+  (`SMK_TASK_ASSIGNED`, `TASK`-sourced, keyed on the task, `exclude_actor=False`),
+  called inside the same transaction *after* the task and its assignees exist —
+  the bell entry and the email delivery come from the common notification
+  service, and СМК has no notification or email path of its own.
 - **`SmkSource.audit_date` is the audit's own date and `created_at` is not.** A
   record is often written up days after the audit it describes, so the page
   shows `audit_date` and never the timestamp. Nullable only because the column
@@ -598,7 +603,7 @@ tasks never live inside `acts`.
   | --- | --- | --- |
   | act | `ACT_SENT_TO_KO`, `ACT_SENT_TO_TO`, `ACT_SENT_TO_OTK`, `ACT_RETURNED_TO_OTK`, `ACT_RETURNED_TO_KO`, `ACT_RETURNED_TO_TO`, `ACTION_ASSIGNED`, `ACT_APPROVED` | `COMMENT_ADDED` |
   | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
-  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED` | — |
+  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED` | — |
 
   `COMMENT_ADDED` stays out on purpose: comments are frequent, carry no
   required action of their own and would turn the mailbox into noise.
@@ -611,8 +616,9 @@ tasks never live inside `acts`.
   never dereferences `related_act`. One SMTP worker, one template pair
   (`notifications/email/notification.{txt,html}`), no per-domain copy. A task
   email names «Задача №<pk>» plus what it came from («Брак по акту …»,
-  «Протокол …»), its due date and whether an attachment is required; the stored
-  source codes (`ACT_REJECTION`, `PROTOCOL_ACTION`) are never user-facing text.
+  «Протокол …», «СМК №…»), its due date and whether an attachment is required;
+  the stored source codes (`ACT_REJECTION`, `PROTOCOL_ACTION`, `SMK`) are never
+  user-facing text.
 - **Routing tasks never produce a second email.** `ACT_WORKFLOW` and
   `PROTOCOL_APPROVAL` rows create no notification at all — the act transition
   and `PROTOCOL_APPROVAL_REQUIRED` already tell the same person the same thing.

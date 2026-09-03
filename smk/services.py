@@ -8,8 +8,9 @@ measures reached nobody is worse than no record. Both entry points re-check
 the permission here, under the transaction, and not only in the view.
 
 `tasks.services.create_smk_action_task()` owns the task itself; this module
-owns the decision to create one. That split is the same one
-`protocols/services.py` keeps, and it is why no second task system exists.
+owns the decision to create one, and `notifications.services` is what tells
+the исполнитель about it. That split is the same one `protocols/services.py`
+keeps, and it is why no second task or notification system exists.
 """
 
 import logging
@@ -60,6 +61,7 @@ def create_smk_source(*, origin, audit_date, non_conformities, actions, created_
     checks the *right* to write, not the shape of what is written, and a
     malformed structure is a programming error rather than a user error.
     """
+    from notifications.services import notify_smk_task_assigned
     from tasks.services import TaskWorkflowError, create_smk_action_task
 
     if not can_create_smk_task(created_by):
@@ -118,6 +120,11 @@ def create_smk_source(*, origin, audit_date, non_conformities, actions, created_
                 # measures assigned and others silently lost, is not a state
                 # this module ever leaves behind.
                 raise SmkWorkflowError(str(exc)) from exc
+            # After the task and its assignees exist, never before, exactly as
+            # `protocols/services.py` does it: an СМК record raises no event of
+            # its own, so this is the only thing that reaches an исполнитель —
+            # in the bell and, through the same delivery queue, by email.
+            notify_smk_task_assigned(task, created_by, item['assignees'])
             _record(
                 source,
                 created_by,

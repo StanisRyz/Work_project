@@ -42,6 +42,7 @@ DELIVERY_SELECT_RELATED = (
     'notification__related_protocol__protocol_type',
     'notification__related_task__act',
     'notification__related_task__protocol__protocol_type',
+    'notification__related_task__smk_source',
 )
 
 
