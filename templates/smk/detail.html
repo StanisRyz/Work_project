@@ -5,7 +5,7 @@
 {% block title %}{{ source.label }} - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-5">
+<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-6">
 {% endblock %}
 
 {% block content %}
@@ -23,7 +23,8 @@ describe different work.
     <a class="act-back-link" href="{% url 'smk:list' %}" aria-label="К списку записей СМК">←</a>
     <div class="act-detail-heading__title">
         <h1>{{ source.label }}</h1>
-        {% if source.is_archived %}<span class="act-badge act-badge--status">{{ source.get_status_display }}</span>{% endif %}
+        {# The derived state, always shown — the same pill the registry renders. #}
+        <span class="status-badge status-badge--{{ state.code }}">{{ state.label }}</span>
     </div>
     {% comment %}
     «Архивировать» is shown only to the roles that may do it and only while the
@@ -69,7 +70,7 @@ tasks the measures produced, not the measures that should have produced them.
     </div>
     <div class="smk-info-card__item">
         <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 7h10l6 5-6 5H4z"/></svg></span>
-        <div><span>Статус</span><strong>{{ source.get_status_display }}</strong></div>
+        <div><span>Статус</span><strong>{{ state.label }}</strong></div>
     </div>
     <div class="smk-info-card__item">
         <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 12l3 3 5-5"/></svg></span>

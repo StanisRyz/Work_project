@@ -23,7 +23,7 @@ from tasks.models import Task
 from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
 
 from .models import SmkHistoryEvent, SmkSource
-from .permissions import can_create_smk_task
+from .permissions import can_archive_smk_source, can_create_smk_task
 from .services import SmkWorkflowError, archive_smk_source, create_smk_source
 
 
@@ -314,17 +314,20 @@ class SmkTests(TestCase):
         response = self.client.get(reverse('smk:list'))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['tab'], 'work')
-        self.assertIn(source, list(response.context['sources']))
-        # The row carries what the table promises: the record, its audit type
-        # and the real tasks its measures produced.
+        self.assertEqual([row['source'] for row in response.context['sources']], [source])
+        # The row carries what the table promises: the record, its audit type,
+        # the real tasks its measures produced and the derived state — «Создана»
+        # while no task has moved yet.
         self.assertContains(response, source.label)
         self.assertContains(response, reverse('smk:detail', args=[source.pk]))
-        self.assertEqual(response.context['sources'][0].task_count, 1)
+        self.assertEqual(response.context['sources'][0]['task_count'], 1)
+        self.assertEqual(response.context['sources'][0]['state']['code'], 'created')
+        self.assertContains(response, 'Создана')
         # The navigation entry itself — rendered on every page by the sidebar.
         self.assertContains(response, f'href="{reverse("smk:list")}"')
 
         archive = self.client.get(reverse('smk:list'), {'tab': 'archive'})
-        self.assertNotIn(source, list(archive.context['sources']))
+        self.assertEqual(archive.context['sources'], [])
 
     # --------------------------------------------------------------- archiving
 
@@ -363,12 +366,15 @@ class SmkTests(TestCase):
         # It is now in «Архив», gone from «Работа», and still readable — the
         # button being the only thing that disappeared.
         archive = self.client.get(reverse('smk:list'), {'tab': 'archive'})
-        self.assertIn(source, list(archive.context['sources']))
+        self.assertEqual([row['source'] for row in archive.context['sources']], [source])
+        self.assertEqual(archive.context['sources'][0]['state']['code'], 'archived')
         work = self.client.get(reverse('smk:list'))
-        self.assertNotIn(source, list(work.context['sources']))
+        self.assertEqual(work.context['sources'], [])
         detail = self.client.get(reverse('smk:detail', args=[source.pk]))
         self.assertEqual(detail.status_code, 200)
         self.assertFalse(detail.context['can_archive'])
+        # «Архив» wins over whatever the tasks say, on both pages.
+        self.assertEqual(detail.context['state']['label'], 'Архив')
 
     # --------------------------------------------------- related activities
 
@@ -436,3 +442,80 @@ class SmkTests(TestCase):
         response = self.client.get(reverse('smk:detail', args=[source.pk]), {'tab': 'history'})
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Запись СМК помещена в архив')
+
+    # ----------------------------------------------------------------- state
+
+    def test_the_displayed_state_follows_the_tasks_and_the_shelf(self):
+        """Создана → В работе → Завершена, and «Архив» over all of them.
+
+        The four are derived on every read, never stored: `SmkSource.status`
+        keeps only the shelf, so completing a task has to move the pill without
+        anything writing to the record.
+        """
+        actions = self._actions(assignees=[self.employee]) + [
+            {
+                'text': 'Обновить инструкцию',
+                'department': self.department,
+                'due_date': timezone.localdate() + timedelta(days=9),
+                'non_conformity': None,
+                'requires_attachment': False,
+                'assignees': [self.employee],
+            },
+        ]
+        source = create_smk_source(
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            non_conformities=['Не ведётся журнал поверки'],
+            actions=actions,
+            created_by=self.smk,
+        )
+        first, second = Task.objects.filter(smk_source=source).order_by('pk')
+        self.client.force_login(self.employee)
+        url = reverse('smk:detail', args=[source.pk])
+
+        self.assertEqual(self.client.get(url).context['state']['label'], 'Создана')
+
+        complete_task(first, self.employee, 'Проведено')
+        self.assertEqual(self.client.get(url).context['state']['label'], 'В работе')
+
+        complete_task(second, self.employee, 'Обновлено')
+        self.assertEqual(self.client.get(url).context['state']['label'], 'Завершена')
+        # Nothing was written to the record to make that happen.
+        source.refresh_from_db()
+        self.assertEqual(source.status, SmkSource.Status.ACTIVE)
+
+        # Archiving overrides the derived answer, in the list as on the page.
+        archive_smk_source(source, actor=self.smk)
+        self.assertEqual(self.client.get(url).context['state']['label'], 'Архив')
+
+    # ----------------------------------------------------------- permissions
+
+    def test_an_ordinary_user_is_offered_no_smk_action(self):
+        """Reading is open; creating and archiving are the three roles only.
+
+        One table rather than three tests: what matters is that the same answer
+        governs the button, the page and the POST, so a regular user cannot
+        reach an action by typing its URL either.
+        """
+        source = self._source()
+        allowed = (self.smk, self.manager, self.admin)
+        for user in allowed:
+            self.assertTrue(can_create_smk_task(user), user)
+            self.assertTrue(can_archive_smk_source(source, user), user)
+        self.assertFalse(can_create_smk_task(self.employee))
+        self.assertFalse(can_archive_smk_source(source, self.employee))
+
+        # The regular user: list and record readable, neither action offered,
+        # and both endpoints refused rather than merely hidden.
+        self.client.force_login(self.employee)
+        listing = self.client.get(reverse('smk:list'))
+        self.assertEqual(listing.status_code, 200)
+        self.assertFalse(listing.context['can_create'])
+        self.assertNotContains(listing, reverse('smk:create'))
+        detail = self.client.get(reverse('smk:detail', args=[source.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertNotContains(detail, 'Архивировать')
+        self.assertEqual(self.client.get(reverse('smk:create')).status_code, 404)
+        self.client.post(reverse('smk:archive', args=[source.pk]))
+        source.refresh_from_db()
+        self.assertEqual(source.status, SmkSource.Status.ACTIVE)

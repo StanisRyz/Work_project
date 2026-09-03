@@ -29,11 +29,14 @@ an СМК record is written once, and the work it created is tracked in «Зад
                     {% endcomment %}
                     <article class="smk-timeline__card">
                         {% comment %}
-                        Clamped to two lines with an ellipsis — a display limit
-                        only: the text is stored and posted in full, and the
-                        whole of it is on the element's `title`.
+                        Shown in full, not clamped: on this tab the finding *is*
+                        the content, and a two-line limit with the rest only on
+                        a `title` hides it from touch entirely. `.user-text`
+                        keeps the wrapping and containment guarantees of
+                        `text.css` — an unbroken pasted token still cannot widen
+                        the card — without cutting anything off.
                         {% endcomment %}
-                        <h3 class="text-clamp-2" title="{{ row.item.text }}">{{ row.item.text }}</h3>
+                        <h3 class="user-text">{{ row.item.text }}</h3>
                         <p class="smk-timeline__meta">
                             <span>Выявлено: <strong>{{ source.audit_date|date:'d.m.Y'|default:'—' }}</strong></span>
                             <span aria-hidden="true">·</span>
@@ -59,7 +62,8 @@ an СМК record is written once, and the work it created is tracked in «Зад
                 <article class="smk-measure">
                     <span class="smk-measure__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M9 4h6v3H9zM8 5H6v15h12V5h-2M9 13l2 2 4-4"/></svg></span>
                     <div class="smk-measure__statement">
-                        <h3 class="text-clamp-2" title="{{ row.action.task_text }}">{{ row.action.task_text }}</h3>
+                        {# In full, for the same reason the finding above is. #}
+                        <h3 class="user-text">{{ row.action.task_text }}</h3>
                         {% comment %}
                         Optional by design: one measure often answers several
                         findings at once, and then it names none rather than an
@@ -68,18 +72,21 @@ an СМК record is written once, and the work it created is tracked in «Зад
                         {% if row.action.non_conformity %}
                             <p class="smk-measure__link">Связано с несоответствием №{{ row.action.non_conformity.number }}</p>
                         {% endif %}
-                        {% if row.task %}
-                            <span class="smk-state smk-state--{% if row.task.status.code == 'COMPLETED' %}closed{% else %}running{% endif %}">{{ row.task.status }}</span>
-                        {% endif %}
                     </div>
                     {% comment %}
-                    The three facts are grid items of the card itself, not a
+                    The two facts are grid items of the card itself, not a
                     nested grid: that is what makes them run across one line —
-                    исполнители, срок, задача — instead of wrapping into a
-                    block of their own. Подразделение is deliberately not shown:
-                    it is the measure's routing detail, still stored and still
-                    carried onto the task, but the исполнители are who a reader
-                    of this page actually needs.
+                    исполнители, срок — instead of wrapping into a block of
+                    their own. Подразделение is deliberately not shown: it is
+                    the measure's routing detail, still stored and still carried
+                    onto the task, but the исполнители are who a reader of this
+                    page actually needs.
+
+                    Neither the task's status nor a link to it appears here: the
+                    audit act is what was *decided*, and the live state of the
+                    work it produced belongs to «Связанные мероприятия», which
+                    is the one place that reads it. Two answers on two tabs
+                    could only drift apart.
                     {% endcomment %}
                     <div class="smk-measure__fact">
                         <span>Исполнител{{ row.assignees|length|pluralize:'ь,и' }}</span>
@@ -88,10 +95,6 @@ an СМК record is written once, and the work it created is tracked in «Зад
                     <div class="smk-measure__fact">
                         <span>Срок</span>
                         <p>{{ row.action.due_date|date:'d.m.Y' }}{% if row.action.requires_attachment %}<span class="smk-measure__requirement" title="Задачу нельзя завершить без вложения">Требуется вложение</span>{% endif %}</p>
-                    </div>
-                    <div class="smk-measure__fact">
-                        <span>Задача</span>
-                        <p>{% if row.task %}<a class="table-link" href="{% url 'tasks:detail' row.task.pk %}">Задача №{{ row.task.pk }}</a>{% else %}—{% endif %}</p>
                     </div>
                 </article>
             {% endfor %}

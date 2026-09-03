@@ -575,6 +575,17 @@
     font-weight: 700;
 }
 
+/* The state of a document, as a pill on the same `status-badge` base so the
+   shape is identical wherever it appears. The tints are the ones
+   `.approval-status` below already uses for the same meanings — grey for
+   «shelved», green for «done», blue for «running» — rather than four new
+   colours. Used by the СМК registry and record page, whose four states are
+   derived from the tasks and never stored. */
+.status-badge--created { background: #fff7ed; color: #9a3412; }
+.status-badge--in_progress { background: #eef4ff; color: var(--color-primary-dark); }
+.status-badge--completed { background: #ecfdf5; color: #15803d; }
+.status-badge--archived { background: var(--color-bg); color: var(--color-muted); }
+
 /* One approval decision, as a pill. Shared: the protocol page renders it per
    approver, and the task registry uses it for the real outcome of an approval
    queue entry. */

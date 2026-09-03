@@ -5,7 +5,7 @@ Reads only — every write stays in `smk/services.py`, and every permission in
 """
 
 from django.contrib.auth.models import User
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from accounts.models import Department
@@ -24,6 +24,24 @@ LIST_TABS = {
 DEFAULT_LIST_TAB = 'work'
 
 
+# What a person reads off the record, and never what is stored. `SmkSource`
+# keeps exactly two values — «В работе» and «Архив», the shelf it sits on — so
+# these four are *derived* every time they are shown: «Архив» once it is
+# shelved, «Завершена» when every task its measures produced is closed,
+# «Создана» while no task has moved yet, «В работе» in between. Deriving them
+# is what keeps this a display concern: nothing here can be out of step with
+# the tasks, because it is read from them.
+def describe_smk_state(*, is_archived, task_count, completed_task_count):
+    """`{'code', 'label'}` for the state pill, from facts the caller counted."""
+    if is_archived:
+        return {'code': 'archived', 'label': 'Архив'}
+    if task_count and completed_task_count == task_count:
+        return {'code': 'completed', 'label': 'Завершена'}
+    if completed_task_count:
+        return {'code': 'in_progress', 'label': 'В работе'}
+    return {'code': 'created', 'label': 'Создана'}
+
+
 def build_smk_list_state(params):
     """The СМК registry for one tab.
 
@@ -37,9 +55,33 @@ def build_smk_list_state(params):
     sources = (
         SmkSource.objects.filter(status=LIST_TABS[tab])
         .select_related('created_by')
-        .annotate(task_count=Count('actions__tasks', distinct=True))
+        .annotate(
+            task_count=Count('actions__tasks', distinct=True),
+            completed_task_count=Count(
+                'actions__tasks',
+                filter=Q(actions__tasks__status__code='COMPLETED'),
+                distinct=True,
+            ),
+        )
     )
-    return {'tab': tab, 'sources': sources}
+    # Rows, not the bare queryset: the state pill is derived per record, and
+    # deriving it here keeps the template to reading values rather than
+    # computing one.
+    return {
+        'tab': tab,
+        'sources': [
+            {
+                'source': source,
+                'task_count': source.task_count,
+                'state': describe_smk_state(
+                    is_archived=source.is_archived,
+                    task_count=source.task_count,
+                    completed_task_count=source.completed_task_count,
+                ),
+            }
+            for source in sources
+        ],
+    }
 
 
 def get_editor_directory():
@@ -145,6 +187,9 @@ def get_source_detail(source):
         for action in source.actions.select_related('department', 'non_conformity')
         .prefetch_related('assignees__user', 'tasks__status', 'tasks__attachments')
     ]
+    # What «Количество задач» in the information card counts: the real tasks
+    # that exist, not the measures that should have produced them.
+    task_count = sum(1 for row in rows if row['task'] is not None)
     return {
         'source': source,
         # A finding carries no status of its own: what is being done about it
@@ -155,8 +200,17 @@ def get_source_detail(source):
             {'item': finding} for finding in source.non_conformities.all()
         ],
         'actions': rows,
-        # What «Количество задач» in the information card counts: the real
-        # tasks that exist, not the measures that should have produced them.
-        'task_count': sum(1 for row in rows if row['task'] is not None),
+        'task_count': task_count,
+        # Derived from the rows already loaded above — the same four states the
+        # registry shows, so a record cannot read one way in the list and
+        # another on its own page.
+        'state': describe_smk_state(
+            is_archived=source.is_archived,
+            task_count=task_count,
+            completed_task_count=sum(
+                1 for row in rows
+                if row['task'] is not None and row['task'].status.code == 'COMPLETED'
+            ),
+        ),
         'history_groups': get_smk_history_groups(source),
     }

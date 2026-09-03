@@ -370,19 +370,38 @@ tasks never live inside `acts`.
   registry (`smk:list`, `build_smk_list_state()`) is the two tabs this status
   splits, «Работа» and «Архив», with «Количество задач» annotated in the query
   rather than counted per row; reading it is open to every authenticated user,
-  «Создать» is not.
+  «Создать» is not. The builder returns *rows* (`{source, task_count, state}`),
+  not the bare queryset, because the state pill is derived per record.
+- **The four states a person reads are derived, never stored.**
+  `selectors.describe_smk_state()` is the only place they are decided:
+  «Архив» once shelved, «Завершена» when every task the measures produced is
+  `COMPLETED`, «Создана» while none is, «В работе» in between. `SmkSource.status`
+  still holds only the shelf — completing a task moves the pill without writing
+  anything to the record — and the registry and the record page call the same
+  function, so one cannot read differently from the other. The list counts them
+  with a filtered `Count` annotation; the record page counts the rows it has
+  already loaded. Displayed through `.status-badge--<code>` in
+  `components.css`, on the existing pill base and in the tints
+  `.approval-status` already uses.
 - **The record page is three tabs.** «Акт аудита» (findings as a
   timeline, measures as one-row cards whose подразделение/исполнитель/срок/
   задача are grid items of the card itself, not a nested grid — that is what
-  keeps them on one line), «Связанные мероприятия» (the tasks,
-  in the act page's own table shape) and «История», all built from one
-  `get_source_detail()` read so they cannot disagree. The heading carries only the identifier — тип
-  аудита, дата аудита, автор and the task count live in the information card
-  (six of them: тип аудита, дата аудита, автор, дата создания, статус,
-  количество задач) and are never repeated, save for «Архивировать» and the
-  status badge, which belong to the heading because they act on the record as a
-  whole. Styling reuses `acts.css`/`components.css`
-  (`act-detail-heading`, `act-detail-tabs`, `detail-section`, `act-badge`,
+  keeps them on one line, with the finding and measure text shown *in full* —
+  `.user-text`, not a clamp: on that tab the text is the content, and a
+  two-line limit with the rest only on a `title` hides it from touch),
+  «Связанные мероприятия» (the tasks, in the act page's own table shape, ending
+  in an «Открыть задачу» button) and «История», all built from one
+  `get_source_detail()` read so they cannot disagree. Neither the task status
+  nor a link to a task appears on «Акт аудита»: that tab is what was *decided*,
+  the live state of the work belongs to «Связанные мероприятия» alone, and two
+  answers on two tabs could only drift apart. The heading carries the identifier, the
+  state pill and «Архивировать» — those two act on the record as a whole. The
+  six facts (тип аудита, дата аудита, автор, дата создания, статус, количество
+  задач) live in the information card below it and are not repeated anywhere
+  else on the page; статус appears in both places on purpose, as the pill and
+  as a field, and both read the same `state`. Styling reuses
+  `acts.css`/`components.css`
+  (`act-detail-heading`, `act-detail-tabs`, `detail-section`, `status-badge`,
   `related-activities`, and the whole `history-feed` timeline verbatim);
   `static/css/smk.css` adds only the information card, the findings timeline,
   the measure card and the registry table.

@@ -208,19 +208,30 @@
     font-weight: 600;
 }
 
+/* --------------------------------------------------------- related activities */
+
+/* The act page's own table, with one modifier. It carries eight columns here
+   rather than the act's six, and `.related-activities__table` is
+   `table-layout: fixed` with `min-width: 0` — so without a floor the columns
+   would divide a narrow screen into strips too thin for the status pill or the
+   «Открыть задачу» button. A floor makes the wrapper scroll instead, which is
+   what it already has `overflow-x: auto` for. */
+.smk-activities-table { min-width: 1000px; }
+
 /* ------------------------------------------------------------------- text */
 
-/* The finding and the measure are clamped to two lines with `.text-clamp-2`
-   from `text.css` — a display limit, never an input one: the text is stored
-   and posted in full and the element's `title` carries the whole of it. The
-   rule used to live here as `.smk-clamp`; it is shared now, so an СМК card and
-   an act card cut a pasted, unbroken identifier the same way. */
+/* The finding and the measure carry `.user-text` from `text.css` and are shown
+   in full: on «Акт аудита» that text is the content, so it is not clamped —
+   `.user-text` still wraps it and breaks a pasted, unbroken identifier, so a
+   long one cannot widen the card. Dense rows elsewhere keep their clamps. */
 
 /* ------------------------------------------------------------------- state */
 
-/* The task's own status, as a pill on its measure. A finding carries no state
-   of its own — what is being done about it is the state of the measures — so
-   there is no «Открыто» variant here. */
+/* Whether a task's attachment requirement is met, as a pill in «Связанные
+   мероприятия»: green once a file is there, muted while one is still owed.
+   Two variants only — the requirement is either met or outstanding. The
+   document's own state is `.status-badge--<code>` in `components.css`, not
+   this. */
 .smk-state {
     display: inline-flex;
     flex: none;
@@ -251,13 +262,15 @@
     gap: 12px;
 }
 
-/* Icon, statement and then the three facts, each a column of the card itself.
+/* Icon, statement and then the two facts, each a column of the card itself.
    The facts are grid items here rather than a nested grid, which is what makes
-   them run across one line instead of wrapping into a 2×2 block of their own.
+   them run across one line instead of wrapping into a block of their own. The
+   statement takes the width the задача column used to, since the text is now
+   shown in full rather than clamped to two lines.
    The accent edge marks the card as work rather than a finding. */
 .smk-measure {
     display: grid;
-    grid-template-columns: 44px minmax(160px, 1.6fr) repeat(3, minmax(0, 1fr));
+    grid-template-columns: 44px minmax(160px, 2.4fr) repeat(2, minmax(0, 1fr));
     gap: 8px 20px;
     align-items: center;
     padding: 14px 16px;
@@ -334,8 +347,8 @@
 /* ----------------------------------------------------------------- narrow */
 
 @media (max-width: 1200px) {
-    /* Two facts per line under the statement, which still keeps them in the
-       reading order исполнители → срок → задача. */
+    /* Both facts on one line under the statement, in the reading order
+       исполнители → срок. */
     .smk-measure { grid-template-columns: 44px repeat(2, minmax(0, 1fr)); }
     .smk-measure__statement { grid-column: 2 / -1; }
     .smk-measure__statement + .smk-measure__fact { padding-left: 0; border-left: 0; }

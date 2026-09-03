@@ -21,8 +21,8 @@ own page, which the № column links to.
     </header>
     {% if actions %}
         <div class="related-activities__table-wrap">
-            <table class="related-activities__table">
-                <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Несоответствие</th><th>Исполнители</th><th>Срок</th><th>Вложение</th><th>Статус</th></tr></thead>
+            <table class="related-activities__table smk-activities-table">
+                <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Несоответствие</th><th>Исполнители</th><th>Срок</th><th>Вложение</th><th>Статус</th><th>Действие</th></tr></thead>
                 <tbody>{% for row in actions %}<tr>
                     <td>{% if row.task %}<a class="related-activities__task-link" href="{% url 'tasks:detail' row.task.pk %}">#{{ row.task.pk }}</a>{% else %}—{% endif %}</td>
                     <td class="user-text"><strong>{{ row.action.task_text }}</strong></td>
@@ -48,6 +48,12 @@ own page, which the № column links to.
                         {% else %}—{% endif %}
                     </td>
                     <td>{% if row.task %}<span class="act-badge act-badge--status">{{ row.task.status }}</span>{% else %}—{% endif %}</td>
+                    {% comment %}
+                    The way out of this page and into the work. A measure
+                    whose task is missing shows «—» rather than a dead button:
+                    there is no task to open.
+                    {% endcomment %}
+                    <td>{% if row.task %}<a class="link-button link-button--secondary link-button--compact" href="{% url 'tasks:detail' row.task.pk %}">Открыть задачу</a>{% else %}—{% endif %}</td>
                 </tr>{% endfor %}</tbody>
             </table>
         </div>
