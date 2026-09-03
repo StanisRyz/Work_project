@@ -2,7 +2,7 @@
 
 Two levels in this stage, and one helper that decides both:
 
-* every authenticated user browses folders and downloads files;
+* an *administrative* user browses folders and downloads files;
 * a *document manager* also creates, renames and deletes folders, uploads
   documents and deletes them.
 
@@ -28,6 +28,14 @@ from .models import CORPORATE_FOLDER_CODE
 # `UserProfile.Role.MANAGER` here — deliberately the whole change.
 DOCUMENT_MANAGER_ROLES = frozenset({UserProfile.Role.ADMIN})
 
+# Who may *open* the library at all. Administrative roles only: «Документация»
+# is not part of an ordinary employee's working day, and the section is hidden
+# from the navigation for everyone outside this set. It is a superset of
+# `DOCUMENT_MANAGER_ROLES` by construction — a role that may change documents
+# must be able to read them — so it is built from that set rather than
+# repeating its members.
+DOCUMENT_VIEWER_ROLES = DOCUMENT_MANAGER_ROLES | frozenset({UserProfile.Role.MANAGER})
+
 
 def get_user_profile(user):
     """The user's active profile, or None.
@@ -49,8 +57,20 @@ def get_user_profile(user):
 
 
 def can_view_documents(user):
-    """Browsing the library is open to every authenticated user."""
-    return bool(getattr(user, 'is_authenticated', False))
+    """The single read rule: an administrative role, or a genuine superuser.
+
+    Every other rule in this module — folders, downloads, versions, history,
+    favourites and the «Вложения» branch — is expressed in terms of this one,
+    so restricting it here closes the whole library at once, for direct URLs
+    as much as for the navigation link that `documents.context_processors`
+    hides.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if getattr(user, 'is_superuser', False):
+        return True
+    profile = get_user_profile(user)
+    return profile is not None and profile.role in DOCUMENT_VIEWER_ROLES
 
 
 def can_manage_documents(user):
@@ -94,7 +114,7 @@ def can_view_folder(folder, user):
 
 
 def can_view_system_attachments(user):
-    """Browsing «Вложения» follows browsing the library: any authenticated user.
+    """Browsing «Вложения» follows browsing the library: an administrative role.
 
     *Which* attachments are then listed is not decided here — every source
     adapter asks the owning app for the records that user may read, so an act

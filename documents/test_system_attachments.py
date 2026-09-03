@@ -46,7 +46,7 @@ class SystemAttachmentTests(TestCase):
         cls.addClassCleanup(shutil.rmtree, MEDIA_OVERRIDE, True)
 
     def setUp(self):
-        self.user = _make_user('inspector', UserProfile.Role.OTK)
+        self.user = _make_user('chief', UserProfile.Role.MANAGER)
         self.admin = _make_user('librarian', UserProfile.Role.ADMIN)
         department = Department.objects.create(name='ОТК')
 

@@ -35,9 +35,9 @@ class DocumentSearchTests(TestCase):
         cls.addClassCleanup(shutil.rmtree, MEDIA_OVERRIDE, True)
 
     def setUp(self):
-        self.user = User.objects.create_user(username='inspector', password='pw-12345')
+        self.user = User.objects.create_user(username='chief', password='pw-12345')
         UserProfile.objects.update_or_create(
-            user=self.user, defaults={'role': UserProfile.Role.OTK, 'is_active': True}
+            user=self.user, defaults={'role': UserProfile.Role.MANAGER, 'is_active': True}
         )
 
         self.folder = DocumentFolder.objects.create(

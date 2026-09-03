@@ -30,12 +30,19 @@ All open/close state lives in `static/js/app.js`.
         A first-level item that is a link, not a toggle: the documentation
         library is a single page and has no submenu, so «Документация» opens
         the file browser directly.
+
+        Administrative roles only. `can_view_documentation` comes from
+        `documents.context_processors` and is the same
+        `can_view_documents()` every documentation view enforces, so the
+        entry is absent for exactly the people a typed URL would refuse.
         {% endcomment %}
-        <div class="sidebar__group">
-            <a class="sidebar__category{% if active_page == 'documents' %} sidebar__category--active{% endif %}" href="{% url 'documents:browse' %}">
-                <span>Документация</span>
-            </a>
-        </div>
+        {% if can_view_documentation %}
+            <div class="sidebar__group">
+                <a class="sidebar__category{% if active_page == 'documents' %} sidebar__category--active{% endif %}" href="{% url 'documents:browse' %}">
+                    <span>Документация</span>
+                </a>
+            </div>
+        {% endif %}
         <div class="sidebar__group" data-nav-group>
             <button class="sidebar__category{% if active_page == 'calculator' or active_page == 'plate_cutting' %} sidebar__category--active{% endif %}"
                     type="button" aria-expanded="false" aria-controls="sidebar-submenu-calculators" data-nav-category>

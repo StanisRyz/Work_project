@@ -46,7 +46,7 @@ class DocumentVersionTests(TestCase):
 
     def setUp(self):
         self.admin = _make_user('librarian', UserProfile.Role.ADMIN)
-        self.user = _make_user('inspector', UserProfile.Role.OTK)
+        self.user = _make_user('chief', UserProfile.Role.MANAGER)
         self.folder = get_corporate_root()
         self.document = upload_document(
             self.folder, _pdf('Инструкция.pdf'), self.admin, name='ОТК инструкция'

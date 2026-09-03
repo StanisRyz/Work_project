@@ -70,6 +70,26 @@ class TaskViewsTests(TestCase):
             TaskAssignee.objects.create(task=task, user=user)
         return task
 
+    def test_create_task_button_and_page_follow_the_same_permission(self):
+        """«Создать задачу» is offered to, and reachable by, the same people.
+
+        A ТО employee may not create one: the registry omits the button and
+        `tasks:create` answers 404 to the URL typed by hand. A руководитель may,
+        and gets both.
+        """
+        url = reverse('tasks:list')
+        self.client.force_login(self.employee)
+        listing = self.client.get(url)
+        self.assertFalse(listing.context['can_create_task'])
+        self.assertNotContains(listing, 'Создать задачу')
+        self.assertEqual(self.client.get(reverse('tasks:create')).status_code, 404)
+
+        self.client.force_login(self.manager)
+        listing = self.client.get(url)
+        self.assertTrue(listing.context['can_create_task'])
+        self.assertContains(listing, 'Создать задачу')
+        self.assertEqual(self.client.get(reverse('tasks:create')).status_code, 200)
+
     def test_employee_sees_only_own_tasks_and_overdue_first(self):
         future = self._task(self.employee, timezone.localdate() + timedelta(days=3))
         overdue = self._task(self.employee, timezone.localdate() - timedelta(days=1))

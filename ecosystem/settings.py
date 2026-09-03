@@ -96,6 +96,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'documents.context_processors.documentation_access',
                 'notifications.context_processors.notification_summary',
                 'realtime.context_processors.realtime_client_config',
             ],

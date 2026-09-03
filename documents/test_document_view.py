@@ -44,7 +44,7 @@ class DocumentViewTests(TestCase):
 
     def setUp(self):
         self.admin = _make_user('librarian', UserProfile.Role.ADMIN)
-        self.user = _make_user('inspector', UserProfile.Role.OTK)
+        self.user = _make_user('chief', UserProfile.Role.MANAGER)
         self.document = upload_document(
             get_corporate_root(),
             _pdf('Инструкция.pdf', b'%PDF-1.4 v1'),

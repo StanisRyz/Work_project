@@ -51,8 +51,8 @@ class ArchiveTests(TestCase):
 
     def setUp(self):
         self.admin = _make_user('librarian', UserProfile.Role.ADMIN)
-        self.user = _make_user('inspector', UserProfile.Role.OTK)
-        self.other = _make_user('welder', UserProfile.Role.OTK)
+        self.user = _make_user('chief', UserProfile.Role.MANAGER)
+        self.other = _make_user('deputy', UserProfile.Role.MANAGER)
         self.corporate = get_corporate_root()
         self.document = upload_document(
             self.corporate, _pdf(), self.admin, name='ОТК инструкция'

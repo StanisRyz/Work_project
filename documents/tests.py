@@ -1,8 +1,9 @@
-"""Three focused tests for the documentation library.
+"""Focused tests for the documentation library.
 
-Deliberately small: the two permission levels from both sides, and the fact
-that the initial folders exist exactly once. Everything else the module does
-is either Django's own behaviour or covered by the checks these three make.
+Deliberately small: the two permission levels from both sides — who may open
+the library at all, and who may change it — plus the fact that the initial
+folders exist exactly once. Everything else the module does is either Django's
+own behaviour or covered by the checks these make.
 """
 
 import shutil
@@ -36,7 +37,7 @@ def _sample_file(name='Инструкция.pdf'):
 
 @override_settings(MEDIA_ROOT=MEDIA_OVERRIDE)
 class DocumentAccessTests(TestCase):
-    """A normal user reads the library and cannot change it."""
+    """Who opens the library, and who may only read it once inside."""
 
     @classmethod
     def setUpClass(cls):
@@ -44,7 +45,10 @@ class DocumentAccessTests(TestCase):
         cls.addClassCleanup(shutil.rmtree, MEDIA_OVERRIDE, True)
 
     def setUp(self):
-        self.user = _make_user('reader', UserProfile.Role.OTK)
+        # A viewing role that is not a managing one, and an ordinary employee
+        # who is outside «Документация» altogether.
+        self.user = _make_user('chief', UserProfile.Role.MANAGER)
+        self.outsider = _make_user('inspector', UserProfile.Role.OTK)
         self.folder = DocumentFolder.objects.create(
             name='Инструкции ОТК', parent=get_corporate_root()
         )
@@ -60,7 +64,7 @@ class DocumentAccessTests(TestCase):
         )
         self.client.force_login(self.user)
 
-    def test_user_can_browse_and_download(self):
+    def test_authorised_user_can_browse_and_download(self):
         listing = self.client.get(reverse('documents:folder', args=[self.folder.pk]))
         self.assertEqual(listing.status_code, 200)
         self.assertContains(listing, 'Инструкция.pdf')
@@ -70,6 +74,32 @@ class DocumentAccessTests(TestCase):
         )
         self.assertEqual(download.status_code, 200)
         download.close()
+
+    def test_regular_user_cannot_open_documentation(self):
+        """Every read URL answers 403 for a role outside the library.
+
+        The navigation hides «Документация» for these users; this is the half
+        that matters — a URL typed by hand is refused just as firmly, on the
+        browse root, a folder, a document page, a download and the generated
+        «Вложения» branch alike.
+
+        The file endpoint answers 404 rather than 403 by its own long-standing
+        rule: a refusal and a missing file look identical to the client, and
+        only the log tells them apart. The expected status is therefore listed
+        per URL instead of assumed to be the same everywhere.
+        """
+        self.client.force_login(self.outsider)
+        forbidden = (
+            (reverse('documents:browse'), 403),
+            (reverse('documents:folder', args=[self.folder.pk]), 403),
+            (reverse('documents:document_detail', args=[self.document.pk]), 403),
+            (reverse('documents:search'), 403),
+            (reverse('documents:system_root'), 403),
+            (reverse('documents:document_download', args=[self.document.pk]), 404),
+        )
+        for url, expected in forbidden:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, expected)
 
     def test_user_cannot_create_upload_or_delete(self):
         """Every management URL answers 403 and changes nothing.
