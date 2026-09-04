@@ -35,6 +35,19 @@ class UserProfile(models.Model):
         # A first-class role like the others — never a department check, and
         # it grants nothing outside the SMK module.
         SMK = 'smk', 'СМК'
+        # The remaining departments, as first-class roles like every other.
+        # They carry *no* rights of their own on purpose: an employee holding
+        # one reads what any authenticated user reads — «Все акты», «Архив»,
+        # протоколы, СМК, задачи — and completes the tasks assigned to them
+        # personally, which `tasks.permissions.can_complete_task()` already
+        # allows on the strength of `TaskAssignee` and never on a role. Give
+        # one of them a permission only by adding it to an existing rule in the
+        # module that owns it, never by inventing a check here.
+        OPR = 'opr', 'Отдел продаж'
+        OZK = 'ozk', 'Отдел закупок'
+        LAB = 'lab', 'Лаборатория'
+        SKL = 'skl', 'Склад'
+        FEO = 'feo', 'ФЭО'
         MANAGER = 'manager', 'Руководитель'
         ADMIN = 'admin', 'Администратор'
 

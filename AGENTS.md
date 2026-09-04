@@ -1115,6 +1115,19 @@ tasks never live inside `acts`.
   organisational only. Руководитель and администратор are shown a task-type
   step at `tasks:create`; an СМК user, having one kind, is redirected straight
   to the form.
+- **`OPR`, `OZK`, `LAB`, `SKL`, `FEO` are roles that grant nothing.** «Отдел
+  продаж», «Отдел закупок», «Лаборатория», «Склад» and «ФЭО» exist so an
+  employee can be labelled with the department they work in; not one
+  permission module has a branch for them. An employee holding one reads what
+  any authenticated user reads — «Все акты», «Архив», протоколы, СМК, задачи —
+  and completes the tasks assigned to them, which `can_complete_task()` already
+  allows on the strength of `TaskAssignee` and never on a role. Adding a right
+  to one of them means adding it to an existing rule in the module that owns
+  it (a `frozenset` such as `DOCUMENT_MANAGER_ROLES`, a `MANAGING_ROLES`, an
+  `is_*()` helper) — never a new permission model, a new access layer or a
+  role check written outside `*/permissions.py`. The same-named `Department`
+  rows (`accounts.0008`) are separate organisational metadata; no check keys on
+  a department code except the ПДО lookup in `tasks/services.py`.
 - **Reading the journal stays open to every authenticated user**: the calculator
   page, calculations, the entry list, the `d/D-b` search, reload and the
   `.xlsx` export. The template's `can_manage_workup` flag is presentation

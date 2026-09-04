@@ -12,6 +12,136 @@ from django.urls import reverse
 from accounts.models import Department, UserProfile
 
 
+# The five roles added for the remaining departments. They carry no rights of
+# their own, so what is worth pinning is exactly that: they exist, they are
+# assignable, and a user holding one is an ordinary authenticated user.
+DEPARTMENT_ROLES = (
+    (UserProfile.Role.OPR, 'opr', 'Отдел продаж'),
+    (UserProfile.Role.OZK, 'ozk', 'Отдел закупок'),
+    (UserProfile.Role.LAB, 'lab', 'Лаборатория'),
+    (UserProfile.Role.SKL, 'skl', 'Склад'),
+    (UserProfile.Role.FEO, 'feo', 'ФЭО'),
+)
+
+
+class DepartmentRoleTests(TestCase):
+    """The three things the new roles must do, and nothing more.
+
+    They add no permission, so there is nothing else to test: reading is the
+    ordinary authenticated read, and completing a task is `TaskAssignee`'s
+    answer, which every existing task test already covers.
+    """
+
+    def test_an_administrator_can_assign_every_new_role(self):
+        """Assignable through the admin form, and captioned in Russian.
+
+        The form is the one `UserProfileAdmin` builds, so this is the widget an
+        administrator really uses: a value the choices did not carry would be
+        rejected by it rather than silently stored.
+        """
+        from django.contrib import admin
+        from django.test import RequestFactory
+
+        superuser = User.objects.create_superuser(
+            username='root', password='demo12345', email='root@example.com',
+        )
+        request = RequestFactory().get('/admin/')
+        request.user = superuser
+        form_class = admin.site._registry[UserProfile].get_form(request, obj=None)
+        offered = dict(form_class.base_fields['role'].choices)
+
+        department = Department.objects.create(code='SALES', name='Отдел продаж')
+        for role, value, label in DEPARTMENT_ROLES:
+            with self.subTest(role=value):
+                self.assertEqual(role.value, value)
+                self.assertEqual(role.label, label)
+                self.assertIn(role.value, offered)
+                self.assertEqual(str(offered[role.value]), label)
+
+                user = User.objects.create_user(
+                    username=f'{value}_user', password='demo12345',
+                )
+                form = form_class(
+                    data={
+                        'user': user.pk,
+                        'department': department.pk,
+                        'role': role.value,
+                        'position': '',
+                        'internal_phone': '',
+                        'is_active': 'on',
+                    },
+                    instance=user.userprofile,
+                )
+                self.assertTrue(form.is_valid(), form.errors)
+                form.save()
+                user.refresh_from_db()
+                self.assertEqual(user.userprofile.role, role.value)
+                # What the topbar and the sidebar show.
+                self.assertEqual(user.userprofile.role_label, label)
+
+    def test_a_user_with_a_new_role_logs_in_reads_and_completes_own_task(self):
+        """Login, the ordinary read scope, and finishing an assigned task.
+
+        Nothing here is role-specific by design: the same three answers an ОТК
+        or a МАС employee gets. The task is completed because its assignee is
+        this user — which is why no permission had to be added for the role.
+        """
+        from bugs.services import report_bug
+        from tasks.services import TaskWorkflowError, complete_task
+
+        department = Department.objects.create(code='WH', name='Склад')
+        user = User.objects.create_user(username='skl_user', password='demo12345')
+        user.userprofile.role = UserProfile.Role.SKL
+        user.userprofile.department = department
+        user.userprofile.is_bug_responsible = True
+        user.userprofile.save()
+        reporter = User.objects.create_user(username='reporter', password='demo12345')
+
+        # 1. Logs in.
+        self.assertTrue(self.client.login(username='skl_user', password='demo12345'))
+
+        # 2. Reads every section open to an authenticated user.
+        for route in ('acts:list', 'tasks:list', 'protocols:list', 'smk:list'):
+            with self.subTest(route=route):
+                self.assertEqual(self.client.get(reverse(route)).status_code, 200)
+
+        # 3. Completes a task assigned to them. A bug-report task is used
+        # because it is the one work item needing no quality document behind
+        # it — what is checked is the assignee rule, not the source.
+        own = report_bug(reporter=reporter, message='Не работает поиск.').task
+        self.assertIn(
+            own.pk,
+            [row['task'].pk for row in self.client.get(reverse('tasks:list')).context['rows']],
+        )
+        response = self.client.post(
+            reverse('tasks:complete', args=[own.pk]),
+            {'execution_comment': 'Проверено, поиск работает.'},
+        )
+        self.assertEqual(response.status_code, 302)
+        own.refresh_from_db()
+        self.assertEqual(own.status.code, 'COMPLETED')
+        self.assertEqual(own.completed_by, user)
+
+        # And somebody else's task stays somebody else's — the role grants no
+        # shortcut into it.
+        user.userprofile.is_bug_responsible = False
+        user.userprofile.save(update_fields=['is_bug_responsible'])
+        stranger = User.objects.create_user(username='stranger', password='demo12345')
+        stranger.userprofile.is_bug_responsible = True
+        stranger.userprofile.save(update_fields=['is_bug_responsible'])
+        foreign = report_bug(reporter=reporter, message='Другая ошибка.').task
+        self.assertEqual(
+            self.client.post(
+                reverse('tasks:complete', args=[foreign.pk]),
+                {'execution_comment': 'Не моё.'},
+            ).status_code,
+            404,
+        )
+        # Refused by the service too, not only by the view that calls it.
+        with self.assertRaises(TaskWorkflowError):
+            complete_task(foreign, user, 'Не моё.')
+
+
 class MasRoleAndDepartmentTests(TestCase):
     def test_mas_is_a_first_class_role_and_the_department_is_migration_seeded(self):
         self.assertEqual(UserProfile.Role.MAS.value, 'mas')
