@@ -60,6 +60,9 @@ INSTALLED_APPS = [
     'calculator',
     'plate_cutting',
     'notifications',
+    # «Сообщить об ошибке» from the topbar: the report and who answers for
+    # it. Feeds the existing notification pipeline and owns no channel.
+    'bugs',
     'documents',
     'maintenance',
     'realtime',

@@ -43,6 +43,7 @@ NOTIFICATION_SOURCE_SELECT_RELATED = (
     'related_protocol__protocol_type',
     'related_task__protocol__protocol_type',
     'related_task__smk_source',
+    'related_bug_report',
 )
 
 # Where each source type lives on the row, which route opens it, and how the
@@ -52,12 +53,14 @@ SOURCE_FIELDS = {
     Notification.SourceType.ACT: 'related_act',
     Notification.SourceType.PROTOCOL: 'related_protocol',
     Notification.SourceType.TASK: 'related_task',
+    Notification.SourceType.BUG: 'related_bug_report',
 }
 
 SOURCE_ROUTES = {
     Notification.SourceType.ACT: ('acts:detail', 'Открыть акт'),
     Notification.SourceType.PROTOCOL: ('protocols:detail', 'Открыть протокол'),
     Notification.SourceType.TASK: ('tasks:detail', 'Открыть задачу'),
+    Notification.SourceType.BUG: ('bugs:detail', 'Открыть сообщение об ошибке'),
 }
 
 # Which events also leave the application by email. The list is deliberately
@@ -85,6 +88,10 @@ EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.PROTOCOL_TASK_ASSIGNED,
     Notification.EventType.ACT_REJECTION_ASSIGNED,
     Notification.EventType.SMK_TASK_ASSIGNED,
+    # A bug report is exactly the kind of fact this list is for: somebody has
+    # to look at it, and the people who must are often not in the application
+    # when it arrives.
+    Notification.EventType.BUG_REPORTED,
 }
 
 
@@ -257,7 +264,33 @@ def notify_smk_task_assigned(task, actor, assignees):
     )
 
 
-def _resolve_source(act, protocol, task):
+def notify_bug_reported(report, actor, recipients):
+    """Tell the accounts responsible for bugs that a report has arrived.
+
+    The same shape as every other `notify_*`: source-keyed on the report, so a
+    retried submission of the same row can never notify anybody twice, and
+    routed through `create_notifications()` — the bell entry, the real-time
+    event and the email delivery all come from there, and this app adds no
+    channel of its own.
+
+    `exclude_actor=False` because a person responsible for bugs may well be the
+    one who found this one, and their own report must still reach their queue.
+    """
+    from bugs.models import BugReport
+
+    if not isinstance(report, BugReport):
+        raise ValueError('Уведомление об ошибке создаётся только для сообщения об ошибке.')
+    return create_notifications(
+        event_type=Notification.EventType.BUG_REPORTED,
+        bug_report=report,
+        actor=actor,
+        recipients=recipients,
+        source_key=f'bug:{report.pk}',
+        exclude_actor=False,
+    )
+
+
+def _resolve_source(act, protocol, task, bug_report):
     """Exactly one source object, and the source type it implies.
 
     Resolving the type from the object it was given is what keeps
@@ -270,24 +303,28 @@ def _resolve_source(act, protocol, task):
             (Notification.SourceType.ACT, act),
             (Notification.SourceType.PROTOCOL, protocol),
             (Notification.SourceType.TASK, task),
+            (Notification.SourceType.BUG, bug_report),
         )
         if source is not None
     ]
     if len(given) != 1:
-        raise ValueError('Уведомление должно иметь ровно один источник: акт, протокол или задачу.')
+        raise ValueError(
+            'Уведомление должно иметь ровно один источник: акт, протокол, '
+            'задачу или сообщение об ошибке.'
+        )
     return given[0]
 
 
 def create_notifications(
     *, event_type, actor, recipients, source_key,
-    act=None, protocol=None, task=None, exclude_actor=True,
+    act=None, protocol=None, task=None, bug_report=None, exclude_actor=True,
 ):
     """Create deduplicated in-app notifications and their independent email deliveries.
 
-    Exactly one of `act`, `protocol` or `task` names what the notification is
-    about; `source_type` follows from it.
+    Exactly one of `act`, `protocol`, `task` or `bug_report` names what the
+    notification is about; `source_type` follows from it.
     """
-    source_type, source = _resolve_source(act, protocol, task)
+    source_type, source = _resolve_source(act, protocol, task, bug_report)
     actor_id = getattr(actor, 'pk', None)
     recipient_ids = {
         recipient.pk
@@ -435,6 +472,15 @@ def describe_notification_source(notification):
       assignment email, and `None`/`False` everywhere else.
     """
     source = get_notification_source(notification)
+    if notification.source_type == Notification.SourceType.BUG:
+        return {
+            'label': source.label,
+            # The page the reporter was on — the one fact that makes a report
+            # actionable, and the reason it is carried into the email too.
+            'context': source.page_url,
+            'due_date': None,
+            'requires_attachment': False,
+        }
     if notification.source_type == Notification.SourceType.ACT:
         return {
             'label': f'Акт {source.number}',
@@ -631,7 +677,23 @@ def _event_text(event_type, source_type, source):
         return _protocol_event_text(event_type, source)
     if source_type == Notification.SourceType.TASK:
         return _task_event_text(event_type, source)
+    if source_type == Notification.SourceType.BUG:
+        return _bug_event_text(event_type, source)
     return _act_event_text(event_type, source)
+
+
+def _bug_event_text(event_type, report):
+    """Text for the one bug event. The report's own wording is not repeated
+    here: the bell shows a short line and the page shows the message in full,
+    so a long report never becomes an unreadable notification."""
+    reporter = report.reporter.get_full_name() or report.reporter.get_username()
+    return {
+        Notification.EventType.BUG_REPORTED: NotificationText(
+            f'{report.label}',
+            f'{reporter} сообщил об ошибке в системе.',
+            'Откройте сообщение и разберите описанную проблему.',
+        ),
+    }[event_type]
 
 
 def _act_event_text(event_type, act):

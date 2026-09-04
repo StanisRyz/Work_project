@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% load people %}
+
+{% block title %}{{ report.label }} - Единая цифровая экосистема управления качеством{% endblock %}
+
+{% block content %}
+{% comment %}
+One «Сообщить об ошибке» submission, read-only.
+
+This is the page the `BUG_REPORTED` notification opens, so it is deliberately
+plain: who reported it, from where, when, and exactly what they wrote. Nothing
+here acts on the report — handling it is work outside the application, and the
+list of everything reported lives in Django Admin.
+
+It reuses the act detail heading and the generic `.detail-section` card, so a
+bug report reads like every other document page in the project rather than
+introducing a style of its own. One card, not two: three short facts and a
+message do not need a grid.
+{% endcomment %}
+<section class="act-detail-heading">
+    <a class="act-back-link" href="{% url 'dashboard:home' %}" aria-label="На главную">←</a>
+    <div class="act-detail-heading__title">
+        <h1>{{ report.label }}</h1>
+    </div>
+</section>
+
+<section class="detail-section">
+    <div class="act-collaboration-section__header">
+        <h2>Описание проблемы</h2>
+        <span class="act-collaboration-section__hint">{{ report.created_at|date:'d.m.Y H:i' }}</span>
+    </div>
+    <p class="attachment-card__meta">
+        <span>Автор: <strong class="user-text">{{ report.reporter|person_name }}</strong></span>
+        <span>Подразделение: <strong class="user-text">{{ report.reporter.userprofile.department_label }}</strong></span>
+        {% comment %}
+        The work the report raised. At most one task by database constraint, so
+        this links to it rather than to a search; «—» only when nobody was
+        marked «Ответственный за ошибки» at the time, and there was then nobody
+        to raise it on. The status is the task's own — this page never restates
+        it, exactly as the СМК record does not restate its tasks' statuses.
+        {% endcomment %}
+        <span>Задача: {% if report.task %}<a class="table-link" href="{% url 'tasks:detail' report.task.pk %}">№{{ report.task.pk }}</a> — {{ report.task.status }}{% else %}—{% endif %}</span>
+        {% comment %}
+        A relative path stored from the request, so it is safe to link: it can
+        only ever point back into this application.
+        {% endcomment %}
+        <span>Страница: {% if report.page_url %}<a class="table-link user-text" href="{{ report.page_url }}">{{ report.page_url }}</a>{% else %}—{% endif %}</span>
+    </p>
+    {# In full and never clamped: on this page the report *is* the content. #}
+    <div class="task-comment-block user-text">{{ report.message|linebreaksbr }}</div>
+</section>
+{% endblock %}

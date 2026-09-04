@@ -422,6 +422,33 @@ def create_smk_action_task(
     return _save_new_task(task, unique_ids, actor=created_by)
 
 
+def create_bug_report_task(report, assignee_ids, *, created_by, due_date):
+    """The real task a «Сообщить об ошибке» report becomes.
+
+    One shape only: a bug is one piece of work, shared by everybody flagged
+    «Ответственный за ошибки», so whoever fixes it closes it for the rest.
+    There is no `individual_assignee` argument — splitting a single bug between
+    five people would ask five of them to fix it once each — and no
+    `department`, because the assignees are chosen by a flag rather than by a
+    unit and may sit in any number of them.
+
+    The wording is the report's own message, read from the report itself so a
+    caller cannot pair a task with the wrong text; the deadline is passed in,
+    because how long a bug may wait is `bugs/services.py`'s policy and not this
+    module's. «One task per report» is `unique_bug_report_task`, not a check
+    here.
+    """
+    task = Task(
+        source_type=Task.SourceType.BUG,
+        bug_report=report,
+        task_text=report.message,
+        due_date=due_date,
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    return _save_new_task(task, sorted(set(assignee_ids)), actor=created_by)
+
+
 def cancel_smk_action_tasks(actions, *, actor, reason):
     """Close the live tasks of the given СМК мероприятия, without completing one.
 

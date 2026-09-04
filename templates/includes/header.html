@@ -27,7 +27,31 @@
             </div>
         </details>
         {% endif %}
-        <button class="topbar__icon-button" type="button" aria-label="Справка (пока недоступна)" title="Справка"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4.3 1.7c-1.3 1.2-1.8 1.7-1.8 3.3M12 17h.01"/></svg></button>
+        {% if user.is_authenticated %}
+        {% comment %}
+        «Сообщить об ошибке». No script and no modal of its own: this is the
+        shared confirmation dialog (`includes/confirm_modal.html`) with a
+        required comment, so it posts its own CSRF-protected form to
+        `bugs:report` with the description in `comment`. `?next=` is the page
+        the button was pressed on — the view validates it against the host
+        before redirecting back, and stores it as the report's «Страница».
+        {% endcomment %}
+        <button class="topbar__icon-button" type="button"
+                aria-label="Сообщить об ошибке" title="Сообщить об ошибке"
+                data-confirm
+                data-confirm-url="{% url 'bugs:report' %}?next={{ request.get_full_path|urlencode }}"
+                data-confirm-title="Сообщить об ошибке"
+                data-confirm-text="Опишите, что пошло не так. Сообщение получат сотрудники, отвечающие за работу системы."
+                data-confirm-label="Отправить"
+                data-confirm-comment="required"
+                data-confirm-comment-label="Что произошло"
+                data-confirm-comment-name="comment"
+                data-confirm-comment-placeholder="Например: на странице акта не открывается вкладка «Вложения»"
+                data-confirm-comment-error="Опишите ошибку — без описания сообщение бесполезно.">
+            {# A bug, stroked like every other topbar icon. #}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6a3 3 0 0 1 6 0M8 8h8v5a4 4 0 0 1-8 0zM8 10H5M8 14H5.5M8.5 17.5 6 19M16 10h3M16 14h2.5M15.5 17.5 18 19M12 17v4"/></svg>
+        </button>
+        {% endif %}
         {% if user.is_authenticated %}
         <details class="profile-menu">
             <summary aria-label="Открыть меню профиля">

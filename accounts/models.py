@@ -49,6 +49,12 @@ class UserProfile(models.Model):
     role = models.CharField('Роль', max_length=20, choices=Role.choices, default=Role.OTK)
     position = models.CharField('Должность', max_length=120, blank=True)
     internal_phone = models.CharField('Внутренний телефон', max_length=32, blank=True)
+    # Who receives «Сообщить об ошибке» from the topbar. Deliberately a flag on
+    # the profile rather than a role: reporting a bug is not a quality-workflow
+    # right, the people who handle them are chosen individually, and any role
+    # may be one. Set in Django Admin and nowhere else — there is no page for
+    # it, exactly as there is none for roles or departments.
+    is_bug_responsible = models.BooleanField('Ответственный за ошибки', default=False)
     is_active = models.BooleanField('Активен', default=True)
     created_at = models.DateTimeField('Создан', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлен', auto_now=True)

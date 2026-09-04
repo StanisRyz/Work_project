@@ -37,9 +37,9 @@ def _status_code(instance, attribute='status'):
 def notification_created_event(notification):
     """Identifiers only, whatever the notification is about.
 
-    A notification can now be sourced from an act, a protocol or a task, so the
-    payload carries `source_type` and the three nullable ids — `act_id` keeps
-    its name and stays NULL for the other sources. No title, message, comment,
+    A notification can be sourced from an act, a protocol, a task or a bug
+    report, so the payload carries `source_type` and the four nullable ids —
+    `act_id` keeps its name and stays NULL for the other sources. No title, message, comment,
     protocol content, task text, name or address ever travels this way: a
     client that needs text refetches it through the notifications endpoints,
     authenticated as itself.
@@ -55,6 +55,7 @@ def notification_created_event(notification):
             'act_id': notification.related_act_id,
             'protocol_id': notification.related_protocol_id,
             'task_id': notification.related_task_id,
+            'bug_report_id': notification.related_bug_report_id,
             'notification_event_type': str(notification.event_type),
         },
     )

@@ -16,6 +16,8 @@ _SOURCE_AWARE_SELECT_RELATED = (
     # The СМК record is what the registry's «Источник» column names for an
     # `SMK` task; the measure behind it is not read there.
     'smk_source',
+    # The same for a `BUG` task: the report is what «Источник» names and links.
+    'bug_report',
 )
 
 

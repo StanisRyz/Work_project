@@ -13,7 +13,7 @@ defence). Three of those shapes — `ACT`, `PROTOCOL_ACTION` and `SMK` — come 
 a shared and a split variant, told apart by `individual_assignee`: NULL for the
 one task everybody shares, set for the one task split off for that person.
 
-Two of the four source types are *routing* entries rather than work:
+Two of the source types are *routing* entries rather than work:
 `PROTOCOL_APPROVAL` and `ACT_WORKFLOW`. Neither is completed with an
 execution comment — their real action is taken on the source document, and
 the document's workflow service closes them.
@@ -56,6 +56,11 @@ class Task(models.Model):
         # comment, exactly like `PROTOCOL_ACTION` — and its own source type so
         # the registry can name and filter it without reading a relation.
         SMK = 'SMK', 'СМК'
+        # A «Сообщить об ошибке» report from the topbar. Real, executable work
+        # like `SMK` and `PROTOCOL_ACTION` — somebody has to look at the bug —
+        # but it belongs to the people flagged `is_bug_responsible` rather than
+        # to a department, so it is the one work item with no `department`.
+        BUG = 'BUG', 'Ошибка в системе'
 
     class WorkflowStage(models.TextChoices):
         """Which act stage an `ACT_WORKFLOW` task represents.
@@ -145,6 +150,17 @@ class Task(models.Model):
         blank=True,
         verbose_name='Корректирующее мероприятие СМК',
     )
+    # The report this task came out of. `PROTECT` like every other source
+    # relation: a report a task hangs on must not be deletable out from under
+    # it. One task per report — the unique constraint below, not a check here.
+    bug_report = models.ForeignKey(
+        'bugs.BugReport',
+        on_delete=models.PROTECT,
+        related_name='tasks',
+        null=True,
+        blank=True,
+        verbose_name='Сообщение об ошибке',
+    )
     # Which single assignee this task was split off for — of `source_action`
     # for an act task, of `protocol_action` for a protocol one — and NULL for a
     # shared task. The one field that tells the two modes apart, and the same
@@ -170,9 +186,10 @@ class Task(models.Model):
     )
     task_text = models.TextField('Задача')
     # Required for every real work item and enforced as such by the source
-    # constraint below. Nullable only because an `ACT_WORKFLOW` entry
-    # belongs to a *role* — every active КО, ТО or ОТК employee — and a
-    # role has no single department to name.
+    # constraint below. Nullable because an `ACT_WORKFLOW` entry belongs to a
+    # *role* — every active КО, ТО or ОТК employee — and a `BUG` one to the
+    # accounts flagged «Ответственный за ошибки»; neither has a single
+    # department to name.
     department = models.ForeignKey(
         Department, on_delete=models.PROTECT, null=True, blank=True,
         verbose_name='Подразделение',
@@ -219,7 +236,7 @@ class Task(models.Model):
         verbose_name = 'Задача'
         verbose_name_plural = 'Задачи'
         constraints = [
-            # One constraint listing all three valid shapes, rather than one
+            # One constraint listing every valid shape, rather than one
             # per type: written this way an unknown `source_type` matches no
             # branch and is rejected too, so the table can never hold a mixed
             # or half-filled source.
@@ -232,11 +249,12 @@ class Task(models.Model):
                     # nobody splits, still forbids it outright.
                     #
                     # `department__isnull=False` and `workflow_stage=''` are
-                    # stated on all three existing branches, so making the
-                    # column nullable and adding the stage for `ACT_WORKFLOW`
-                    # relaxes nothing for the source types that already exist.
+                    # stated on every branch that has them, so making the
+                    # column nullable for `ACT_WORKFLOW` and `BUG` relaxes
+                    # nothing for the source types that already require one.
                     Q(
                         source_type='ACT',
+                        bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
                         act__isnull=False,
@@ -249,6 +267,7 @@ class Task(models.Model):
                     )
                     | Q(
                         source_type='PROTOCOL_APPROVAL',
+                        bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
                         act__isnull=True,
@@ -262,6 +281,7 @@ class Task(models.Model):
                     )
                     | Q(
                         source_type='PROTOCOL_ACTION',
+                        bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
                         act__isnull=True,
@@ -278,6 +298,7 @@ class Task(models.Model):
                     # stage, and nobody to split it between.
                     | Q(
                         source_type='ACT_REJECTION',
+                        bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
                         act__isnull=False,
@@ -295,6 +316,7 @@ class Task(models.Model):
                     | (
                         Q(
                             source_type='ACT_WORKFLOW',
+                        bug_report__isnull=True,
                             smk_source__isnull=True,
                             smk_action__isnull=True,
                             act__isnull=False,
@@ -317,6 +339,7 @@ class Task(models.Model):
                     # the two is exactly what that column says.
                     | Q(
                         source_type='SMK',
+                        bug_report__isnull=True,
                         act__isnull=True,
                         root_analysis__isnull=True,
                         source_action__isnull=True,
@@ -325,6 +348,27 @@ class Task(models.Model):
                         smk_source__isnull=False,
                         smk_action__isnull=False,
                         department__isnull=False,
+                        workflow_stage='',
+                    )
+                    # A bug report: the report alone. No quality document of
+                    # any kind, nobody to split it between — one shared task
+                    # closed by whoever fixes the bug — and, uniquely among
+                    # real work items, no `department`: its assignees are the
+                    # accounts flagged «Ответственный за ошибки», who may sit
+                    # in any number of departments, so naming one would be
+                    # inventing a fact.
+                    | Q(
+                        source_type='BUG',
+                        act__isnull=True,
+                        root_analysis__isnull=True,
+                        source_action__isnull=True,
+                        protocol__isnull=True,
+                        protocol_action__isnull=True,
+                        smk_source__isnull=True,
+                        smk_action__isnull=True,
+                        bug_report__isnull=False,
+                        individual_assignee__isnull=True,
+                        department__isnull=True,
                         workflow_stage='',
                     )
                 ),
@@ -376,6 +420,14 @@ class Task(models.Model):
                 fields=['smk_action', 'individual_assignee'],
                 name='unique_individual_smk_action_task',
             ),
+            # One task per bug report, so a retried submission cannot hand the
+            # responsible people the same work twice. Rows of every other
+            # source type have a NULL `bug_report`, and NULLs are distinct to a
+            # unique index, so none is affected.
+            models.UniqueConstraint(
+                fields=['bug_report'],
+                name='unique_bug_report_task',
+            ),
             # One rejection task per act, stated by the database rather than by
             # a service check: a retried or concurrent КО transition must not
             # be able to hand ПДО the same notice twice, whatever the service
@@ -410,6 +462,10 @@ class Task(models.Model):
     @property
     def is_smk_task(self):
         return self.source_type == self.SourceType.SMK
+
+    @property
+    def is_bug_task(self):
+        return self.source_type == self.SourceType.BUG
 
     @property
     def is_cancelled(self):
@@ -479,6 +535,11 @@ class Task(models.Model):
                 ('act', 'root_analysis', 'source_action', 'protocol',
                  'protocol_action'),
             ),
+            self.SourceType.BUG: (
+                ('bug_report',),
+                ('act', 'root_analysis', 'source_action', 'protocol',
+                 'protocol_action', 'individual_assignee', 'department'),
+            ),
         }.get(self.source_type, ((), ()))
         if not required:
             raise ValidationError({'source_type': 'Неизвестный тип источника задачи.'})
@@ -491,6 +552,10 @@ class Task(models.Model):
         # merely unmentioned.
         if self.source_type != self.SourceType.SMK:
             forbidden = (*forbidden, 'smk_source', 'smk_action')
+        # The same rule for the report relation, added once here rather than
+        # restated in six `forbidden` tuples.
+        if self.source_type != self.SourceType.BUG:
+            forbidden = (*forbidden, 'bug_report')
         for name in required:
             if getattr(self, f'{name}_id') is None:
                 errors[name] = f'Обязательно для источника «{source_name}».'
@@ -554,7 +619,15 @@ class Task(models.Model):
         else:
             if self.workflow_stage:
                 errors['workflow_stage'] = f'Недопустимо для источника «{source_name}».'
-            if required and self.department_id is None:
+            # Every real work item names a department — except a bug report,
+            # whose assignees are chosen by an individual flag and may sit in
+            # any number of departments. `BUG` already forbids it above, so it
+            # is only excluded from the *required* half here.
+            if (
+                required
+                and self.source_type != self.SourceType.BUG
+                and self.department_id is None
+            ):
                 errors['department'] = f'Обязательно для источника «{source_name}».'
         if errors:
             raise ValidationError(errors)

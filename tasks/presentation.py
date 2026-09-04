@@ -38,6 +38,13 @@ def describe_task_source(task):
             'label': task.smk_source.label,
             'url': reverse('smk:detail', args=[task.smk_source_id]),
         }
+    if task.source_type == Task.SourceType.BUG:
+        if task.bug_report_id is None:
+            return {'label': '', 'url': ''}
+        return {
+            'label': task.bug_report.label,
+            'url': reverse('bugs:detail', args=[task.bug_report_id]),
+        }
     if task.protocol_id is None:
         return {'label': '', 'url': ''}
     return {

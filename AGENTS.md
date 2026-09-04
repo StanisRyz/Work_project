@@ -29,6 +29,7 @@ model without explicit approval.
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` + `DocumentFavorite` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
+| `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -314,9 +315,9 @@ tasks never live inside `acts`.
   no completion time. `can_complete_task()` is unchanged and already refuses
   anything but `IN_PROGRESS`. Written **only** by
   `tasks.services.cancel_smk_action_tasks()`, inside the caller's transaction.
-- **A task's origin is `source_type`, never a nullable relation.** Six values
+- **A task's origin is `source_type`, never a nullable relation.** Seven values
   exist — `ACT`, `ACT_WORKFLOW`, `ACT_REJECTION`, `PROTOCOL_APPROVAL`,
-  `PROTOCOL_ACTION`, `SMK` — and exactly one relation shape is valid for each,
+  `PROTOCOL_ACTION`, `SMK`, `BUG` — and exactly one relation shape is valid for each,
   enforced by `Task.clean()` and by the
   `task_source_relations_match_source_type` check constraint:
 
@@ -328,13 +329,15 @@ tasks never live inside `acts`.
   | `PROTOCOL_APPROVAL` | `protocol`, `department` | `act`, `root_analysis`, `source_action`, `protocol_action`, `individual_assignee`, `workflow_stage` |
   | `PROTOCOL_ACTION` | `protocol`, `protocol_action`, `department` | `act`, `root_analysis`, `source_action`, `workflow_stage` |
   | `SMK` | `smk_source`, `smk_action`, `department` | `act`, `root_analysis`, `source_action`, `protocol`, `protocol_action`, `workflow_stage` |
+  | `BUG` | `bug_report` | everything else, `department` and `individual_assignee` included |
 
   The act relations are nullable *only* so the other shapes can exist; for an
   `ACT` task all three stay required. `department` is nullable for the same
-  reason and for one source only — an `ACT_WORKFLOW` entry belongs to a *role*,
-  which has no single department — so the constraint states
+  reason and for two sources only — an `ACT_WORKFLOW` entry belongs to a *role*
+  and a `BUG` one to the accounts flagged «Ответственный за ошибки», and neither
+  has a single department to name — so the constraint states
   `department IS NOT NULL` explicitly on the other branches rather than
-  leaving it to the column. `smk_source`/`smk_action` are stated `IS NULL` on
+  leaving it to the column, and `IS NULL` on the `BUG` branch. `smk_source`/`smk_action` are stated `IS NULL` on
   every non-`SMK` branch for the same reason: a relation outside a shape must
   be provably absent, not merely unmentioned. `Task.clean()` adds them to
   `forbidden` in one place instead of restating them in five tuples.
@@ -700,23 +703,28 @@ tasks never live inside `acts`.
   deduplicated per recipient by a stable source key, and routed in one place:
   `notifications/services.py`. Never create a `Notification` from a view, a
   template, a model signal or JavaScript.
-- **A notification's origin is `source_type`, never a nullable relation.** Three
-  values exist — `ACT`, `PROTOCOL`, `TASK` — and exactly one relation shape is
-  valid for each, enforced by `Notification.clean()` and by the
+- **A notification's origin is `source_type`, never a nullable relation.** Four
+  values exist — `ACT`, `PROTOCOL`, `TASK`, `BUG` — and exactly one relation
+  shape is valid for each, enforced by `Notification.clean()` and by the
   `notification_source_relations_match_source_type` check constraint:
 
   | `source_type` | required | must be NULL |
   | --- | --- | --- |
-  | `ACT` | `related_act` | `related_protocol`, `related_task` |
-  | `PROTOCOL` | `related_protocol` | `related_act`, `related_task` |
-  | `TASK` | `related_task` | `related_act`, `related_protocol` |
+  | `ACT` | `related_act` | `related_protocol`, `related_task`, `related_bug_report` |
+  | `PROTOCOL` | `related_protocol` | `related_act`, `related_task`, `related_bug_report` |
+  | `TASK` | `related_task` | `related_act`, `related_protocol`, `related_bug_report` |
+  | `BUG` | `related_bug_report` | `related_act`, `related_protocol`, `related_task` |
 
   `related_act` keeps its name and its meaning; it is nullable *only* so the
   other shapes can exist. `create_notifications()` takes exactly one of
-  `act=`/`protocol=`/`task=` and derives `source_type` from it, so the type and
-  the stored relation can never disagree. `get_notification_url()` resolves by
-  source type through named routes — `acts:detail`, `protocols:detail`,
-  `tasks:detail` — from the stored foreign key id, never a hard-coded path.
+  `act=`/`protocol=`/`task=`/`bug_report=` and derives `source_type` from it, so
+  the type and the stored relation can never disagree. `get_notification_url()`
+  resolves by source type through named routes — `acts:detail`,
+  `protocols:detail`, `tasks:detail`, `bugs:detail` — from the stored foreign
+  key id, never a hard-coded path. A new source type is one entry in each of
+  `SOURCE_FIELDS`, `SOURCE_ROUTES`, `_resolve_source()`, `_event_text()` and
+  `describe_notification_source()` — never a conditional spread through the
+  model, the services and the templates.
   Schema changes migrate the existing production table in place: add fields,
   classify existing rows as `ACT` in a data migration, relax nullability, then
   add the constraint. Never recreate notifications or their `NotificationDelivery`
@@ -744,12 +752,13 @@ tasks never live inside `acts`.
   | act | `ACT_SENT_TO_KO`, `ACT_SENT_TO_TO`, `ACT_SENT_TO_OTK`, `ACT_RETURNED_TO_OTK`, `ACT_RETURNED_TO_KO`, `ACT_RETURNED_TO_TO`, `ACTION_ASSIGNED`, `ACT_APPROVED` | `COMMENT_ADDED` |
   | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
   | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED` | — |
+  | bug | `BUG_REPORTED` | — |
 
   `COMMENT_ADDED` stays out on purpose: comments are frequent, carry no
   required action of their own and would turn the mailbox into noise.
   `ACT_APPROVED` is informational — its required action is «дополнительных
   действий не требуется», and the link still opens the act.
-- **One renderer serves `ACT`, `PROTOCOL` and `TASK`.** `_send_email()` builds a
+- **One renderer serves every source.** `_send_email()` builds a
   single normalized context through `notifications.services` —
   `describe_notification_source()`, `get_required_action()`,
   `get_notification_url(absolute=True)`, `get_notification_open_label()` — and
@@ -762,6 +771,46 @@ tasks never live inside `acts`.
 - **Routing tasks never produce a second email.** `ACT_WORKFLOW` and
   `PROTOCOL_APPROVAL` rows create no notification at all — the act transition
   and `PROTOCOL_APPROVAL_REQUIRED` already tell the same person the same thing.
+- **«Сообщить об ошибке» is a topbar button, one service and no JavaScript.**
+  The bug icon in `includes/header.html` is an ordinary `[data-confirm]`
+  trigger of the shared confirmation modal with
+  `data-confirm-comment="required"`, so the description arrives at
+  `bugs:report` as `comment` in the modal's own CSRF-protected POST — there is
+  no bug-specific script, dialog or endpoint-shaped form anywhere. `?next=` is
+  the page the button was pressed on; `bugs.views._safe_next()` validates it
+  with `url_has_allowed_host_and_scheme()` before redirecting back *and* before
+  storing it as the report's `page_url`, because a button present on every page
+  is exactly where an open redirect would hurt. The reporter is always
+  `request.user`. `bugs.services.report_bug()` is the only writer: one
+  `atomic()` block over the `BugReport` and the notifications, so neither is
+  left without the other.
+- **A bug report raises one real task, so it cannot be read once and forgotten.**
+  `report_bug()` stores the `BugReport`, calls
+  `tasks.services.create_bug_report_task()` and notifies — all in one
+  `atomic()` block, so a report that reached nobody's queue is a state that
+  never exists. The task is **shared, never split**: one bug is one piece of
+  work, and whoever fixes it closes it for the rest — `create_bug_report_task()`
+  takes no `individual_assignee`, and `unique_bug_report_task` makes a second
+  task for the same report impossible. It is an ordinary work item from there
+  on — «Мои задачи», an execution comment, `complete_task()` — and the only one
+  with **no `department`**, because its assignees are chosen by a flag and may
+  sit in any number of them. `describe_task_source()` names it «Сообщение об
+  ошибке №N» and links to `bugs:detail`. **One notification, not two**: the
+  task and the `BUG_REPORTED` notification are the same fact, so no
+  task-assignment notification is created for it. Nobody marked responsible
+  means no task at all — there is nobody to raise it on, and `_save_new_task()`
+  refuses an assignee-less task anyway.
+- **Who answers for bugs is `UserProfile.is_bug_responsible`, not a role.**
+  An individual flag, ticked in `UserProfileAdmin` (a `list_editable` column
+  plus two bulk actions) and read live by
+  `bugs.permissions.get_bug_responsible_users()`, so a change in Admin takes
+  effect on the next report with nothing to restart. Never key bug routing on
+  `UserProfile.Role`, and never hard-code a recipient list: the people who
+  handle bugs are chosen individually and may hold any role. Nobody marked is
+  not an error — the report is still stored, and Admin is where that gap is
+  noticed. Reading a report is its author, anybody responsible, and
+  руководитель/администратор (`can_view_bug_report()`), because the
+  notification links there and every recipient must be able to open it.
   Likewise a corrective action sends `ACTION_ASSIGNED` and *not* an additional
   generic "вам назначена задача". One meaningful email per assignment event.
   Email is driven by intentional `Notification` events, never by a generic

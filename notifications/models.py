@@ -10,6 +10,12 @@ Exactly one shape is valid per source type, enforced by `clean()` (readable
 messages) and by a database check constraint (the last line of defence).
 `related_act` keeps its name and its meaning — every notification that existed
 before protocols is an `ACT` one and is untouched.
+
+`BUG` is the one source that is not a quality document: it points at a
+`bugs.BugReport`, the message somebody typed into «Сообщить об ошибке». It
+travels the very same pipeline as the rest — deduplication, the bell, the email
+queue — because a second notification system is exactly what this app exists to
+prevent.
 """
 
 from django.conf import settings
@@ -23,6 +29,7 @@ class Notification(models.Model):
         ACT = 'ACT', 'Акт'
         PROTOCOL = 'PROTOCOL', 'Протокол'
         TASK = 'TASK', 'Задача'
+        BUG = 'BUG', 'Сообщение об ошибке'
 
     class EventType(models.TextChoices):
         ACT_SENT_TO_KO = 'ACT_SENT_TO_KO', 'Акт передан в КО'
@@ -44,6 +51,7 @@ class Notification(models.Model):
         PROTOCOL_TASK_ASSIGNED = 'PROTOCOL_TASK_ASSIGNED', 'Назначена задача по протоколу'
         ACT_REJECTION_ASSIGNED = 'ACT_REJECTION_ASSIGNED', 'Назначена задача ПДО по браку'
         SMK_TASK_ASSIGNED = 'SMK_TASK_ASSIGNED', 'Назначена задача СМК'
+        BUG_REPORTED = 'BUG_REPORTED', 'Сообщение об ошибке в системе'
 
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -100,6 +108,17 @@ class Notification(models.Model):
         blank=True,
         null=True,
     )
+    # A report of a broken *page*, not of a business object: it belongs to no
+    # act, protocol or task, which is exactly why it needed a source type of
+    # its own rather than being squeezed into one of theirs.
+    related_bug_report = models.ForeignKey(
+        'bugs.BugReport',
+        on_delete=models.CASCADE,
+        related_name='notifications',
+        verbose_name='Связанное сообщение об ошибке',
+        blank=True,
+        null=True,
+    )
     deduplication_key = models.CharField('Ключ дедупликации', max_length=180)
     created_at = models.DateTimeField('Создано', auto_now_add=True)
     is_read = models.BooleanField('Прочитано', default=False)
@@ -134,18 +153,28 @@ class Notification(models.Model):
                         related_act__isnull=False,
                         related_protocol__isnull=True,
                         related_task__isnull=True,
+                        related_bug_report__isnull=True,
                     )
                     | models.Q(
                         source_type='PROTOCOL',
                         related_act__isnull=True,
                         related_protocol__isnull=False,
                         related_task__isnull=True,
+                        related_bug_report__isnull=True,
                     )
                     | models.Q(
                         source_type='TASK',
                         related_act__isnull=True,
                         related_protocol__isnull=True,
                         related_task__isnull=False,
+                        related_bug_report__isnull=True,
+                    )
+                    | models.Q(
+                        source_type='BUG',
+                        related_act__isnull=True,
+                        related_protocol__isnull=True,
+                        related_task__isnull=True,
+                        related_bug_report__isnull=False,
                     )
                 ),
                 name='notification_source_relations_match_source_type',
@@ -164,9 +193,22 @@ class Notification(models.Model):
         """
         super().clean()
         required, forbidden = {
-            self.SourceType.ACT: ('related_act', ('related_protocol', 'related_task')),
-            self.SourceType.PROTOCOL: ('related_protocol', ('related_act', 'related_task')),
-            self.SourceType.TASK: ('related_task', ('related_act', 'related_protocol')),
+            self.SourceType.ACT: (
+                'related_act',
+                ('related_protocol', 'related_task', 'related_bug_report'),
+            ),
+            self.SourceType.PROTOCOL: (
+                'related_protocol',
+                ('related_act', 'related_task', 'related_bug_report'),
+            ),
+            self.SourceType.TASK: (
+                'related_task',
+                ('related_act', 'related_protocol', 'related_bug_report'),
+            ),
+            self.SourceType.BUG: (
+                'related_bug_report',
+                ('related_act', 'related_protocol', 'related_task'),
+            ),
         }.get(self.source_type, (None, ()))
         if required is None:
             raise ValidationError({'source_type': 'Неизвестный тип источника уведомления.'})

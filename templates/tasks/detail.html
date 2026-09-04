@@ -36,7 +36,13 @@ the Django login, never the employee's name.
         branch on which relation happens to be filled.
         {% endcomment %}
         {% if task_source.url %}<div class="task-detail-info-row"><dt>Источник</dt><dd class="user-text"><a class="table-link" href="{{ task_source.url }}">{{ task_source.label }}</a></dd></div>{% endif %}
-        <div class="task-detail-info-row"><dt>Подразделение</dt><dd class="user-text">{{ task.department }}</dd></div>
+{% comment %}
+        Every real work item names a department except a bug report, whose
+        assignees are chosen by the «Ответственный за ошибки» flag and may sit
+        in any number of them. The row is omitted rather than filled with a
+        dash: a fact the task does not have is not a fact worth a line.
+        {% endcomment %}
+        {% if task.department %}<div class="task-detail-info-row"><dt>Подразделение</dt><dd class="user-text">{{ task.department }}</dd></div>{% endif %}
         <div class="task-detail-info-row"><dt>Срок</dt><dd><span class="{% if not task.status.is_final and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></dd></div>
     </section>
 
@@ -106,7 +112,12 @@ the Django login, never the employee's name.
     </section>
     {% endif %}
     <section class="task-detail-analysis-card">
-        <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% elif task.is_act_rejection_task %}Решение КО{% else %}Решение протокола{% endif %}</span>
+{% comment %}
+        What the text below *is*, per source type. Every branch is named: an
+        unnamed source falling through to «Решение протокола» would label an
+        СМК measure and a bug report as something they are not.
+        {% endcomment %}
+        <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% elif task.is_act_rejection_task %}Решение КО{% elif task.is_smk_task %}Мероприятие СМК{% elif task.is_bug_task %}Сообщение об ошибке{% else %}Решение протокола{% endif %}</span>
         <h2>Задача</h2>
         <div class="task-comment-block user-text">{{ task.task_text|linebreaksbr }}</div>
     </section>

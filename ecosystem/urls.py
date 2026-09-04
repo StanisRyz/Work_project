@@ -47,7 +47,10 @@ urlpatterns = [
     # item that opens the file browser directly, with no submenu.
     path('documents/', include('documents.urls')),
 
-    # Infrastructure stays outside that hierarchy.
+    # Infrastructure stays outside that hierarchy. «Сообщить об ошибке» is
+    # part of it rather than of «Качество»: it is about the application, not
+    # about a quality document, and its button is in the topbar of every page.
+    path('bugs/', include('bugs.urls')),
     path('notifications/', include('notifications.urls')),
     path('accounts/', include('accounts.urls')),
     path('realtime/', include('realtime.urls')),
