@@ -44,10 +44,18 @@ the Django login, never the employee's name.
         <h2>Исполнители</h2>
         {% with assignees=task.assignees.all %}
             {% if assignees %}
+{% comment %}
+                The three parts of an исполнитель row, here and in the expanded
+                list below, in that order: the avatar never shrinks, the name
+                takes the space that is left, and the подразделение keeps its
+                own width and truncates with the full text on its `title`. The
+                classes are what `acts.css` sizes — nothing here is laid out by
+                the order of unclassed spans.
+                {% endcomment %}
                 <div class="task-detail-assignee-primary">
                     <span class="task-detail-assignee-avatar">{{ assignees.0.user|person_initials }}</span>
-                    <span>{{ assignees.0.user|person_name }}</span>
-                    {% if assignees.0.user.userprofile.department %}<span class="task-detail-assignee-role">{{ assignees.0.user.userprofile.department }}</span>{% endif %}
+                    <span class="task-detail-assignee-name">{{ assignees.0.user|person_name }}</span>
+                    {% if assignees.0.user.userprofile.department %}<span class="task-detail-assignee-role" title="{{ assignees.0.user.userprofile.department }}">{{ assignees.0.user.userprofile.department }}</span>{% endif %}
                 </div>
                 <div class="task-detail-assignee-toggle-row">
                     {% if assignees|length > 1 %}
@@ -55,12 +63,20 @@ the Django login, never the employee's name.
                             <summary class="task-detail-assignee-toggle-button" aria-label="Показать всех исполнителей">
                                 <svg class="ui-icon task-detail-assignee-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
                             </summary>
+{% comment %}
+                            The expanded part of the block, not a menu of its
+                            own: it is positioned against the full-width toggle
+                            row, so it lines up with «Исполнители» above it and
+                            each row has the same space the primary one has. A
+                            long list scrolls vertically inside it; nothing
+                            scrolls sideways.
+                            {% endcomment %}
                             <ul class="task-detail-assignee-popup">
                                 {% for assignee in assignees|slice:"1:" %}
                                 <li>
                                     <span class="task-detail-assignee-avatar">{{ assignee.user|person_initials }}</span>
-                                    <span>{{ assignee.user|person_name }}</span>
-                                    {% if assignee.user.userprofile.department %}<span class="task-detail-assignee-role">{{ assignee.user.userprofile.department }}</span>{% endif %}
+                                    <span class="task-detail-assignee-name">{{ assignee.user|person_name }}</span>
+                                    {% if assignee.user.userprofile.department %}<span class="task-detail-assignee-role" title="{{ assignee.user.userprofile.department }}">{{ assignee.user.userprofile.department }}</span>{% endif %}
                                 </li>
                                 {% endfor %}
                             </ul>
@@ -148,12 +164,34 @@ still completed with the execution comment and nothing attached.
             <p class="task-attachment-required">Для выполнения этой задачи необходимо добавить вложение.</p>
         {% endif %}
         {% if can_upload_attachment %}
-            <form class="task-attachment-form" method="post" action="{% url 'tasks:add_attachment' task.pk %}" enctype="multipart/form-data">
+            {% comment %}
+            The same upload flow the act and protocol pages have, from the same
+            `attachment_upload.js`: choosing the file opens the shared
+            confirmation modal and «Загрузить» posts this form. «Добавить
+            вложение» is the no-JavaScript path and is hidden once the dialog
+            works. Nothing about completion changes — the file and the
+            «Завершить задачу» request stay separate, and `complete_task()`
+            remains the only place the requirement is enforced.
+            {% endcomment %}
+            <form class="task-attachment-form" id="task-attachment-form" method="post" action="{% url 'tasks:add_attachment' task.pk %}" enctype="multipart/form-data" data-attachment-upload>
                 {% csrf_token %}
                 <input type="hidden" name="list_query" value="{{ list_query }}">
                 {{ attachment_form.file }}
                 {{ attachment_form.file.errors }}
-                <button class="link-button link-button--secondary link-button--compact" type="submit">Добавить вложение</button>
+        {% comment %}
+        Hidden, and clicked by `attachment_upload.js` — never by a person. It
+        carries the modal's attributes so an upload is confirmed through
+        exactly the same dialog as every other action in the project; the file
+        names themselves are written onto it at the moment of choosing.
+        {% endcomment %}
+        <button class="attachment-form__confirm" type="button" hidden
+                data-confirm
+                data-confirm-form="task-attachment-form"
+                data-confirm-title="Загрузить файл?"
+                data-confirm-label="Загрузить"
+                data-confirm-cancel-label="Нет"
+                data-attachment-upload-confirm>Загрузить</button>
+                <button class="link-button link-button--secondary link-button--compact" type="submit" data-attachment-upload-submit>Добавить вложение</button>
             </form>
         {% endif %}
         {% if attachments %}

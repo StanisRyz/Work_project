@@ -94,7 +94,14 @@ an СМК record is written once, and the work it created is tracked in «Зад
                     </div>
                     <div class="smk-measure__fact">
                         <span>Срок</span>
-                        <p>{{ row.action.due_date|date:'d.m.Y' }}{% if row.action.requires_attachment %}<span class="smk-measure__requirement" title="Задачу нельзя завершить без вложения">Требуется вложение</span>{% endif %}</p>
+                        {% comment %}
+                        The two answers that change what the исполнитель is
+                        actually holding, read off the measure and shown next to
+                        the deadline they qualify: whether the задача may be
+                        finished without a file, and whether it is one shared
+                        задача or one per человек.
+                        {% endcomment %}
+                        <p>{{ row.action.due_date|date:'d.m.Y' }}{% if row.action.split_for_assignees %}<span class="smk-measure__requirement" title="Каждый исполнитель выполняет свою задачу независимо">Задача по каждому исполнителю</span>{% endif %}{% if row.action.requires_attachment %}<span class="smk-measure__requirement" title="Задачу нельзя завершить без вложения">Требуется вложение</span>{% endif %}</p>
                     </div>
                 </article>
             {% endfor %}

@@ -2,6 +2,8 @@
 
 {% block title %}Задачи - Единая цифровая экосистема управления качеством{% endblock %}
 
+{% block content_class %}page-container--fill{% endblock %}
+
 {% block content %}
 {% comment %}
 The tabs share their row with «Создать задачу», exactly as the act registry
@@ -40,7 +42,7 @@ Only the contents of this container are ever replaced by a live refresh, and
 the client re-sends the page's own query string so tab, filters and sorting
 survive.
 {% endcomment %}
-<div data-live-task-list data-fragment-url="{% url 'tasks:list_fragment' %}">
+<div class="fill-region" data-live-task-list data-fragment-url="{% url 'tasks:list_fragment' %}">
     {% include 'tasks/includes/list_results.html' %}
 </div>
 {% endblock %}

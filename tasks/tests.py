@@ -70,6 +70,51 @@ class TaskViewsTests(TestCase):
             TaskAssignee.objects.create(task=task, user=user)
         return task
 
+    def test_the_assignee_block_renders_rows_that_cannot_overflow(self):
+        """One исполнитель, several, and a very long name and подразделение.
+
+        Layout is CSS, so what is checked here is the contract it sizes: every
+        row — the primary one and each row of the expanded list — carries the
+        avatar, a `.task-detail-assignee-name` and, when there is one, a
+        `.task-detail-assignee-role` whose `title` holds the подразделение in
+        full. The expanded list appears only when there is more than one
+        исполнитель, and the toggle is still a plain `<details>`.
+        """
+        long_department = Department.objects.create(
+            code='LONGDEP',
+            name='Отдел перспективного развития и технического сопровождения производства',
+        )
+        long_name = self._user('very_long_name', UserProfile.Role.TO, long_department)
+        long_name.first_name = 'Константин'
+        long_name.last_name = 'Александропуло-Вишневецкий'
+        long_name.save()
+
+        # One исполнитель: the primary row only, and no expanded list at all.
+        solo = self._task(self.employee, timezone.localdate() + timedelta(days=3))
+        self.client.force_login(self.employee)
+        response = self.client.get(reverse('tasks:detail', args=[solo.pk]))
+        self.assertContains(response, 'task-detail-assignee-name', count=1)
+        self.assertNotContains(response, 'task-detail-assignee-popup')
+
+        # Several, one of them with a long name and a long подразделение: one
+        # named row per исполнитель, and the extras inside the expanded list.
+        shared = self._task(
+            self.employee,
+            timezone.localdate() + timedelta(days=3),
+            extra_assignees=(self.other_employee, long_name),
+        )
+        response = self.client.get(reverse('tasks:detail', args=[shared.pk]))
+        self.assertContains(response, 'task-detail-assignee-name', count=3)
+        self.assertContains(response, 'task-detail-assignee-popup', count=1)
+        self.assertContains(response, '<details class="task-detail-assignee-toggle">')
+        # Truncation never loses the answer: the whole подразделение is on the
+        # element a person can hover.
+        self.assertContains(
+            response,
+            f'class="task-detail-assignee-role" title="{long_department.name}"',
+        )
+        self.assertContains(response, 'Александропуло-Вишневецкий')
+
     def test_create_task_button_and_page_follow_the_same_permission(self):
         """«Создать задачу» is offered to, and reachable by, the same people.
 

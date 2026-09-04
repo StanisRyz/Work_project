@@ -9,9 +9,10 @@
  * «Связано с несоответствием» list in step with the findings above it.
  *
  * Deliberately the same row mechanics `protocol_editor.js` uses, minus what
- * only a protocol has (participants, speakers, the approval hint and the split
- * option). It additionally holds back the submit and shows the confirmation
- * dialog, filled from the form as it stands.
+ * only a protocol has (participants, speakers and the approval hint). The
+ * «Разбить задачу по исполнителям» option is kept in step exactly as the
+ * protocol editor keeps its own. It additionally holds back the submit and
+ * shows the confirmation dialog, filled from the form as it stands.
  *
  * No business rule lives here, and the dialog is not the guarantee: the server
  * re-parses and re-validates everything — required fields, duplicate
@@ -123,8 +124,31 @@
         });
     };
 
+    /**
+     * «Разбить задачу по исполнителям» is only offered from two исполнителя up.
+     *
+     * Presentation only: `SmkSourceForm` normalizes the flag off for a single
+     * исполнитель, and the server is the authority. This just keeps the row
+     * from offering a choice that would be normalized away — which would also
+     * make an unchanged мероприятие look changed to `update_smk_source()`.
+     */
+    const syncSplitOption = (action) => {
+        const toggle = action.querySelector('[data-split-checkbox]');
+        if (!toggle) return;
+        const named = [...action.querySelectorAll('[data-assignee-row] [data-employee-select]')]
+            .filter((select) => select.value).length;
+        const offered = named > 1;
+        toggle.disabled = !offered;
+        if (!offered) toggle.checked = false;
+        const off = action.querySelector('[data-split-hint-off]');
+        const on = action.querySelector('[data-split-hint-on]');
+        if (off) off.hidden = toggle.checked;
+        if (on) on.hidden = !toggle.checked;
+    };
+
     const syncAllPairs = () => {
         form.querySelectorAll('[data-employee-pair]').forEach(syncPair);
+        form.querySelectorAll('[data-block="actions"] [data-row]').forEach(syncSplitOption);
     };
 
     form.addEventListener('click', (event) => {
@@ -151,8 +175,14 @@
             if (rowsOf(block).length > 1) {
                 target.closest('[data-row]').remove();
             } else {
-                list.querySelectorAll('textarea, input[type="date"]').forEach((field) => {
-                    field.value = '';
+                // Cleared, not removed — and the hidden identity goes with the
+                // content: what is left is a new empty row, not the measure
+                // that used to be there.
+                list.querySelectorAll(
+                    'textarea, input[type="date"], input[type="hidden"]',
+                ).forEach((field) => { field.value = ''; });
+                list.querySelectorAll('input[type="checkbox"]').forEach((field) => {
+                    field.checked = false;
                 });
             }
             renumber(block);
@@ -180,6 +210,12 @@
     });
 
     form.addEventListener('change', (event) => {
+        if (event.target.matches('[data-split-checkbox]')) {
+            // Only the hint under it changes; nothing else in the editor
+            // depends on how a measure will be executed.
+            syncSplitOption(event.target.closest('[data-row]'));
+            return;
+        }
         const pair = event.target.closest('[data-employee-pair]');
         if (pair) syncPair(pair);
     });

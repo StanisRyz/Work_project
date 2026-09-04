@@ -57,9 +57,9 @@ def _form_context(form, confirmation=None, *, source=None):
     One template and one context builder for the two, because they post the
     same structure and differ only in what the confirmation warns about.
     `source` is what tells them apart: `None` is «Создать задачи», a record is
-    «Сохранить изменения» — and the dialog then spells out that the current
-    tasks are cancelled and reissued, which is the whole reason a correction
-    needs its own confirmation copy.
+    «Сохранить изменения» — and the dialog then spells out that only the changed
+    мероприятия have their tasks reissued, which is the whole reason a
+    correction needs its own confirmation copy.
     """
     editing = source is not None
     return {
@@ -74,8 +74,8 @@ def _form_context(form, confirmation=None, *, source=None):
         ),
         'page_title': f'Редактирование {source.label}' if editing else 'Задача СМК',
         'page_lead': (
-            'Исправьте данные аудита. Текущие задачи будут отменены, '
-            'а по актуальным мероприятиям созданы новые.'
+            'Исправьте данные аудита. Задачи будут переназначены только по '
+            'изменённым мероприятиям.'
             if editing else
             'Корректирующие мероприятия по результатам аудита. '
             'Каждое мероприятие становится отдельной задачей.'
@@ -98,9 +98,10 @@ def _form_context(form, confirmation=None, *, source=None):
         'confirmation_value': CONFIRMATION_VALUE,
         # The prototypes the `<template>` elements render; the browser clones
         # them and renumbers, so no markup is assembled in JavaScript.
-        'empty_row': {'index': 0, 'text': '', 'errors': {}},
+        'empty_row': {'index': 0, 'id': '', 'text': '', 'errors': {}},
         'empty_action_row': {
-            'index': 0, 'text': '', 'due_date': '', 'requires_attachment': False,
+            'index': 0, 'id': '', 'text': '', 'due_date': '',
+            'requires_attachment': False, 'split_for_assignees': False,
             'assignees': [], 'errors': {},
         },
         'empty_assignee': {'user': '', 'department': ''},
@@ -168,9 +169,9 @@ def smk_edit(request, pk):
     a valid POST without the confirmation flag writes **nothing** and comes
     back with the summary, and only a POST carrying the flag reaches
     `update_smk_source()`. What the dialog additionally says here — that the
-    current tasks are cancelled and new ones issued — is copy, not the rule;
-    the rule is `update_smk_source()`, which re-checks the right and the
-    record's shelf under a lock.
+    tasks of the changed мероприятия are cancelled and reissued — is copy, not
+    the rule; the rule is `update_smk_source()`, which re-checks the right and
+    the record's shelf under a lock and compares each measure with itself.
 
     An archived record has no edit page at all: `can_edit_smk_source()` is
     asked before anything is rendered, and a denial is a 404 like every other
@@ -180,7 +181,11 @@ def smk_edit(request, pk):
     if not can_edit_smk_source(source, request.user):
         raise Http404('No SMK source matches the given query.')
     if request.method == 'POST':
-        form = SmkSourceForm(request.POST)
+        # Bound *to the record*: the hidden `-id` of every row is only identity
+        # if this record really holds it, and `SmkSourceForm` resolves that
+        # against `instance`. Without it a correction could not tell an
+        # unchanged мероприятие from a new one.
+        form = SmkSourceForm(request.POST, instance=source)
         if form.is_valid():
             if request.POST.get(CONFIRMATION_FIELD) != CONFIRMATION_VALUE:
                 return render(request, 'smk/form.html', _form_context(
@@ -203,8 +208,8 @@ def smk_edit(request, pk):
                 )
             messages.success(
                 request,
-                f'Запись {source.label} обновлена: прежние задачи отменены, '
-                'созданы новые.',
+                f'Запись {source.label} обновлена: задачи переназначены только '
+                'по изменённым мероприятиям.',
             )
             return redirect('smk:detail', pk=source.pk)
         return render(

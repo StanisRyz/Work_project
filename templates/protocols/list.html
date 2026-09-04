@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260903-1">
 {% endblock %}
 
+{% block content_class %}page-container--fill{% endblock %}
+
 {% block content %}
 {% comment %}
 The registry opens on its tabs, like Акты and Задачи. «В работе» is written
@@ -25,8 +27,8 @@ Only the results are replaced by a live refresh: the tabs and «Создать
 протокол» stay untouched, and the client re-sends the page's own query string
 so the current tab survives.
 {% endcomment %}
-<div data-live-protocol-registry data-fragment-url="{% url 'protocols:list_fragment' %}">
-    <div data-live-protocol-registry-results>
+<div class="fill-region" data-live-protocol-registry data-fragment-url="{% url 'protocols:list_fragment' %}">
+    <div class="fill-region" data-live-protocol-registry-results>
         {% include 'protocols/includes/registry_results.html' %}
     </div>
 </div>

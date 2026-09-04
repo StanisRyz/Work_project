@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-8">
 {% endblock %}
 
+{% block content_class %}page-container--fill{% endblock %}
+
 {% block content %}
 {% comment %}
 The СМК registry, in the same toolbar/tabs/table shape as Акты, Протоколы and
@@ -26,5 +28,7 @@ that right anyway; the tabs and the table are open to every reader.
     {% endif %}
 </div>
 
-{% include 'smk/includes/registry_results.html' %}
+<div class="fill-region">
+    {% include 'smk/includes/registry_results.html' %}
+</div>
 {% endblock %}

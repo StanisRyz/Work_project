@@ -24,22 +24,18 @@ LIST_TABS = {
 DEFAULT_LIST_TAB = 'work'
 
 
-# What a person reads off the record, and never what is stored. `SmkSource`
-# keeps exactly two values — «В работе» and «Архив», the shelf it sits on — so
-# these four are *derived* every time they are shown: «Архив» once it is
-# shelved, «Завершена» when every task its measures produced is closed,
-# «Создана» while no task has moved yet, «В работе» in between. Deriving them
-# is what keeps this a display concern: nothing here can be out of step with
-# the tasks, because it is read from them.
-def describe_smk_state(*, is_archived, task_count, completed_task_count):
-    """`{'code', 'label'}` for the state pill, from facts the caller counted."""
+# What a person reads off the record — and it is exactly what is stored, one
+# label per `SmkSource.Status`. A record has two states because it has one
+# transition: it is «В работе» until somebody archives it, and «Архивировано»
+# afterwards. Nothing is derived from the tasks any more: an СМК record is a
+# shelf, not a workflow, and states like «Создана» or «Завершена» described
+# task progress rather than the record — the tasks are tracked in «Задачи»,
+# where their own statuses live.
+def describe_smk_state(*, is_archived):
+    """`{'code', 'label'}` for the state pill. `code` drives `.status-badge--*`."""
     if is_archived:
-        return {'code': 'archived', 'label': 'Архив'}
-    if task_count and completed_task_count == task_count:
-        return {'code': 'completed', 'label': 'Завершена'}
-    if completed_task_count:
-        return {'code': 'in_progress', 'label': 'В работе'}
-    return {'code': 'created', 'label': 'Создана'}
+        return {'code': 'archived', 'label': 'Архивировано'}
+    return {'code': 'in_progress', 'label': 'В работе'}
 
 
 def build_smk_list_state(params):
@@ -56,20 +52,14 @@ def build_smk_list_state(params):
         SmkSource.objects.filter(status=LIST_TABS[tab])
         .select_related('created_by')
         .annotate(
-            # Only the measures the record reads by *now*: a correction
-            # supersedes the old ones and cancels their tasks, and counting
-            # those would leave the registry claiming work nobody holds.
+            # «Задач» only — the state pill is the record's own shelf and needs
+            # no count. Only the measures the record reads by *now*: a
+            # correction supersedes the old ones and cancels their tasks, and
+            # counting those would leave the registry claiming work nobody
+            # holds.
             task_count=Count(
                 'actions__tasks',
                 filter=Q(actions__superseded_at__isnull=True),
-                distinct=True,
-            ),
-            completed_task_count=Count(
-                'actions__tasks',
-                filter=Q(
-                    actions__superseded_at__isnull=True,
-                    actions__tasks__status__code='COMPLETED',
-                ),
                 distinct=True,
             ),
         )
@@ -83,11 +73,7 @@ def build_smk_list_state(params):
             {
                 'source': source,
                 'task_count': source.task_count,
-                'state': describe_smk_state(
-                    is_archived=source.is_archived,
-                    task_count=source.task_count,
-                    completed_task_count=source.completed_task_count,
-                ),
+                'state': describe_smk_state(is_archived=source.is_archived),
             }
             for source in sources
         ],
@@ -148,14 +134,18 @@ def resolve_detail_tab(value):
 
 
 def _measure_row(action):
-    """One корректирующее мероприятие with everything its card shows."""
-    # At most one task per measure, by the `unique_smk_action_task` constraint
-    # — the card links to that task, never to a search.
-    task = next(iter(action.tasks.all()), None)
+    """One корректирующее мероприятие with everything its card shows.
+
+    One task or several: a measure produces one shared task, or — with
+    «Разбить задачу по исполнителям» — one per исполнитель, exactly as a
+    protocol decision does. The rows are read from the measure's own `tasks`
+    relation, so the page can never show work that belongs to another measure.
+    """
+    tasks = sorted(action.tasks.all(), key=lambda task: task.pk)
     return {
         'action': action,
         'assignees': [item.user for item in action.assignees.all()],
-        'task': task,
+        'tasks': tasks,
     }
 
 
@@ -179,8 +169,10 @@ def get_cancelled_smk_tasks(source):
     """The record's tasks that a correction withdrew, newest first.
 
     Read straight off `Task`, not through the measures: a cancelled task hangs
-    on a superseded `SmkCorrectiveAction`, and that row is exactly what keeps
-    its original wording readable. Nothing is deleted, so this list only grows.
+    on the superseded `SmkCorrectiveAction` it was issued from, and that row is
+    exactly what keeps its original wording readable. A measure the correction
+    left alone has no cancelled task, so nothing an исполнитель still holds can
+    appear here. Nothing is deleted, so this list only grows.
     """
     from tasks.models import Task
 
@@ -209,11 +201,14 @@ def get_source_detail(source):
     rows = [
         _measure_row(action)
         for action in source.current_actions.select_related('department', 'non_conformity')
-        .prefetch_related('assignees__user', 'tasks__status')
+        .prefetch_related(
+            'assignees__user', 'tasks__status', 'tasks__individual_assignee',
+        )
     ]
     # What «Количество задач» in the information card counts: the real tasks
-    # that exist, not the measures that should have produced them.
-    task_count = sum(1 for row in rows if row['task'] is not None)
+    # that exist, not the measures that should have produced them. A split
+    # measure contributes one per исполнитель, which is what a reader counts on
+    # the «Связанные мероприятия» tab.
     return {
         'source': source,
         # A finding carries no status of its own: what is being done about it
@@ -224,18 +219,10 @@ def get_source_detail(source):
             {'item': finding} for finding in source.current_non_conformities
         ],
         'actions': rows,
-        'task_count': task_count,
-        # Derived from the rows already loaded above — the same four states the
-        # registry shows, so a record cannot read one way in the list and
-        # another on its own page.
-        'state': describe_smk_state(
-            is_archived=source.is_archived,
-            task_count=task_count,
-            completed_task_count=sum(
-                1 for row in rows
-                if row['task'] is not None and row['task'].status.code == 'COMPLETED'
-            ),
-        ),
+        'task_count': sum(len(row['tasks']) for row in rows),
+        # The same two states the registry shows, from the same function, so a
+        # record cannot read one way in the list and another on its own page.
+        'state': describe_smk_state(is_archived=source.is_archived),
         'history_groups': get_smk_history_groups(source),
         # What a correction withdrew, kept on the page rather than only in the
         # task registry: «Связанные мероприятия» is where the work of this

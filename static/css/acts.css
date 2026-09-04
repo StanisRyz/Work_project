@@ -57,9 +57,16 @@
     margin: 0;
 }
 
+/* The registry table, on every registry page. It grows into whatever the
+   `.fill-region` chain hands it rather than standing at a fixed height, so the
+   table reaches the bottom of the viewport instead of leaving dead space under
+   itself; `min-height` is a floor for a very short window, not a size. The
+   internal scrolling and the sticky header below it are unchanged — the card
+   is still the only thing that scrolls. */
 .act-table-card {
+    flex: 1 1 auto;
     width: 100%;
-    height: 480px;
+    min-height: 240px;
     padding: 0;
     overflow: auto;
 }
@@ -510,14 +517,21 @@
     font-size: 15px;
 }
 
+/* The chevron's row, and the box the expanded list is measured against.
+   It is a grid item of the card, so it is exactly as wide as
+   `.task-detail-assignee-primary` above it — which is what makes the expanded
+   list line up with the block instead of hanging off a 28px button. The 6px
+   indent moved onto the button itself so the row keeps the full width while
+   the chevron sits exactly where it did. */
 .task-detail-assignee-toggle-row {
     display: flex;
+    position: relative;
     align-items: center;
-    margin-left: 6px;
 }
 
-.task-detail-assignee-toggle {
-    position: relative;
+.task-detail-assignee-toggle,
+.task-detail-assignee-toggle-spacer {
+    margin-left: 6px;
 }
 
 .task-detail-assignee-toggle-button,
@@ -567,18 +581,24 @@
     transform: rotate(180deg);
 }
 
+/* Pinned to both edges of the toggle row rather than given a width: the
+   list is as wide as the «Исполнители» block, on any screen, and a long name
+   or подразделение can never widen it. `overflow-x: hidden` is the other half
+   of that promise — the rows truncate instead of producing a sideways
+   scrollbar. The height is capped so a task with many исполнители scrolls
+   vertically instead of growing without limit. */
 .task-detail-assignee-popup {
     position: absolute;
     z-index: 5;
     top: calc(100% + 4px);
+    right: 0;
     left: 0;
     display: grid;
-    min-width: 220px;
-    max-width: 100%;
-    max-height: 220px;
+    max-height: min(260px, 40vh);
     gap: 6px;
     margin: 0;
     padding: 8px;
+    overflow-x: hidden;
     overflow-y: auto;
     list-style: none;
     border: 1px solid var(--color-border);
@@ -591,8 +611,21 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
     font-size: 14px;
     color: var(--color-text);
+}
+
+/* The flexible middle of an исполнитель row, in the primary row and in the
+   expanded list alike. `min-width: 0` is what lets it shrink at all — without
+   it a flex item refuses to go below its content and pushes the подразделение
+   out of the row. */
+.task-detail-assignee-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .task-detail-assignee-avatar {
@@ -608,10 +641,22 @@
     font-weight: 700;
 }
 
+/* Keeps its natural width while there is room and gives it up before the row
+   overflows; the whole подразделение stays on the element's `title`.
+   `inline-block`, not `inline-flex`: `text-overflow` has no effect on a flex
+   container, so an over-long name would be cut off mid-letter instead of
+   ending in «…». The cap leaves the row's name readable however long the
+   подразделение is. */
 .task-detail-assignee-role {
-    display: inline-flex;
+    display: inline-block;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 45%;
     margin-left: auto;
+    overflow: hidden;
     padding: 3px 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     border-radius: 999px;
     background: #eef4ff;
     color: var(--color-primary-dark);

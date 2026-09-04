@@ -17,9 +17,9 @@ written together by `smk.services.create_smk_source()` or not at all.
 
 The same page serves the correction of a live record — `editing` is what tells
 them apart. It posts the identical structure to `smk:edit`, where
-`update_smk_source()` cancels the record's current tasks and issues new ones;
-the confirmation dialog says so, because that is the consequence a person has
-to agree to and it is not one the creation step has.
+`update_smk_source()` reissues the tasks of the мероприятия that changed and
+leaves the rest alone; the confirmation dialog says so, because that is the
+consequence a person has to agree to and it is not one the creation step has.
 
 Each block is a `<details>` section with a `[data-row-list]`, a `<template>`
 prototype and a `TOTAL_FORMS` counter — the same shape the protocol editor
@@ -99,7 +99,7 @@ re-checked on the server.
                 <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
             </summary>
             <div class="protocol-section__body">
-                <p class="protocol-section__hint">Каждое мероприятие создаёт отдельную задачу в разделе «Задачи» на всех указанных исполнителей.</p>
+                <p class="protocol-section__hint">Каждое мероприятие создаёт задачу в разделе «Задачи»: одну общую на всех исполнителей или, если включить «Разбить задачу по исполнителям», отдельную задачу каждому.</p>
                 <input type="hidden" name="actions-TOTAL_FORMS" value="{{ form.action_rows|length }}" data-total>
                 <div class="protocol-card-grid" data-row-list>
                     {% for row in form.action_rows %}
@@ -137,17 +137,16 @@ re-checked on the server.
                 {% if editing %}
                     {% comment %}
                     The consequences of a correction, spelled out before it is
-                    applied: `update_smk_source()` really does cancel every
-                    live task of the record and issue new ones, and an
-                    исполнитель whose мероприятие did not change is notified
-                    again. Saying it here is what makes the confirmation
-                    informed rather than a formality.
+                    applied — and they are selective: `update_smk_source()`
+                    compares every мероприятие with itself and touches only the
+                    ones that really changed. Saying so here is what makes the
+                    confirmation informed rather than a formality.
                     {% endcomment %}
                     <p>Проверьте данные — изменения будут применены сразу после подтверждения.</p>
                     <ul class="smk-confirm-warning">
-                        <li>Текущие задачи по этой записи будут <strong>отменены</strong> и останутся в архиве задач.</li>
-                        <li>По актуальным мероприятиям будут созданы <strong>новые задачи</strong> — даже если мероприятие не изменилось.</li>
-                        <li>Все указанные исполнители получат <strong>новые уведомления</strong>.</li>
+                        <li>Мероприятия <strong>без изменений</strong> сохранят свои задачи — их исполнители не получат повторных уведомлений.</li>
+                        <li>По изменённым и удалённым мероприятиям текущие задачи будут <strong>отменены</strong> и останутся в архиве задач.</li>
+                        <li>По изменённым и добавленным мероприятиям будут созданы <strong>новые задачи</strong>, а их исполнители получат уведомления.</li>
                     </ul>
                 {% else %}
                     <p>Проверьте данные — задачи будут созданы сразу после подтверждения.</p>
@@ -180,5 +179,5 @@ re-checked on the server.
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'js/smk_form.js' %}?v=20260902-3" defer></script>
+<script src="{% static 'js/smk_form.js' %}?v=20260904-1" defer></script>
 {% endblock %}

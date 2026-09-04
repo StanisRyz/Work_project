@@ -1,14 +1,30 @@
+/* The shell is a column so a page that asks for it can be measured against
+   the viewport: `min-height`, never `height`, so an ordinary page still grows
+   past one screen and scrolls the way it always did. */
 .app-shell {
+    display: flex;
+    flex-direction: column;
     min-height: 100vh;
+    /* Mobile browsers shrink the visible viewport when their chrome is on
+       screen; `dvh` is that real height and is ignored where unsupported. */
+    min-height: 100dvh;
 }
 
 .app-main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
     min-width: 0;
+    /* A flex item refuses to shrink below its content without this, which
+       would push a one-screen page past the viewport again. */
+    min-height: 0;
 }
 
 .content {
+    flex: 1 1 auto;
     width: 100%;
     max-width: none;
+    min-height: 0;
     padding: 18px 20px 28px;
 }
 
@@ -21,6 +37,32 @@
    keep their own horizontal scrolling instead of widening the whole page. */
 .page-container > * {
     min-width: 0;
+}
+
+/* One-screen pages: the registries.
+
+   `page-container--fill` turns the page into a column and every `.fill-region`
+   between it and the list passes the leftover height down; the list card is
+   what finally consumes it and scrolls inside itself, so the page as a whole
+   never scrolls. Nothing here sets a height — the space is whatever the
+   topbar, the toolbar, the filters and the page padding have not used, which
+   is why the table now reaches the bottom of the viewport on any screen.
+
+   Only the vertical axis is involved: widths, gaps and padding are the ones
+   `.page-container` already had. Siblings keep the default `flex: 0 1 auto`
+   and their automatic `min-height`, so a toolbar or a filter panel is never
+   squeezed below its content. */
+.page-container--fill {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.fill-region {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .sidebar {
@@ -248,6 +290,18 @@
     .content,
     .topbar {
         padding: 14px;
+    }
+
+    /* On a phone the toolbar, tabs and filter panel already take most of a
+       short viewport, so the one-screen clamp is dropped: the page scrolls
+       normally and the list keeps its own height instead of being squeezed
+       into what little is left. */
+    .page-container--fill {
+        display: grid;
+    }
+
+    .fill-region {
+        display: block;
     }
 
     .topbar__brand span, .topbar__separator, .topbar__page-title, .profile-menu__identity { display: none; }

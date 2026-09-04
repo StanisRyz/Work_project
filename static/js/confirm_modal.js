@@ -9,6 +9,7 @@
  *   data-confirm-title               modal heading
  *   data-confirm-text                short description (optional)
  *   data-confirm-label               confirm button caption
+ *   data-confirm-cancel-label        cancel button caption (default: Отмена)
  *   data-confirm-variant             confirm button modifier: warning | danger
  *   data-confirm-url                 POST target — the modal posts its own form
  *   data-confirm-form                id of an existing form to submit instead
@@ -39,6 +40,9 @@
     const cancel = dialog.querySelector('[data-confirm-modal-cancel]');
     const accept = dialog.querySelector('[data-confirm-modal-accept]');
     const VARIANTS = ['link-button--warning', 'link-button--danger'];
+    // The server-rendered caption, restored for every trigger that does not
+    // ask for its own — a dialog is filled from scratch each time it opens.
+    const DEFAULT_CANCEL_LABEL = cancel.textContent;
     const DEFAULT_COMMENT_ERROR = 'Укажите комментарий.';
 
     let trigger = null;
@@ -91,6 +95,7 @@
         title.textContent = button.dataset.confirmTitle || 'Подтвердите действие';
         text.textContent = button.dataset.confirmText || '';
         accept.textContent = button.dataset.confirmLabel || 'Подтвердить';
+        cancel.textContent = button.dataset.confirmCancelLabel || DEFAULT_CANCEL_LABEL;
         accept.disabled = false;
         accept.classList.remove(...VARIANTS);
         if (button.dataset.confirmVariant) {

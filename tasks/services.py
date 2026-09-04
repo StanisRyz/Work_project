@@ -367,7 +367,7 @@ def create_protocol_action_task(
 # --------------------------------------------------------------------------
 # СМК workflow task lifecycle
 #
-# Written *only* through `create_smk_action_task()` and `cancel_smk_source_tasks()`,
+# Written *only* through `create_smk_action_task()` and `cancel_smk_action_tasks()`,
 # called only from `smk/services.py` inside the transaction that stores or
 # corrects the record. Not transactional on their own, for the same reason the
 # protocol functions above are not: a record that fails halfway must take every
@@ -376,23 +376,38 @@ def create_protocol_action_task(
 # --------------------------------------------------------------------------
 
 
-def create_smk_action_task(source, action, assignee_ids, *, created_by):
+def create_smk_action_task(
+    source, action, assignee_ids, *, created_by, individual_assignee_id=None
+):
     """The real task an СМК корректирующее мероприятие becomes.
 
-    One shape only, unlike the act and protocol variants: an СМК measure is
-    never split per исполнитель, so there is no `individual_assignee` argument
-    and the task always carries every assignee. The wording, the department and
-    the deadline are read from the measure itself, so a caller cannot pair a
-    task with the wrong record; `Task.clean()` inside `_save_new_task()` then
-    re-checks that the measure really belongs to the record it was given.
+    The same two shapes `create_act_action_task()` and
+    `create_protocol_action_task()` have. Without `individual_assignee_id` this
+    is the shared task the measure produces, carrying every исполнитель; with
+    one it is a task split off for that single person, and then the assignee
+    list must be exactly them — a split task whose `TaskAssignee` rows
+    disagreed with the name on the task would be completable by someone the
+    task does not represent.
 
-    «One task per measure» is the `unique_smk_action_task` constraint on
-    `Task`, not a check here.
+    The wording, the department and the deadline are read from the measure
+    itself, so a caller cannot pair a task with the wrong record;
+    `Task.clean()` inside `_save_new_task()` then re-checks that the measure
+    really belongs to the record it was given and that the individual really is
+    one of its исполнители.
+
+    «At most one shared task per measure, and at most one per исполнитель» is
+    the pair of constraints on `Task`, not a check here.
     """
+    unique_ids = sorted(set(assignee_ids))
+    if individual_assignee_id is not None and unique_ids != [individual_assignee_id]:
+        raise TaskWorkflowError(
+            'Персональная задача СМК создаётся ровно на одного исполнителя.'
+        )
     task = Task(
         source_type=Task.SourceType.SMK,
         smk_source=source,
         smk_action=action,
+        individual_assignee_id=individual_assignee_id,
         task_text=action.task_text,
         department=action.department,
         due_date=action.due_date,
@@ -404,17 +419,17 @@ def create_smk_action_task(source, action, assignee_ids, *, created_by):
         created_by=created_by,
         status=_active_status('IN_PROGRESS', 'В работе'),
     )
-    return _save_new_task(task, sorted(set(assignee_ids)), actor=created_by)
+    return _save_new_task(task, unique_ids, actor=created_by)
 
 
-def cancel_smk_source_tasks(source, *, actor, reason):
-    """Close every live task an СМК record produced, without completing one.
+def cancel_smk_action_tasks(actions, *, actor, reason):
+    """Close the live tasks of the given СМК мероприятия, without completing one.
 
-    Called by `smk.services.update_smk_source()` before it writes the corrected
-    record: the measures the tasks came out of are about to be superseded, so
-    the work as it was stated is withdrawn rather than edited underneath the
-    people holding it. The rows stay — nothing is deleted — and `reason` is the
-    sentence a person reads on the task page.
+    Called by `smk.services.update_smk_source()` for exactly the measures a
+    correction changed or removed — never for the whole record: a measure that
+    came back unchanged keeps the task its исполнитель already holds. The rows
+    stay — nothing is deleted — and `reason` is the sentence a person reads on
+    the task page.
 
     Tasks in a final status are left exactly as they are: a completed task is a
     thing that really happened, and cancelling it would rewrite that. So is a
@@ -423,12 +438,15 @@ def cancel_smk_source_tasks(source, *, actor, reason):
     Returns the tasks it closed, so the caller can name them in the record's
     history.
     """
+    action_ids = [action.pk for action in actions]
+    if not action_ids:
+        return []
     cancelled_status = _active_status('CANCELLED', 'Отменена')
     cancelled_at = timezone.now()
     closed = []
     tasks = (
         Task.objects.select_for_update()
-        .filter(source_type=Task.SourceType.SMK, smk_source=source)
+        .filter(source_type=Task.SourceType.SMK, smk_action_id__in=action_ids)
         .exclude(status__is_final=True)
         .order_by('pk')
     )

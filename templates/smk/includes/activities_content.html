@@ -4,9 +4,10 @@
 
 The same five columns and the same markup as the protocol table, so the two
 read alike — №, мероприятие, исполнители, срок, статус. Every row comes from a
-measure's own `tasks` relation — a measure has at most one task by database
-constraint — and a measure whose task is missing is still listed, with «—»
-where the link would be, rather than being silently dropped.
+measure's own `tasks` relation: one row for the shared task a measure produces,
+or one row per исполнитель when «Разбить задачу по исполнителям» was chosen. A
+measure whose task is missing is still listed, with «—» where the link would
+be, rather than being silently dropped.
 
 The record references the task and never restates it: the статус here is the
 task's own, and everything that acts on the work — completing it, attaching a
@@ -22,8 +23,8 @@ file — happens on the task's page, which the № column links to.
             <table class="related-activities__table">
                 <colgroup><col class="related-activities__number"><col class="related-activities__action"><col class="related-activities__assignees"><col class="related-activities__due"><col class="related-activities__status"></colgroup>
                 <thead><tr><th>№ задачи</th><th>Мероприятие</th><th>Исполнители</th><th>Срок</th><th>Статус</th></tr></thead>
-                <tbody>{% for row in actions %}<tr{% if row.task %} data-row-url="{% url 'tasks:detail' row.task.pk %}"{% endif %}>
-                    <td>{% if row.task %}<a class="related-activities__task-link" href="{% url 'tasks:detail' row.task.pk %}">#{{ row.task.pk }}</a>{% else %}—{% endif %}</td>
+                <tbody>{% for row in actions %}{% for task in row.tasks %}<tr data-row-url="{% url 'tasks:detail' task.pk %}">
+                    <td><a class="related-activities__task-link" href="{% url 'tasks:detail' task.pk %}">#{{ task.pk }}</a></td>
                     {% comment %}
                     Three lines, then the clamp's own ellipsis — a display limit
                     only: the text is stored in full, the cell's `title` carries
@@ -31,11 +32,22 @@ file — happens on the task's page, which the № column links to.
                     complete.
                     {% endcomment %}
                     <td><strong class="user-text text-clamp-3" title="{{ row.action.task_text }}">{{ row.action.task_text }}</strong></td>
-                    {# One name per line, three of them, then «…». #}
+                    {% comment %}
+                    The task's own исполнители, not the measure's: a split task
+                    names exactly the one person it was issued to, and reading
+                    the measure here would claim the other four hold it too.
+                    One name per line, three of them, then «…».
+                    {% endcomment %}
+                    <td><span class="user-text text-clamp-3" title="{% for item in task.assignees.all %}{{ item.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for item in task.assignees.all %}<span class="related-activities__assignee">{{ item.user|person_name }}</span>{% empty %}—{% endfor %}</span></td>
+                    <td>{{ row.action.due_date|date:'d.m.Y' }}</td>
+                    <td><span class="act-badge act-badge--status">{{ task.status }}</span></td>
+                </tr>{% empty %}<tr>
+                    <td>—</td>
+                    <td><strong class="user-text text-clamp-3" title="{{ row.action.task_text }}">{{ row.action.task_text }}</strong></td>
                     <td><span class="user-text text-clamp-3" title="{% for user in row.assignees %}{{ user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for user in row.assignees %}<span class="related-activities__assignee">{{ user|person_name }}</span>{% empty %}—{% endfor %}</span></td>
                     <td>{{ row.action.due_date|date:'d.m.Y' }}</td>
-                    <td>{% if row.task %}<span class="act-badge act-badge--status">{{ row.task.status }}</span>{% else %}—{% endif %}</td>
-                </tr>{% endfor %}</tbody>
+                    <td>—</td>
+                </tr>{% endfor %}{% endfor %}</tbody>
             </table>
         </div>
     {% else %}
@@ -45,10 +57,12 @@ file — happens on the task's page, which the № column links to.
 
 {% comment %}
 What a correction withdrew. A редактирование of the record never edits the
-tasks it already produced: the live ones are cancelled and new ones issued, and
-the cancelled rows stay — here and in «Архив» of «Задачи» — so the wording
-somebody was once given is still readable. Shown only when there is something
-to show, and read-only like the table above it.
+tasks it already produced: the live tasks of a мероприятие that changed or was
+removed are cancelled and — where the measure survives — new ones issued, while
+an unchanged мероприятие keeps the task its исполнитель is already holding. The
+cancelled rows stay — here and in «Архив» of «Задачи» — so the wording somebody
+was once given is still readable. Shown only when there is something to show,
+and read-only like the table above it.
 {% endcomment %}
 {% if cancelled_tasks %}
     <section class="detail-section related-activities">

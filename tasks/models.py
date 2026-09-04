@@ -9,9 +9,9 @@ absent origin from a wrong one.
 
 Exactly one shape is valid per source type, enforced both by `clean()` (with
 readable messages) and by a database check constraint (the last line of
-defence). Two of those shapes come in a shared and a split variant, told apart
-by `individual_assignee`: NULL for the one task everybody shares, set for the
-one task split off for that person.
+defence). Three of those shapes — `ACT`, `PROTOCOL_ACTION` and `SMK` — come in
+a shared and a split variant, told apart by `individual_assignee`: NULL for the
+one task everybody shares, set for the one task split off for that person.
 
 Two of the four source types are *routing* entries rather than work:
 `PROTOCOL_APPROVAL` and `ACT_WORKFLOW`. Neither is completed with an
@@ -134,9 +134,9 @@ class Task(models.Model):
         blank=True,
         verbose_name='Запись СМК',
     )
-    # One task per measure, stated by the unique constraint below rather than
-    # by the relation: an СМК record is written once and its measures are not
-    # split between their исполнители, so there is no fan-out to allow for.
+    # One task per measure in the shared mode, one per исполнитель in the split
+    # one — stated by the two unique constraints below rather than by the
+    # relation, exactly as the act and protocol fan-outs are.
     smk_action = models.ForeignKey(
         SmkCorrectiveAction,
         on_delete=models.PROTECT,
@@ -309,10 +309,12 @@ class Task(models.Model):
                         & ~Q(workflow_stage='')
                     )
                     # An СМК корректирующее мероприятие: the audit record and
-                    # the measure together, no act and no protocol, a
-                    # department like every real work item, and nobody to
-                    # split it between — an СМК measure produces exactly one
-                    # task however many исполнителя it names.
+                    # the measure together, no act and no protocol, and a
+                    # department like every real work item.
+                    # `individual_assignee` is left free here, as it is for the
+                    # act and protocol shapes: an СМК measure produces either
+                    # one shared task or one task per исполнитель, and which of
+                    # the two is exactly what that column says.
                     | Q(
                         source_type='SMK',
                         act__isnull=True,
@@ -322,7 +324,6 @@ class Task(models.Model):
                         protocol_action__isnull=True,
                         smk_source__isnull=False,
                         smk_action__isnull=False,
-                        individual_assignee__isnull=True,
                         department__isnull=False,
                         workflow_stage='',
                     )
@@ -360,14 +361,20 @@ class Task(models.Model):
                 fields=['source_action', 'individual_assignee'],
                 name='unique_individual_act_action_task',
             ),
-            # One task per СМК мероприятие, so a retried or concurrent
-            # submission of the same record cannot hand its исполнители a
-            # second copy. Rows of every other source type have a NULL
-            # `smk_action`, and NULLs are distinct to a unique index, so none
-            # is affected.
+            # The same pair the act and protocol fan-outs already keep: at
+            # most one task everybody shares, and at most one per исполнитель
+            # within the split, so a retried or concurrent submission of the
+            # same record cannot hand anybody a second copy. Rows of every
+            # other source type have a NULL `smk_action`, and NULLs are
+            # distinct to a unique index, so none is affected.
             models.UniqueConstraint(
                 fields=['smk_action'],
-                name='unique_smk_action_task',
+                condition=Q(individual_assignee__isnull=True),
+                name='unique_shared_smk_action_task',
+            ),
+            models.UniqueConstraint(
+                fields=['smk_action', 'individual_assignee'],
+                name='unique_individual_smk_action_task',
             ),
             # One rejection task per act, stated by the database rather than by
             # a service check: a retried or concurrent КО transition must not
@@ -438,9 +445,9 @@ class Task(models.Model):
         protocol, and that a split task's individual assignee really is an
         assignee of the source it was split off from.
 
-        `individual_assignee` is optional for both split-capable sources — `ACT`
-        and `PROTOCOL_ACTION` — and forbidden on an approval task, which is one
-        person's queue entry and has nothing to split.
+        `individual_assignee` is optional for all three split-capable sources —
+        `ACT`, `PROTOCOL_ACTION` and `SMK` — and forbidden on an approval task,
+        which is one person's queue entry and has nothing to split.
         """
         super().clean()
         required, forbidden = {
@@ -470,7 +477,7 @@ class Task(models.Model):
             self.SourceType.SMK: (
                 ('smk_source', 'smk_action'),
                 ('act', 'root_analysis', 'source_action', 'protocol',
-                 'protocol_action', 'individual_assignee'),
+                 'protocol_action'),
             ),
         }.get(self.source_type, ((), ()))
         if not required:
@@ -530,6 +537,13 @@ class Task(models.Model):
                 errors['individual_assignee'] = (
                     'Персональная задача создаётся только на исполнителя этого '
                     'корректирующего мероприятия.'
+                )
+            if self.smk_action_id is not None and not self.smk_action.assignees.filter(
+                user_id=self.individual_assignee_id
+            ).exists():
+                errors['individual_assignee'] = (
+                    'Персональная задача создаётся только на исполнителя этого '
+                    'мероприятия СМК.'
                 )
         # The stage is what an `ACT_WORKFLOW` row *means*, and it is
         # meaningless anywhere else; `department` is required by every real

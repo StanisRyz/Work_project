@@ -8,6 +8,14 @@ task is the one chosen next to its first исполнитель, exactly as the 
 editor settled it.
 {% endcomment %}
 <div class="protocol-action-card" data-row>
+    {% comment %}
+    The measure's own identity while a record is being corrected. It is what
+    lets `update_smk_source()` compare this мероприятие with itself and leave
+    an unchanged one — and the задача somebody is already holding — alone;
+    row order could not, because rows are added and removed freely. Empty for a
+    new measure, and only honoured when the record really holds that row.
+    {% endcomment %}
+    <input type="hidden" name="actions-{{ row.index }}-id" value="{{ row.id }}">
     <div class="protocol-action-card__head">
         <span class="protocol-action-card__number" aria-hidden="true"></span>
         <h3>Мероприятие</h3>
@@ -31,6 +39,26 @@ editor settled it.
                 <span>Требуется вложение</span>
             </label>
         </div>
+    </div>
+    {% comment %}
+    Execution mode, and nothing else — the same control, the same wording and
+    the same `tasks.Task` fan-out a protocol decision already has: one shared
+    задача on everybody, or one задача per исполнитель completed independently.
+    Meaningless below two исполнителя, so it is rendered disabled until the row
+    has two and `smk_form.js` keeps that in step as they are added and removed;
+    a disabled checkbox is not posted, and `SmkSourceForm` normalizes the flag
+    off for a single исполнитель anyway. Both hints are rendered here so the
+    correct one is on screen before any script runs.
+    {% endcomment %}
+    <div class="protocol-split-option" data-split-option>
+        <label class="protocol-checkbox">
+            <input type="checkbox" name="actions-{{ row.index }}-split_for_assignees" data-split-checkbox{% if row.split_for_assignees %} checked{% endif %}{% if row.assignees|length < 2 %} disabled{% endif %}>
+            <span>Разбить задачу по исполнителям</span>
+        </label>
+        <p class="protocol-split-hint">
+            <span data-split-hint-off{% if row.split_for_assignees %} hidden{% endif %}>Одна общая задача на всех: выполнение любым исполнителем закрывает её для остальных.</span>
+            <span data-split-hint-on{% if not row.split_for_assignees %} hidden{% endif %}>Каждый исполнитель получит собственную задачу и выполнит её независимо.</span>
+        </p>
     </div>
     <div class="smk-source-fields">
         <label>

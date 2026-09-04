@@ -24,7 +24,7 @@ describe different work.
     <a class="act-back-link" href="{% url 'smk:list' %}" aria-label="К списку записей СМК">←</a>
     <div class="act-detail-heading__title">
         <h1>{{ source.label }}</h1>
-        {# The derived state, always shown — the same pill the registry renders. #}
+        {# «В работе» or «Архивировано» — the same pill the registry renders. #}
         <span class="status-badge status-badge--{{ state.code }}">{{ state.label }}</span>
     </div>
     {% comment %}

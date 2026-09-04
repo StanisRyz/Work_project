@@ -7,6 +7,13 @@ that crosses them. This does what `protocols.forms.ProtocolDraftForm` does: it
 reads the flat `POST`, rebuilds the rows for re-rendering with their errors,
 and hands the service a fully resolved structure.
 
+Every existing finding and measure carries its primary key through the form in
+a hidden `-id` field. That identity is what lets `update_smk_source()` compare
+a мероприятие with itself before and after the edit and regenerate only the
+tasks that really changed — row order alone would not survive a row being added
+or removed above it. Ids are resolved against the record being edited, so a
+foreign or stale one is simply read as a new row.
+
 Nothing here writes to the database, and nothing here decides permissions.
 """
 
@@ -52,7 +59,7 @@ class SmkSourceForm:
             if instance is not None:
                 self._load_instance(instance)
             else:
-                self.non_conformity_rows = [{'index': 0, 'text': '', 'errors': {}}]
+                self.non_conformity_rows = [self._empty_non_conformity_row(0)]
                 self.action_rows = [self._empty_action_row(0)]
 
     # ------------------------------------------------------------------ initial
@@ -76,20 +83,29 @@ class SmkSourceForm:
         for index, finding in enumerate(source.current_non_conformities):
             positions[finding.pk] = index
             self.non_conformity_rows.append(
-                {'index': index, 'text': finding.text, 'errors': {}}
+                {
+                    'index': index,
+                    'id': str(finding.pk),
+                    'text': finding.text,
+                    'errors': {},
+                }
             )
         if not self.non_conformity_rows:
-            self.non_conformity_rows.append({'index': 0, 'text': '', 'errors': {}})
+            self.non_conformity_rows.append(self._empty_non_conformity_row(0))
         actions = source.current_actions.prefetch_related('assignees__user__userprofile')
         for index, action in enumerate(actions):
             position = positions.get(action.non_conformity_id)
             self.action_rows.append(
                 {
                     'index': index,
+                    # The measure's own identity, carried through the form so a
+                    # correction can tell «это же мероприятие» from «новое».
+                    'id': str(action.pk),
                     'text': action.task_text,
                     'due_date': action.due_date.isoformat(),
                     'non_conformity': '' if position is None else str(position),
                     'requires_attachment': action.requires_attachment,
+                    'split_for_assignees': action.split_for_assignees,
                     # Strings, because the option partials compare against
                     # `pk|stringformat:'s'` — the same values a POST carries.
                     # The department is each исполнитель's own, so a measure
@@ -114,13 +130,19 @@ class SmkSourceForm:
             self.action_rows.append(self._empty_action_row(0))
 
     @staticmethod
+    def _empty_non_conformity_row(index):
+        return {'index': index, 'id': '', 'text': '', 'errors': {}}
+
+    @staticmethod
     def _empty_action_row(index):
         return {
             'index': index,
+            'id': '',
             'text': '',
             'due_date': '',
             'non_conformity': '',
             'requires_attachment': False,
+            'split_for_assignees': False,
             'assignees': [{'user': '', 'department': ''}],
             'errors': {},
         }
@@ -148,6 +170,19 @@ class SmkSourceForm:
                 is_active=True, userprofile__is_active=True
             ).select_related('userprofile')
         }
+        # The rows the record being corrected currently has. A submitted `-id`
+        # counts only if it is one of these: a foreign, deleted or already
+        # superseded key is read as a new row rather than accepted as identity,
+        # so a forged POST can never attach itself to somebody else's record.
+        self._known_non_conformity_ids = set()
+        self._known_action_ids = set()
+        if self.instance is not None:
+            self._known_non_conformity_ids = set(
+                self.instance.current_non_conformities.values_list('pk', flat=True)
+            )
+            self._known_action_ids = set(
+                self.instance.current_actions.values_list('pk', flat=True)
+            )
 
         origin = self._clean_origin()
         audit_date = self._clean_audit_date()
@@ -205,15 +240,19 @@ class SmkSourceForm:
         for index in range(self._count('nonconformities')):
             row = {
                 'index': index,
+                'id': self.data.get(f'nonconformities-{index}-id', '').strip(),
                 'text': self.data.get(f'nonconformities-{index}-text', '').strip(),
                 'errors': {},
             }
             self.non_conformity_rows.append(row)
             if row['text']:
                 self._kept_non_conformities[index] = len(cleaned)
-                cleaned.append(row['text'])
+                cleaned.append({
+                    'id': self._known_id(row['id'], self._known_non_conformity_ids),
+                    'text': row['text'],
+                })
         if not self.non_conformity_rows:
-            self.non_conformity_rows.append({'index': 0, 'text': '', 'errors': {}})
+            self.non_conformity_rows.append(self._empty_non_conformity_row(0))
         if not cleaned:
             self.non_conformity_rows[0]['errors']['text'] = (
                 'Добавьте хотя бы одно выявленное несоответствие.'
@@ -229,6 +268,9 @@ class SmkSourceForm:
             assignee_departments = self._getlist(f'{prefix}-assignee_departments')
             row = {
                 'index': index,
+                # Identity, not data: the row the record already holds, so an
+                # unchanged мероприятие keeps the task its исполнитель has.
+                'id': self.data.get(f'{prefix}-id', '').strip(),
                 'text': self.data.get(f'{prefix}-text', '').strip(),
                 'due_date': self.data.get(f'{prefix}-due_date', '').strip(),
                 # The finding this measure answers, as the row index on screen.
@@ -239,6 +281,10 @@ class SmkSourceForm:
                 # the same on a measure with one исполнитель as on one with
                 # five, and an СМК measure is never split between them anyway.
                 'requires_attachment': bool(self.data.get(f'{prefix}-requires_attachment')),
+                # Presentation only at this point — whether splitting means
+                # anything depends on how many исполнителя survive validation,
+                # so the answer is normalized against them below.
+                'split_for_assignees': bool(self.data.get(f'{prefix}-split_for_assignees')),
                 'assignees': [
                     {'user': user, 'department': department}
                     for user, department in zip(assignee_users, assignee_departments)
@@ -303,13 +349,19 @@ class SmkSourceForm:
                 continue
             cleaned.append(
                 {
+                    'id': self._known_id(row['id'], self._known_action_ids),
                     'text': row['text'],
                     'department': department,
                     'due_date': due_date,
                     # A position in `non_conformities`, or `None` — never a
-                    # primary key: the findings do not exist yet.
+                    # primary key: a newly added finding does not exist yet.
                     'non_conformity': non_conformity,
                     'requires_attachment': row['requires_attachment'],
+                    # Stored normalized, exactly as `protocols/services.py`
+                    # normalizes its own: splitting a measure between one
+                    # исполнитель has no meaning, and an un-normalized answer
+                    # would make an unchanged measure look changed.
+                    'split_for_assignees': row['split_for_assignees'] and len(assignees) > 1,
                     'assignees': assignees,
                 }
             )
@@ -333,6 +385,19 @@ class SmkSourceForm:
             self.non_field_errors.append('Превышено допустимое количество строк.')
             return 0
         return value
+
+    @staticmethod
+    def _known_id(value, known):
+        """The submitted `-id` if the record really holds that row, else `None`.
+
+        `None` means «new row», which is what an added мероприятие, a creation
+        and a forged key all are. Identity is never taken on trust.
+        """
+        try:
+            pk = int(value)
+        except (TypeError, ValueError):
+            return None
+        return pk if pk in known else None
 
     def _department(self, value):
         try:

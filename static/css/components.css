@@ -304,6 +304,14 @@
    other match whatever element they are built from; a modifier only ever
    changes colour. Do not restate these properties per page. */
 
+/* `.link-button` sets an author `display`, which beats the user-agent rule
+   behind `[hidden]`. Restating it here is what lets a script hide a button by
+   setting `el.hidden` — `attachment_upload.js` hides the no-JavaScript
+   «Добавить вложение» submit exactly that way. */
+.link-button[hidden] {
+    display: none;
+}
+
 .link-button {
     display: inline-flex;
     align-items: center;

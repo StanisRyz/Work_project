@@ -442,11 +442,13 @@ class ActStatusRequirementTests(TestCase):
                 self.assertIn(code, result['detail'])
                 call_command('seed_references', stdout=StringIO())
 
-    def test_the_task_status_set_is_unchanged(self):
+    def test_the_required_task_status_set_is_seeded(self):
+        """Three now: `CANCELLED` joined them when an СМК correction gained the
+        ability to withdraw the tasks it reissues."""
         results = run_fresh_bootstrap_checks(allow_sqlite=True)
         result = next(item for item in results if item['check'] == 'task_statuses')
         self.assertEqual(result['status'], BOOTSTRAP_PASS)
-        self.assertIn('2', result['detail'])
+        self.assertIn('3', result['detail'])
 
 
 class ProductionReadinessCommandTests(TestCase):

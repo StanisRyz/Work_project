@@ -39,11 +39,13 @@ class SmkSource(models.Model):
         Two values on purpose: this is a shelf, not a workflow. A record stays
         `ACTIVE` until somebody archives it by hand — completing its tasks
         never moves it, because the tasks are tracked in «Задачи» and the
-        record is the document they came out of.
+        record is the document they came out of. These two labels are also the
+        two the UI shows: `smk.selectors.describe_smk_state()` maps the stored
+        value onto the pill and derives nothing of its own.
         """
 
         ACTIVE = 'ACTIVE', 'В работе'
-        ARCHIVED = 'ARCHIVED', 'Архив'
+        ARCHIVED = 'ARCHIVED', 'Архивировано'
 
     origin = models.CharField(
         'Источник', max_length=32, choices=Origin.choices,
@@ -101,12 +103,12 @@ class SmkSource(models.Model):
         is spelled out once and never as a status comparison in markup."""
         return self.status == self.Status.ARCHIVED
 
-    # The record as it reads *now*. Editing does not rewrite the findings and
-    # the measures — it stamps `superseded_at` on the ones that were there and
-    # writes a fresh set — because the tasks the old measures produced are
-    # kept, and a `PROTECT`ed row cannot be deleted out from under them. Every
-    # read side asks these two, so a superseded row can never surface as if it
-    # were still the record.
+    # The record as it reads *now*. Editing supersedes a measure rather than
+    # rewriting it whenever the work it produced changes — the tasks it created
+    # are kept, and a `PROTECT`ed row cannot be deleted out from under them —
+    # while a measure nobody's задача depends on differently is kept in place.
+    # Every read side asks these two, so a superseded row can never surface as
+    # if it were still the record.
     @property
     def current_non_conformities(self):
         return self.non_conformities.filter(superseded_at__isnull=True)
@@ -206,10 +208,11 @@ class SmkCorrectiveAction(models.Model):
     """One корректирующее мероприятие, and the task it becomes.
 
     The wording, the department and the deadline are carried here; the real
-    task is created from them by `smk.services.create_smk_source()` in the same
-    transaction, and `Task.smk_action` is the only link between the two. At
-    most one task per measure — a database constraint on `Task`, not a check
-    here.
+    task is created from them by `smk/services.py` in the same transaction, and
+    `Task.smk_action` is the only link between the two. One shared task, or one
+    per исполнитель when `split_for_assignees` is set — «at most one shared and
+    at most one per person» is a pair of database constraints on `Task`, not a
+    check here.
     """
 
     source = models.ForeignKey(
@@ -246,12 +249,22 @@ class SmkCorrectiveAction(models.Model):
     # `default=False` keeps every row stored before this field existed exactly
     # as permissive as it was.
     requires_attachment = models.BooleanField('Обязательно вложение', default=False)
+    # How many real tasks this measure becomes: one shared task carrying every
+    # исполнитель, or one task per исполнитель, completed independently. The
+    # same field and the same meaning `ProtocolAction.split_for_assignees` and
+    # `CorrectiveAction.split_for_assignees` already carry — СМК reuses the
+    # common `tasks.Task` split model and has none of its own. Stored
+    # normalized: splitting a measure between one person means nothing, so the
+    # service writes `False` for a single исполнитель.
+    split_for_assignees = models.BooleanField('Разбить задачу по исполнителям', default=False)
     display_order = models.PositiveIntegerField('Порядок отображения', default=0)
-    # Same meaning as on the finding, and the reason an edit never touches an
-    # existing measure: its task is `PROTECT`ed and stays, so the corrected
-    # wording is a *new* row and this one becomes the record's earlier text.
-    # `unique_smk_action_task` therefore keeps holding — the new task hangs on
-    # the new measure, the cancelled one on this.
+    # Same meaning as on the finding, and the reason a correction never edits a
+    # measure whose work changed: its tasks are `PROTECT`ed and stay, so the
+    # corrected wording is a *new* row and this one becomes the record's
+    # earlier text. The uniqueness constraints therefore keep holding — the new
+    # tasks hang on the new measure, the cancelled ones on this. A measure the
+    # correction left alone is never stamped: it keeps its row and its live
+    # tasks exactly as they were.
     superseded_at = models.DateTimeField('Заменено', null=True, blank=True)
 
     class Meta:

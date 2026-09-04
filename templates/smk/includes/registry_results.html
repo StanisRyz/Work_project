@@ -3,9 +3,10 @@
 The registry rows for one tab.
 
 «Количество задач» and «Статус» both come from `build_smk_list_state()`: the
-counts are annotations, so the table stays one database read however long it
-gets, and the status is derived from those counts rather than stored — a record
-therefore reads the same here as on its own page. Ordering is the model's own
+count is an annotation, so the table stays one database read however long it
+gets, and the status is the record's own shelf — «В работе» or «Архивировано»,
+the only two an СМК record has — so it reads the same here as on its own page.
+Ordering is the model's own
 `-created_at, -pk`, like every other registry in the project; no list here
 offers column sorting. One click anywhere on the row opens the record —
 `data-row-url` and `static/js/clickable_rows.js`, exactly as every other
@@ -24,7 +25,7 @@ registry does it.
                 <td class="user-text">{{ row.source.created_by|person_name }}</td>
                 <td>{{ row.task_count }}</td>
                 <td>{{ row.source.created_at|date:'d.m.Y' }}</td>
-                {# Derived from the tasks by `describe_smk_state()`, not stored. #}
+                {# `describe_smk_state()`: «В работе» or «Архивировано», nothing else. #}
                 <td><span class="status-badge status-badge--{{ row.state.code }}">{{ row.state.label }}</span></td>
             </tr>
         {% endfor %}

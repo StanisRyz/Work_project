@@ -91,8 +91,4 @@ server render and is therefore already current.
 {% if detail_tab == 'protocol' and can_edit %}
     <script src="{% static 'js/protocol_editor.js' %}?v=20260825-1"></script>
 {% endif %}
-{% if detail_tab == 'collaboration' %}
-    {# The generic file picker, shared with the act page — no protocol copy. #}
-    <script src="{% static 'js/act_attachments.js' %}?v=20260730-1"></script>
-{% endif %}
 {% endblock %}
