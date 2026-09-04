@@ -20,11 +20,12 @@
     min-height: 0;
 }
 
+/* Deliberately not a growing flex item: an ordinary page is exactly as tall as
+   its content, the way it always was. Only `page-container--fill` below asks
+   for the leftover height. */
 .content {
-    flex: 1 1 auto;
     width: 100%;
     max-width: none;
-    min-height: 0;
     padding: 18px 20px 28px;
 }
 
@@ -54,6 +55,7 @@
    squeezed below its content. */
 .page-container--fill {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
 }
@@ -298,6 +300,7 @@
        into what little is left. */
     .page-container--fill {
         display: grid;
+        flex: 0 1 auto;
     }
 
     .fill-region {

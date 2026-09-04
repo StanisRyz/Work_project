@@ -605,10 +605,23 @@
     font-size: 14px;
 }
 
+/* Progress on the left, the decision on the right, one row. It wraps on a
+   narrow screen, and the actions keep their own right alignment when it does.
+   The buttons are here, above the list, on purpose: with many согласующие the
+   old footer position put «Согласовать» behind a long scroll. */
+.protocol-approval-panel__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+}
+
 .protocol-approval-panel__actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
+    margin-left: auto;
     gap: 10px;
 }
 

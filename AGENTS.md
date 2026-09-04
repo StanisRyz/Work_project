@@ -1116,8 +1116,17 @@ tasks never live inside `acts`.
   from the tab's local state: confirmation is a production state, not an
   export gate. A missing value is written as an empty cell — never `None`,
   `null`, a stand-in `0` or an empty `<v>`.
+- **A kind of protocol is a `ProtocolType` row, never code.** Two are seeded —
+  «Качество» (`QUALITY`, `protocols.0002`) and «Web-система» (`WEB_SYSTEM`,
+  `protocols.0007`) — and a further kind is one more idempotent
+  `update_or_create` data migration keyed on `code`, reversible only while no
+  protocol uses it. Nothing branches on the kind: `protocol_create` renders one
+  card per active row in `display_order`, numbering, approval, rendering and
+  printing are identical, and every page reads `protocol.protocol_type.name`.
+  The `*_PROTOCOL_TYPE_CODE` constants in `protocols/models.py` are stable
+  identifiers for tests and fixtures, not switches — do not add a branch on one.
 - **Protocol numbers are per type and reusable.** Each `ProtocolType` owns its
-  own series, so «Качество №1» and a future type's «№1» coexist. Deleting a
+  own series, so «Качество №1» and «Web-система №1» coexist. Deleting a
   draft frees its number, and the next protocol of that type takes the
   **smallest free positive number**, never `max + 1`: with `1, 2, 4, 5` taken
   the answer is `3`. Allocation happens only in

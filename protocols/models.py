@@ -20,9 +20,13 @@ from django.db import models
 from accounts.models import Department
 
 
-# The first protocol kind, seeded by a data migration. The code is the stable
-# identifier business logic may key on; the primary key never is.
+# The protocol kinds seeded by data migrations (`0002`, `0007`). The code is the
+# stable identifier business logic and tests may key on; the primary key never
+# is. Neither constant is a rule: nothing branches on the kind of a protocol —
+# every type numbers, renders and approves the same way — so a further kind is
+# another `ProtocolType` row and no code change at all.
 QUALITY_PROTOCOL_TYPE_CODE = 'QUALITY'
+WEB_SYSTEM_PROTOCOL_TYPE_CODE = 'WEB_SYSTEM'
 
 
 class ProtocolType(models.Model):
