@@ -721,17 +721,63 @@
 }
 
 .task-attachment-row {
-    display: grid;
-    gap: 2px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     padding: 8px 12px;
     border: 1px solid var(--color-border);
     border-radius: 8px;
     background: #fbfcfe;
 }
 
+/* The name over its metadata, as before. `min-width: 0` is what lets a long
+   file name wrap instead of pushing the cross out of the card. */
+.task-attachment-row__main {
+    display: grid;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 2px;
+}
+
 .task-attachment-meta {
     color: var(--color-muted);
     font-size: 13px;
+}
+
+/* «Удалить вложение»: a red cross, shown only on rows the server would really
+   let this user remove. The form around it exists so the action survives
+   without JavaScript; it must not take part in the row's layout. */
+.task-attachment-delete-form {
+    display: flex;
+    flex: 0 0 auto;
+}
+
+.task-attachment-delete {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #b91c1c;
+    place-items: center;
+    cursor: pointer;
+}
+
+.task-attachment-delete:hover {
+    border-color: #f3c4c4;
+    background: #fdf0f0;
+}
+
+.task-attachment-delete:focus-visible {
+    outline: 2px solid #b91c1c;
+    outline-offset: 1px;
+}
+
+.task-attachment-delete .ui-icon {
+    width: 16px;
+    height: 16px;
 }
 
 /* Stated once, above the upload form: this task cannot be completed with

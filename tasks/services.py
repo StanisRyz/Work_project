@@ -1,5 +1,6 @@
 import logging
 import time
+from functools import partial
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -10,7 +11,11 @@ from realtime.emitters import emit_task_completed, emit_task_created, emit_task_
 from references.models import TaskStatus
 
 from .models import Task, TaskAssignee
-from .permissions import can_complete_task, can_upload_task_attachment
+from .permissions import (
+    can_complete_task,
+    can_delete_task_attachment,
+    can_upload_task_attachment,
+)
 
 
 logger = logging.getLogger('ecosystem.workflow')
@@ -848,7 +853,12 @@ def ensure_act_rejection_task(act, defects, *, created_by):
 # never part of completion, so a task is still finished with its execution
 # comment and no file at all. The one upload policy in
 # `ecosystem.attachments` decides what may be stored; `tasks.permissions`
-# decides who may store it; this decides nothing and only writes.
+# decides who may store or remove it; this decides nothing and only writes.
+#
+# Deletion exists for the ordinary mistake — the wrong file was picked — and is
+# bounded by the same permission: while the task is still `IN_PROGRESS`, its
+# assignees and an administrator may take a file off it. A completed or
+# cancelled task keeps everything attached to it.
 # --------------------------------------------------------------------------
 
 
@@ -899,7 +909,14 @@ def add_task_attachment(task, user, uploaded_file):
             attachment.save()
     except Exception:
         if file_written:
-            _delete_task_attachment_file(attachment)
+            _delete_task_attachment_file(
+                attachment.file.storage,
+                attachment.file.name,
+                task_id=_pk_of(task),
+                user_id=_pk_of(user),
+                operation='upload_rollback',
+                failure_outcome='orphan_cleanup_failed',
+            )
         raise
 
     # Identifiers and a size only — never the file's name or its path.
@@ -917,17 +934,114 @@ def add_task_attachment(task, user, uploaded_file):
     return attachment
 
 
-def _delete_task_attachment_file(attachment):
-    """Best-effort cleanup of a file whose row was never stored."""
+def _delete_task_attachment_file(
+    storage, file_name, *, task_id, attachment_id=None, user_id=None,
+    operation, failure_outcome,
+):
+    """Best-effort removal of one stored file.
+
+    Storage is not transactional, so it is driven from both ends of an
+    attachment's life: a rollback after the row could not be written, and a
+    deletion once the row is gone. Passing the storage and the name rather than
+    the model instance is what lets the second case run on commit, when the
+    row no longer exists.
+    """
+    if not file_name:
+        return
     try:
-        attachment.file.storage.delete(attachment.file.name)
+        storage.delete(file_name)
     except Exception as exc:  # noqa: BLE001 - storage cleanup is best-effort
         log_event(
             attachment_logger,
             'WARNING',
             'attachment.storage_failed',
-            task_id=getattr(attachment, 'task_id', None),
-            operation='upload_rollback',
+            attachment_id=attachment_id,
+            task_id=task_id,
+            user_id=user_id,
+            operation=operation,
             error_type=type(exc).__name__,
-            outcome='orphan_cleanup_failed',
+            outcome=failure_outcome,
         )
+
+
+def delete_task_attachment(attachment, user):
+    """Remove one file from an ordinary task, atomically.
+
+    The mirror of `add_task_attachment()`, and it re-asks the same question
+    under the task's row lock: a task completed or cancelled between the page
+    render and this request no longer accepts the change, which is what keeps a
+    closed task's attachment history intact. The database row goes first and
+    the file is unlinked only after the transaction commits, so a rolled-back
+    delete can never leave a row pointing at a file that is gone.
+
+    Returns `True` when a row was removed and `False` when it had already
+    disappeared — deleting the same attachment twice is not an error.
+    """
+    from .models import TaskAttachment
+
+    if not can_delete_task_attachment(attachment, user):
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.access_denied',
+            attachment_id=_pk_of(attachment),
+            task_id=getattr(attachment, 'task_id', None),
+            user_id=_pk_of(user),
+            operation='delete',
+            outcome='denied',
+        )
+        raise TaskWorkflowError('Удаление вложения задачи недоступно.')
+
+    task_id = attachment.task_id
+    attachment_id = attachment.pk
+    with transaction.atomic():
+        # Fixed lock order, the same one the act service uses: the task first,
+        # then its attachment.
+        locked_task = (
+            Task.objects.select_for_update()
+            .select_related('status')
+            .prefetch_related('assignees')
+            .filter(pk=task_id)
+            .first()
+        )
+        if locked_task is None:
+            return False
+        locked_attachment = (
+            TaskAttachment.objects.select_for_update()
+            .filter(pk=attachment_id, task_id=task_id)
+            .first()
+        )
+        if locked_attachment is None:
+            return False
+        locked_attachment.task = locked_task
+        if not can_delete_task_attachment(locked_attachment, user):
+            raise TaskWorkflowError('Удаление вложения задачи недоступно.')
+
+        file_name = locked_attachment.file.name
+        storage = locked_attachment.file.storage
+        locked_attachment.delete()
+        transaction.on_commit(
+            partial(
+                _delete_task_attachment_file,
+                storage,
+                file_name,
+                attachment_id=attachment_id,
+                task_id=task_id,
+                user_id=_pk_of(user),
+                operation='delete_file',
+                failure_outcome='orphaned_file',
+            )
+        )
+
+    # Identifiers only — never the file's name or its path.
+    log_event(
+        attachment_logger,
+        'INFO',
+        'attachment.deleted',
+        attachment_id=attachment_id,
+        task_id=task_id,
+        user_id=_pk_of(user),
+        operation='delete',
+        outcome='ok',
+    )
+    return True

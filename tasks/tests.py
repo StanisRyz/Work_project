@@ -19,7 +19,8 @@ from references.models import ActStatus, DefectType, Operation, TaskStatus
 
 from .models import Task, TaskAssignee, TaskAttachment
 from .permissions import (
-    can_complete_task, can_upload_task_attachment, get_visible_tasks_queryset,
+    can_complete_task, can_delete_task_attachment, can_upload_task_attachment,
+    get_visible_tasks_queryset,
 )
 from .services import TaskWorkflowError, complete_task, replace_task_assignees
 
@@ -548,6 +549,140 @@ class TaskViewsTests(TestCase):
             ).status_code,
             200,
         )
+
+    def test_an_attachment_round_trip_keeps_the_typed_execution_comment(self):
+        """The comment survives adding *and* removing a file, and is still saved.
+
+        Every attachment request is its own redirect, and each one used to
+        empty the «Выполнение» textarea. The half-written text travels with
+        both as a hidden field, is parked for exactly that one redirect and is
+        put straight back into the field — it never becomes the task's
+        execution comment on its own, and the completion that follows saves
+        what the user actually typed, once.
+        """
+        task = self._task(self.employee, timezone.localdate())
+        typed = 'Заменили уплотнение, проверили на стенде.'
+        self.client.force_login(self.employee)
+
+        upload = self.client.post(
+            reverse('tasks:add_attachment', args=[task.pk]),
+            {
+                'file': SimpleUploadedFile('акт.txt', b'result'),
+                'execution_comment': typed,
+            },
+        )
+        detail_url = reverse('tasks:detail', args=[task.pk])
+        # Not followed here: the draft is popped by the first render of the
+        # page, and `assertRedirects` would spend it before the assertions do.
+        self.assertRedirects(upload, detail_url, fetch_redirect_response=False)
+        self.assertEqual(task.attachments.count(), 1)
+
+        # The page the user lands on has their text back in the field, and the
+        # upload alone changed nothing about the task itself.
+        detail = self.client.get(detail_url)
+        self.assertEqual(detail.context['execution_comment'], typed)
+        self.assertContains(detail, typed)
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'IN_PROGRESS')
+        self.assertEqual(task.execution_comment, '')
+
+        # Parked for one navigation and no more: a reload starts clean.
+        self.assertEqual(self.client.get(detail_url).context['execution_comment'], '')
+
+        # Removing the file is the same round trip and keeps the same text.
+        attachment = TaskAttachment.objects.get()
+        removal = self.client.post(
+            reverse('tasks:delete_attachment', args=[task.pk, attachment.pk]),
+            {'execution_comment': typed},
+        )
+        self.assertRedirects(removal, detail_url, fetch_redirect_response=False)
+        self.assertFalse(task.attachments.exists())
+        self.assertEqual(
+            self.client.get(detail_url).context['execution_comment'], typed
+        )
+
+        # And completing then stores exactly the user's text, in one comment.
+        self.client.post(
+            reverse('tasks:complete', args=[task.pk]), {'execution_comment': typed}
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'COMPLETED')
+        self.assertEqual(task.execution_comment, typed)
+
+    def test_attachment_deletion_is_limited_to_assignees_admins_and_open_tasks(self):
+        """The cross removes a file; who may press it is decided on the server.
+
+        An unrelated employee may read the task and still cannot delete from
+        it; an исполнитель and an администратор can, while the task is open;
+        and once it is completed nobody can, so a closed task keeps its
+        attachment history.
+        """
+        task = self._task(self.employee, timezone.localdate())
+        administrator = User.objects.create_superuser(
+            username='admin_delete', password='demo12345'
+        )
+        upload_url = reverse('tasks:add_attachment', args=[task.pk])
+        detail_url = reverse('tasks:detail', args=[task.pk])
+
+        def _attach(name):
+            self.client.force_login(self.employee)
+            self.client.post(upload_url, {'file': SimpleUploadedFile(name, b'data')})
+            return TaskAttachment.objects.latest('pk')
+
+        first = _attach('первый.txt')
+
+        # A user with no relation to the task: refused, and told nothing.
+        self.client.force_login(self.other_employee)
+        refused = self.client.post(
+            reverse('tasks:delete_attachment', args=[task.pk, first.pk])
+        )
+        self.assertEqual(refused.status_code, 404)
+        self.assertTrue(TaskAttachment.objects.filter(pk=first.pk).exists())
+        # …and the cross is not offered to them either.
+        self.assertNotContains(self.client.get(detail_url), 'task-attachment-delete')
+
+        # The исполнитель removes their own mistake.
+        self.client.force_login(self.employee)
+        self.assertContains(self.client.get(detail_url), 'task-attachment-delete')
+        removed = self.client.post(
+            reverse('tasks:delete_attachment', args=[task.pk, first.pk])
+        )
+        self.assertRedirects(removed, detail_url)
+        self.assertFalse(TaskAttachment.objects.filter(pk=first.pk).exists())
+
+        # An administrator may remove a file they never uploaded.
+        second = _attach('второй.txt')
+        self.client.force_login(administrator)
+        self.client.post(reverse('tasks:delete_attachment', args=[task.pk, second.pk]))
+        self.assertFalse(TaskAttachment.objects.filter(pk=second.pk).exists())
+
+        # A completed task keeps everything attached to it — for the
+        # исполнитель and for the administrator alike.
+        third = _attach('третий.txt')
+        self.client.force_login(self.employee)
+        self.client.post(
+            reverse('tasks:complete', args=[task.pk]),
+            {'execution_comment': 'Выполнено.'},
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'COMPLETED')
+        third.refresh_from_db()
+        self.assertFalse(can_delete_task_attachment(third, self.employee))
+        self.assertFalse(can_delete_task_attachment(third, administrator))
+        self.assertEqual(
+            self.client.post(
+                reverse('tasks:delete_attachment', args=[task.pk, third.pk])
+            ).status_code,
+            404,
+        )
+        self.client.force_login(administrator)
+        self.assertEqual(
+            self.client.post(
+                reverse('tasks:delete_attachment', args=[task.pk, third.pk])
+            ).status_code,
+            404,
+        )
+        self.assertTrue(TaskAttachment.objects.filter(pk=third.pk).exists())
 
     def test_unassigned_manager_cannot_complete_task(self):
         task = self._task(self.employee, timezone.localdate())

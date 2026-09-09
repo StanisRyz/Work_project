@@ -16,6 +16,7 @@ from .forms import TaskAttachmentForm
 from .models import Task, TaskAttachment
 from .permissions import (
     can_complete_task,
+    can_delete_task_attachment,
     can_download_task_attachment,
     can_upload_task_attachment,
     get_readable_tasks_queryset,
@@ -28,7 +29,44 @@ from .presentation import (
     get_task_approval,
 )
 from .selectors import build_task_list_state
-from .services import TaskWorkflowError, add_task_attachment, attachment_logger, complete_task
+from .services import (
+    TaskWorkflowError,
+    add_task_attachment,
+    attachment_logger,
+    complete_task,
+    delete_task_attachment,
+)
+
+
+# The half-written «Выполнение» text, parked in the session for exactly one
+# redirect. Uploading a file is its own request and its own round trip, and
+# before this the trip threw the comment away: the user came back to an empty
+# textarea and retyped what they had already written. The draft is not a
+# comment and never becomes one — `complete_task()` still saves only what is
+# posted to `tasks:complete` — it is only what the page puts back into the
+# field. Keyed by task, so a draft can never surface on a different task, and
+# popped on first read, so it survives one navigation and no more.
+_EXECUTION_DRAFT_SESSION_KEY = 'task_execution_draft'
+
+
+def _remember_execution_draft(request, task, execution_comment):
+    """Carry an unsaved execution comment across the upload redirect."""
+    text = (execution_comment or '').strip()
+    if not text:
+        # Nothing typed: clear any stale draft rather than keeping the old one
+        # alive, so an emptied textarea stays empty after the upload.
+        request.session.pop(_EXECUTION_DRAFT_SESSION_KEY, None)
+        return
+    request.session[_EXECUTION_DRAFT_SESSION_KEY] = {'task': task.pk, 'text': text}
+
+
+def _take_execution_draft(request, task):
+    """Pop this task's parked draft, if the previous request left one."""
+    draft = request.session.get(_EXECUTION_DRAFT_SESSION_KEY)
+    if not isinstance(draft, dict) or draft.get('task') != task.pk:
+        return ''
+    del request.session[_EXECUTION_DRAFT_SESSION_KEY]
+    return draft.get('text') or ''
 
 
 @login_required
@@ -114,16 +152,36 @@ def task_detail(request, pk):
         return redirect('protocols:detail', pk=task.protocol_id)
     if task.source_type == Task.SourceType.ACT_WORKFLOW and task.act_id:
         return redirect('acts:detail', pk=task.act_id)
-    context = _task_detail_context(task, request.user, request.GET.urlencode())
+    context = _task_detail_context(
+        task, request.user, request.GET.urlencode(),
+        execution_comment=_take_execution_draft(request, task),
+    )
     context['header_title'] = f'Задача {task.pk}'
     return render(request, 'tasks/detail.html', context)
 
 
-def _task_attachment_cards(task):
-    """Stored attachments, each with the size label the card shows."""
+def _task_attachment_cards(task, user):
+    """Stored attachments, each with the size label and the delete right.
+
+    `can_delete` is asked per row and answered by `tasks.permissions`, the same
+    function the endpoint re-asks: the cross is a shortcut to a permitted
+    action, never the permission itself.
+    """
+    attachments = list(task.attachments.select_related('uploaded_by'))
+    for attachment in attachments:
+        # The task is already in hand; never let a card re-fetch it row by row.
+        attachment.task = task
+    # The answer depends on the task and the user alone, so it is asked once
+    # rather than once per file — but it is asked through the very function the
+    # endpoint re-asks, so the two can never drift apart.
+    can_delete = bool(attachments) and can_delete_task_attachment(attachments[0], user)
     return [
-        {'object': attachment, 'formatted_size': format_file_size(attachment.file_size)}
-        for attachment in task.attachments.select_related('uploaded_by')
+        {
+            'object': attachment,
+            'formatted_size': format_file_size(attachment.file_size),
+            'can_delete': can_delete,
+        }
+        for attachment in attachments
     ]
 
 
@@ -142,7 +200,7 @@ def _task_detail_context(
         'task_approval': get_task_approval(task),
         # Attachments are their own card and their own form: uploading one is
         # never part of completing the task.
-        'attachments': _task_attachment_cards(task),
+        'attachments': _task_attachment_cards(task, user),
         'can_upload_attachment': can_upload_task_attachment(task, user),
         'attachment_form': attachment_form or TaskAttachmentForm(),
     }
@@ -184,6 +242,12 @@ def task_add_attachment(request, pk):
     if request.method != 'POST':
         return redirect('tasks:detail', pk=pk)
     list_query = request.POST.get('list_query', '')
+    # What the user had already typed into «Выполнение» when they picked the
+    # file. The upload form carries it as a hidden field precisely so this
+    # round trip does not discard it; it is put straight back into the
+    # textarea and is never saved as the task's execution comment here —
+    # `complete_task()` remains the only writer of that field.
+    execution_comment = request.POST.get('execution_comment', '')
     form = TaskAttachmentForm(request.POST, request.FILES)
     if form.is_valid():
         try:
@@ -192,11 +256,63 @@ def task_add_attachment(request, pk):
             messages.error(request, str(exc))
         else:
             messages.success(request, 'Вложение добавлено.')
+        _remember_execution_draft(request, task, execution_comment)
         return redirect(f"{reverse('tasks:detail', args=[task.pk])}"
                         f"{'?' + list_query if list_query else ''}")
     messages.error(request, 'Проверьте файл вложения.')
-    context = _task_detail_context(task, request.user, list_query, attachment_form=form)
+    context = _task_detail_context(
+        task, request.user, list_query, execution_comment, attachment_form=form,
+    )
     return render(request, 'tasks/detail.html', context, status=400)
+
+
+@login_required
+def task_delete_attachment(request, pk, attachment_id):
+    """Remove one wrongly uploaded file from a task.
+
+    POST only, and scoped exactly like the download: the row is re-loaded
+    through the task in the URL, so an id belonging to another task is a 404
+    rather than a deletion. The permission is asked here and again in the
+    service under the task's row lock — the cross in the card is a shortcut to
+    a permitted action, never the thing that permits it — and a refusal is a
+    404 for the same reason a refused download is one.
+    """
+    if request.method != 'POST':
+        return redirect('tasks:detail', pk=pk)
+    attachment = get_object_or_404(
+        TaskAttachment.objects.select_related('task', 'task__status'),
+        pk=attachment_id,
+        task_id=pk,
+    )
+    list_query = request.POST.get('list_query', '')
+    # Removing a file is the same round trip as adding one, and it used to cost
+    # the user the same thing: the «Выполнение» text they had already typed.
+    # The delete form carries the draft for exactly that reason.
+    execution_comment = request.POST.get('execution_comment', '')
+    detail_url = (f"{reverse('tasks:detail', args=[pk])}"
+                  f"{'?' + list_query if list_query else ''}")
+    if not can_delete_task_attachment(attachment, request.user):
+        # Ids only — never the file's name, its path or its content type.
+        log_event(
+            attachment_logger,
+            'WARNING',
+            'attachment.access_denied',
+            attachment_id=attachment.pk,
+            task_id=attachment.task_id,
+            user_id=getattr(request.user, 'pk', None),
+            operation='delete',
+            outcome='denied',
+        )
+        raise Http404('No Task matches the given query.')
+    try:
+        removed = delete_task_attachment(attachment, request.user)
+    except TaskWorkflowError as exc:
+        messages.error(request, str(exc))
+    else:
+        if removed:
+            messages.success(request, 'Вложение удалено.')
+    _remember_execution_draft(request, attachment.task, execution_comment)
+    return redirect(detail_url)
 
 
 @login_required

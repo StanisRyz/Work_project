@@ -440,6 +440,19 @@
     margin-top: 4px;
 }
 
+/* «Отмена» beside «Сохранить» on the password page. The row overrides the
+   full-width rule above, which is meant for a card with one action. */
+.auth-form__actions {
+    display: flex;
+    gap: 10px;
+}
+
+.auth-form__actions .link-button {
+    flex: 1 1 0;
+    width: auto;
+    text-align: center;
+}
+
 /* Login errors stay inside the card, above the field they belong to. */
 .auth-form .errorlist {
     margin: 0;
@@ -756,6 +769,25 @@ tr[data-row-url]:hover { background: #f7f9ff; }
     color: var(--color-text);
     font: inherit;
     resize: vertical;
+}
+
+/* The «Смена пароля» dialog (`includes/header.html`). Its own fields rather
+   than the confirmation modal's single comment, but the same card, the same
+   spacing and the same actions row — it is one dialog style, not two. */
+.app-modal__field {
+    display: grid;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: 14px;
+}
+
+.app-modal__field input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
 }
 
 .app-modal__error {

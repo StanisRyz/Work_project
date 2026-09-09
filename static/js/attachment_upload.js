@@ -20,6 +20,31 @@
 (() => {
     'use strict';
 
+    // Carry-through, registered first and delegated on `document`, because it
+    // is not about uploading at all: *every* attachment request on a page is a
+    // round trip that ends in a redirect, and each one used to throw away text
+    // the user had already typed somewhere else on that page — today the
+    // задача's «Выполнение» comment, wiped first by adding a file and then,
+    // just the same, by removing one.
+    //
+    // Any form holding a `[data-attachment-carry-from]` field is served, so the
+    // upload form and each per-attachment delete form get it without either
+    // knowing about this script. `submit` bubbles, which also means the
+    // confirmation modal's `requestSubmit()` and a plain button press take the
+    // identical path, and a delete form rendered after this ran is covered too.
+    document.addEventListener('submit', (event) => {
+        const form = event.target;
+        if (!form || typeof form.querySelectorAll !== 'function') {
+            return;
+        }
+        form.querySelectorAll('[data-attachment-carry-from]').forEach((field) => {
+            const source = document.querySelector(field.dataset.attachmentCarryFrom);
+            if (source) {
+                field.value = source.value;
+            }
+        });
+    });
+
     const forms = [...document.querySelectorAll('[data-attachment-upload]')];
     if (!forms.length) {
         return;

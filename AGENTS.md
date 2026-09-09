@@ -627,8 +627,30 @@ tasks never live inside `acts`.
   **is** `can_complete_task()`: an assignee of an active ordinary task plus the
   administrative fallback, which also means a routing task accepts no file at
   all. Reading a task is open to every authenticated user, so downloading is
-  too — and read access still grants no upload. There is no deletion, no
-  description and no second file-security implementation.
+  too — and read access still grants no upload. There is no description and no
+  second file-security implementation.
+- **`can_delete_task_attachment()` is that same answer, asked per row.** A
+  wrongly uploaded file is removed through `tasks:delete_attachment` (POST only)
+  by an assignee or an administrator, and **only while the task is
+  `IN_PROGRESS`** — a completed or cancelled task keeps its attachment history,
+  and a routing task is excluded as it is for upload. Deliberately not «whoever
+  uploaded it», unlike the act rule: a task is shared work. The permission is
+  asked in the view and re-asked in `delete_task_attachment()` under the task's
+  row lock, the row goes first and the file is unlinked only `on_commit`, and a
+  refusal is a 404 for the same reason a refused download is one. The red cross
+  in the card is a shortcut to a permitted action, never the permission.
+- **A half-written «Выполнение» comment survives every attachment request.**
+  Adding a file and removing one are both round trips that end in a redirect,
+  and both used to empty the textarea. The upload form *and* each delete form
+  carry the text in a hidden `execution_comment` field; `attachment_upload.js`
+  fills any `[data-attachment-carry-from]` from a delegated `submit` listener on
+  `document`, so a new attachment form inherits the behaviour by markup alone.
+  `task_add_attachment()` and `task_delete_attachment()` park it in the session
+  under `task_execution_draft`, keyed by task, and `task_detail` pops it back
+  into the field on the next render. It is a draft and never a comment: `complete_task()` is still the only
+  writer of `Task.execution_comment`, the upload still creates nothing but a
+  `TaskAttachment`, and a browser without JavaScript posts an empty draft
+  exactly as before.
 - **An «Исполнители» row is avatar · name · подразделение, sized by class.**
   `.task-detail-assignee-avatar` never shrinks, `.task-detail-assignee-name`
   takes what is left (`flex: 1 1 auto` **and** `min-width: 0` — without the
@@ -1578,7 +1600,10 @@ tasks never live inside `acts`.
 - Upload validation checks size and extension — one policy in
   `ecosystem/attachments.py`, imported by acts and protocols alike, never a
   second copy. Act attachment deletion is limited to the uploader, a manager or
-  an administrator; the protocol rule is its own, below.
+  an administrator; task attachment deletion is limited to an assignee or an
+  administrator **and to a task still `IN_PROGRESS`**; the protocol rule is its
+  own, below. Every one of them is re-checked server-side under a row lock — a
+  hidden button is never the permission.
 - An inactive `UserProfile` grants no application role; only Django's genuine
   `is_superuser` fallback remains independent of the profile.
 - **A `UserProfile` may be absent, and reading one is always guarded.** The row
@@ -1589,6 +1614,18 @@ tasks never live inside `acts`.
   itself, never only on the attribute after it — and treat a missing profile as
   an empty department and no role. A page must degrade to a blank department,
   never to a 500.
+- **Password change is Django's, wrapped only in where it lands.**
+  `accounts.AppPasswordChangeView` subclasses `auth_views.PasswordChangeView`
+  and keeps `PasswordChangeForm`, `set_password()` and the `form_valid()` call
+  to `update_session_auth_hash()` that keeps the user signed in — never a
+  hand-rolled check, hash or session rewrite. Ours is only `get_success_url()`,
+  which returns to the page the dialog was opened on after validating `next`
+  against the host exactly as the login and bug-report flows do. The topbar
+  dialog posts plain `old_password` / `new_password1` / `new_password2` inputs
+  so no view has to put a bound form in its context; the profile-menu item is a
+  real link to `accounts/password_change.html`, which is both the
+  no-JavaScript path and where a rejected form shows its field errors. No
+  password value ever reaches a URL, a data attribute or a log line.
 - `AUTH_PASSWORD_VALIDATORS` is intentionally empty: this is an internal system
   whose accounts an administrator creates in Django Admin, and a password may
   equal the surname it belongs to. Only *strength* validation is off — hashing,

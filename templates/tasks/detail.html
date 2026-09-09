@@ -134,7 +134,13 @@ still completed with the execution comment and nothing attached.
             {% csrf_token %}
             <input type="hidden" name="list_query" value="{{ list_query }}">
             <h2>Выполнение</h2>
-            <textarea name="execution_comment" rows="4" required placeholder="Опишите результат выполнения задачи">{{ execution_comment }}</textarea>
+            {% comment %}
+            The `id` is not decoration: the «Вложения» form beside this one
+            copies the текст into a hidden field of its own before it posts, so
+            uploading a file no longer wipes out a comment already typed here.
+            The two requests stay separate — only the draft travels.
+            {% endcomment %}
+            <textarea id="task-execution-comment" name="execution_comment" rows="4" required placeholder="Опишите результат выполнения задачи">{{ execution_comment }}</textarea>
             {% if execution_error %}<p class="field-error">{{ execution_error }}</p>{% endif %}
             <div class="task-detail-actions">
                 <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a>
@@ -187,6 +193,18 @@ still completed with the execution comment and nothing attached.
             <form class="task-attachment-form" id="task-attachment-form" method="post" action="{% url 'tasks:add_attachment' task.pk %}" enctype="multipart/form-data" data-attachment-upload>
                 {% csrf_token %}
                 <input type="hidden" name="list_query" value="{{ list_query }}">
+                {% comment %}
+                The unsaved «Выполнение» text, carried through the upload round
+                trip. `attachment_upload.js` fills it from the element named in
+                `data-attachment-carry-from` at submit time, and the view puts
+                it back into the textarea after the redirect. The server-rendered
+                value covers the re-render after a rejected file; a browser
+                without JavaScript simply posts an empty draft, exactly as
+                before. It is never stored as the task's execution comment —
+                `complete_task()` is still the only writer of that field.
+                {% endcomment %}
+                <input type="hidden" name="execution_comment" value="{{ execution_comment }}"
+                       data-attachment-carry-from="#task-execution-comment">
                 {{ attachment_form.file }}
                 {{ attachment_form.file.errors }}
         {% comment %}
@@ -209,8 +227,45 @@ still completed with the execution comment and nothing attached.
             <ul class="task-attachment-list">
                 {% for item in attachments %}
                     <li class="task-attachment-row">
-                        <a class="table-link user-text" href="{% url 'tasks:download_attachment' task.pk item.object.pk %}">{{ item.object.original_name }}</a>
-                        <span class="task-attachment-meta">{{ item.formatted_size }} · {{ item.object.uploaded_by|person_name|default:'Без автора' }} · {{ item.object.created_at|date:'d.m.Y H:i' }}</span>
+                        <div class="task-attachment-row__main">
+                            <a class="table-link user-text" href="{% url 'tasks:download_attachment' task.pk item.object.pk %}">{{ item.object.original_name }}</a>
+                            <span class="task-attachment-meta">{{ item.formatted_size }} · {{ item.object.uploaded_by|person_name|default:'Без автора' }} · {{ item.object.created_at|date:'d.m.Y H:i' }}</span>
+                        </div>
+                        {% comment %}
+                        A wrongly uploaded file is taken off here, and only
+                        while the task is still active: `can_delete` is
+                        `tasks.permissions.can_delete_task_attachment()` — an
+                        исполнитель or an администратор of an `IN_PROGRESS`
+                        task — and the endpoint asks it again, so a closed task
+                        keeps its attachment history whatever this page shows.
+
+                        A real form with a real submit button, so the action
+                        still works without JavaScript; the button carries the
+                        shared confirmation modal's attributes, so with it the
+                        deletion is confirmed through the same dialog as every
+                        other destructive action in the project.
+                        {% endcomment %}
+                        {% if item.can_delete %}
+                            <form class="task-attachment-delete-form" id="task-attachment-delete-{{ item.object.pk }}" method="post" action="{% url 'tasks:delete_attachment' task.pk item.object.pk %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="list_query" value="{{ list_query }}">
+                                {# The same draft the upload form carries: removing a file must not wipe the comment either. #}
+                                <input type="hidden" name="execution_comment" value="{{ execution_comment }}"
+                                       data-attachment-carry-from="#task-execution-comment">
+                                <button class="task-attachment-delete" type="submit"
+                                        data-confirm
+                                        data-confirm-form="task-attachment-delete-{{ item.object.pk }}"
+                                        data-confirm-title="Удалить вложение?"
+                                        data-confirm-text="Файл «{{ item.object.original_name }}» будет удалён без возможности восстановления."
+                                        data-confirm-label="Удалить"
+                                        data-confirm-cancel-label="Отмена"
+                                        data-confirm-variant="danger"
+                                        aria-label="Удалить вложение {{ item.object.original_name }}"
+                                        title="Удалить вложение">
+                                    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+                                </button>
+                            </form>
+                        {% endif %}
                     </li>
                 {% endfor %}
             </ul>

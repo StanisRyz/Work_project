@@ -82,3 +82,21 @@ def can_download_task_attachment(attachment, user):
     never by trusting the URL.
     """
     return can_view_task(attachment.task, user)
+
+
+def can_delete_task_attachment(attachment, user):
+    """Who may remove a file already attached to a task.
+
+    The same answer as uploading one — an assignee of the task plus the
+    administrative fallback — and, because that answer is `can_complete_task()`,
+    it also carries the rule that matters most here: only an `IN_PROGRESS` task
+    accepts the change. A completed or cancelled task keeps every file it has,
+    so its attachment history cannot be rewritten after the fact, and a routing
+    task is excluded exactly as it is for upload.
+
+    Deliberately *not* «whoever uploaded it»: a task is shared work, and an
+    assignee correcting a colleague's mis-uploaded file is the normal case.
+    Reading a task is open to every authenticated user and still grants nothing
+    here.
+    """
+    return can_upload_task_attachment(attachment.task, user)

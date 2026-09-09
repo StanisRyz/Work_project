@@ -261,3 +261,100 @@ class LandingRedirectTests(TestCase):
         )
 
         self.assertRedirects(response, target)
+
+
+class PasswordChangeTests(TestCase):
+    """«Сменить пароль» in the profile menu, end to end.
+
+    Django's own view, form and hashing do the work, so what is worth pinning
+    is the flow around them: the menu offers it, the current password must be
+    right, a successful change logs the user in with the new one *without*
+    ending the session, and the target it returns to is validated.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='changer', password='demo12345')
+        profile = self.user.userprofile
+        profile.role = UserProfile.Role.OTK
+        profile.save()
+        self.client.force_login(self.user)
+        self.url = reverse('accounts:password_change')
+
+    def test_the_profile_menu_offers_password_change_beside_logout(self):
+        page = self.client.get(reverse('dashboard:home'))
+        self.assertContains(page, 'Сменить пароль')
+        self.assertContains(page, self.url)
+        self.assertContains(page, 'data-password-modal')
+
+    def test_a_user_changes_their_password_and_stays_signed_in(self):
+        target = reverse('tasks:list')
+        response = self.client.post(
+            self.url,
+            {
+                'old_password': 'demo12345',
+                'new_password1': 'novyparol987',
+                'new_password2': 'novyparol987',
+                'next': target,
+            },
+        )
+
+        self.assertRedirects(response, target)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('novyparol987'))
+        # The session survives the change: the very next request is still
+        # authenticated, with no trip through the login page.
+        landing = self.client.get(target)
+        self.assertEqual(landing.status_code, 200)
+        self.assertEqual(landing.context['user'], self.user)
+        # And the old password no longer works anywhere.
+        self.client.logout()
+        self.assertFalse(
+            self.client.login(username='changer', password='demo12345')
+        )
+        self.assertTrue(
+            self.client.login(username='changer', password='novyparol987')
+        )
+
+    def test_a_wrong_current_password_or_a_mismatch_changes_nothing(self):
+        wrong = self.client.post(
+            self.url,
+            {
+                'old_password': 'ne-tot-parol',
+                'new_password1': 'novyparol987',
+                'new_password2': 'novyparol987',
+            },
+        )
+        self.assertEqual(wrong.status_code, 200)
+        self.assertTrue(wrong.context['form'].errors)
+
+        mismatch = self.client.post(
+            self.url,
+            {
+                'old_password': 'demo12345',
+                'new_password1': 'novyparol987',
+                'new_password2': 'drugoyparol987',
+            },
+        )
+        self.assertEqual(mismatch.status_code, 200)
+        self.assertIn('new_password2', mismatch.context['form'].errors)
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('demo12345'))
+
+    def test_an_off_host_return_target_is_ignored(self):
+        response = self.client.post(
+            self.url,
+            {
+                'old_password': 'demo12345',
+                'new_password1': 'novyparol987',
+                'new_password2': 'novyparol987',
+                'next': 'https://example.invalid/steal',
+            },
+        )
+        self.assertRedirects(response, reverse('dashboard:home'))
+
+    def test_an_anonymous_visitor_is_sent_to_the_login_page(self):
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('accounts:login'), response['Location'])

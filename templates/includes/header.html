@@ -61,9 +61,60 @@
                 <svg class="ui-icon profile-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
             </summary>
             <div class="profile-menu__popup">
+                {% comment %}
+                A real link to the full page, upgraded by `password_change.js`
+                into the dialog below. Without JavaScript it simply navigates
+                there, so «Сменить пароль» works either way — and `?next=`
+                brings the user back to the page they were on.
+                {% endcomment %}
+                <a href="{% url 'accounts:password_change' %}?next={{ request.get_full_path|urlencode }}" data-password-modal-open>Сменить пароль</a>
                 <form method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}<button type="submit">Выйти</button></form>
             </div>
         </details>
         {% endif %}
     </div>
 </header>
+
+{% if user.is_authenticated %}
+{% comment %}
+«Смена пароля», in the project's own dialog styling.
+
+Deliberately plain inputs with the names `django.contrib.auth.forms.PasswordChangeForm`
+expects — `old_password`, `new_password1`, `new_password2` — rather than a
+rendered form: the dialog lives in the topbar of every page and must not need a
+bound form in every view's context. The server is the authority either way.
+`AppPasswordChangeView` verifies the current password, runs the project's
+password validators, hashes with `set_password()` and keeps the session signed
+in; a rejected submission lands on `accounts/password_change.html` with the
+errors beside the fields.
+
+The only client-side rule is the one worth catching before a round trip: the
+two new passwords not matching. Nothing here is a security check, and no
+password value is ever put into a URL or a data attribute.
+{% endcomment %}
+<dialog class="app-modal" data-password-modal aria-labelledby="password-modal-title">
+    <form class="app-modal__form" method="post" action="{% url 'accounts:password_change' %}" data-password-modal-form>
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <h2 id="password-modal-title">Смена пароля</h2>
+        <p>Введите текущий пароль и дважды новый. После сохранения вы останетесь в системе.</p>
+        <label class="app-modal__field">
+            <span>Текущий пароль</span>
+            <input type="password" name="old_password" autocomplete="current-password" required data-password-modal-current>
+        </label>
+        <label class="app-modal__field">
+            <span>Новый пароль</span>
+            <input type="password" name="new_password1" autocomplete="new-password" required data-password-modal-new>
+        </label>
+        <label class="app-modal__field">
+            <span>Повторите новый пароль</span>
+            <input type="password" name="new_password2" autocomplete="new-password" required data-password-modal-repeat>
+        </label>
+        <p class="app-modal__error" data-password-modal-error hidden></p>
+        <div class="app-modal__actions">
+            <button class="link-button link-button--secondary" type="button" data-password-modal-cancel>Отмена</button>
+            <button class="link-button" type="submit">Сохранить пароль</button>
+        </div>
+    </form>
+</dialog>
+{% endif %}

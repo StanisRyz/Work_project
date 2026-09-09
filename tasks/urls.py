@@ -16,4 +16,9 @@ urlpatterns = [
         views.task_download_attachment,
         name='download_attachment',
     ),
+    path(
+        '<int:pk>/attachments/<int:attachment_id>/delete/',
+        views.task_delete_attachment,
+        name='delete_attachment',
+    ),
 ]
