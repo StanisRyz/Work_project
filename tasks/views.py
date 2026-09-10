@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 
 from ecosystem.attachments import format_file_size
 from ecosystem.logging_utils import log_event
@@ -18,6 +18,7 @@ from .permissions import (
     can_complete_task,
     can_delete_task_attachment,
     can_download_task_attachment,
+    can_reopen_task,
     can_upload_task_attachment,
     get_readable_tasks_queryset,
     get_visible_tasks_queryset,
@@ -35,6 +36,7 @@ from .services import (
     attachment_logger,
     complete_task,
     delete_task_attachment,
+    reopen_task,
 )
 
 
@@ -154,7 +156,13 @@ def task_detail(request, pk):
         return redirect('acts:detail', pk=task.act_id)
     context = _task_detail_context(
         task, request.user, request.GET.urlencode(),
-        execution_comment=_take_execution_draft(request, task),
+        # The parked upload draft first, then whatever the task already holds.
+        # For an ordinary open task the second is empty; for one an
+        # administrator has just reopened it is the result written before the
+        # task was closed, put back into the field so the исполнитель corrects
+        # it instead of retyping it. Reading it is all that happens here —
+        # `complete_task()` is still the only writer of that column.
+        execution_comment=_take_execution_draft(request, task) or task.execution_comment,
     )
     context['header_title'] = f'Задача {task.pk}'
     return render(request, 'tasks/detail.html', context)
@@ -192,6 +200,10 @@ def _task_detail_context(
     return {
         'active_page': 'tasks', 'header_title': f'Задача {task.pk}', 'task': task, 'today': timezone.localdate(),
         'can_complete': can_complete_task(task, user), 'list_query': list_query,
+        # «Вернуть в работу», offered only to an administrator and only for a
+        # completed ordinary task. Never both this and `can_complete` — the two
+        # permissions are exact opposites on the task's status.
+        'can_reopen': can_reopen_task(task, user),
         'execution_comment': execution_comment, 'execution_error': execution_error,
         # Source-aware presentation, from the same helpers the registry uses.
         'task_type_label': describe_task_type(task),
@@ -221,6 +233,31 @@ def complete_task_view(request, pk):
             _task_detail_context(task, request.user, list_query, execution_comment, str(exc)), status=400,
         )
     return redirect(f"{reverse('tasks:list')}?tab=archive&number={task.pk}")
+
+
+@login_required
+@require_POST
+def task_reopen(request, pk):
+    """«Вернуть в работу» — POST only, administrators only.
+
+    The view confirms nothing itself: the modal in the browser is the fast path
+    to this POST, and `reopen_task()` re-checks the right under the task's row
+    lock. A refusal comes back as a message on the task, which stays readable —
+    reopening hides nothing, exactly as archiving an СМК record hides nothing.
+
+    The task is loaded through the *readable* queryset rather than the visible
+    one: an administrator is not an исполнитель of the tasks they correct.
+    """
+    task = get_object_or_404(get_readable_tasks_queryset(request.user), pk=pk)
+    list_query = request.POST.get('list_query', '')
+    try:
+        reopen_task(task, request.user)
+    except TaskWorkflowError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Задача возвращена в работу.')
+    return redirect(f"{reverse('tasks:detail', args=[task.pk])}"
+                    f"{'?' + list_query if list_query else ''}")
 
 
 @login_required

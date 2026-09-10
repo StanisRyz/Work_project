@@ -1,33 +1,100 @@
-{% load people %}
 {% comment %}
 The registry rows for one tab.
 
-«Количество задач» and «Статус» both come from `build_smk_list_state()`: the
-count is an annotation, so the table stays one database read however long it
-gets, and the status is the record's own shelf — «В работе» or «Архивировано»,
-the only two an СМК record has — so it reads the same here as on its own page.
-Ordering is the model's own
-`-created_at, -pk`, like every other registry in the project; no list here
-offers column sorting. One click anywhere on the row opens the record —
-`data-row-url` and `static/js/clickable_rows.js`, exactly as every other
-registry does it.
+«Задач» and «Статус» both come from `build_smk_list_state()`: the count is an
+annotation, so the table stays one database read however long it gets, and so
+are the two counts «Статус» is decided by — «В работе», «Выполнено» or
+«Архивировано», answered by the same `describe_smk_state()` the record's own
+page asks, so the two can never disagree.
+
+«Срок выполнения» is the nearest задача that is still open, and the arrow beside
+it expands the record's мероприятия. Both are read from one prefetch of the same
+tasks, so they can never name different work and neither costs a query per row.
+
+Ordering is the model's own `-created_at, -pk`, like every other registry in the
+project; no list here offers column sorting. One click anywhere on the row opens
+the record — `data-row-url` and `static/js/clickable_rows.js`, exactly as every
+other registry does it. The arrow is a `<button>`, which that script already
+treats as a control of its own, so expanding a row never navigates away from the
+list.
+
+The columns are declared once in the `<colgroup>` and the table is laid out
+`fixed`. That is not cosmetic: under the default `auto` layout every cell's
+content votes on how wide its column is, and the expanded row — one cell
+spanning all seven columns, holding задача wording that can be arbitrarily long
+— outvoted the header row the moment it appeared, which is why opening a record
+used to shuffle every column sideways. A fixed layout reads the widths here and
+nowhere else, so opening and closing a record moves nothing.
 {% endcomment %}
 {% if sources %}
 <section class="table-card act-table-card">
     <table class="data-table smk-table">
-        <thead><tr><th>№</th><th>Тип аудита</th><th>Дата аудита</th><th>Создал</th><th>Задач</th><th>Дата создания</th><th>Статус</th></tr></thead>
+        <colgroup><col class="smk-table__number"><col class="smk-table__origin"><col class="smk-table__date"><col class="smk-table__department"><col class="smk-table__count"><col class="smk-table__due"><col class="smk-table__status"></colgroup>
+        <thead><tr><th>№</th><th>Тип аудита</th><th>Дата аудита</th><th>Отдел</th><th>Задач</th><th>Срок выполнения</th><th>Статус</th></tr></thead>
         <tbody>
         {% for row in sources %}
             <tr data-row-url="{% url 'smk:detail' row.source.pk %}">
                 <td><a class="table-link" href="{% url 'smk:detail' row.source.pk %}">{{ row.source.label }}</a></td>
                 <td>{{ row.source.get_origin_display }}</td>
                 <td>{{ row.source.audit_date|date:'d.m.Y'|default:'—' }}</td>
-                <td class="user-text">{{ row.source.created_by|person_name }}</td>
+                {# Empty on a record written before «Отделение» existed, until the отдел СМК fills it in. #}
+                <td class="user-text smk-cell--clipped" title="{{ row.source.department|default:'' }}">{{ row.source.department|default:'—' }}</td>
                 <td>{{ row.task_count }}</td>
-                <td>{{ row.source.created_at|date:'d.m.Y' }}</td>
-                {# `describe_smk_state()`: «В работе» or «Архивировано», nothing else. #}
+                <td>
+                    <div class="smk-deadline">
+                        {% if row.next_due_date %}
+                            <span class="{% if row.state.code != 'archived' and row.next_due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ row.next_due_date|date:'d.m.Y' }}</span>
+                        {% else %}
+                            <span class="smk-deadline__none">—</span>
+                        {% endif %}
+                        {% comment %}
+                        Offered only when there is something to expand: a record
+                        whose tasks were all withdrawn has an empty list, and an
+                        arrow that opens nothing is worse than no arrow.
+                        {% endcomment %}
+                        {% if row.tasks %}
+                            <button class="smk-deadline__toggle" type="button" data-smk-tasks-toggle="{{ row.source.pk }}" aria-expanded="false" aria-controls="smk-tasks-{{ row.source.pk }}" aria-label="Показать мероприятия аудита" title="Мероприятия аудита">
+                                <svg class="ui-icon smk-deadline__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+                            </button>
+                        {% endif %}
+                    </div>
+                </td>
+                {# `describe_smk_state()`: «В работе», «Выполнено» or «Архивировано». #}
                 <td><span class="status-badge status-badge--{{ row.state.code }}">{{ row.state.label }}</span></td>
             </tr>
+            {% if row.tasks %}
+                {% comment %}
+                The expanded мероприятия, as a row of the table rather than a
+                popup: `.act-table-card` scrolls inside itself, so anything
+                absolutely positioned would be clipped at the bottom of the
+                list, and a block inside the «Срок» cell would widen that
+                column. A full-width row is neither. It carries no
+                `data-row-url`, so clicking inside it opens nothing.
+                {% endcomment %}
+                <tr class="smk-tasks-row" id="smk-tasks-{{ row.source.pk }}" hidden>
+                    <td colspan="7">
+                        <ul class="smk-tasks">
+                            {% for task in row.tasks %}
+                                {% comment %}
+                                One задача per row, in the same three parts and
+                                the same order the «Исполнители» block of a
+                                задача uses: the wording takes the space that is
+                                left and truncates with the full text on its
+                                `title`, while the срок and the статус keep their
+                                own width. The row is styled as its own card for
+                                the same reason that one is — a list of них reads
+                                as a list rather than as more table.
+                                {% endcomment %}
+                                <li>
+                                    <a class="smk-tasks__text" href="{% url 'tasks:detail' task.pk %}" title="{{ task.task_text }}">{{ task.task_text }}</a>
+                                    <span class="smk-tasks__due {% if not task.status.is_final and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span>
+                                    <span class="smk-tasks__status">{{ task.status }}</span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </td>
+                </tr>
+            {% endif %}
         {% endfor %}
         </tbody>
     </table>

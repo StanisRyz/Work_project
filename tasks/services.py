@@ -14,6 +14,7 @@ from .models import Task, TaskAssignee
 from .permissions import (
     can_complete_task,
     can_delete_task_attachment,
+    can_reopen_task,
     can_upload_task_attachment,
 )
 
@@ -194,6 +195,76 @@ def complete_task(task, user, execution_comment):
         assignee_count=len(task.assignees.all()),
         previous_status=previous_status,
         next_status=completed_status.code,
+        duration_ms=(time.monotonic() - started) * 1000,
+        outcome='ok',
+    )
+    return task
+
+
+def reopen_task(task, user):
+    """Put one wrongly closed task back into work, keeping everything it holds.
+
+    The counterpart of `complete_task()` and deliberately its narrow mirror: it
+    withdraws the *claim* that the work was finished — `completed_by` and
+    `completed_at`, which are no longer true — and touches nothing else. The
+    attachments are not read here at all, and `execution_comment` is kept on
+    purpose: it is what was written about this task, the исполнитель corrects
+    it rather than retyping it, and the next completion overwrites it anyway.
+
+    `can_reopen_task()` is the whole rule about who and what, asked here under
+    the row lock and not only in the view: a task completed, cancelled or
+    reopened in another tab since the page was rendered must not still accept
+    the request.
+
+    No notification. Nobody is being *given* work — the task was already
+    theirs — and the corrected instruction reaches them where the mistake was
+    made, on the task itself.
+    """
+    started = time.monotonic()
+    with transaction.atomic():
+        task = (
+            Task.objects.select_for_update()
+            .select_related('status')
+            .get(pk=task.pk)
+        )
+        previous_status = task.status.code
+        if not can_reopen_task(task, user):
+            log_event(
+                logger,
+                'INFO',
+                'task.operation_rejected',
+                operation='reopen',
+                task_id=task.pk,
+                act_id=task.act_id,
+                actor_user_id=_pk_of(user),
+                previous_status=previous_status,
+                reason='not_permitted_or_not_completed',
+                outcome='rejected',
+            )
+            raise TaskWorkflowError('Возврат задачи в работу недоступен.')
+        task.status = _active_status('IN_PROGRESS', 'В работе')
+        task.completed_by = None
+        task.completed_at = None
+        # `auto_now` is only applied to fields named in `update_fields`, so
+        # `updated_at` — and the real-time revision token derived from it — is
+        # listed explicitly, exactly as `complete_task()` lists it.
+        task.save(
+            update_fields=['status', 'completed_by', 'completed_at', 'updated_at']
+        )
+        # Inside the lock, like every other status change here. Not
+        # `emit_task_completed()`: the task is now open, and announcing it as
+        # completed is precisely the claim this call withdraws.
+        emit_task_updated(task, changed_fields=('status',))
+    log_event(
+        logger,
+        'INFO',
+        'task.reopened',
+        task_id=task.pk,
+        act_id=task.act_id,
+        source_type=task.source_type,
+        actor_user_id=_pk_of(user),
+        previous_status=previous_status,
+        next_status=task.status.code,
         duration_ms=(time.monotonic() - started) * 1000,
         outcome='ok',
     )
@@ -416,11 +487,13 @@ def create_smk_action_task(
         task_text=action.task_text,
         department=action.department,
         due_date=action.due_date,
-        # A snapshot, exactly as the act and protocol variants take one: the
-        # measure is stored a moment earlier in the same transaction, and a
-        # completed task must keep saying what was required of it. The
-        # requirement itself is enforced only by `complete_task()`.
-        requires_attachment=action.requires_attachment,
+        # Always, for an СМК task alone: the measure no longer carries an
+        # answer, because выполнение по СМК is proven with a file. Still a
+        # snapshot rather than a rule read at completion time — a task issued
+        # while the requirement was the author's own choice keeps saying what
+        # was really asked of it, and `complete_task()` remains the only place
+        # it is enforced.
+        requires_attachment=True,
         created_by=created_by,
         status=_active_status('IN_PROGRESS', 'В работе'),
     )

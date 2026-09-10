@@ -47,9 +47,13 @@ re-checked on the server.
             </summary>
             <div class="protocol-section__body">
                 {% comment %}
-                The audit's own type and its own date, side by side. «Дата
-                аудита» is not the creation timestamp — a record is often
-                written up days after the audit — and both are stored.
+                The audit's own type, the подразделение it looked at and its
+                own date, side by side. «Дата аудита» is not the creation
+                timestamp — a record is often written up days after the audit.
+
+                «Отделение» restricts nothing: a мероприятие may still be
+                written on anybody. It is the audit's subject, and it is what
+                the registry is read and sorted by.
                 {% endcomment %}
                 <div class="smk-source-fields">
                     <label>
@@ -61,6 +65,16 @@ re-checked on the server.
                             {% endfor %}
                         </select>
                         {% if form.origin_error %}<span class="field-error">{{ form.origin_error }}</span>{% endif %}
+                    </label>
+                    <label>
+                        <span>Отделение</span>
+                        <select name="department" required>
+                            <option value="">Выберите отделение</option>
+                            {% for department in departments %}
+                                <option value="{{ department.pk }}"{% if form.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>
+                            {% endfor %}
+                        </select>
+                        {% if form.department_error %}<span class="field-error">{{ form.department_error }}</span>{% endif %}
                     </label>
                     <label>
                         <span>Дата аудита</span>
@@ -99,7 +113,7 @@ re-checked on the server.
                 <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
             </summary>
             <div class="protocol-section__body">
-                <p class="protocol-section__hint">Каждое мероприятие создаёт задачу в разделе «Задачи»: одну общую на всех исполнителей или, если включить «Разбить задачу по исполнителям», отдельную задачу каждому.</p>
+                <p class="protocol-section__hint">Каждое мероприятие создаёт задачу в разделе «Задачи»: одну общую на всех исполнителей или, если включить «Разбить задачу по исполнителям», отдельную задачу каждому. Любая задача по СМК закрывается только с вложением — подтверждающий файл обязателен.</p>
                 <input type="hidden" name="actions-TOTAL_FORMS" value="{{ form.action_rows|length }}" data-total>
                 <div class="protocol-card-grid" data-row-list>
                     {% for row in form.action_rows %}
@@ -154,6 +168,8 @@ re-checked on the server.
                 <dl class="smk-confirm-summary">
                     <dt>Источник</dt>
                     <dd data-smk-confirm-origin>{{ confirmation.origin_label|default:'—' }}</dd>
+                    <dt>Отделение</dt>
+                    <dd data-smk-confirm-department>{{ confirmation.department_label|default:'—' }}</dd>
                     <dt>Дата аудита</dt>
                     <dd data-smk-confirm-date>{{ confirmation.audit_date|date:'d.m.Y'|default:'—' }}</dd>
                     <dt>Выявленных несоответствий</dt>

@@ -378,7 +378,15 @@ class ActViewTests(TestCase):
         response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Цех/')
+        # Цех и ЗНП ушли в мету заголовка карточки, а мета, которой у дефекта
+        # нет, не рисуется вовсе: факт, которого нет, не стоит строки —
+        # прочерк в колонке был особенностью таблицы, а не сведением о дефекте.
+        self.assertContains(response, 'act-defect-card')
+        self.assertNotContains(response, 'act-defect-card__meta')
+        # Остальные факты легаси-дефекта карточка показывает как обычно,
+        # прочерком там, где значения нет.
+        self.assertContains(response, 'P-LEGACY')
+        self.assertContains(response, 'Легаси дефект')
         self.assertContains(response, '—')
 
     def test_otk_list_shows_only_own_created_otk_acts(self):
@@ -934,7 +942,14 @@ class ActViewTests(TestCase):
                 1,
             )
 
-    def test_detail_defects_table_is_compact_and_ko_is_read_only_after_transfer(self):
+    def test_detail_renders_a_card_per_defect_and_ko_is_read_only_after_transfer(self):
+        """Строка дефекта стала карточкой — таблицы в «Проработке» больше нет.
+
+        Двенадцать колонок при `min-width: 1350px` скроллились горизонтально
+        уже с одним дефектом, а анализ влияния отклонений добавляет к строке
+        шесть галочек и три поля. Всё, что показывала таблица, карточка
+        показывает по-прежнему; после передачи в ТО она только читается.
+        """
         act = self._create_act(self.status_to)
         defect = ActDefect.objects.create(
             act=act, defect_type=self.defect_type, operation=self.operation, party_number='P-DETAIL',
@@ -945,22 +960,175 @@ class ActViewTests(TestCase):
 
         response = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
 
-        for header in (
-            '№', 'Номер<br>партии', 'Вид дефекта', 'Тип МП', 'Дата<br>обнаружения',
-            'Всего<br>проверено', 'С<br>отклонением', 'Описание', 'Решение КО', 'Комментарий КО',
+        self.assertContains(response, 'act-defect-card')
+        self.assertNotContains(response, 'act-defects-table', html=False)
+        # Ни один факт не потерян при переезде из таблицы в карточку.
+        for label in (
+            'Номер партии', 'Тип МП', 'Дата обнаружения',
+            'Всего проверено', 'С отклонением', 'Описание',
         ):
-            self.assertContains(response, f'<th>{header}</th>', html=False)
-        self.assertContains(response, '<colgroup>', html=False)
-        for column_class in (
-            'act-defects-table__description',
-            'act-defects-table__decision',
-            'act-defects-table__comment',
-        ):
-            self.assertContains(response, column_class, html=False)
+            self.assertContains(response, label)
+        # Вид дефекта подписи не имеет: он и есть имя карточки, видимое в
+        # свёрнутом виде, — поэтому проверяется само значение.
+        self.assertContains(response, str(self.defect_type))
+        self.assertContains(response, 'P-DETAIL')
         self.assertContains(response, defect.get_ko_decision_display())
         self.assertContains(response, 'Комментарий КО')
         self.assertNotContains(response, 'процент')
         self.assertNotContains(response, 'form="ko-decision-form"', html=False)
+
+    def _ko_post(self, defect, decision, **impact):
+        """Полный POST формсета решения КО по одному дефекту."""
+        data = {
+            'form-TOTAL_FORMS': '1',
+            'form-INITIAL_FORMS': '1',
+            'form-MIN_NUM_FORMS': '0',
+            'form-MAX_NUM_FORMS': '1000',
+            'form-0-id': str(defect.pk),
+            'form-0-ko_decision': decision,
+            'form-0-ko_comment': 'Решение',
+        }
+        data.update({name: value for name, value in impact.items()})
+        return data
+
+    def _to_analysis_post(self, **overrides):
+        """POST структурированного анализа ТО с двумя проработками."""
+        data = {
+            'action': 'send_to_otk',
+            'root-TOTAL_FORMS': '2',
+            'root-0-root_cause': 'Первая причина',
+            'root-0-actions-TOTAL_FORMS': '1',
+            'root-0-actions-0-comment': 'Первое мероприятие',
+            'root-0-actions-0-department': str(self.department.pk),
+            'root-0-actions-0-assignees': [str(self.to_user.pk)],
+            'root-0-actions-0-due_date': timezone.localdate().isoformat(),
+            'root-1-root_cause': 'Вторая причина',
+            'root-1-actions-TOTAL_FORMS': '1',
+            'root-1-actions-0-comment': 'Второе мероприятие',
+            'root-1-actions-0-department': str(self.department.pk),
+            'root-1-actions-0-assignees': [str(self.to_user.pk)],
+            'root-1-actions-0-due_date': timezone.localdate().isoformat(),
+        }
+        data.update(overrides)
+        return data
+
+    def test_to_analysis_opens_only_the_last_card_but_all_of_them_on_error(self):
+        """Свёрнутая карточка не должна прятать собственную ошибку.
+
+        Сворачивание в «Анализе ТО» — разметочное, `<details open>`, поэтому
+        решает его сервер, а не браузер: при обычной отрисовке раскрыта
+        последняя проработка (её и заполняют), а у отклонённой отправки — все,
+        иначе `field-error` внутри свёрнутой карточки был бы невидим и
+        пользователь не понял бы, почему форма не уходит.
+        """
+        act = self._create_act(self.status_to)
+        ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, detected_at=timezone.localdate(),
+        )
+        ActRootAnalysis.objects.create(act=act, root_cause='Первая причина', display_order=0)
+        ActRootAnalysis.objects.create(act=act, root_cause='Вторая причина', display_order=1)
+        self.client.force_login(self.to_user)
+
+        page = self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=work')
+
+        self.assertEqual(page.status_code, 200)
+        self.assertFalse(page.context['to_analysis_form'].has_errors)
+        # Две проработки, и раскрыта ровно одна — последняя.
+        self.assertEqual(page.content.decode().count('data-root-analysis open'), 1)
+
+        rejected = self.client.post(
+            reverse('acts:to_analysis', args=[act.pk]),
+            self._to_analysis_post(**{'root-1-root_cause': ''}),
+        )
+
+        self.assertEqual(rejected.status_code, 200)
+        form = rejected.context['to_analysis_form']
+        self.assertTrue(form.has_errors)
+        # Обе раскрыты: ошибка лежит во второй, но пользователь должен видеть
+        # всю отклонённую форму, а не догадываться, где искать.
+        self.assertEqual(rejected.content.decode().count('data-root-analysis open'), 2)
+        self.assertContains(rejected, 'Укажите корневую причину.')
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'TO_ANALYSIS')
+
+    def test_the_printable_form_carries_the_decision_and_analysis_per_defect(self):
+        """Печатная форма — это бумажный акт, и раздел 1 в нём поблочный.
+
+        До изм.2 она печатала одно решение на весь акт, хотя решения хранятся
+        по дефектам; теперь она печатает решение и анализ каждого дефекта, а
+        автора и дату — один раз, потому что вносят их одним действием.
+        """
+        act = self._create_act(self.status_to)
+        ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, detected_at=timezone.localdate(),
+            ko_decision=Act.KoDecision.ALLOW_NO_REWORK, ko_comment='Допущено',
+            quality_impact_assembly=True,
+            quality_impact_em_parameters=True,
+            quality_impact_em_value='1,2 мГн',
+            quality_impact_em_tolerance='±5%',
+        )
+        ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, detected_at=timezone.localdate(),
+            ko_decision=Act.KoDecision.PROHIBIT_USE, ko_comment='Запрет',
+        )
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('acts:print', args=[act.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Дефект 1')
+        self.assertContains(response, 'Дефект 2')
+        self.assertContains(response, 'Анализ влияния отклонений на качество изделия')
+        self.assertContains(response, 'Собираемость обеспечена')
+        self.assertContains(response, '1,2 мГн (допуск по КД/ГОСТ: ±5%)')
+        # У запрещающего решения анализа нет и быть не должно — блок для него
+        # не печатается вовсе, а не печатается пустым.
+        self.assertContains(response, 'Анализ влияния отклонений на качество изделия', count=1)
+
+    def test_ko_decision_stores_the_quality_impact_analysis_per_defect(self):
+        act = self._create_act(self.status_ko)
+        defect = ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, detected_at=timezone.localdate(),
+        )
+        self.client.force_login(self.ko_user)
+
+        response = self.client.post(
+            reverse('acts:ko_decision', args=[act.pk]),
+            self._ko_post(
+                defect, Act.KoDecision.ALLOW_NO_REWORK,
+                **{
+                    'form-0-quality_impact_em_parameters': 'on',
+                    'form-0-quality_impact_em_value': '1,2 мГн',
+                    'form-0-quality_impact_em_tolerance': '±5%',
+                },
+            ),
+        )
+
+        self.assertRedirects(response, reverse('acts:list'))
+        defect.refresh_from_db()
+        self.assertTrue(defect.quality_impact_em_parameters)
+        self.assertEqual(defect.quality_impact_em_value, '1,2 мГн')
+        self.assertEqual(defect.quality_impact_em_tolerance, '±5%')
+
+    def test_ko_decision_is_rejected_when_a_deviation_has_no_analysis(self):
+        """Отказ возвращается на страницу акта, а акт остаётся в KO_REVIEW."""
+        act = self._create_act(self.status_ko)
+        defect = ActDefect.objects.create(
+            act=act, defect_type=self.defect_type, detected_at=timezone.localdate(),
+        )
+        self.client.force_login(self.ko_user)
+
+        response = self.client.post(
+            reverse('acts:ko_decision', args=[act.pk]),
+            self._ko_post(defect, Act.KoDecision.ALLOW_NO_REWORK),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Отметьте хотя бы один пункт')
+        act.refresh_from_db()
+        defect.refresh_from_db()
+        self.assertEqual(act.status.code, 'KO_REVIEW')
+        self.assertEqual(defect.ko_decision, '')
 
     def test_ko_decision_controls_remain_editable_during_ko_review(self):
         act = self._create_act(self.status_ko)

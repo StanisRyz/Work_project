@@ -176,7 +176,7 @@ class NotificationRoutingTests(NotificationTestMixin, TestCase):
         send_to_ko(act, self.otk)
         self.assert_recipients(Notification.EventType.ACT_SENT_TO_KO, ['notify_ko', 'notify_ko_second'])
 
-        apply_ko_decision(act, self.ko, [(None, Act.KoDecision.ALLOW_NO_REWORK, 'Допустить')])
+        apply_ko_decision(act, self.ko, [(None, Act.KoDecision.ALLOW_NO_REWORK, 'Допустить', {})])
         self.assert_recipients(Notification.EventType.ACT_SENT_TO_TO, ['notify_to', 'notify_to_second'])
 
         apply_to_analysis(act, self.to, 'Причина', 'Мероприятие')
@@ -813,6 +813,33 @@ class NotificationSourceTests(NotificationTestMixin, TestCase):
         self.assertEqual(protocol.revision, 2)
         self.assertEqual(len(self._of(Notification.EventType.PROTOCOL_APPROVAL_REQUIRED)), 4)
 
+    def test_protocol_task_assignment_names_the_author_as_initiator(self):
+        """Задачу ставит автор протокола, а не тот, кто согласовал последним.
+
+        Задачи и так создаются от имени автора (`Task.created_by`), но
+        уведомление об их назначении называло инициатором последнего
+        согласующего — единственное место, где исполнитель вообще видит,
+        от кого пришла работа.
+        """
+        protocol = self._protocol(approvers=[self.ko], assignees=[self.to])
+        send_protocol_for_approval(protocol, self.otk)
+        approve_protocol(protocol, self.ko)
+        # Последним согласует `self.to` — и именно он финализирует протокол.
+        approve_protocol(protocol, self.to)
+        protocol.refresh_from_db()
+        self.assertEqual(protocol.status, Protocol.Status.ARCHIVED)
+
+        task = Task.objects.get(source_type=Task.SourceType.PROTOCOL_ACTION)
+        self.assertEqual(task.created_by, self.otk)
+        assigned = self._of(Notification.EventType.PROTOCOL_TASK_ASSIGNED)
+        self.assertEqual([item.recipient for item in assigned], [self.to])
+        self.assertEqual(assigned[0].actor, self.otk)
+
+        # А вот «протокол согласован» остаётся фактом последнего согласующего:
+        # это он сообщает автору, что документ подписан.
+        approved = self._of(Notification.EventType.PROTOCOL_APPROVED)
+        self.assertEqual([item.actor for item in approved], [self.to])
+
     def test_finalization_notifies_the_author_and_the_real_task_assignees(self):
         protocol = self._protocol(approvers=[self.ko], assignees=[self.to, self.otk])
         send_protocol_for_approval(protocol, self.otk)
@@ -972,7 +999,7 @@ class GenericNotificationEmailTests(NotificationTestMixin, TestCase):
             party_number='9',
         )
 
-        apply_ko_decision(act, self.ko, [(defect, Act.KoDecision.PROHIBIT_USE, 'Запрет.')])
+        apply_ko_decision(act, self.ko, [(defect, Act.KoDecision.PROHIBIT_USE, 'Запрет.', {})])
 
         task = Task.objects.get(source_type=Task.SourceType.ACT_REJECTION, act=act)
         assigned = Notification.objects.filter(

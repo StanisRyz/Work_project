@@ -254,7 +254,7 @@ class ActEventTests(RealtimeFixtureMixin, TestCase):
             act.refresh_from_db()
             with self.captureOnCommitCallbacks(execute=True):
                 apply_ko_decision(
-                    act, self.ko_user, [(None, Act.KoDecision.PROHIBIT_USE, 'Решение')]
+                    act, self.ko_user, [(None, Act.KoDecision.PROHIBIT_USE, 'Решение', {})]
                 )
 
         status_events = publisher.events_of_type(RealtimeEventType.ACT_STATUS_CHANGED)

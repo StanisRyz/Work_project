@@ -16,6 +16,7 @@ from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
 from realtime.emitters import emit_act_created
 
+from . import quality_impact
 from .forms import (
     ActAttachmentForm,
     ActCloseForm,
@@ -558,6 +559,9 @@ def act_print(request, pk):
         {
             'act': act,
             'defects': defects,
+            # Те же строки, что и на странице акта: раздел «Решение КО» печатной
+            # формы читает решение и анализ по каждому дефекту.
+            'defect_decision_rows': _defect_decision_rows(defects),
             'attachments': act.attachments.select_related('uploaded_by'),
             'history_events': act.history_events.select_related('user', 'from_status', 'to_status')[:20],
         },
@@ -597,14 +601,26 @@ def act_ko_decision(request, pk):
         formset = ActDefectKoDecisionFormSet(request.POST, queryset=defects)
         is_valid = formset.is_valid()
         defect_decisions = [
-            (form.instance, form.cleaned_data['ko_decision'], form.cleaned_data['ko_comment'])
+            (
+                form.instance,
+                form.cleaned_data['ko_decision'],
+                form.cleaned_data['ko_comment'],
+                # Уже нормализованный формой набор; сервис нормализует его
+                # ещё раз — форма не авторитет, и запрос в обход страницы
+                # приходит сюда без неё.
+                {name: form.cleaned_data.get(name) for name in quality_impact.FIELDS},
+            )
             for form in formset.forms
         ] if is_valid else []
         form = None
     else:
+        # Устаревший путь: акт без дефектов. Анализ принадлежит дефекту, и
+        # `Act` таких колонок не имеет, поэтому кортеж несёт пустой набор.
         form = KoDecisionForm(request.POST, instance=act)
         is_valid = form.is_valid()
-        defect_decisions = [(None, form.cleaned_data['ko_decision'], form.cleaned_data['ko_comment'])] if is_valid else []
+        defect_decisions = [
+            (None, form.cleaned_data['ko_decision'], form.cleaned_data['ko_comment'], {})
+        ] if is_valid else []
         formset = None
     if is_valid:
         try:
@@ -736,6 +752,30 @@ def _get_act_for_detail(pk):
     )
 
 
+def _defect_decision_rows(defects, ko_forms=()):
+    """Дефекты вместе с решением КО — одна форма строки для страницы и печати.
+
+    `ko_forms` пуст везде, кроме страницы акта в статусе KO_REVIEW: в печатной
+    форме решение только читается. Разобранный анализ считается всегда, потому
+    что читают его обе.
+
+    `impact_applies` отделяет «здесь анализа быть не должно» — запрещающее
+    решение стирает его — от «анализ не заполняли»: акт, решённый до изм.2,
+    должен сказать это прямо, иначе пустой чек-лист прочтётся как сегодняшняя
+    недоработка.
+    """
+    return [
+        {
+            'defect': defect,
+            'ko_form': ko_forms[index] if index < len(ko_forms) else None,
+            'impact': quality_impact.describe(quality_impact.values_of(defect)),
+            'impact_applies': bool(defect.ko_decision)
+            and not quality_impact.clears(defect.ko_decision),
+        }
+        for index, defect in enumerate(defects)
+    ]
+
+
 def _get_act_detail_context(
     act,
     user,
@@ -771,13 +811,7 @@ def _get_act_detail_context(
         ko_decision_form = KoDecisionForm(instance=act)
     for field in ko_decision_form.fields.values():
         field.widget.attrs['form'] = 'ko-decision-form'
-    defect_decision_rows = [
-        {
-            'defect': defect,
-            'ko_form': ko_forms[index] if index < len(ko_forms) else None,
-        }
-        for index, defect in enumerate(defect_rows)
-    ]
+    defect_decision_rows = _defect_decision_rows(defect_rows, ko_forms)
     attachments = [
         {
             'object': attachment,

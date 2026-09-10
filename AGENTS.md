@@ -223,6 +223,75 @@ tasks never live inside `acts`.
 - Every defect requires a workshop/supplier choice on the form, while the model
   field stays `blank=True` so existing rows keep no invented value. Revealing
   the remaining fields must never clear already-entered values.
+- **«Анализ влияния отклонений на качество изделия» is the КО decision's
+  obligation, per defect** (ДП-СМК 07.04, раздел 1, изм.2). Six checklist items,
+  three of them carrying their own values, stored as nine explicit columns on
+  `ActDefect` — the checklist changes by a formal amendment of a controlled
+  document, not by user configuration, so explicit columns are what the print
+  form, the constraints and any future filter read.
+  `acts/quality_impact.py` is the only place the composition, the order and the
+  rule live; nothing may restate them. The rule:
+  * required for the two decisions that admit a deviation — `ALLOW_NO_REWORK`
+    and `ALLOW_WITH_REWORK`. `ALLOW_NO_DEVIATION_REWORK` allows the product
+    *without* a deviation, so there is nothing to analyse: the block stays
+    available and optional, and whatever was entered is kept;
+  * required means at least one item checked, and a checked item must fill its
+    own values — the latter holds under **every** decision, because a tick is a
+    statement and an empty value makes it vacuous;
+  * `PROHIBIT_USE` clears the analysis on save: the document holds no claims
+    about the quality of a product whose use was prohibited;
+  * an unchecked item never carries text. `normalize()` clears it on the one
+    write path, and two check constraints
+    (`act_defect_em_values_only_when_checked`,
+    `act_defect_other_text_only_when_checked`) close the rest — admin, data
+    migrations, hand-written SQL.
+  «At least one item» is deliberately **not** a constraint: acts decided before
+  изм.2 carry a permissive decision and an empty analysis, and the requirement
+  applies only to new КО decisions. `apply_ko_decision()` is the authority,
+  asked under the act row lock; `ActDefectKoDecisionForm.clean()` asks the same
+  question only so the error lands on a field. `close_act` is untouched — a
+  check there would make legacy acts uncloseable.
+- **The «Проработка» defect presentation is a card per defect, not a table
+  row.** `.act-defects-table` had twelve columns at `min-width: 1350px` and
+  scrolled horizontally with a single defect; the analysis adds six checkboxes
+  and three inputs, and a thirteenth column does not exist. The card is a plain
+  `<details>` — open while КО decides, collapsed for reading, so a stack of
+  collapsed cards still reads like the old table — and it is the same
+  presentation in both modes, so one defect never reads two ways.
+  `static/js/ko_decision_form.js` does one thing: hide the analysis block for
+  `PROHIBIT_USE`. It registers in `window.qualityFragments` like every other
+  initialiser, because the work tab is replaced wholesale by
+  `acts:work_fragment`. Hiding is never permission — without JavaScript the
+  block is always visible, which is the right side to fail on.
+  The card carries **no border, background or radius of its own**: defects are
+  separated by `border-top` and sit directly on the white `.detail-section`,
+  exactly as `.corrective-action-card` does in «Анализ ТО» on the same page. A
+  bordered white box inside a bordered white box was two levels of nesting and
+  a spare ring of padding, and it is what made the card read as a mockup.
+  Everything else follows that block too: tokens only (`--color-text`,
+  `--color-muted`, `--radius` — no hex, no 10px, no pill), form controls at the
+  project's `padding: 10px 12px` + `font: inherit` so this `select` and the
+  department `select` below it match, and the checklist drawn as the same
+  `--color-bg` block with a 13px/700 muted label that «Исполнители» uses.
+  `fieldset`/`legend` are kept for the screen-reader grouping and styled flat.
+  Facts reuse `.act-defect-card__grid` (six columns, `__full`/`__half` spans)
+  rather than a `<dl>`, because `.detail-section dl` in `components.css` lays
+  every `dl` out as 130px + 1fr and would win on specificity.
+  Above 1240px the decision and the analysis sit **side by side**
+  (`.act-defect-card__work`); below it they stack. Three numbers are
+  load-bearing and were measured, not guessed: the left column's
+  `minmax(448px, …)` is the longest decision wording, `.act-defect-card__field`'s
+  `max-width: 560px` keeps the `select` from stretching across the whole card
+  when no analysis sits beside it, and the facts grid drops to 3 columns under
+  980px and 2 under 560px, where six columns squeeze labels onto a second line
+  and knock neighbouring values off one baseline.
+  Two traps worth naming, both already paid for: address the checklist's text
+  inputs through `.act-defect-card__impact-value`, never `.act-defect-card__impact
+  input` — the latter catches the checkboxes and stretches them across the row;
+  and `.act-defect-card__grid`'s responsive rules must live **next to that
+  rule** near the end of `acts.css`, because at equal specificity the later
+  declaration wins and a media query placed earlier in the file silently does
+  nothing.
 - **`Act` owns document and workflow data; `ActDefect` is the only source of
   defect data.** The act keeps its number, creator, customer, order,
   nomenclature, КД designation, type, status/priority, the КО/ТО/approval/
@@ -502,21 +571,33 @@ tasks never live inside `acts`.
   `smk.permissions.can_archive_smk_source()` — the same three roles as
   creation, and only while the record is live — asked once by the view for the
   button and re-checked inside the service under `select_for_update()`. The
-  registry (`smk:list`, `build_smk_list_state()`) is the two tabs this status
-  splits, «Работа» and «Архив», with «Количество задач» annotated in the query
-  rather than counted per row; reading it is open to every authenticated user,
-  «Создать» is not. The builder returns *rows* (`{source, task_count, state}`),
-  not the bare queryset, because the state pill is derived per record.
-- **An СМК record has exactly two states, and they are the stored ones.**
-  «В работе» and «Архивировано», one per `SmkSource.Status`, mapped by
-  `selectors.describe_smk_state(is_archived=…)` — the only place a state is
-  decided, called by both the registry and the record page so one cannot read
-  differently from the other. Nothing is derived from the tasks: a record is a
-  shelf with a single transition, and the earlier task-derived «Создана» and
-  «Завершена» described the progress of work that «Задачи» already tracks under
-  its own statuses. Completing every task therefore leaves a record «В работе»
-  until somebody archives it. Displayed through `.status-badge--<code>`
-  (`in_progress`/`archived`) in `components.css`.
+  registry (`smk:list`, `build_smk_list_state()`) is three tabs — «Работа»,
+  «Выполнено» and «Архив» — with «Количество задач» and the two counts the
+  state is read from all annotated in the query rather than counted per row;
+  reading it is open to every authenticated user, «Создать» is not. The builder
+  returns *rows* (`{source, task_count, state}`), not the bare queryset,
+  because the state pill is derived per record.
+- **An СМК record shows three states, and only two of them are stored.**
+  `SmkSource.Status` still holds exactly «В работе» and «Архивировано»:
+  archiving is the record's one transition, and nothing else writes that
+  column. The third, «Выполнено», is *derived* —
+  `selectors.describe_smk_state(is_archived=…, is_completed=…)` is the only
+  place a state is decided, called by both the registry and the record page so
+  one cannot read differently from the other.
+  «Выполнено» means every live task of the record is `COMPLETED`, defined once
+  by `selectors.is_task_set_completed()` and restated for the registry as the
+  `_COMPLETED_TASKS`/`_OPEN_TASKS` annotations, which must keep agreeing with
+  it. Three rules make that answer honest: only the measures the record reads
+  *now* count (`superseded_at IS NULL`), a `CANCELLED` task counts as neither
+  done nor outstanding — both annotation filters are positive, so it falls into
+  neither — and at least one task must actually be completed, or a record whose
+  only task was withdrawn would report finished work that never happened.
+  Deriving rather than storing is what keeps it true in both directions: the
+  record becomes «Выполнено» the moment the last task closes and goes back to
+  «В работе» the moment an administrator returns one to work, with no hook in
+  `tasks.services` and nothing to migrate. «Архивировано» still wins over both.
+  Displayed through `.status-badge--<code>`
+  (`in_progress`/`completed`/`archived`) in `components.css`.
 - **The record page is three tabs.** «Акт аудита» (findings as a
   timeline, measures as one-row cards whose подразделение/исполнитель/срок/
   задача are grid items of the card itself, not a nested grid — that is what
@@ -615,6 +696,46 @@ tasks never live inside `acts`.
   so the column could be added to the existing production table and is never a
   substitute for saying so. Read-side code must not assume `task.act` or
   `task.root_analysis` is present — branch on `source_type`.
+- **«Анализ ТО» collapses the same way, and the server decides what is open.**
+  Both levels are `<details>`: the root cause (`[data-root-analysis]`) and the
+  corrective action inside it (`[data-corrective-action]`). The chevron beside
+  «Корневая причина N» had been drawn since before this and was wired to
+  nothing — the interface was promising a fold that did not exist.
+  What is open is rendered by the template, never decided by the browser:
+  `{% if forloop.last or to_analysis_form.has_errors %} open{% endif %}`. The
+  last card is the one being filled; a **rejected submission opens every card**,
+  because a collapsed card hides its own `field-error` and whether a refusal is
+  visible must not depend on JavaScript or on what the user happened to fold.
+  `ToAnalysisStructureForm.has_errors` is computed from the rows themselves,
+  not from `_valid`, so it is correct at any moment of rendering — `_valid` is
+  only set once `is_valid()` has run.
+  The script adds three things and no rules: a preview of what is typed in each
+  collapsed header (read from the fields, so there is no second source of
+  truth), «open the new card and fold its siblings» on add, and `keepOneOpen()`
+  so removing the one open card does not leave a fully collapsed list. One trap
+  is paid for already: the «×» remove button sits **inside** `<summary>`, so its
+  handler must `preventDefault()` — otherwise deleting a card also toggles the
+  neighbour it lands on.
+- **A closed task is reopened by an administrator, and only a `COMPLETED`
+  ordinary one.** `tasks:reopen` (POST only) → `reopen_task()`, guarded by
+  `can_reopen_task()`: `is_act_admin()` — the role «Администратор» or a
+  superuser, never the исполнитель who closed it and never a руководитель —
+  plus `status.code == 'COMPLETED'` and `not is_routing_task`. That makes it
+  the exact inverse of `can_complete_task()`: a task is never both completable
+  and reopenable. Two closed shapes are refused whoever asks — a routing entry
+  (`PROTOCOL_APPROVAL`, `ACT_WORKFLOW`), because it is closed by its document
+  moving and reviving it would leave the queue disagreeing with the act or
+  protocol, and a `CANCELLED` one, because the correction that withdrew it has
+  already issued the replacement. The service is a narrow mirror of
+  `complete_task()`: it withdraws only the claim that the work was finished
+  (`completed_by`, `completed_at` → NULL) and keeps everything the task holds —
+  attachments are not read at all and `execution_comment` stays, so the
+  исполнитель corrects what was written instead of retyping it (the detail view
+  puts it back into the field; `complete_task()` is still the only writer of
+  that column). `emit_task_updated`, never `emit_task_completed` — the task is
+  now open. No notification: nobody is being *given* work that was not already
+  theirs. The permission is asked by the view for the button and re-asked in
+  the service under `select_for_update()`.
 - **A `TaskAttachment` is optional, and never a precondition of finishing.**
   Uploading is its own endpoint (`tasks:add_attachment`) and its own form, so
   the completion form carries no file field and a task is still completed with
@@ -1317,7 +1438,14 @@ tasks never live inside `acts`.
   `ARCHIVED`, creates exactly one `PROTOCOL_ACTION` task per `ProtocolAction`
   (text, department, due date and assignees copied from the action,
   `created_by` = the protocol author, status `IN_PROGRESS`) and records
-  `TASKS_CREATED` when it created any. Any failure rolls the whole transition
+  `TASKS_CREATED` when it created any. The *author* is also the actor of the
+  `PROTOCOL_TASK_ASSIGNED` notification, deliberately not `actor`: `actor` here
+  is whoever happened to approve last, and naming them would tell the
+  исполнитель the work came from a colleague who merely signed the document.
+  The notification's «Инициатор» is the only place a person reads who put a
+  task on them, so it must say the same thing `created_by` does.
+  `notify_protocol_approved()` in the same function keeps `actor` — *that*
+  fact really is the last approver's. Any failure rolls the whole transition
   back — the protocol does not stay archived, the final approval is not
   half-committed, and no partial set of tasks survives. The `protocol_action`
   one-to-one is the database-level guarantee against a duplicate task; the

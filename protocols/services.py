@@ -831,7 +831,15 @@ def _finalize_protocol(protocol, actor):
             # notification must not describe a task a later failure would roll
             # back. One notification per task, so a split assignee is told
             # about their own task exactly once and nobody is told twice.
-            notify_protocol_task_assigned(task, actor, users)
+            #
+            # The initiator is the *author*, not `actor`. `actor` is whoever
+            # happened to approve last, and naming them would tell the
+            # исполнитель that the work came from a colleague who merely signed
+            # the document. The task is the author's decision — `created_by`
+            # above already says so — and this is the one place a person reads
+            # it. `notify_protocol_approved()` above keeps `actor`: *that* fact
+            # really is the last approver's.
+            notify_protocol_task_assigned(task, protocol.author, users)
             created += 1
     _record(
         protocol,

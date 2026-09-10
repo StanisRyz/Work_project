@@ -10,6 +10,7 @@ from django.utils import timezone
 from accounts.models import Department
 from references.models import DefectType, Operation
 
+from . import quality_impact
 from .models import (
     ACT_NUMBER_SUFFIX_LENGTH,
     Act,
@@ -327,23 +328,81 @@ class KoDecisionForm(forms.ModelForm):
 
 
 class ActDefectKoDecisionForm(forms.ModelForm):
+    """Решение КО по одному дефекту и обоснование к нему.
+
+    Кроме решения и комментария форма собирает «Анализ влияния отклонений на
+    качество изделия» — девять полей, состав которых перечислен в
+    `acts/quality_impact.py`. Правило, по которому анализ обязателен, там же:
+    здесь оно только спрашивается, чтобы ошибка легла на конкретное поле
+    карточки. Авторитет — `acts.services.apply_ko_decision()`, который задаёт
+    тот же вопрос под блокировкой строки акта.
+    """
+
     ko_decision = forms.ChoiceField(choices=Act.KoDecision.new_choices())
 
     class Meta:
         model = ActDefect
-        fields = ('ko_decision', 'ko_comment')
+        fields = ('ko_decision', 'ko_comment', *quality_impact.FIELDS)
         labels = {
             'ko_decision': 'Решение КО',
             'ko_comment': 'Комментарий КО',
         }
         widgets = {
             'ko_comment': forms.Textarea(attrs={'rows': 2}),
+            # Подписи полей отмеченного пункта — плейсхолдерами, а не
+            # отдельными `<label>`: на бумаге это одна строка «Электромагнитные
+            # параметры: ____ (Допуск по КД/ГОСТ: ____)», и две подписи над
+            # двумя короткими полями сделали бы из неё три строки. Без них
+            # неразличимо, какое поле какое.
+            'quality_impact_em_value': forms.TextInput(
+                attrs={'placeholder': 'Значение'},
+            ),
+            'quality_impact_em_tolerance': forms.TextInput(
+                attrs={'placeholder': 'Допуск по КД/ГОСТ'},
+            ),
+            'quality_impact_other_text': forms.Textarea(
+                attrs={'rows': 2, 'placeholder': 'Уточните'},
+            ),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
             field.widget.attrs['form'] = 'ko-decision-form'
+
+    @property
+    def quality_impact_rows(self):
+        """Пункты чек-листа в порядке документа, каждый со своими полями.
+
+        Шаблон рисует их циклом, а не девятью именованными обращениями: состав
+        чек-листа задан документом ДП-СМК, и его изменение не должно требовать
+        правки разметки.
+        """
+        return [
+            {
+                'item': item,
+                'checkbox': self[item.field],
+                'texts': [self[name] for name in item.text_fields],
+            }
+            for item in quality_impact.ITEMS
+        ]
+
+    def clean(self):
+        cleaned = super().clean()
+        # Только когда решение прошло собственную проверку: без него правило
+        # обязательности не определено, и второе сообщение об одной ошибке
+        # ничего читателю не добавит.
+        decision = cleaned.get('ko_decision')
+        if not decision:
+            return cleaned
+        values = quality_impact.normalize(decision, cleaned)
+        cleaned.update(values)
+        for field, message in quality_impact.validate(decision, values).items():
+            if field == quality_impact.NON_FIELD:
+                self.add_error(None, message)
+            else:
+                self.add_error(field, message)
+        return cleaned
 
 
 ActDefectKoDecisionFormSet = modelformset_factory(
@@ -419,6 +478,25 @@ class ToAnalysisStructureForm:
         self._valid = None
         if not self.is_bound:
             self.root_rows = self._rows_from_analyses(root_analyses) or [self._empty_root(0)]
+
+    @property
+    def has_errors(self):
+        """Вернулась ли эта форма с тем, что надо исправить.
+
+        Читается шаблоном, чтобы у отклонённой отправки все карточки остались
+        раскрытыми: свёрнутая карточка прячет собственный `field-error`, и
+        решать, видно ли отказ, не должен ни браузер, ни состояние сворачивания.
+
+        Считается по самим строкам, а не по `_valid`: тот выставляется только
+        после `is_valid()`, а этот ответ должен быть верным в любой момент
+        отрисовки.
+        """
+        if self.non_field_errors:
+            return True
+        return any(
+            row['root_cause_errors'] or any(action['errors'] for action in row['actions'])
+            for row in self.root_rows
+        )
 
     @classmethod
     def _rows_from_analyses(cls, root_analyses):

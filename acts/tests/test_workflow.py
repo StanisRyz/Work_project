@@ -20,6 +20,7 @@ from acts.permissions import (
     get_visible_acts_queryset,
 )
 from acts.selectors import get_related_tasks
+from acts import quality_impact
 from acts.services import ActWorkflowError, apply_ko_decision, apply_structured_to_analysis, apply_to_analysis, approve_act, return_to_ko, return_to_otk, return_to_to, send_to_ko
 from references.models import ActStatus, DefectType, Operation
 from tasks.models import Task
@@ -102,7 +103,7 @@ class ActWorkflowTests(TestCase):
             with self.subTest(decision=decision):
                 act = self._create_act(self.status_ko)
 
-                apply_ko_decision(act, self.ko_user, [(None, decision, 'Решение КО')])
+                apply_ko_decision(act, self.ko_user, [(None, decision, 'Решение КО', {})])
 
                 act.refresh_from_db()
                 self.assertEqual(act.status.code, 'TO_ANALYSIS')
@@ -113,7 +114,7 @@ class ActWorkflowTests(TestCase):
         act = self._create_act(self.status_ko)
 
         with self.assertRaises(ActWorkflowError):
-            apply_ko_decision(act, self.ko_user, [(None, Act.KoDecision.RETURN, 'Старое решение')])
+            apply_ko_decision(act, self.ko_user, [(None, Act.KoDecision.RETURN, 'Старое решение', {})])
 
     def test_every_defect_requires_a_ko_decision_before_transition_to_to(self):
         act = self._create_act(self.status_ko)
@@ -134,15 +135,15 @@ class ActWorkflowTests(TestCase):
             apply_ko_decision(
                 act,
                 self.ko_user,
-                [(first_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Решение')],
+                [(first_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Решение', self._impact())],
             )
 
         apply_ko_decision(
             act,
             self.ko_user,
             [
-                (first_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Решение по первому'),
-                (second_defect, Act.KoDecision.PROHIBIT_USE, 'Решение по второму'),
+                (first_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Решение по первому', self._impact()),
+                (second_defect, Act.KoDecision.PROHIBIT_USE, 'Решение по второму', {}),
             ],
         )
         act.refresh_from_db()
@@ -151,6 +152,121 @@ class ActWorkflowTests(TestCase):
         self.assertEqual(act.status.code, 'TO_ANALYSIS')
         self.assertEqual(first_defect.ko_decision, Act.KoDecision.ALLOW_NO_REWORK)
         self.assertEqual(second_defect.ko_decision, Act.KoDecision.PROHIBIT_USE)
+
+    def _impact(self, **overrides):
+        """Заполненный анализ влияния отклонений, минимальный по составу."""
+        values = {name: False for name in quality_impact.CHECKLIST_FIELDS}
+        values.update({name: '' for name in quality_impact.TEXT_FIELDS})
+        values['quality_impact_assembly'] = True
+        values.update(overrides)
+        return values
+
+    def test_a_deviation_decision_is_refused_without_the_quality_impact_analysis(self):
+        """Разрешить отклонение, ничем его не обосновав, нельзя — с изм.2.
+
+        Проверяется сервис, а не форма: под блокировкой строки акта он и есть
+        авторитет, и запрос в обход страницы обязан получить тот же отказ.
+        Отказ откатывает переход целиком — акт остаётся в KO_REVIEW.
+        """
+        act = self._create_act(self.status_ko)
+        defect = self._mp_defect(act, znp='7001', party='21', rejected=2)
+
+        with self.assertRaises(ActWorkflowError):
+            apply_ko_decision(
+                act, self.ko_user,
+                [(defect, Act.KoDecision.ALLOW_NO_REWORK, 'Разрешено', {})],
+            )
+        act.refresh_from_db()
+        defect.refresh_from_db()
+        self.assertEqual(act.status.code, 'KO_REVIEW')
+        self.assertEqual(defect.ko_decision, '')
+
+        apply_ko_decision(
+            act, self.ko_user,
+            [(defect, Act.KoDecision.ALLOW_NO_REWORK, 'Разрешено', self._impact())],
+        )
+        act.refresh_from_db()
+        defect.refresh_from_db()
+        self.assertEqual(act.status.code, 'TO_ANALYSIS')
+        self.assertTrue(defect.quality_impact_assembly)
+
+    def test_a_checked_analysis_item_must_carry_its_values(self):
+        act = self._create_act(self.status_ko)
+        defect = self._mp_defect(act, znp='7002', party='22', rejected=1)
+        half = self._impact(
+            quality_impact_em_parameters=True, quality_impact_em_value='1,2 мГн',
+        )
+
+        with self.assertRaises(ActWorkflowError):
+            apply_ko_decision(
+                act, self.ko_user,
+                [(defect, Act.KoDecision.ALLOW_WITH_REWORK, 'Разрешено', half)],
+            )
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'KO_REVIEW')
+
+    def test_prohibiting_use_clears_the_analysis_and_needs_none(self):
+        """Запрет не требует анализа и стирает уже введённый.
+
+        Документ не хранит утверждений о качестве изделия, которое запретили
+        использовать, — даже если КО успел их отметить до смены решения.
+        """
+        act = self._create_act(self.status_ko)
+        defect = self._mp_defect(act, znp='7003', party='23', rejected=3)
+
+        apply_ko_decision(
+            act, self.ko_user,
+            [(defect, Act.KoDecision.PROHIBIT_USE, 'Запрет', self._impact(
+                quality_impact_em_parameters=True,
+                quality_impact_em_value='1,2 мГн',
+                quality_impact_em_tolerance='±5%',
+            ))],
+        )
+
+        defect.refresh_from_db()
+        self.assertEqual(defect.ko_decision, Act.KoDecision.PROHIBIT_USE)
+        self.assertFalse(defect.quality_impact_assembly)
+        self.assertFalse(defect.quality_impact_em_parameters)
+        self.assertEqual(defect.quality_impact_em_value, '')
+        self.assertEqual(defect.quality_impact_em_tolerance, '')
+
+    def test_a_decision_without_deviation_neither_requires_nor_discards_analysis(self):
+        """«Разрешить без отклонения с доработкой»: отклонения нет, значит
+        анализ необязателен — но набранное сохраняется, а не выбрасывается."""
+        empty_act = self._create_act(self.status_ko)
+        empty_defect = self._mp_defect(empty_act, znp='7004', party='24', rejected=1)
+        apply_ko_decision(
+            empty_act, self.ko_user,
+            [(empty_defect, Act.KoDecision.ALLOW_NO_DEVIATION_REWORK, 'Доработать', {})],
+        )
+        empty_act.refresh_from_db()
+        self.assertEqual(empty_act.status.code, 'TO_ANALYSIS')
+
+        kept_act = self._create_act(self.status_ko)
+        kept_defect = self._mp_defect(kept_act, znp='7005', party='25', rejected=1)
+        apply_ko_decision(
+            kept_act, self.ko_user,
+            [(kept_defect, Act.KoDecision.ALLOW_NO_DEVIATION_REWORK, 'Доработать',
+              self._impact())],
+        )
+        kept_defect.refresh_from_db()
+        self.assertTrue(kept_defect.quality_impact_assembly)
+
+    def test_an_act_without_defects_needs_no_analysis(self):
+        """Устаревший путь «решение на уровне акта» анализа не несёт.
+
+        Анализ принадлежит дефекту, а акт без дефектов старше самой структуры:
+        форма требует минимум один дефект с тех пор, как она появилась.
+        """
+        act = self._create_act(self.status_ko)
+
+        apply_ko_decision(
+            act, self.ko_user, [(None, Act.KoDecision.ALLOW_NO_REWORK, 'Решение', {})]
+        )
+
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'TO_ANALYSIS')
 
     def test_to_analysis_moves_act_to_actions_assigned(self):
         act = self._create_act(self.status_to)
@@ -482,7 +598,7 @@ class ActWorkflowTests(TestCase):
         self.assertFalse(can_complete_task(ko_task, self.ko_user))
 
         act = apply_ko_decision(
-            act, self.ko_user, [(None, Act.KoDecision.PROHIBIT_USE, 'Решение')]
+            act, self.ko_user, [(None, Act.KoDecision.PROHIBIT_USE, 'Решение', {})]
         )
         ko_task.refresh_from_db()
         self.assertEqual(ko_task.status.code, 'COMPLETED')
@@ -633,9 +749,9 @@ class ActWorkflowTests(TestCase):
         )
 
         apply_ko_decision(act, self.ko_user, [
-            (first, Act.KoDecision.PROHIBIT_USE, 'Брак'),
-            (second, Act.KoDecision.PROHIBIT_USE, 'Брак'),
-            (pir, Act.KoDecision.PROHIBIT_USE, 'Брак'),
+            (first, Act.KoDecision.PROHIBIT_USE, 'Брак', {}),
+            (second, Act.KoDecision.PROHIBIT_USE, 'Брак', {}),
+            (pir, Act.KoDecision.PROHIBIT_USE, 'Брак', {}),
         ])
 
         task = Task.objects.get(act=act, source_type=Task.SourceType.ACT_REJECTION)
@@ -677,7 +793,7 @@ class ActWorkflowTests(TestCase):
         allowed_defect = self._mp_defect(allowed_act, znp='1', party='2', rejected=1)
         apply_ko_decision(
             allowed_act, self.ko_user,
-            [(allowed_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Разрешено')],
+            [(allowed_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Разрешено', self._impact())],
         )
         self.assertFalse(
             Task.objects.filter(
@@ -691,7 +807,7 @@ class ActWorkflowTests(TestCase):
         created_act = self._create_act(self.status_created)
 
         with self.assertRaises(ActWorkflowError):
-            apply_ko_decision(ko_act, self.otk_user, [(None, Act.KoDecision.ALLOW_NO_REWORK, '')])
+            apply_ko_decision(ko_act, self.otk_user, [(None, Act.KoDecision.ALLOW_NO_REWORK, '', {})])
         with self.assertRaises(ActWorkflowError):
             apply_to_analysis(to_act, self.ko_user, 'Причина', 'Мероприятия')
         with self.assertRaises(ActWorkflowError):

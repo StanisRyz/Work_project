@@ -264,7 +264,12 @@
             if (node) node.textContent = text;
         };
         const auditDate = form.querySelector('[name="audit_date"]');
+        const department = form.querySelector('[name="department"]');
+        const departmentLabel = department && department.selectedIndex > 0
+            ? department.options[department.selectedIndex].textContent.trim()
+            : '—';
         set('[data-smk-confirm-origin]', originLabel);
+        set('[data-smk-confirm-department]', departmentLabel);
         set('[data-smk-confirm-date]', auditDate && auditDate.value
             ? auditDate.value.split('-').reverse().join('.')
             : '—');

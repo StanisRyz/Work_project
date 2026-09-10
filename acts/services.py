@@ -16,6 +16,7 @@ from realtime.emitters import (
     emit_comment_created,
 )
 
+from . import quality_impact
 from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActDefect, ActHistoryEvent, ActRootAnalysis, get_act_status
 from .permissions import (
     can_apply_ko_decision,
@@ -251,6 +252,19 @@ def send_to_ko(act, user):
 
 
 def apply_ko_decision(act, user, defect_decisions):
+    """Внести решение КО по каждому дефекту и передать акт в ТО.
+
+    `defect_decisions` — последовательность кортежей
+    `(дефект, решение, комментарий, анализ)`, где `анализ` — словарь значений
+    «Анализа влияния отклонений на качество изделия» (`acts/quality_impact.py`);
+    пустой словарь означает незаполненный анализ и допустим ровно там, где
+    правило его не требует.
+
+    Анализ принадлежит дефекту, поэтому на устаревшем пути «решение на уровне
+    акта» (`дефект is None`, акт без дефектов) он не хранится и не требуется:
+    `Act` таких колонок не имеет, а форма требует минимум один дефект с тех
+    пор, как эта структура появилась.
+    """
     with _workflow_logging('apply_ko_decision', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_apply_ko_decision(act, user):
@@ -262,7 +276,10 @@ def apply_ko_decision(act, user, defect_decisions):
         # defect deleted meanwhile — is rejected instead of silently applied.
         current_defects = {defect.pk: defect for defect in _lock_act_defects(act)}
         if current_defects:
-            received_ids = [defect.pk if defect is not None else None for defect, _d, _c in defect_decisions]
+            received_ids = [
+                defect.pk if defect is not None else None
+                for defect, _d, _c, _i in defect_decisions
+            ]
             if None in received_ids:
                 raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
             if len(received_ids) != len(set(received_ids)):
@@ -271,21 +288,27 @@ def apply_ko_decision(act, user, defect_decisions):
                 raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
             # Replace any stale instance the caller passed with the locked one.
             defect_decisions = [
-                (current_defects[defect.pk], decision, comment)
-                for defect, decision, comment in defect_decisions
+                (current_defects[defect.pk], decision, comment, impact)
+                for defect, decision, comment, impact in defect_decisions
             ]
         elif len(defect_decisions) != 1 or defect_decisions[0][0] is not None:
             raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
-        for _defect, decision, _comment in defect_decisions:
+        for _defect, decision, _comment, _impact in defect_decisions:
             if decision not in Act.KoDecision.new_values():
                 raise ActWorkflowError('Недопустимое решение КО.')
+        # «Анализ влияния отклонений» — после проверки самих решений и до любой
+        # записи, так что отказ не оставляет половины внесённых решений. Правило
+        # спрашивается здесь, под блокировкой строки акта: форма задаёт тот же
+        # вопрос, чтобы ошибка легла на поле, но авторитет — этот вызов, и
+        # запрос в обход страницы получает тот же отказ.
+        defect_decisions = _validated_quality_impacts(defect_decisions)
 
         from_status = act.status
         to_status = _get_required_status('TO_ANALYSIS')
         log_state['act_id'] = act.pk
         log_state['previous_status'] = _status_code_of(from_status)
         log_state['next_status'] = _status_code_of(to_status)
-        first_defect, first_decision, first_comment = defect_decisions[0]
+        first_defect, first_decision, first_comment, _first_impact = defect_decisions[0]
         act.ko_decision = first_decision
         act.ko_comment = first_comment
         act.ko_decision_by = user
@@ -301,14 +324,22 @@ def apply_ko_decision(act, user, defect_decisions):
                 'updated_at',
             ]
         )
-        for defect, decision, comment in defect_decisions:
+        for defect, decision, comment, impact in defect_decisions:
             if defect is not None:
                 defect.ko_decision = decision
                 defect.ko_comment = comment
                 defect.ko_decision_by = user
                 defect.ko_decision_at = act.ko_decision_at
-                defect.save(update_fields=['ko_decision', 'ko_comment', 'ko_decision_by', 'ko_decision_at', 'updated_at'])
+                for name, value in impact.items():
+                    setattr(defect, name, value)
+                defect.save(update_fields=[
+                    'ko_decision', 'ko_comment', 'ko_decision_by', 'ko_decision_at',
+                    *quality_impact.FIELDS, 'updated_at',
+                ])
                 message = f'Решение КО по дефекту «{defect.defect_type}»: {defect.get_ko_decision_display()}.'
+                checked = len(quality_impact.describe(impact))
+                if checked:
+                    message = f'{message} Анализ влияния отклонений: пунктов — {checked}.'
             else:
                 message = f'Решение КО внесено: {act.get_ko_decision_display()}.'
             add_act_history_event(act, user, ActHistoryEvent.EventType.KO_DECISION_APPLIED, message)
@@ -325,6 +356,33 @@ def apply_ko_decision(act, user, defect_decisions):
         )
         _ensure_rejection_task(act, defect_decisions, user)
     return act
+
+
+def _validated_quality_impacts(defect_decisions):
+    """Привести анализ каждого дефекта к записываемому виду или отказать.
+
+    Возвращает те же кортежи с нормализованным анализом. Нормализация и
+    проверка — обе из `acts/quality_impact.py`, чтобы правило существовало в
+    одном месте; здесь только обход дефектов и превращение ошибки в
+    `ActWorkflowError` с именем дефекта, потому что решений в одном переходе
+    несколько и «где именно» — половина сообщения.
+
+    Дефект `None` пропускается: анализ хранится на дефекте, и хранить его
+    негде.
+    """
+    validated = []
+    for defect, decision, comment, impact in defect_decisions:
+        if defect is None:
+            validated.append((defect, decision, comment, {}))
+            continue
+        values = quality_impact.normalize(decision, impact or {})
+        errors = quality_impact.validate(decision, values)
+        if errors:
+            raise ActWorkflowError(
+                f'Дефект «{defect.defect_type}»: {next(iter(errors.values()))}'
+            )
+        validated.append((defect, decision, comment, values))
+    return validated
 
 
 def _ensure_rejection_task(act, defect_decisions, user):
@@ -347,7 +405,7 @@ def _ensure_rejection_task(act, defect_decisions, user):
 
     rejected = [
         defect
-        for defect, _decision, _comment in defect_decisions
+        for defect, _decision, _comment, _impact in defect_decisions
         if defect is not None
         and defect.workshop == ActDefect.Workshop.MP_SHOP
         and defect.ko_decision == Act.KoDecision.PROHIBIT_USE

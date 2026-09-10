@@ -19,10 +19,12 @@ from references.models import ActStatus, DefectType, Operation, TaskStatus
 
 from .models import Task, TaskAssignee, TaskAttachment
 from .permissions import (
-    can_complete_task, can_delete_task_attachment, can_upload_task_attachment,
-    get_visible_tasks_queryset,
+    can_complete_task, can_delete_task_attachment, can_reopen_task,
+    can_upload_task_attachment, get_visible_tasks_queryset,
 )
-from .services import TaskWorkflowError, complete_task, replace_task_assignees
+from .services import (
+    TaskWorkflowError, complete_task, reopen_task, replace_task_assignees,
+)
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='task-attachments-'))
@@ -703,6 +705,128 @@ class TaskViewsTests(TestCase):
         self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive&number={task.pk}')
         task.refresh_from_db()
         self.assertEqual(task.completed_by, administrator)
+
+    # ------------------------------------------------------------- reopening
+
+    def test_only_an_administrator_may_reopen_a_completed_task(self):
+        """Разархивировать задачу — administrative, and nothing weaker.
+
+        Not the исполнитель who closed it and not a руководитель: reopening
+        rewrites a fact the registry already reported as finished, and the same
+        `is_act_admin()` that answers every other administrative question in
+        the project answers this one.
+        """
+        task = self._task(self.employee, timezone.localdate())
+        complete_task(task, self.employee, 'Мероприятие выполнено.')
+
+        for user in (self.employee, self.other_employee, self.manager):
+            with self.subTest(user=user.username):
+                self.assertFalse(can_reopen_task(task, user))
+                with self.assertRaises(TaskWorkflowError):
+                    reopen_task(task, user)
+
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'COMPLETED')
+
+        administrator = self._user('admin_reopen', UserProfile.Role.ADMIN, self.department)
+        superuser = User.objects.create_superuser(username='root_reopen', password='demo12345')
+        self.assertTrue(can_reopen_task(task, administrator))
+        self.assertTrue(can_reopen_task(task, superuser))
+
+        # And the button is on the page for them and on nobody else's — the
+        # same answer the endpoint gives, rendered.
+        self.client.force_login(administrator)
+        offered = self.client.get(reverse('tasks:detail', args=[task.pk]))
+        self.assertTrue(offered.context['can_reopen'])
+        self.assertContains(offered, reverse('tasks:reopen', args=[task.pk]))
+        self.assertContains(offered, 'Вернуть в работу')
+        self.client.force_login(self.employee)
+        refused = self.client.get(reverse('tasks:detail', args=[task.pk]))
+        self.assertFalse(refused.context['can_reopen'])
+        self.assertNotContains(refused, reverse('tasks:reopen', args=[task.pk]))
+
+    def test_reopening_returns_the_task_to_work_and_keeps_everything_attached(self):
+        """The whole point: a wrongly finished task becomes workable again.
+
+        Its file and its «Результат выполнения» survive — the исполнитель
+        corrects what was written rather than retyping it — while the claim
+        that the task *was* finished, `completed_by`/`completed_at`, is
+        withdrawn, because it is no longer true.
+        """
+        task = self._task(self.employee, timezone.localdate())
+        self.client.force_login(self.employee)
+        self.client.post(
+            reverse('tasks:add_attachment', args=[task.pk]),
+            {'file': SimpleUploadedFile('report.pdf', b'%PDF-1.4 ok', content_type='application/pdf')},
+        )
+        complete_task(task, self.employee, 'Ошибочно закрыл не ту задачу.')
+        self.assertEqual(task.attachments.count(), 1)
+
+        administrator = self._user('admin_reopen_flow', UserProfile.Role.ADMIN, self.department)
+        self.client.force_login(administrator)
+        response = self.client.post(reverse('tasks:reopen', args=[task.pk]))
+        self.assertRedirects(response, reverse('tasks:detail', args=[task.pk]))
+
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'IN_PROGRESS')
+        self.assertIsNone(task.completed_by)
+        self.assertIsNone(task.completed_at)
+        # Kept, both of them.
+        self.assertEqual(task.execution_comment, 'Ошибочно закрыл не ту задачу.')
+        self.assertEqual(task.attachments.count(), 1)
+
+        # It has left «Архив» for the working queue, and its исполнитель can
+        # finish it properly — the reopened task is an ordinary open task.
+        self.client.force_login(self.employee)
+        archive = self.client.get(reverse('tasks:list'), {'tab': 'archive'})
+        self.assertNotContains(archive, reverse('tasks:detail', args=[task.pk]))
+        detail = self.client.get(reverse('tasks:detail', args=[task.pk]))
+        self.assertTrue(detail.context['can_complete'])
+        self.assertFalse(detail.context['can_reopen'])
+        # The kept result is put back into the field rather than hidden.
+        self.assertEqual(detail.context['execution_comment'], 'Ошибочно закрыл не ту задачу.')
+        complete_task(task, self.employee, 'Выполнено верно.')
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'COMPLETED')
+        self.assertEqual(task.execution_comment, 'Выполнено верно.')
+
+    def test_a_cancelled_or_routing_task_is_never_reopened(self):
+        """Two kinds of closed task an administrator must not put back.
+
+        A cancelled one was withdrawn by the workflow that corrected the
+        document behind it, and its replacement is already assigned — reviving
+        it would ask for the same work twice. A routing entry is not work at
+        all: it is closed by the act or protocol moving, and putting it back
+        would make the queue disagree with the document.
+        """
+        administrator = self._user('admin_refused', UserProfile.Role.ADMIN, self.department)
+
+        cancelled = self._task(self.employee, timezone.localdate())
+        cancelled.status = TaskStatus.objects.get(code='CANCELLED')
+        cancelled.save(update_fields=['status'])
+        self.assertFalse(can_reopen_task(cancelled, administrator))
+
+        routing = Task.objects.create(
+            source_type=Task.SourceType.ACT_WORKFLOW,
+            act=self.act,
+            workflow_stage=Task.WorkflowStage.KO_REVIEW,
+            task_text='Рассмотреть акт и внести решение КО.',
+            due_date=timezone.localdate(),
+            created_by=self.creator,
+            status=TaskStatus.objects.get(code='COMPLETED'),
+        )
+        TaskAssignee.objects.create(task=routing, user=self.employee)
+        self.assertFalse(can_reopen_task(routing, administrator))
+
+        self.client.force_login(administrator)
+        for task in (cancelled, routing):
+            with self.subTest(task=task.pk):
+                with self.assertRaises(TaskWorkflowError):
+                    reopen_task(task, administrator)
+                previous = task.status.code
+                self.client.post(reverse('tasks:reopen', args=[task.pk]))
+                task.refresh_from_db()
+                self.assertEqual(task.status.code, previous)
 
 
 class TaskSourceTests(TestCase):

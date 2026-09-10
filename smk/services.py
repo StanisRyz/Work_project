@@ -80,8 +80,7 @@ def _record(source, actor, event_type, message):
     )
 
 
-def _action_fingerprint(*, text, due_date, assignee_ids, split_for_assignees,
-                        requires_attachment):
+def _action_fingerprint(*, text, due_date, assignee_ids, split_for_assignees):
     """Everything about a мероприятие that decides what its task(s) say.
 
     The one definition of «изменилось», used for both sides of the comparison
@@ -92,16 +91,21 @@ def _action_fingerprint(*, text, due_date, assignee_ids, split_for_assignees,
     purpose.
 
     Deliberately *not* included: the finding the measure answers, its position
-    on the page and its department. None of them changes what the исполнитель
-    was asked to do, and reissuing a task over one would be exactly the
-    unnecessary churn this comparison exists to prevent.
+    on the page, its department, and the record's own «Отделение». None of them
+    changes what the исполнитель was asked to do, and reissuing a task over one
+    would be exactly the unnecessary churn this comparison exists to prevent.
+    That last one is why the отдел СМК can fill «Отделение» in on an older
+    record without disturbing a single задача.
+
+    «Требуется вложение» is not here either, and no longer anywhere: every
+    задача по СМК requires one, so it is a constant rather than an answer that
+    could differ between the stored measure and the submitted one.
     """
     return (
         (text or '').strip(),
         due_date,
         tuple(sorted(assignee_ids)),
         bool(split_for_assignees),
-        bool(requires_attachment),
     )
 
 
@@ -112,7 +116,6 @@ def _stored_fingerprint(action):
         due_date=action.due_date,
         assignee_ids=[item.user_id for item in action.assignees.all()],
         split_for_assignees=action.split_for_assignees,
-        requires_attachment=action.requires_attachment,
     )
 
 
@@ -123,7 +126,6 @@ def _submitted_fingerprint(item):
         due_date=item['due_date'],
         assignee_ids=[user.pk for user in item['assignees']],
         split_for_assignees=item['split_for_assignees'],
-        requires_attachment=item['requires_attachment'],
     )
 
 
@@ -153,7 +155,6 @@ def _create_action(source, item, index, findings, *, actor):
         department=item['department'],
         due_date=item['due_date'],
         non_conformity=findings[position] if position is not None else None,
-        requires_attachment=item['requires_attachment'],
         split_for_assignees=item['split_for_assignees'],
         display_order=index,
     )
@@ -263,12 +264,13 @@ def _sync_findings(source, submitted, *, superseded_at):
     return findings
 
 
-def create_smk_source(*, origin, audit_date, non_conformities, actions, created_by):
+def create_smk_source(*, origin, audit_date, department, non_conformities,
+                      actions, created_by):
     """Store one СМК record and turn every measure into a real task.
 
     `non_conformities` is a list of `{'id', 'text'}` dicts and `actions` a list
     of `{'id', 'text', 'department', 'due_date', 'non_conformity',
-    'requires_attachment', 'split_for_assignees', 'assignees'}` dicts, whose
+    'split_for_assignees', 'assignees'}` dicts, whose
     `non_conformity` is a *position* in `non_conformities` or `None` — the
     findings have no primary keys until this function creates them — as
     `SmkSourceForm` produces them. The `id` of each is `None` here by
@@ -295,7 +297,8 @@ def create_smk_source(*, origin, audit_date, non_conformities, actions, created_
 
     with transaction.atomic():
         source = SmkSource.objects.create(
-            origin=origin, audit_date=audit_date, created_by=created_by,
+            origin=origin, audit_date=audit_date, department=department,
+            created_by=created_by,
         )
         _write_content(source, non_conformities, actions, actor=created_by)
         # Last, so the trail's oldest event is «создана» even when several
@@ -321,7 +324,8 @@ def create_smk_source(*, origin, audit_date, non_conformities, actions, created_
     return source
 
 
-def update_smk_source(source, *, origin, audit_date, non_conformities, actions, actor):
+def update_smk_source(source, *, origin, audit_date, department,
+                     non_conformities, actions, actor):
     """Correct one live СМК record, reissuing only the work that really changed.
 
     The arguments have exactly the shape `create_smk_source()` takes, because
@@ -423,7 +427,13 @@ def update_smk_source(source, *, origin, audit_date, non_conformities, actions, 
 
         locked.origin = origin
         locked.audit_date = audit_date
-        locked.save(update_fields=['origin', 'audit_date', 'updated_at'])
+        # «Отделение» reaches no задача and is not part of `_action_fingerprint()`,
+        # so filling it in on an older record — the correction it exists for —
+        # leaves every мероприятие «unchanged» and touches no work at all.
+        locked.department = department
+        locked.save(
+            update_fields=['origin', 'audit_date', 'department', 'updated_at'],
+        )
 
         created = []
         for kind, index, item, current in plan:

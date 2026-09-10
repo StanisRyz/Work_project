@@ -59,6 +59,34 @@ def can_complete_task(task, user):
     )
 
 
+def can_reopen_task(task, user):
+    """Who may take a finished task back out of «Архив», and which task.
+
+    Administrative and nothing weaker — `is_act_admin()`, the same answer every
+    other administrative question in the project gets, so the role «Администратор»
+    and a superuser qualify and a руководитель does not. Reopening rewrites a
+    fact the registry already reported as finished; the исполнитель who closed
+    it by mistake asks an administrator rather than undoing it themselves.
+
+    Two kinds of closed task are refused whoever asks:
+
+    * a routing entry (`PROTOCOL_APPROVAL`, `ACT_WORKFLOW`) — it is not work
+      anybody performs. It is closed by the protocol or the act moving, and
+      putting it back would leave the queue claiming a stage the document has
+      already left. This is the same rule `can_complete_task()` applies, from
+      the same `is_routing_task`;
+    * a `CANCELLED` one — it was withdrawn because the document behind it was
+      corrected, and the replacement task is already assigned. Reviving it
+      would ask for the same work twice.
+
+    So `COMPLETED` is the only status this answers `True` for, which also makes
+    it the exact inverse of `can_complete_task()`: never both at once.
+    """
+    if task.is_routing_task:
+        return False
+    return task.status.code == 'COMPLETED' and is_act_admin(user)
+
+
 def can_upload_task_attachment(task, user):
     """Who may attach a file to this task.
 

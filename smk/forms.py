@@ -53,6 +53,8 @@ class SmkSourceForm:
         self.origin_error = ''
         self.audit_date = ''
         self.audit_date_error = ''
+        self.department = ''
+        self.department_error = ''
         self.non_conformity_rows = []
         self.action_rows = []
         if not self.is_bound:
@@ -79,6 +81,10 @@ class SmkSourceForm:
         """
         self.origin = source.origin
         self.audit_date = source.audit_date.isoformat() if source.audit_date else ''
+        # Empty for a record written before «Отделение» existed, which is
+        # exactly the correction this field is filled in by: the page then
+        # asks for it like any other required answer.
+        self.department = str(source.department_id or '')
         positions = {}
         for index, finding in enumerate(source.current_non_conformities):
             positions[finding.pk] = index
@@ -104,7 +110,6 @@ class SmkSourceForm:
                     'text': action.task_text,
                     'due_date': action.due_date.isoformat(),
                     'non_conformity': '' if position is None else str(position),
-                    'requires_attachment': action.requires_attachment,
                     'split_for_assignees': action.split_for_assignees,
                     # Strings, because the option partials compare against
                     # `pk|stringformat:'s'` — the same values a POST carries.
@@ -141,7 +146,6 @@ class SmkSourceForm:
             'text': '',
             'due_date': '',
             'non_conformity': '',
-            'requires_attachment': False,
             'split_for_assignees': False,
             'assignees': [{'user': '', 'department': ''}],
             'errors': {},
@@ -186,6 +190,7 @@ class SmkSourceForm:
 
         origin = self._clean_origin()
         audit_date = self._clean_audit_date()
+        department = self._clean_department()
         # The findings are cleaned first because a measure may name one of
         # them: `_clean_actions()` resolves that name against the rows this
         # very request kept, never against what is stored.
@@ -196,6 +201,7 @@ class SmkSourceForm:
             not self.non_field_errors
             and not self.origin_error
             and not self.audit_date_error
+            and not self.department_error
             and not any(
                 row['errors']
                 for row in (*self.non_conformity_rows, *self.action_rows)
@@ -205,6 +211,7 @@ class SmkSourceForm:
             self.cleaned = {
                 'origin': origin,
                 'audit_date': audit_date,
+                'department': department,
                 'non_conformities': non_conformities,
                 'actions': actions,
             }
@@ -225,6 +232,20 @@ class SmkSourceForm:
         except (TypeError, ValueError):
             self.audit_date_error = 'Укажите дату аудита.'
             return None
+
+    def _clean_department(self):
+        """Which подразделение the audit looked at — required, and its own.
+
+        Resolved against the active departments already loaded for the
+        assignee rows, so an inactive or invented one is refused here rather
+        than reaching the record. It restricts nothing else: no measure and no
+        исполнитель is checked against it.
+        """
+        self.department = self.data.get('department', '').strip()
+        department = self._department(self.department)
+        if department is None:
+            self.department_error = 'Выберите отделение.'
+        return department
 
     def _clean_non_conformities(self):
         """At least one finding: an audit record with none states nothing.
@@ -277,10 +298,6 @@ class SmkSourceForm:
                 # Optional: a measure that answers several findings, or the
                 # record as a whole, simply names none.
                 'non_conformity': self.data.get(f'{prefix}-non_conformity', '').strip(),
-                # A plain answer, never normalized away: a required file means
-                # the same on a measure with one исполнитель as on one with
-                # five, and an СМК measure is never split between them anyway.
-                'requires_attachment': bool(self.data.get(f'{prefix}-requires_attachment')),
                 # Presentation only at this point — whether splitting means
                 # anything depends on how many исполнителя survive validation,
                 # so the answer is normalized against them below.
@@ -356,7 +373,6 @@ class SmkSourceForm:
                     # A position in `non_conformities`, or `None` — never a
                     # primary key: a newly added finding does not exist yet.
                     'non_conformity': non_conformity,
-                    'requires_attachment': row['requires_attachment'],
                     # Stored normalized, exactly as `protocols/services.py`
                     # normalizes its own: splitting a measure between one
                     # исполнитель has no meaning, and an un-normalized answer

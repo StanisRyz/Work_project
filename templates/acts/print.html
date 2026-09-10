@@ -88,9 +88,36 @@
 
         <section class="print-section">
             <h2>Решение КО</h2>
+            {% comment %}
+            Раздел 1 бумажного акта: по блоку на дефект — решение, комментарий
+            и «Анализ влияния отклонений на качество изделия». Поблочно, а не
+            колонками в таблице дефектов выше: чек-лист из шести пунктов в
+            ячейку не помещается, и на бумаге он тоже идёт отдельной строкой.
+
+            Автор и дата решения одни на весь акт — их вносят одним действием,
+            поэтому они остаются здесь, а не повторяются в каждом блоке.
+            {% endcomment %}
+            {% for row in defect_decision_rows %}
+                <h3>Дефект {{ forloop.counter }}. {{ row.defect.defect_type|default:'-' }}</h3>
+                <table>
+                    <tr><th>Решение</th><td>{{ row.defect.get_ko_decision_display|default:'-' }}</td></tr>
+                    <tr><th>Комментарий</th><td>{{ row.defect.ko_comment|default:'-' }}</td></tr>
+                    {% if row.impact_applies %}
+                        <tr><th>Анализ влияния отклонений на качество изделия</th><td>
+                            {% if row.impact %}
+                                {% for item in row.impact %}{{ item.label }}{% if item.detail %}: {{ item.detail }}{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+                            {% else %}Не заполнялся{% endif %}
+                        </td></tr>
+                    {% endif %}
+                </table>
+            {% empty %}
+                {# Устаревший акт без дефектов: решение хранится на самом акте. #}
+                <table>
+                    <tr><th>Решение</th><td>{{ act.get_ko_decision_display|default:'-' }}</td></tr>
+                    <tr><th>Комментарий</th><td>{{ act.ko_comment|default:'-' }}</td></tr>
+                </table>
+            {% endfor %}
             <table>
-                <tr><th>Решение</th><td>{{ act.get_ko_decision_display|default:'-' }}</td></tr>
-                <tr><th>Комментарий</th><td>{{ act.ko_comment|default:'-' }}</td></tr>
                 <tr><th>Автор</th><td>{{ act.ko_decision_by|default:'-' }}</td></tr>
                 <tr><th>Дата</th><td>{{ act.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</td></tr>
             </table>

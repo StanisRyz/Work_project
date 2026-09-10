@@ -65,12 +65,15 @@ class UserTextRenderingTests(TestCase):
         profile.save(update_fields=['role', 'department'])
         return user
 
-    def test_long_defect_description_wraps_inside_its_table_cell(self):
-        """The defects table: the description cell opts into the shared rules.
+    def test_long_defect_description_wraps_inside_its_defect_card(self):
+        """The defect card: the description opts into the shared rules.
 
-        `.act-defects-table` is fixed-layout with a per-column width, so a cell
-        that does not wrap spills its text over the neighbouring columns rather
-        than widening them — which is exactly what a 240-character ЗНП did.
+        The description used to be a cell of the fixed-layout
+        `.act-defects-table`, where text that did not wrap spilled over the
+        neighbouring columns — which is exactly what a 240-character ЗНП did.
+        The card carries no such constraint, but the rule is the same one and
+        is opted into the same way: through `.user-text`, never through markup
+        that happens to wrap by itself.
         """
         self.client.force_login(self.otk_user)
 
@@ -79,7 +82,7 @@ class UserTextRenderingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         page = response.content.decode()
         self.assertIn('css/text.css', page)
-        self.assertIn(f'<td class="user-text">{LONG_TEXT}</td>', page)
+        self.assertIn(f'<p class="user-text">{LONG_TEXT}</p>', page)
         # «Данные акта» is a card, not a table, and reads the same field family.
         self.assertIn(f'<dd class="user-text">{UNBROKEN}</dd>', page)
 

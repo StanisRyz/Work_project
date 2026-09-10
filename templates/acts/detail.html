@@ -66,6 +66,9 @@ and act.status_changed.
 {% endblock %}
 
 {% block scripts %}
+{# Видимость блока анализа в карточке дефекта. Регистрируется в том же реестре, #}
+{# что и остальные инициализаторы ниже, поэтому переживает замену фрагмента.    #}
+<script src="{% static 'js/ko_decision_form.js' %}?v=20260909-1"></script>
 <script>
 // Registered instead of bound directly: after a live replacement of the work
 // tab the very same initialiser re-wires the new markup, and `claim()` keeps
@@ -215,6 +218,65 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
         if (requiresAttachment) requiresAttachment.name = `${prefix}-requires_attachment`;
     };
 
+    /**
+     * Превью карточки: то, что в неё введено, в её же заголовке.
+     *
+     * Свёрнутая «Мероприятие 2» без превью ничем не отличается от «Мероприятие
+     * 3», и свернуть заполненную карточку означало бы потерять её из виду.
+     * Читается из самих полей, так что второго источника правды нет и
+     * рассинхронизироваться нечему.
+     */
+    const PREVIEW_LIMIT = 70;
+    const shorten = (text) => {
+        const value = (text || '').replace(/\s+/g, ' ').trim();
+        if (value.length <= PREVIEW_LIMIT) return value;
+        return `${value.slice(0, PREVIEW_LIMIT - 1)}…`;
+    };
+    // `input[type=date]` отдаёт ISO; в заголовке нужен привычный порядок.
+    const formatDue = (value) => {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+        return match ? `${match[3]}.${match[2]}.${match[1]}` : '';
+    };
+    const updateActionPreview = (action) => {
+        const target = action.querySelector('[data-corrective-action-preview]');
+        if (!target) return;
+        const comment = action.querySelector('textarea[name$="-comment"]');
+        const due = action.querySelector('input[type="date"]');
+        const date = formatDue(due && due.value);
+        target.textContent = [shorten(comment && comment.value), date && `до ${date}`]
+            .filter(Boolean)
+            .join(' · ');
+    };
+    const updateRootPreview = (root) => {
+        const target = root.querySelector('[data-root-analysis-preview]');
+        if (!target) return;
+        const cause = root.querySelector('textarea[name$="-root_cause"]');
+        target.textContent = shorten(cause && cause.value);
+    };
+    const updatePreviews = () => {
+        form.querySelectorAll('[data-root-analysis]').forEach(updateRootPreview);
+        form.querySelectorAll('[data-corrective-action]').forEach(updateActionPreview);
+    };
+
+    /** Раскрыть одну карточку списка и свернуть её соседей. */
+    const openOnly = (card, siblings) => {
+        siblings.forEach((sibling) => { sibling.open = false; });
+        card.open = true;
+    };
+
+    /**
+     * Список не остаётся полностью свёрнутым.
+     *
+     * Удалить можно только последнюю карточку, а она же и раскрыта, — после
+     * удаления не осталось бы ни одной открытой, и заполнять было бы негде без
+     * лишнего щелчка. Свёрнутое вручную не трогается: правило срабатывает
+     * только когда открытых нет вовсе.
+     */
+    const keepOneOpen = (cards) => {
+        if (!cards.length || cards.some((card) => card.open)) return;
+        cards[cards.length - 1].open = true;
+    };
+
     const renumber = () => {
         const roots = [...form.querySelectorAll('[data-root-analysis]')];
         rootTotal.value = roots.length;
@@ -254,6 +316,11 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
             });
         });
         syncAssigneeSelects();
+        updatePreviews();
+        keepOneOpen(roots);
+        roots.forEach((root) => {
+            keepOneOpen([...root.querySelectorAll('[data-corrective-action]')]);
+        });
     };
     const clearCard = (card) => {
         card.querySelectorAll('textarea, input').forEach((field) => {
@@ -265,6 +332,12 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
         card.querySelectorAll('.field-error, .errorlist').forEach((element) => element.remove());
     };
     form.addEventListener('click', (event) => {
+        // «×» удаления лежит внутри `<summary>`, а щелчок по `<summary>`
+        // сворачивает карточку. Без этого удаление ещё и переключало бы
+        // соседнюю карточку — отменяем именно действие по умолчанию.
+        if (event.target.matches('[data-remove-root-analysis], [data-remove-corrective-action]')) {
+            event.preventDefault();
+        }
         const root = event.target.closest('[data-root-analysis]');
         if (event.target.matches('[data-add-corrective-action]')) {
             const list = root.querySelector('[data-corrective-action-list]');
@@ -273,7 +346,10 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
             // it was cloned from held.
             const rows = [...action.querySelectorAll('[data-assignee-row]')];
             rows.slice(1).forEach((row) => row.remove());
-            clearCard(action); list.append(action); renumber();
+            clearCard(action);
+            list.append(action);
+            openOnly(action, [...list.querySelectorAll('[data-corrective-action]')]);
+            renumber();
         }
         if (event.target.matches('[data-add-assignee]')) {
             const action = event.target.closest('[data-corrective-action]');
@@ -310,6 +386,16 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
             renumber();
         }
     });
+    // Превью идёт за вводом: `input` покрывает набор текста, `change` — выбор
+    // даты, который в части браузеров `input` не поднимает.
+    ['input', 'change'].forEach((eventName) => {
+        form.addEventListener(eventName, (event) => {
+            const action = event.target.closest('[data-corrective-action]');
+            if (action) updateActionPreview(action);
+            const owner = event.target.closest('[data-root-analysis]');
+            if (owner) updateRootPreview(owner);
+        });
+    });
     form.addEventListener('change', (event) => {
         if (event.target.matches('[data-split-checkbox]')) {
             // Only the hint under it changes; nothing else depends on how a
@@ -332,7 +418,13 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
             actions.slice(1).forEach((action) => action.remove());
             const rows = [...rootCard.querySelectorAll('[data-assignee-row]')];
             rows.slice(1).forEach((row) => row.remove());
-            clearCard(rootCard); form.append(rootCard); renumber();
+            clearCard(rootCard);
+            form.append(rootCard);
+            openOnly(rootCard, [...form.querySelectorAll('[data-root-analysis]')]);
+            rootCard.querySelectorAll('[data-corrective-action]').forEach((card, index) => {
+                card.open = index === 0;
+            });
+            renumber();
         });
     }
     renumber();

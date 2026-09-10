@@ -329,6 +329,238 @@
 .act-defects-table td:nth-child(10) textarea { min-height: 44px; }
 .act-defects-table td:nth-child(9) .errorlist,
 .act-defects-table td:nth-child(10) .errorlist { text-align: left; }
+/* Карточка дефекта в «Проработке» — то, чем стала строка таблицы.
+   Таблица из двенадцати колонок скроллилась горизонтально уже с одним
+   дефектом; карточка не скроллится никогда, потому что её содержимое течёт
+   вниз. `.act-defects-table` рядом сохранён: печатная форма и читаемый вид
+   «Анализа ТО» пользуются им по-прежнему.
+
+   Оформлена как `.corrective-action-card` в «Анализе ТО» — соседний блок той
+   же страницы: **без собственной рамки, фона и скругления**, элементы
+   разделены `border-top`. Своя белая коробка внутри белой `.detail-section`
+   давала два лишних уровня вложенности и лишний ряд отступов. Цвета и радиусы
+   — только токены; поля — стандарт формы, чтобы `select` решения и `select`
+   отдела в мероприятии ниже выглядели одинаково. */
+.act-defect-cards {
+    display: flex;
+    flex-direction: column;
+}
+
+.act-defect-card {
+    border-top: 1px solid var(--color-border);
+}
+
+.act-defect-card:first-child { border-top: 0; }
+
+.act-defect-card__header {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding: 12px 0;
+    cursor: pointer;
+    list-style: none;
+}
+
+/* Стрелка рисуется своя, поэтому родная маркер-стрелка убирается в обоих
+   движках. */
+.act-defect-card__header::-webkit-details-marker { display: none; }
+.act-defect-card__header::marker { content: ''; }
+
+.act-defect-card__chevron {
+    flex: none;
+    align-self: center;
+    width: 16px;
+    height: 16px;
+    color: var(--color-muted);
+    transition: transform 0.15s ease;
+}
+
+.act-defect-card[open] .act-defect-card__chevron { transform: rotate(180deg); }
+
+/* Тот же размер и вес, что у заголовка корректирующего мероприятия. */
+.act-defect-card__number {
+    color: var(--color-text);
+    font-size: 15px;
+    font-weight: 700;
+}
+
+/* Номер, вид и мета читаются как одна фраза, поэтому имя не растёт: иначе оно
+   растолкало бы мету к правому краю и оторвало от заголовка. Длинное имя
+   сжимается и обрезается — мета опознаёт дефект и должна оставаться видимой. */
+.act-defect-card__type {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+}
+
+/* Цех и ЗНП — обычным приглушённым текстом. Пилюль в проекте нет нигде, и
+   два бейджа рядом с настоящим бейджем решения спорили с ним за внимание. */
+.act-defect-card__meta {
+    flex: none;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+/* Решение в шапке — это то, что видно у свёрнутой карточки. У раскрытой оно
+   уже стоит в теле, под своей подписью, и второй раз в заголовке было бы
+   шумом. */
+.act-defect-card__verdict { flex: none; margin-left: auto; }
+.act-defect-card[open] .act-defect-card__verdict { display: none; }
+
+.act-defect-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 0 0 16px;
+}
+
+/* Длинное описание не растягивается на всю ширину монитора: строка в полторы
+   тысячи пикселей нечитаема, где бы она ни стояла. */
+.act-defect-card__grid .act-defect-card__full p { max-width: 110ch; }
+
+
+.act-defect-card__label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+/* Решение и анализ. В одну колонку по умолчанию; на широком экране — рядом,
+   иначе форма растягивается на всю ширину, а справа остаётся пустота. */
+.act-defect-card__work {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+
+@media (min-width: 1240px) {
+    /* Левая колонка — под поле решения, остальное чек-листу: он длиннее и
+       выигрывает от ширины, а решение от неё ничего не приобретает.
+       448px — это самая длинная формулировка решения (396px текста плюс
+       отступы и стрелка `select`): доли 4fr на такой ширине не хватает, и
+       выбранное решение обрезалось бы на «…с дор…». */
+    .act-defect-card__work { grid-template-columns: minmax(448px, 4fr) minmax(0, 8fr); }
+    /* Анализа нет — запрещающее решение или акт до изм.2: решение занимает всю
+       ширину, а не половину с пустотой рядом. */
+    .act-defect-card__work:not(:has(.act-defect-card__impact:not([hidden]))) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* Порог в 448px — ширина самой длинной формулировки решения. Уже него решение
+   и комментарий встают друг под другом, потому что обрезанный `select` не
+   говорит КО, что он выбрал; шире — становятся рядом. */
+.act-defect-card__decision {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(448px, 1fr));
+    gap: 12px;
+    min-width: 0;
+}
+
+/* Поле не растёт бесконечно. Когда анализа нет, решение занимает всю ширину
+   карточки, и без этого предела `select` с одной фразой растянулся бы на
+   восемьсот пикселей — ровно та беда, от которой уходили из таблицы. */
+.act-defect-card__field { display: block; min-width: 0; max-width: 560px; }
+.act-defect-card__field p { margin: 0; }
+
+/* Тот же вид, что у полей формы «Анализа ТО» под этим блоком.
+   Поля чек-листа адресуются через `__impact-value`, а не через `__impact
+   input`: последнее зацепило бы и чекбоксы, растянув их на всю строку. */
+.act-defect-card__decision select,
+.act-defect-card__decision textarea,
+.act-defect-card__impact-value input,
+.act-defect-card__impact-value textarea {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.act-defect-card__decision textarea { min-height: 62px; resize: vertical; }
+
+/* Чек-лист анализа — вложенный блок ровно того вида, каким «Исполнители»
+   отделены внутри корректирующего мероприятия: фон страницы, скругление,
+   мелкая жирная подпись и никакой рамки. `fieldset`/`legend` оставлены ради
+   группировки для скринридера, но нарисованы как обычный блок. */
+.act-defect-card__impact {
+    min-width: 0;
+    margin: 0;
+    padding: 12px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.act-defect-card__impact legend {
+    padding: 0;
+    margin-bottom: 4px;
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.act-defect-card__impact-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 3px 0;
+}
+
+.act-defect-card__impact-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-text);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.act-defect-card__impact-check input { flex: none; margin: 0; }
+
+/* Поля отмеченного пункта: короткие значения, а не поля во всю строку —
+   «1,2 мГн» и «±5%» не нуждаются в трёхстах пикселях. */
+.act-defect-card__impact-value { flex: 1 1 140px; min-width: 0; max-width: 220px; }
+
+.act-defect-card__impact-value input,
+.act-defect-card__impact-value textarea { padding: 6px 10px; }
+
+/* «Другое» — единственный пункт со свободным текстом: ему нужна вся ширина
+   строки, поэтому ограничение снимается. */
+.act-defect-card__impact-row:last-child .act-defect-card__impact-value {
+    flex: 1 1 240px;
+    max-width: none;
+}
+
+.act-defect-card__impact--readonly { background: transparent; padding: 0; }
+
+.act-defect-card__impact-list {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 14px;
+}
+
+.act-defect-card__impact-list li { margin-bottom: 2px; }
+
+.act-defect-card__impact-detail {
+    display: block;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+@media (max-width: 640px) {
+    .act-defect-card__verdict { margin-left: 0; }
+}
+
 .related-activities { padding: 16px; }
 .related-activities__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
 .related-activities__header h2 { margin: 0 0 3px; color: #162852; font-size: 18px; }
@@ -420,6 +652,18 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+/* «Вернуть в работу», pushed to the far end of the heading row — the same
+   place, and the same rule, the СМК record keeps its own actions in. */
+.task-detail-heading__actions {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+}
+
+@media (max-width: 640px) {
+    .task-detail-heading__actions { margin-left: 0; }
 }
 
 .task-detail-heading__title h1 {
@@ -951,6 +1195,17 @@
 .act-defect-card__grid .act-defect-card__half {
     grid-column: span 3;
 }
+/* Шести колонок хватает только на широком экране. Ниже они сужаются настолько,
+   что подписи вроде «Дата обнаружения» переносятся на вторую строку, и значения
+   в соседних колонках перестают стоять на одной линии. */
+@media (max-width: 980px) {
+    .act-defect-card__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+    .act-defect-card__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 
 .placeholder-text {
     color: var(--color-muted);
@@ -1320,29 +1575,6 @@
     font-weight: 700;
 }
 
-.act-defect-list {
-    display: grid;
-    gap: 12px;
-}
-
-.act-defect-card {
-    display: grid;
-    gap: 8px;
-    padding: 12px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: #fbfcfe;
-}
-
-.act-defect-card dl {
-    margin-bottom: 0;
-}
-
-.act-defect-card h3 {
-    margin: 0;
-    font-size: 15px;
-}
-
 .act-send-to-ko {
     display: grid;
     gap: 0;
@@ -1708,11 +1940,47 @@
 .root-analysis-card .act-inline-actions .link-button { margin-top: 0; }
 .root-analysis-card [data-root-analysis-actions] { padding-top: 2px; }
 
+/* Заголовок карточки анализа. Это `<summary>`: щелчок по нему сворачивает и
+   разворачивает карточку, поэтому родная стрелка-маркер убирается в обоих
+   движках — свой шеврон уже нарисован в заголовке. */
 .analysis-card-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 10px;
+    cursor: pointer;
+    list-style: none;
 }
+
+.analysis-card-header::-webkit-details-marker { display: none; }
+.analysis-card-header::marker { content: ''; }
+
+.analysis-card-chevron {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--color-muted);
+    transition: transform 0.15s ease;
+}
+
+[open] > .analysis-card-header .analysis-card-chevron { transform: rotate(180deg); }
+
+/* Превью того, что введено в карточку: три свёрнутых «Мероприятие N» иначе
+   неотличимы. У раскрытой карточки прячется — там всё это видно в полях. */
+.analysis-card-preview {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+[open] > .analysis-card-header .analysis-card-preview { display: none; }
+
+/* Прижимается вправо: между заголовком и «×» стоит превью, которое у
+   раскрытой карточки исчезает и оставило бы кнопку посередине. */
+.analysis-remove-button { margin-left: auto; }
 
 .analysis-card-header > label {
     min-width: 0;

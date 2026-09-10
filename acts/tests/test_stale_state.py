@@ -125,11 +125,11 @@ class StaleActStateTests(TestCase):
         act = self._create_act(self.status_ko)
         stale = Act.objects.select_related('status').get(pk=act.pk)
 
-        apply_ko_decision(act, self.ko_user, [(None, Act.KoDecision.ALLOW_NO_REWORK, 'Решение')])
+        apply_ko_decision(act, self.ko_user, [(None, Act.KoDecision.ALLOW_NO_REWORK, 'Решение', {})])
 
         with self.assertRaises(ActWorkflowError):
             apply_ko_decision(
-                stale, self.ko_user, [(None, Act.KoDecision.PROHIBIT_USE, 'Повтор')]
+                stale, self.ko_user, [(None, Act.KoDecision.PROHIBIT_USE, 'Повтор', {})]
             )
 
         act.refresh_from_db()
@@ -175,7 +175,7 @@ class StaleActStateTests(TestCase):
             apply_ko_decision(
                 act,
                 self.ko_user,
-                [(foreign_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Чужое решение')],
+                [(foreign_defect, Act.KoDecision.ALLOW_NO_REWORK, 'Чужое решение', {})],
             )
 
         foreign_defect.refresh_from_db()

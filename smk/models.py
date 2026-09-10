@@ -34,14 +34,18 @@ class SmkSource(models.Model):
         INTERNAL_AUDIT = 'INTERNAL_AUDIT', 'Внутренний аудит'
 
     class Status(models.TextChoices):
-        """Where the record is read, and nothing more.
+        """Where the record is *filed*, and nothing more.
 
-        Two values on purpose: this is a shelf, not a workflow. A record stays
-        `ACTIVE` until somebody archives it by hand — completing its tasks
-        never moves it, because the tasks are tracked in «Задачи» and the
-        record is the document they came out of. These two labels are also the
-        two the UI shows: `smk.selectors.describe_smk_state()` maps the stored
-        value onto the pill and derives nothing of its own.
+        Two values on purpose: archiving is the record's one transition, taken
+        by hand, and completing its tasks never writes here.
+
+        The UI shows three states, not two. The third — «Выполнено» — is
+        derived by `smk.selectors.describe_smk_state()` from the tasks
+        themselves and is deliberately not stored: it is a fact about the work,
+        it has to hold the moment the last task closes, and it has to stop
+        holding the moment one is returned to work. A stored copy would be one
+        more thing to keep in step with `tasks.Task`, and it would be wrong
+        every time somebody forgot to.
         """
 
         ACTIVE = 'ACTIVE', 'В работе'
@@ -59,6 +63,26 @@ class SmkSource(models.Model):
     # one. Nullable only so the column could be added to rows stored before it
     # existed; the form has required it ever since.
     audit_date = models.DateField('Дата аудита', null=True, blank=True)
+    # Which подразделение the audit looked at. Deliberately not
+    # `SmkCorrectiveAction.department`: that one is where an исполнитель works
+    # and is derived from the people a measure is written on, while this is the
+    # audit's own subject, chosen once by its author. It constrains nothing —
+    # a measure may be written on anybody — and exists so the registry can be
+    # read and sorted by отдел.
+    #
+    # Nullable only because records written before the field existed carry no
+    # answer; the form has required it ever since, and the СМК employee fills
+    # the old ones in through the correction page. `PROTECT`, like every other
+    # reference to a подразделение here: a department somebody audited must not
+    # be deletable out from under the record that says so.
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.PROTECT,
+        related_name='smk_sources',
+        null=True,
+        blank=True,
+        verbose_name='Отделение',
+    )
     created_by = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
@@ -241,14 +265,14 @@ class SmkCorrectiveAction(models.Model):
         blank=True,
         verbose_name='Выявленное несоответствие',
     )
-    # Whether the real task this measure becomes may only be completed with a
-    # file attached. Stored on the measure because the requirement is the
-    # author's decision; the task copies it once, at creation, and never reads
-    # it back — `Task.requires_attachment` is the authority from then on, and
-    # `tasks.services.complete_task()` is the only place it is enforced.
-    # `default=False` keeps every row stored before this field existed exactly
-    # as permissive as it was.
-    requires_attachment = models.BooleanField('Обязательно вложение', default=False)
+    # There is deliberately no «Требуется вложение» here. It used to be the
+    # author's per-measure answer; a задача по СМК now always requires one, so
+    # the only thing a stored copy could do is disagree with that rule.
+    # `tasks.services.create_smk_action_task()` writes the requirement onto the
+    # task, `Task.requires_attachment` is the authority from then on — which is
+    # why tasks issued while the answer was optional keep saying what was
+    # really asked of them — and `complete_task()` is the only place it is
+    # enforced.
     # How many real tasks this measure becomes: one shared task carrying every
     # исполнитель, or one task per исполнитель, completed independently. The
     # same field and the same meaning `ProtocolAction.split_for_assignees` and

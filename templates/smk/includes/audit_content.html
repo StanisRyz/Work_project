@@ -95,13 +95,18 @@ an СМК record is written once, and the work it created is tracked in «Зад
                     <div class="smk-measure__fact">
                         <span>Срок</span>
                         {% comment %}
-                        The two answers that change what the исполнитель is
-                        actually holding, read off the measure and shown next to
-                        the deadline they qualify: whether the задача may be
-                        finished without a file, and whether it is one shared
-                        задача or one per человек.
+                        The one answer left that changes what the исполнитель is
+                        actually holding — one shared задача or one per человек —
+                        shown next to the deadline it qualifies.
+
+                        «Требуется вложение» is deliberately not here any more.
+                        It is no longer the author's answer: every задача по СМК
+                        requires a file, and a measure issued while it was
+                        optional still has a задача that does not. The task page
+                        reads `Task.requires_attachment`, which is the only
+                        place that is true per задача.
                         {% endcomment %}
-                        <p>{{ row.action.due_date|date:'d.m.Y' }}{% if row.action.split_for_assignees %}<span class="smk-measure__requirement" title="Каждый исполнитель выполняет свою задачу независимо">Задача по каждому исполнителю</span>{% endif %}{% if row.action.requires_attachment %}<span class="smk-measure__requirement" title="Задачу нельзя завершить без вложения">Требуется вложение</span>{% endif %}</p>
+                        <p>{{ row.action.due_date|date:'d.m.Y' }}{% if row.action.split_for_assignees %}<span class="smk-measure__requirement" title="Каждый исполнитель выполняет свою задачу независимо">Задача по каждому исполнителю</span>{% endif %}</p>
                     </div>
                 </article>
             {% endfor %}

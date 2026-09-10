@@ -16,7 +16,9 @@ from datetime import timedelta
 from django.contrib.auth.models import User
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -24,6 +26,7 @@ from accounts.models import Department, UserProfile
 from notifications.email_delivery import process_delivery
 from notifications.models import Notification, NotificationDelivery
 from notifications.services import get_notification_header_state
+from references.models import TaskStatus
 from tasks.models import Task
 from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
 
@@ -68,27 +71,42 @@ class SmkTests(TestCase):
         return user
 
     def _actions(
-        self, assignees=None, requires_attachment=False, non_conformity=None,
+        self, assignees=None, non_conformity=None,
         split_for_assignees=False, text='Провести обучение персонала',
+        due_in=7,
     ):
         return [
             {
                 'text': text,
                 'department': self.department,
-                'due_date': timezone.localdate() + timedelta(days=7),
+                'due_date': timezone.localdate() + timedelta(days=due_in),
                 'id': None,
                 'non_conformity': non_conformity,
-                'requires_attachment': requires_attachment,
                 'split_for_assignees': split_for_assignees,
                 'assignees': list(assignees or [self.employee]),
             }
         ]
+
+    def _complete(self, task, comment):
+        """Close an СМК task the only way one closes — with a вложение.
+
+        Every задача по СМК requires one now, so a test about anything else
+        (the record's state, its tabs, its archive) still has to satisfy the
+        real completion guard rather than work around it.
+        """
+        add_task_attachment(
+            task,
+            self.employee,
+            SimpleUploadedFile('report.pdf', b'%PDF-1.4 ', 'application/pdf'),
+        )
+        complete_task(task, self.employee, comment)
 
     def _post_data(self, **overrides):
         """The flat POST the creation page really sends, minus the flag."""
         data = {
             'origin': SmkSource.Origin.INTERNAL_AUDIT,
             'audit_date': self.audit_date.isoformat(),
+            'department': str(self.department.pk),
             'nonconformities-TOTAL_FORMS': '1',
             'nonconformities-0-text': 'Не ведётся журнал поверки',
             'actions-TOTAL_FORMS': '1',
@@ -114,6 +132,7 @@ class SmkTests(TestCase):
             create_smk_source(
                 origin=SmkSource.Origin.INTERNAL_AUDIT,
                 audit_date=self.audit_date,
+                department=self.department,
                 non_conformities=[{'id': None, 'text': 'Несоответствие'}],
                 actions=self._actions(),
                 created_by=self.employee,
@@ -138,6 +157,7 @@ class SmkTests(TestCase):
         source = create_smk_source(
             origin=SmkSource.Origin.EXTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Первое'}, {'id': None, 'text': 'Второе'}],
             actions=self._actions([self.employee, self.smk]),
             created_by=self.smk,
@@ -162,6 +182,7 @@ class SmkTests(TestCase):
         source = create_smk_source(
             origin=SmkSource.Origin.INTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Несоответствие'}],
             actions=self._actions(),
             created_by=self.smk,
@@ -177,40 +198,38 @@ class SmkTests(TestCase):
 
     # ------------------------------------------------- required attachment
 
-    def test_required_attachment_travels_onto_the_task(self):
-        """The measure's checkbox is the task's own snapshot, per measure."""
+    def test_the_requirement_holds_for_every_measure_of_the_record(self):
+        """Not a per-measure answer any more: every задача по СМК carries it."""
         source = create_smk_source(
             origin=SmkSource.Origin.EXTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Несоответствие'}],
             actions=[
-                *self._actions(requires_attachment=True),
+                *self._actions(),
                 {
                     'text': 'Обновить инструкцию',
                     'department': self.department,
                     'due_date': timezone.localdate() + timedelta(days=3),
                     'id': None,
                     'non_conformity': None,
-                    'requires_attachment': False,
                     'split_for_assignees': False,
                     'assignees': [self.employee],
                 },
             ],
             created_by=self.smk,
         )
-        required, optional = source.actions.all()
-        self.assertTrue(required.requires_attachment)
-        self.assertTrue(Task.objects.get(smk_action=required).requires_attachment)
-        self.assertFalse(optional.requires_attachment)
-        self.assertFalse(Task.objects.get(smk_action=optional).requires_attachment)
+        for action in source.actions.all():
+            self.assertTrue(Task.objects.get(smk_action=action).requires_attachment)
 
     def test_task_requiring_an_attachment_is_not_completable_without_one(self):
         """The existing guard, reached through an СМК task — no new rule."""
         source = create_smk_source(
             origin=SmkSource.Origin.EXTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Несоответствие'}],
-            actions=self._actions(requires_attachment=True),
+            actions=self._actions(),
             created_by=self.smk,
         )
         task = Task.objects.get(smk_source=source)
@@ -240,6 +259,7 @@ class SmkTests(TestCase):
         self.assertEqual(response.context['confirmation'], {
             'origin_label': 'Внутренний аудит',
             'audit_date': self.audit_date,
+            'department_label': self.department.name,
             'non_conformity_count': 1,
             'action_count': 1,
             'assignees': [self.employee.get_full_name() or self.employee.username],
@@ -249,14 +269,6 @@ class SmkTests(TestCase):
         source = SmkSource.objects.get()
         self.assertRedirects(response, reverse('smk:detail', args=[source.pk]))
         self.assertEqual(Task.objects.filter(smk_source=source).count(), 1)
-
-    def test_the_confirmed_post_carries_the_attachment_requirement(self):
-        """The checkbox posted by the form reaches the task, end to end."""
-        self.client.force_login(self.smk)
-        self.client.post(reverse('smk:create'), self._post_data(
-            confirmed='1', **{'actions-0-requires_attachment': 'on'},
-        ))
-        self.assertTrue(Task.objects.get(source_type=Task.SourceType.SMK).requires_attachment)
 
     # -------------------------------------------------------------- audit date
 
@@ -275,6 +287,7 @@ class SmkTests(TestCase):
         source = create_smk_source(
             origin=SmkSource.Origin.EXTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Не ведётся журнал поверки'}],
             actions=self._actions(non_conformity=0),
             created_by=self.smk,
@@ -320,6 +333,7 @@ class SmkTests(TestCase):
         return create_smk_source(
             origin=SmkSource.Origin.INTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Не ведётся журнал поверки'}],
             actions=self._actions(),
             created_by=self.smk,
@@ -417,6 +431,7 @@ class SmkTests(TestCase):
         source = create_smk_source(
             origin=SmkSource.Origin.INTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Не ведётся журнал поверки'}],
             actions=actions,
             created_by=self.smk,
@@ -445,6 +460,7 @@ class SmkTests(TestCase):
         source = create_smk_source(
             origin=SmkSource.Origin.EXTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Не ведётся журнал поверки'}],
             actions=self._actions(),
             created_by=self.smk,
@@ -472,41 +488,141 @@ class SmkTests(TestCase):
 
     # ----------------------------------------------------------------- state
 
-    def test_a_record_reads_only_в_работе_or_архивировано(self):
-        """Two states, because the record has one transition.
+    def _two_measure_source(self):
+        """A record whose work is two measures, so «все» really means «все»."""
+        return create_smk_source(
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            department=self.department,
+            non_conformities=[{'id': None, 'text': 'Не ведётся журнал поверки'}],
+            actions=(
+                self._actions(text='Завести журнал поверки')
+                + self._actions(text='Провести обучение персонала')
+            ),
+            created_by=self.smk,
+        )
 
-        Completing the tasks a record produced must not move the pill: the
-        tasks are tracked in «Задачи» with their own statuses, and the record
-        is «В работе» until somebody archives it by hand. The registry and the
-        record page answer from the same function, so they cannot disagree.
+    def test_a_record_reads_выполнено_only_once_every_live_task_is_done(self):
+        """Three states, and «Выполнено» is derived from the tasks themselves.
+
+        Nothing is stored for it: the record is «Выполнено» exactly while every
+        live task it produced is `COMPLETED`, so the pill can never claim work
+        that is still open — and one unfinished task is enough to hold it back.
+        The registry and the record page answer from the same function, so they
+        cannot disagree.
         """
-        source = self._source()
-        task = Task.objects.get(smk_source=source)
+        source = self._two_measure_source()
+        first, second = Task.objects.filter(smk_source=source).order_by('pk')
         self.client.force_login(self.employee)
         url = reverse('smk:detail', args=[source.pk])
         listing = reverse('smk:list')
 
         self.assertEqual(self.client.get(url).context['state']['label'], 'В работе')
-        self.assertContains(self.client.get(listing), 'В работе')
 
-        # Completing every task changes nothing — neither the pill nor the row.
-        complete_task(task, self.employee, 'Проведено')
-        self.assertEqual(self.client.get(url).context['state']['label'], 'В работе')
+        # One of two done is not «все»: the record has not moved.
+        self._complete(first, 'Журнал заведён')
+        detail = self.client.get(url)
+        self.assertEqual(detail.context['state']['label'], 'В работе')
+        self.assertEqual(detail.context['state']['code'], 'in_progress')
+        self.assertEqual(
+            [row['source'] for row in self.client.get(listing).context['sources']],
+            [source],
+        )
+
+        # The last one closes it — and the record is still `ACTIVE`: «Выполнено»
+        # is read off the tasks, never written onto the record.
+        self._complete(second, 'Обучение проведено')
+        detail = self.client.get(url)
+        self.assertEqual(detail.context['state']['label'], 'Выполнено')
+        self.assertEqual(detail.context['state']['code'], 'completed')
         source.refresh_from_db()
         self.assertEqual(source.status, SmkSource.Status.ACTIVE)
 
-        # Only archiving does, and it is the other of the two states.
+        # It has left «Работа» for «Выполнено» — the point of the third tab:
+        # the СМК employee sees what is ready to archive without opening each.
+        self.assertEqual(self.client.get(listing).context['sources'], [])
+        completed = self.client.get(listing, {'tab': 'completed'})
+        self.assertEqual([row['source'] for row in completed.context['sources']], [source])
+        self.assertEqual(completed.context['sources'][0]['state']['label'], 'Выполнено')
+
+        # «Архив» still wins over whatever the tasks say, on both pages.
         archive_smk_source(source, actor=self.smk)
-        detail = self.client.get(url)
-        self.assertEqual(detail.context['state']['label'], 'Архивировано')
-        self.assertEqual(detail.context['state']['code'], 'archived')
+        self.assertEqual(self.client.get(url).context['state']['label'], 'Архивировано')
+        self.assertEqual(self.client.get(listing, {'tab': 'completed'}).context['sources'], [])
         archive = self.client.get(listing, {'tab': 'archive'})
         self.assertEqual(archive.context['sources'][0]['state']['label'], 'Архивировано')
-        # And no state the module no longer has can appear anywhere.
+        # And no state the module does not have can appear anywhere.
         for stale in ('Создана', 'Завершена'):
             self.assertNotContains(self.client.get(url), stale)
             self.assertNotContains(self.client.get(listing), stale)
             self.assertNotContains(archive, stale)
+
+    def test_cancelled_tasks_do_not_hold_a_record_back_from_выполнено(self):
+        """A withdrawn task is not outstanding work — and not done work either.
+
+        A correction cancels the task of the measure it changed and issues a
+        replacement. «Все задачи выполнены» must read the replacement and
+        ignore the cancelled row, or a corrected record could never be
+        «Выполнено» again.
+        """
+        source = self._two_measure_source()
+        untouched_action, changed_action = source.current_actions.all()
+        untouched_task = Task.objects.get(smk_action=untouched_action)
+        old_task = Task.objects.get(smk_action=changed_action)
+        finding = source.current_non_conformities.get()
+        new_due = timezone.localdate() + timedelta(days=21)
+
+        self.client.force_login(self.smk)
+        self.client.post(
+            reverse('smk:edit', args=[source.pk]),
+            self._post_data(**{
+                'nonconformities-0-id': str(finding.pk),
+                'actions-TOTAL_FORMS': '2',
+                'actions-0-id': str(untouched_action.pk),
+                'actions-0-text': untouched_action.task_text,
+                'actions-1-id': str(changed_action.pk),
+                'actions-1-text': changed_action.task_text,
+                'actions-1-due_date': new_due.isoformat(),
+                'actions-1-assignees': [str(self.employee.pk)],
+                'actions-1-assignee_departments': [str(self.department.pk)],
+                'confirmed': '1',
+            }),
+        )
+        old_task.refresh_from_db()
+        self.assertEqual(old_task.status.code, 'CANCELLED')
+        new_task = Task.objects.exclude(
+            pk__in=[untouched_task.pk, old_task.pk]
+        ).get(smk_source=source)
+
+        url = reverse('smk:detail', args=[source.pk])
+        self._complete(untouched_task, 'Журнал заведён')
+        # The replacement is still open, so the record is not done — the
+        # cancelled row is what must not be mistaken for a finished one.
+        self.assertEqual(self.client.get(url).context['state']['label'], 'В работе')
+
+        self._complete(new_task, 'Обучение проведено')
+        self.assertEqual(self.client.get(url).context['state']['label'], 'Выполнено')
+
+    def test_a_record_whose_only_task_was_cancelled_stays_в_работе(self):
+        """Ignoring cancelled tasks must not make «выполнено» vacuously true.
+
+        Nothing was done here — one task was withdrawn and nothing replaced it
+        — so «все задачи выполнены» over an empty set is exactly the answer the
+        record must not give.
+        """
+        source = self._source()
+        Task.objects.filter(smk_source=source).update(
+            status=TaskStatus.objects.get(code='CANCELLED'),
+        )
+
+        self.client.force_login(self.employee)
+        self.assertEqual(
+            self.client.get(reverse('smk:detail', args=[source.pk]))
+                .context['state']['label'],
+            'В работе',
+        )
+        listing = self.client.get(reverse('smk:list'))
+        self.assertEqual([row['source'] for row in listing.context['sources']], [source])
 
     # --------------------------------------------------------- notifications
 
@@ -522,6 +638,7 @@ class SmkTests(TestCase):
         source = create_smk_source(
             origin=SmkSource.Origin.INTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Не ведётся журнал поверки'}],
             actions=self._actions(assignees=[self.employee, second]),
             created_by=self.smk,
@@ -562,6 +679,7 @@ class SmkTests(TestCase):
         source = create_smk_source(
             origin=SmkSource.Origin.INTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Не ведётся журнал поверки'}],
             actions=self._actions(),
             created_by=self.smk,
@@ -633,6 +751,7 @@ class SmkTests(TestCase):
                 source,
                 origin=SmkSource.Origin.EXTERNAL_AUDIT,
                 audit_date=self.audit_date,
+                department=self.department,
                 non_conformities=[{'id': None, 'text': 'Другое несоответствие'}],
                 actions=self._actions(),
                 actor=self.smk,
@@ -704,6 +823,7 @@ class SmkTests(TestCase):
         source = create_smk_source(
             origin=SmkSource.Origin.INTERNAL_AUDIT,
             audit_date=self.audit_date,
+            department=self.department,
             non_conformities=[{'id': None, 'text': 'Не ведётся журнал поверки'}],
             actions=(
                 self._actions(text='Завести журнал поверки')
@@ -789,9 +909,9 @@ class SmkTests(TestCase):
         """«Разбить задачу по исполнителям», through the common `Task` split.
 
         Two исполнителя, one measure: two independent tasks, each naming its
-        own person, each carrying the measure's «Требуется вложение» — and the
-        existing completion guard enforcing it per task, so one person's file
-        does not finish the other's work.
+        own person, each requiring its own вложение — and the existing
+        completion guard enforcing it per task, so one person's file does not
+        finish the other's work.
         """
         self.client.force_login(self.smk)
         response = self.client.post(
@@ -804,7 +924,6 @@ class SmkTests(TestCase):
                     str(self.department.pk), str(self.department.pk),
                 ],
                 'actions-0-split_for_assignees': 'on',
-                'actions-0-requires_attachment': 'on',
                 'confirmed': '1',
             }),
         )
@@ -865,3 +984,211 @@ class SmkTests(TestCase):
         self.client.post(reverse('smk:archive', args=[source.pk]))
         source.refresh_from_db()
         self.assertEqual(source.status, SmkSource.Status.ACTIVE)
+
+    # ------------------------------------------------------------- отделение
+
+    def test_the_record_stores_the_department_the_audit_was_about(self):
+        """«Отделение» is the record's own answer, not a measure's.
+
+        `SmkCorrectiveAction.department` is where an исполнитель works;
+        this is what the audit looked at, and the registry sorts by it.
+        """
+        purchasing = Department.objects.create(name='Отдел закупок', code='PURCH')
+        source = create_smk_source(
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            department=purchasing,
+            non_conformities=[{'id': None, 'text': 'Несоответствие'}],
+            actions=self._actions(),
+            created_by=self.smk,
+        )
+        self.assertEqual(source.department, purchasing)
+
+    def test_a_record_cannot_be_created_without_a_department(self):
+        """Required by the form, exactly as «Дата аудита» is."""
+        self.client.force_login(self.smk)
+        response = self.client.post(
+            reverse('smk:create'), self._post_data(confirmed='1', department=''),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(SmkSource.objects.exists())
+        self.assertContains(response, 'Выберите отделение.', status_code=400)
+
+    def test_setting_the_department_of_an_older_record_reissues_no_task(self):
+        """The one correction «Отделение» exists for must not touch the work.
+
+        Records written before the field existed carry none, and the СМК
+        employee fills it in through the correction page. Every мероприятие
+        comes back word for word, so the задача its исполнитель already holds
+        must be that very task — not cancelled, not replaced.
+        """
+        source = self._source()
+        SmkSource.objects.filter(pk=source.pk).update(department=None)
+        task = Task.objects.get(smk_source=source)
+        action = task.smk_action
+        finding = source.current_non_conformities.get()
+        purchasing = Department.objects.create(name='Отдел закупок', code='PURCH')
+
+        self.client.force_login(self.smk)
+        response = self.client.post(
+            reverse('smk:edit', args=[source.pk]),
+            self._post_data(**{
+                'department': str(purchasing.pk),
+                'nonconformities-0-id': str(finding.pk),
+                'nonconformities-0-text': finding.text,
+                'actions-0-id': str(action.pk),
+                'actions-0-text': action.task_text,
+                'confirmed': '1',
+            }),
+        )
+        self.assertRedirects(response, reverse('smk:detail', args=[source.pk]))
+
+        source.refresh_from_db()
+        self.assertEqual(source.department, purchasing)
+        self.assertEqual(
+            [row.pk for row in Task.objects.filter(smk_source=source)], [task.pk],
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'IN_PROGRESS')
+        self.assertIsNone(task.cancelled_at)
+
+    def test_the_record_page_names_the_audited_department(self):
+        """A required field that appears nowhere on the record reads as a bug."""
+        source = self._source()
+        self.client.force_login(self.employee)
+        response = self.client.get(reverse('smk:detail', args=[source.pk]))
+        self.assertContains(response, 'Отделение')
+        self.assertContains(response, self.department.name)
+
+    # -------------------------------------------------- обязательное вложение
+
+    def test_every_smk_task_requires_an_attachment(self):
+        """The form does not ask any more: an СМК task closes with a file or not at all.
+
+        The checkbox is gone from the мероприятие card, and the requirement is
+        no longer a per-measure answer — every задача the record produces
+        carries it, and `complete_task()` enforces it exactly as before.
+        """
+        self.client.force_login(self.smk)
+        page = self.client.get(reverse('smk:create'))
+        self.assertNotContains(page, 'Требуется вложение')
+
+        self.client.post(reverse('smk:create'), self._post_data(confirmed='1'))
+        task = Task.objects.get(source_type=Task.SourceType.SMK)
+        self.assertTrue(task.requires_attachment)
+
+    # ------------------------------------------- срок выполнения в реестре
+
+    def _dated_source(self, *offsets):
+        """One record whose measures fall due on different days.
+
+        Numbered in submission order, never in deadline order: a test that
+        named them «первое, второе» by date could not tell «the earliest open
+        task» from «the first row».
+        """
+        return create_smk_source(
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            department=self.department,
+            non_conformities=[{'id': None, 'text': 'Не ведётся журнал поверки'}],
+            actions=[
+                action
+                for index, offset in enumerate(offsets)
+                for action in self._actions(
+                    text=f'Мероприятие {index + 1}', due_in=offset,
+                )
+            ],
+            created_by=self.smk,
+        )
+
+    def _first_row(self, tab=None):
+        self.client.force_login(self.employee)
+        response = self.client.get(reverse('smk:list'), {'tab': tab} if tab else {})
+        return response.context['sources'][0]
+
+    def test_the_registry_shows_the_deadline_of_the_first_open_task(self):
+        """«Срок выполнения» is the nearest задача still open, not the record's own."""
+        self._dated_source(7, 3, 14)
+        self.assertEqual(
+            self._first_row()['next_due_date'],
+            timezone.localdate() + timedelta(days=3),
+        )
+
+    def test_the_deadline_moves_on_when_the_first_task_is_closed(self):
+        """The column follows the work: closing the nearest one reveals the next."""
+        source = self._dated_source(7, 3, 14)
+        first = Task.objects.filter(smk_source=source).order_by('due_date').first()
+        self._complete(first, 'Сделано')
+        self.assertEqual(
+            self._first_row()['next_due_date'],
+            timezone.localdate() + timedelta(days=7),
+        )
+
+    def test_the_registry_shows_no_deadline_once_nothing_is_open(self):
+        """Nothing outstanding means no срок — never the last closed one."""
+        source = self._dated_source(3)
+        self._complete(Task.objects.get(smk_source=source), 'Сделано')
+        self.assertIsNone(self._first_row(tab='completed')['next_due_date'])
+
+    def test_the_registry_lists_the_records_tasks_by_deadline(self):
+        """What the expander under the arrow shows, in the order it shows it."""
+        self._dated_source(7, 3)
+        self.assertEqual(
+            [(task.task_text, task.due_date) for task in self._first_row()['tasks']],
+            [
+                ('Мероприятие 2', timezone.localdate() + timedelta(days=3)),
+                ('Мероприятие 1', timezone.localdate() + timedelta(days=7)),
+            ],
+        )
+
+    def test_a_cancelled_task_is_neither_the_deadline_nor_a_listed_measure(self):
+        """A withdrawn задача is not outstanding work and must not speak for it."""
+        source = self._dated_source(7, 3)
+        finding = source.current_non_conformities.get()
+        kept = source.current_actions.get(task_text='Мероприятие 1')
+        self.client.force_login(self.smk)
+        self.client.post(
+            reverse('smk:edit', args=[source.pk]),
+            self._post_data(**{
+                'nonconformities-0-id': str(finding.pk),
+                'nonconformities-0-text': finding.text,
+                'actions-TOTAL_FORMS': '1',
+                'actions-0-id': str(kept.pk),
+                'actions-0-text': kept.task_text,
+                'actions-0-due_date': kept.due_date.isoformat(),
+                'confirmed': '1',
+            }),
+        )
+        self.assertEqual(
+            Task.objects.filter(smk_source=source, status__code='CANCELLED').count(), 1,
+        )
+        row = self._first_row()
+        self.assertEqual(
+            row['next_due_date'], timezone.localdate() + timedelta(days=7),
+        )
+        self.assertEqual([task.task_text for task in row['tasks']], ['Мероприятие 1'])
+
+    def test_the_registry_reads_no_more_as_it_grows(self):
+        """The deadline and the expander are prefetched, never read per row."""
+        self._dated_source(3)
+        self.client.force_login(self.employee)
+        url = reverse('smk:list')
+        with CaptureQueriesContext(connection) as one_record:
+            self.client.get(url)
+        self._dated_source(5, 9)
+        self._dated_source(11)
+        with CaptureQueriesContext(connection) as three_records:
+            self.client.get(url)
+        self.assertEqual(
+            len(three_records.captured_queries), len(one_record.captured_queries),
+        )
+
+    def test_the_registry_columns_are_the_ones_the_отдел_смк_reads(self):
+        """№, тип, дата аудита, отдел, задач, срок, статус — and nothing else."""
+        self._dated_source(3)
+        self.client.force_login(self.employee)
+        response = self.client.get(reverse('smk:list'))
+        self.assertContains(response, 'Отдел<')
+        self.assertContains(response, 'Срок выполнения')
+        self.assertContains(response, self.department.name)
+        self.assertNotContains(response, 'Дата создания')

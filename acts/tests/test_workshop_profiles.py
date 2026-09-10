@@ -108,6 +108,42 @@ class WorkshopAwareDefectTests(TestCase):
                     detected_at=timezone.localdate(),
                 )
 
+    def test_the_database_refuses_analysis_text_on_an_unchecked_item(self):
+        """Неотмеченный пункт анализа не несёт текста — и это правило таблицы.
+
+        `quality_impact.normalize()` очищает такой текст на единственном пути
+        записи, так что через форму это состояние недостижимо; constraint
+        закрывает всё остальное — правку в админке, миграцию данных, ручной
+        SQL. Проверяются обе пары «галочка → её поля».
+        """
+        self.client.post(reverse('acts:create'), self._mixed_act_payload())
+        act = Act.objects.get(order_number='400-1')
+        base = {
+            'act': act,
+            'workshop': ActDefect.Workshop.MP_SHOP,
+            'defect_type': self.defect_type,
+            'detected_at': timezone.localdate(),
+        }
+
+        for field, value in (
+            ('quality_impact_em_value', '1,2 мГн'),
+            ('quality_impact_em_tolerance', '±5%'),
+            ('quality_impact_other_text', 'Согласовано'),
+        ):
+            with self.subTest(field=field):
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        ActDefect.objects.create(**base, **{field: value})
+
+        # А с поставленной галочкой те же значения сохраняются.
+        defect = ActDefect.objects.create(
+            **base,
+            quality_impact_em_parameters=True,
+            quality_impact_em_value='1,2 мГн',
+            quality_impact_em_tolerance='±5%',
+        )
+        self.assertTrue(defect.quality_impact_em_parameters)
+
     def test_the_registry_and_detail_work_without_any_act_summary(self):
         self.client.post(reverse('acts:create'), self._mixed_act_payload())
         act = Act.objects.get(order_number='400-1')

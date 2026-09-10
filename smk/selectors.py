@@ -13,69 +13,173 @@ from accounts.models import Department
 from .models import SmkSource
 
 
-# The two halves of the registry. «Работа» is every live record — a record
-# stays there until somebody archives it by hand, so completing its tasks
-# changes nothing here — and «Архив» is what was shelved. The dict is the only
-# place the mapping is written, exactly as the protocol registry keeps its own.
-LIST_TABS = {
-    'work': SmkSource.Status.ACTIVE,
-    'archive': SmkSource.Status.ARCHIVED,
-}
+# The three halves of the registry. «Работа» is a live record with work still
+# open, «Выполнено» a live record whose every task is done — the shelf it can
+# be archived from — and «Архив» what somebody shelved by hand. Only the last
+# is a stored `status`; the first two are one stored status split by the state
+# of the tasks, which is why this is a tuple of tab names rather than the
+# status map it used to be.
+LIST_TABS = ('work', 'completed', 'archive')
 DEFAULT_LIST_TAB = 'work'
 
 
-# What a person reads off the record — and it is exactly what is stored, one
-# label per `SmkSource.Status`. A record has two states because it has one
-# transition: it is «В работе» until somebody archives it, and «Архивировано»
-# afterwards. Nothing is derived from the tasks any more: an СМК record is a
-# shelf, not a workflow, and states like «Создана» or «Завершена» described
-# task progress rather than the record — the tasks are tracked in «Задачи»,
-# where their own statuses live.
-def describe_smk_state(*, is_archived):
+# The record's live tasks, counted two ways. Both read only the measures the
+# record holds by *now*: a correction supersedes the old ones and cancels their
+# tasks, and counting those would let a withdrawn task speak for work nobody
+# holds. Both filters are positive — «выполнена» and «ещё не закрыта» — so a
+# `CANCELLED` task lands in neither, which is exactly «отменённые не
+# учитываются»: it is not outstanding work, and it is not done work either.
+_COMPLETED_TASKS = Count(
+    'actions__tasks',
+    filter=Q(
+        actions__superseded_at__isnull=True,
+        actions__tasks__status__code='COMPLETED',
+    ),
+    distinct=True,
+)
+_OPEN_TASKS = Count(
+    'actions__tasks',
+    filter=Q(
+        actions__superseded_at__isnull=True,
+        actions__tasks__status__is_final=False,
+    ),
+    distinct=True,
+)
+
+
+def is_task_set_completed(tasks):
+    """Whether this set of live tasks means the record is «Выполнено».
+
+    The one definition, shared by the record page and — restated as the two
+    annotations above, which must keep agreeing with it — by the registry.
+
+    `done > 0` is not a formality: a record whose only task was cancelled has
+    an empty «выполненные» set, and «все выполнены» over nothing would report
+    finished work that never happened.
+    """
+    done = 0
+    for task in tasks:
+        if task.status.code == 'COMPLETED':
+            done += 1
+        elif not task.status.is_final:
+            return False
+    return done > 0
+
+
+# What a person reads off the record. «Архивировано» is the one stored answer
+# and wins over everything: a shelved record is read as shelved whatever its
+# tasks say. The other two are derived from the work itself — «Выполнено» the
+# moment every live task is done, «В работе» until then — so the pill can never
+# claim work that is still open, and it goes back on its own if a task is
+# returned to work.
+def describe_smk_state(*, is_archived, is_completed=False):
     """`{'code', 'label'}` for the state pill. `code` drives `.status-badge--*`."""
     if is_archived:
         return {'code': 'archived', 'label': 'Архивировано'}
+    if is_completed:
+        return {'code': 'completed', 'label': 'Выполнено'}
     return {'code': 'in_progress', 'label': 'В работе'}
+
+
+def _registry_tasks(source):
+    """The record's live tasks, in deadline order, for one registry row.
+
+    What the arrow next to «Срок выполнения» expands into, and — through
+    `_next_due_date()` below — where the срок itself comes from, so the column
+    and the list it opens can never name different work.
+
+    Only the measures the record holds by now, and `CANCELLED` tasks left out:
+    a задача withdrawn by a correction is neither outstanding work nor done
+    work, exactly as the two count annotations above already treat it. Read
+    from the prefetched relations rather than queried, so a hundred rows still
+    cost the same two reads as one.
+    """
+    tasks = [
+        task
+        for action in source.actions.all()
+        if action.superseded_at is None
+        for task in action.tasks.all()
+        if task.status.code != 'CANCELLED'
+    ]
+    return sorted(tasks, key=lambda task: (task.due_date, task.pk))
+
+
+def _next_due_date(tasks):
+    """«Срок выполнения»: the nearest задача that is still open.
+
+    The first one by deadline whose status is not final — so closing it moves
+    the column on to the next by itself, and a record with nothing outstanding
+    shows no срок at all rather than the last date it happened to hold.
+    """
+    for task in tasks:
+        if not task.status.is_final:
+            return task.due_date
+    return None
 
 
 def build_smk_list_state(params):
     """The СМК registry for one tab.
 
-    «Количество задач» is counted in the query rather than per row: it is the
-    real `tasks.Task` rows the record's measures produced, and one annotation
-    keeps the table to a single database read no matter how long it gets.
+    Every count is an annotation rather than a per-row read: the table stays a
+    single database query no matter how long it gets, and «Выполнено» is
+    decided by the same query that fetches the rows. «Срок выполнения» and the
+    list the arrow expands are read from one prefetch of the same tasks, which
+    is two reads for the whole table however long it is.
     """
     tab = params.get('tab') if params else None
     if tab not in LIST_TABS:
         tab = DEFAULT_LIST_TAB
     sources = (
-        SmkSource.objects.filter(status=LIST_TABS[tab])
-        .select_related('created_by')
+        SmkSource.objects.select_related('created_by', 'department')
+        .prefetch_related('actions__tasks__status')
         .annotate(
-            # «Задач» only — the state pill is the record's own shelf and needs
-            # no count. Only the measures the record reads by *now*: a
-            # correction supersedes the old ones and cancels their tasks, and
-            # counting those would leave the registry claiming work nobody
-            # holds.
+            # «Задач» for the table's own column, and the two the state is read
+            # from. All three are `distinct=True`: three counts over the same
+            # multi-valued join would otherwise multiply each other's rows.
             task_count=Count(
                 'actions__tasks',
                 filter=Q(actions__superseded_at__isnull=True),
                 distinct=True,
             ),
+            completed_task_count=_COMPLETED_TASKS,
+            open_task_count=_OPEN_TASKS,
         )
     )
+    if tab == 'archive':
+        sources = sources.filter(status=SmkSource.Status.ARCHIVED)
+    else:
+        # The same predicate `is_task_set_completed()` states, expressed over
+        # the annotations: done work exists and nothing is still open. `work`
+        # is its complement within the live records, so no record can fall
+        # between the two tabs or appear in both.
+        done = Q(completed_task_count__gt=0, open_task_count=0)
+        sources = sources.filter(status=SmkSource.Status.ACTIVE)
+        sources = sources.filter(done) if tab == 'completed' else sources.exclude(done)
     # Rows, not the bare queryset: the state pill is derived per record, and
     # deriving it here keeps the template to reading values rather than
     # computing one.
     return {
         'tab': tab,
+        # The one «сегодня» every row's overdue mark is compared against, so a
+        # long table cannot straddle midnight and read two different answers.
+        'today': timezone.localdate(),
         'sources': [
             {
                 'source': source,
                 'task_count': source.task_count,
-                'state': describe_smk_state(is_archived=source.is_archived),
+                'tasks': tasks,
+                'next_due_date': _next_due_date(tasks),
+                'state': describe_smk_state(
+                    is_archived=source.is_archived,
+                    is_completed=(
+                        source.completed_task_count > 0
+                        and source.open_task_count == 0
+                    ),
+                ),
             }
-            for source in sources
+            for source, tasks in (
+                (source, _registry_tasks(source)) for source in sources
+            )
         ],
     }
 
@@ -117,6 +221,7 @@ def build_confirmation_summary(cleaned):
     return {
         'origin_label': SmkSource.Origin(cleaned['origin']).label,
         'audit_date': cleaned['audit_date'],
+        'department_label': str(cleaned['department']),
         'non_conformity_count': len(cleaned['non_conformities']),
         'action_count': len(cleaned['actions']),
         'assignees': assignees,
@@ -220,9 +325,16 @@ def get_source_detail(source):
         ],
         'actions': rows,
         'task_count': sum(len(row['tasks']) for row in rows),
-        # The same two states the registry shows, from the same function, so a
-        # record cannot read one way in the list and another on its own page.
-        'state': describe_smk_state(is_archived=source.is_archived),
+        # The same three states the registry shows, from the same function and
+        # the same rule, so a record cannot read one way in the list and
+        # another on its own page. The tasks are already loaded above, so
+        # «Выполнено» costs no extra query here.
+        'state': describe_smk_state(
+            is_archived=source.is_archived,
+            is_completed=is_task_set_completed(
+                [task for row in rows for task in row['tasks']]
+            ),
+        ),
         'history_groups': get_smk_history_groups(source),
         # What a correction withdrew, kept on the page rather than only in the
         # task registry: «Связанные мероприятия» is where the work of this

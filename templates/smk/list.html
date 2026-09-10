@@ -12,8 +12,13 @@
 {% block content %}
 {% comment %}
 The СМК registry, in the same toolbar/tabs/table shape as Акты, Протоколы and
-Задачи. «Работа» holds every live record and «Архив» what somebody shelved by
-hand — completing the tasks a record produced never moves it between the two.
+Задачи. «Работа» holds live records with work still open, «Выполнено» live
+records whose every задача is done, and «Архив» what somebody shelved by hand.
+
+Only «Архив» is a stored status. A record crosses from «Работа» to «Выполнено»
+by itself, the moment the last of its live tasks is completed, and back again
+if one is returned to work — which is the whole point of the tab: the СМК
+employee sees what is ready to archive without opening each record.
 
 «Создать» is rendered only for the roles that may create, and the form re-checks
 that right anyway; the tabs and the table are open to every reader.
@@ -21,6 +26,7 @@ that right anyway; the tabs and the table are open to every reader.
 <div class="act-registry-toolbar">
     <nav class="act-registry-tabs" aria-label="Область списка СМК">
         <a class="act-registry-tabs__link{% if tab == 'work' %} act-registry-tabs__link--active{% endif %}" href="?tab=work">Работа</a>
+        <a class="act-registry-tabs__link{% if tab == 'completed' %} act-registry-tabs__link--active{% endif %}" href="?tab=completed">Выполнено</a>
         <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?tab=archive">Архив</a>
     </nav>
     {% if can_create %}
@@ -31,4 +37,9 @@ that right anyway; the tabs and the table are open to every reader.
 <div class="fill-region">
     {% include 'smk/includes/registry_results.html' %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+{# The arrow beside «Срок выполнения»; the row click itself is the shared script. #}
+<script src="{% static 'js/smk_registry.js' %}?v=20260910-1" defer></script>
 {% endblock %}

@@ -20,13 +20,134 @@ user has no unsaved input; a dirty form is never touched.
 
     <article class="detail-section">
         <h2>Дефекты и решение КО</h2>
+        {% comment %}
+        Одна карточка на дефект, не строка таблицы. Таблица из двенадцати
+        колонок скроллилась горизонтально уже с одним дефектом, а «Анализ
+        влияния отклонений на качество изделия» (раздел 1 акта, изм.2)
+        добавляет к строке шесть галочек и три поля ввода — тринадцатой
+        колонки здесь нет физически.
+
+        `<details>` без единой строки JavaScript: в режиме ввода карточки
+        раскрыты, в режиме чтения свёрнуты до заголовка, и свёрнутый стек
+        читается почти как прежняя таблица. Скрипт нужен ровно для одного —
+        показывать и прятать блок анализа при смене решения.
+
+        Факты дефекта лежат в общей сетке `.act-defect-card__grid` — шесть
+        колонок с модификаторами `__full`/`__half`, — а не в `<dl>`: любой
+        `dl` внутри `.detail-section` раскладывается `components.css` в две
+        колонки «подпись/значение», что для шести коротких фактов на широком
+        экране читается хуже и потребовало бы борьбы за специфичность.
+        {% endcomment %}
         {% if not defect_decision_rows %}<p class="placeholder-text">Дефекты не добавлены.</p>{% endif %}
-        <div class="act-defects-table-wrap"><table class="data-table act-defects-table"><colgroup><col class="act-defects-table__number"><col class="act-defects-table__workshop"><col class="act-defects-table__znp"><col class="act-defects-table__party"><col class="act-defects-table__type"><col class="act-defects-table__mp"><col class="act-defects-table__date"><col class="act-defects-table__checked"><col class="act-defects-table__nonconforming"><col class="act-defects-table__description"><col class="act-defects-table__decision"><col class="act-defects-table__comment"></colgroup><thead><tr><th>№</th><th>Цех/<br>поставщик</th><th>Номер<br>ЗНП</th><th>Номер<br>партии</th><th>Вид дефекта</th><th>Тип МП</th><th>Дата<br>обнаружения</th><th>Всего<br>проверено</th><th>С<br>отклонением</th><th>Описание</th><th>Решение КО</th><th>Комментарий КО</th></tr></thead><tbody>
-        {% for row in defect_decision_rows %}<tr>
-            <td>{{ forloop.counter }}</td><td>{{ row.defect.get_workshop_display|default:'—' }}</td><td>{{ row.defect.znp_number|default:'—' }}</td><td>{{ row.defect.party_number|default:'—' }}</td><td class="user-text">{{ row.defect.defect_type|default:'Не указан' }}</td><td>{{ row.defect.get_mp_type_display|default:'—' }}</td><td>{{ row.defect.detected_at|date:'d.m.Y'|default:'—' }}</td><td>{{ row.defect.checked_quantity|default_if_none:'—' }}</td><td>{{ row.defect.nonconforming_quantity|default_if_none:'—' }}</td><td class="user-text">{{ row.defect.description|default:'—' }}</td>
-            <td>{% if available_actions.ko_decision %}{% if row.ko_form %}{{ row.ko_form.id }}{{ row.ko_form.ko_decision }}{{ row.ko_form.ko_decision.errors }}{% else %}{{ ko_decision_form.ko_decision }}{{ ko_decision_form.ko_decision.errors }}{% endif %}{% elif row.defect.ko_decision %}<span class="act-badge act-badge--status">{{ row.defect.get_ko_decision_display }}</span>{% else %}—{% endif %}</td>
-            <td>{% if available_actions.ko_decision %}{% if row.ko_form %}{{ row.ko_form.ko_comment }}{{ row.ko_form.ko_comment.errors }}{% else %}{{ ko_decision_form.ko_comment }}{{ ko_decision_form.ko_comment.errors }}{% endif %}{% elif row.defect.ko_decision %}<span class="user-text">{{ row.defect.ko_comment|default:'—' }}</span>{% else %}—{% endif %}</td>
-        </tr>{% endfor %}</tbody></table></div>
+        <div class="act-defect-cards">
+        {% for row in defect_decision_rows %}
+            <details class="act-defect-card"{% if available_actions.ko_decision %} open{% endif %} data-defect-card>
+                <summary class="act-defect-card__header">
+                    <svg class="ui-icon act-defect-card__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+                    <span class="act-defect-card__number">Дефект {{ forloop.counter }}</span>
+                    <span class="act-defect-card__type user-text">{{ row.defect.defect_type|default:'Вид дефекта не указан' }}</span>
+                    {% comment %}
+                    Цех и ЗНП — обычным приглушённым текстом, одной строкой:
+                    пилюль в проекте нет нигде, а два бейджа рядом с настоящим
+                    бейджем решения спорили бы с ним за внимание. Пусто, когда
+                    у дефекта нет ни того, ни другого — прочерк был бы
+                    особенностью таблицы, а не сведением о дефекте.
+                    {% endcomment %}
+                    {% if row.defect.workshop or row.defect.znp_number %}
+                        <span class="act-defect-card__meta">{{ row.defect.get_workshop_display }}{% if row.defect.workshop and row.defect.znp_number %} · {% endif %}{% if row.defect.znp_number %}ЗНП {{ row.defect.znp_number }}{% endif %}</span>
+                    {% endif %}
+                    {% comment %}
+                    Решение в заголовке — только в режиме чтения: пока его
+                    вносят, авторитет у `select` в теле карточки, и бейдж рядом
+                    с ним показывал бы устаревшее значение.
+                    {% endcomment %}
+                    {% if not available_actions.ko_decision and row.defect.ko_decision %}<span class="act-badge act-badge--status act-defect-card__verdict">{{ row.defect.get_ko_decision_display }}</span>{% endif %}
+                </summary>
+                <div class="act-defect-card__body">
+                    <div class="act-defect-card__grid">
+                        <div><span>Номер партии</span><p class="act-defect-card__value user-text">{{ row.defect.party_number|default:'—' }}</p></div>
+                        <div><span>Тип МП</span><p class="act-defect-card__value">{{ row.defect.get_mp_type_display|default:'—' }}</p></div>
+                        <div><span>Дата обнаружения</span><p class="act-defect-card__value">{{ row.defect.detected_at|date:'d.m.Y'|default:'—' }}</p></div>
+                        <div><span>Всего проверено</span><p class="act-defect-card__value">{{ row.defect.checked_quantity|default_if_none:'—' }}</p></div>
+                        <div><span>С отклонением</span><p class="act-defect-card__value">{{ row.defect.nonconforming_quantity|default_if_none:'—' }}</p></div>
+                        <div class="act-defect-card__full"><span>Описание</span><p class="user-text">{{ row.defect.description|default:'—' }}</p></div>
+                    </div>
+
+                    {% comment %}
+                    Решение и анализ — рядом, а не друг под другом: на широком
+                    экране колонка формы иначе растягивается на полторы тысячи
+                    пикселей, а справа остаётся пустота. Ниже 1180px обе
+                    возвращаются в одну колонку.
+                    {% endcomment %}
+                    <div class="act-defect-card__work">
+                    {% if available_actions.ko_decision %}
+                        <div class="act-defect-card__decision">
+                            {% if row.ko_form %}{{ row.ko_form.id }}{% endif %}
+                            <label class="act-defect-card__field">
+                                <span class="act-defect-card__label">Решение КО</span>
+                                {% if row.ko_form %}{{ row.ko_form.ko_decision }}{{ row.ko_form.ko_decision.errors }}{% else %}{{ ko_decision_form.ko_decision }}{{ ko_decision_form.ko_decision.errors }}{% endif %}
+                            </label>
+                            <label class="act-defect-card__field">
+                                <span class="act-defect-card__label">Комментарий КО</span>
+                                {% if row.ko_form %}{{ row.ko_form.ko_comment }}{{ row.ko_form.ko_comment.errors }}{% else %}{{ ko_decision_form.ko_comment }}{{ ko_decision_form.ko_comment.errors }}{% endif %}
+                            </label>
+                        </div>
+                        {% if row.ko_form %}
+                        {% comment %}
+                        Блок появляется и исчезает вместе с решением —
+                        `static/js/ko_decision_form.js`. Скрытие никогда не
+                        означает «не проверено»: правило спрашивают форма и
+                        `apply_ko_decision()` под блокировкой строки акта, а
+                        разметка только показывает. Без JavaScript блок виден
+                        всегда, и это правильная сторона отказа.
+                        {% endcomment %}
+                        <fieldset class="act-defect-card__impact" data-ko-impact>
+                            <legend>Анализ влияния отклонений на качество изделия</legend>
+                            {% if row.ko_form.non_field_errors %}<ul class="errorlist">{% for error in row.ko_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+                            {% for entry in row.ko_form.quality_impact_rows %}
+                                <div class="act-defect-card__impact-row">
+                                    <label class="act-defect-card__impact-check">{{ entry.checkbox }}<span>{{ entry.item.label }}</span></label>
+                                    {% for text in entry.texts %}<span class="act-defect-card__impact-value">{{ text }}{{ text.errors }}</span>{% endfor %}
+                                </div>
+                            {% endfor %}
+                        </fieldset>
+                        {% endif %}
+                    {% else %}
+                        <div class="act-defect-card__decision act-defect-card__decision--readonly">
+                            <div class="act-defect-card__field">
+                                <span class="act-defect-card__label">Решение КО</span>
+                                {% if row.defect.ko_decision %}<span class="act-badge act-badge--status">{{ row.defect.get_ko_decision_display }}</span>{% else %}<span>—</span>{% endif %}
+                            </div>
+                            <div class="act-defect-card__field">
+                                <span class="act-defect-card__label">Комментарий КО</span>
+                                <p class="user-text">{{ row.defect.ko_comment|default:'—' }}</p>
+                            </div>
+                        </div>
+                        {% comment %}
+                        Блок анализа в режиме чтения показывается только там,
+                        где он имеет смысл: запрещающее решение его стирает, а
+                        акт, решённый до изм.2, честно говорит, что анализ не
+                        заполнялся, — пустой чек-лист выглядел бы как
+                        сегодняшняя недоработка.
+                        {% endcomment %}
+                        {% if row.impact_applies %}
+                        <div class="act-defect-card__impact act-defect-card__impact--readonly">
+                            <span class="act-defect-card__label">Анализ влияния отклонений на качество изделия</span>
+                            {% if row.impact %}
+                                <ul class="act-defect-card__impact-list">
+                                    {% for item in row.impact %}<li><span class="user-text">{{ item.label }}</span>{% if item.detail %}<span class="act-defect-card__impact-detail user-text">{{ item.detail }}</span>{% endif %}</li>{% endfor %}
+                                </ul>
+                            {% else %}
+                                <p class="placeholder-text">Анализ не заполнялся.</p>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    {% endif %}
+                    </div>
+                </div>
+            </details>
+        {% endfor %}
+        </div>
     </article>
 
     <article class="detail-section to-analysis-section">
@@ -39,12 +160,25 @@ user has no unsaved input; a dirty form is never touched.
                 {% if to_analysis_form.non_field_errors %}<ul class="errorlist">{% for error in to_analysis_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
                 <div data-root-analysis-list>
                     {% for root in to_analysis_form.root_rows %}
-                    <section class="root-analysis-card" data-root-analysis>
-                        <input type="hidden" data-root-total-name value="{{ forloop.counter0 }}">
-                        <div class="analysis-card-header" data-root-analysis-header>
-                            <span class="root-analysis-card__title" data-root-analysis-title><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>Корневая причина {{ forloop.counter }}</span>
+                    {% comment %}
+                    `<details>`, как карточка дефекта выше: шеврон у заголовка
+                    был нарисован и раньше, но ни к чему не подключён —
+                    интерфейс обещал сворачивание, которого не было.
+
+                    Раскрыта последняя проработка: её и заполняют. Отклонённая
+                    отправка раскрывает все — `has_errors` считается на сервере,
+                    потому что свёрнутая карточка прячет собственный
+                    `field-error`, и видимость отказа не должна зависеть ни от
+                    JavaScript, ни от того, что пользователь успел свернуть.
+                    {% endcomment %}
+                    <details class="root-analysis-card" data-root-analysis{% if forloop.last or to_analysis_form.has_errors %} open{% endif %}>
+                        <summary class="analysis-card-header" data-root-analysis-header>
+                            <span class="root-analysis-card__title" data-root-analysis-title><svg class="ui-icon analysis-card-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>Корневая причина {{ forloop.counter }}</span>
+                            {# Заполняется скриптом из самого поля: три свёрнутых «Корневая причина N» неотличимы друг от друга. #}
+                            <span class="analysis-card-preview" data-root-analysis-preview></span>
                             {% if to_analysis_form.root_rows|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-root-analysis aria-label="Удалить корневую проработку" title="Удалить корневую проработку">×</button>{% endif %}
-                        </div>
+                        </summary>
+                        <input type="hidden" data-root-total-name value="{{ forloop.counter0 }}">
                         <label class="root-analysis-card__cause"><span>Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="2" required>{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
                         <div class="corrective-action-list" data-corrective-action-list>
                             {% for action in root.actions %}
@@ -59,11 +193,14 @@ user has no unsaved input; a dirty form is never touched.
                             carries the act's department field on its first
                             assignee row.
                             {% endcomment %}
-                            <section class="corrective-action-card" data-corrective-action>
-                                <div class="analysis-card-header" data-corrective-action-header>
+                            <details class="corrective-action-card" data-corrective-action{% if forloop.last or to_analysis_form.has_errors %} open{% endif %}>
+                                <summary class="analysis-card-header" data-corrective-action-header>
+                                    <svg class="ui-icon analysis-card-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
                                     <span class="corrective-action-card__title" data-corrective-action-title>Мероприятие {{ forloop.counter }}</span>
+                                    {# Текст мероприятия и срок — чтобы свёрнутые карточки различались. #}
+                                    <span class="analysis-card-preview" data-corrective-action-preview></span>
                                     {% if root.actions|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-corrective-action aria-label="Удалить мероприятие" title="Удалить мероприятие">×</button>{% endif %}
-                                </div>
+                                </summary>
                                 {% comment %}
                                 The wording and the one requirement that
                                 belongs to it, side by side, and only in this
@@ -126,14 +263,14 @@ user has no unsaved input; a dirty form is never touched.
                                         <span data-split-hint-on{% if not action.split_for_assignees %} hidden{% endif %}>Каждый исполнитель получит собственную задачу и выполнит её независимо.</span>
                                     </p>
                                 </div>
-                            </section>
+                            </details>
                             {% endfor %}
                         </div>
                         <input type="hidden" name="root-{{ root.index }}-actions-TOTAL_FORMS" value="{{ root.actions|length }}" data-actions-total>
                         <div class="act-inline-actions" data-root-analysis-actions>
                             <button class="link-button link-button--success" type="button" data-add-corrective-action>Добавить корректирующее мероприятие</button>
                         </div>
-                    </section>
+                    </details>
                     {% endfor %}
                 </div>
                 <input type="hidden" name="root-TOTAL_FORMS" value="{{ to_analysis_form.root_rows|length }}" data-root-total>

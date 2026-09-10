@@ -101,8 +101,7 @@ def _form_context(form, confirmation=None, *, source=None):
         'empty_row': {'index': 0, 'id': '', 'text': '', 'errors': {}},
         'empty_action_row': {
             'index': 0, 'id': '', 'text': '', 'due_date': '',
-            'requires_attachment': False, 'split_for_assignees': False,
-            'assignees': [], 'errors': {},
+            'split_for_assignees': False, 'assignees': [], 'errors': {},
         },
         'empty_assignee': {'user': '', 'department': ''},
         **get_editor_directory(),
@@ -148,6 +147,7 @@ def smk_create(request):
                 source = create_smk_source(
                     origin=form.cleaned['origin'],
                     audit_date=form.cleaned['audit_date'],
+                    department=form.cleaned['department'],
                     non_conformities=form.cleaned['non_conformities'],
                     actions=form.cleaned['actions'],
                     created_by=request.user,
@@ -196,6 +196,7 @@ def smk_edit(request, pk):
                     source,
                     origin=form.cleaned['origin'],
                     audit_date=form.cleaned['audit_date'],
+                    department=form.cleaned['department'],
                     non_conformities=form.cleaned['non_conformities'],
                     actions=form.cleaned['actions'],
                     actor=request.user,

@@ -24,7 +24,7 @@ describe different work.
     <a class="act-back-link" href="{% url 'smk:list' %}" aria-label="К списку записей СМК">←</a>
     <div class="act-detail-heading__title">
         <h1>{{ source.label }}</h1>
-        {# «В работе» or «Архивировано» — the same pill the registry renders. #}
+        {# «В работе», «Выполнено» or «Архивировано» — the same pill the registry renders. #}
         <span class="status-badge status-badge--{{ state.code }}">{{ state.label }}</span>
     </div>
     {% comment %}
@@ -60,6 +60,13 @@ days after the audit it describes — and «Количество задач» co
 tasks the measures produced, not the measures that should have produced them.
 {% endcomment %}
 <section class="smk-info-card" aria-label="Сведения об аудите">
+    {% comment %}
+    Three facts, and only three: what the audit was, what it looked at and when
+    it happened. The rest used to sit here and no longer does — «Статус» is the
+    pill beside the heading, «Количество задач» is the «Связанные мероприятия»
+    tab, and «Создал»/«Дата создания» are the first line of «История». A fact
+    the page already states elsewhere is not worth a second, competing tile.
+    {% endcomment %}
     <div class="smk-info-card__item">
         <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M9 4h6v3H9zM8 5H6v15h12V5h-2M9 12h6M9 16h4"/></svg></span>
         <div><span>Тип аудита</span><strong>{{ source.get_origin_display }}</strong></div>
@@ -69,20 +76,14 @@ tasks the measures produced, not the measures that should have produced them.
         <div><span>Дата аудита</span><strong>{{ source.audit_date|date:'d.m.Y'|default:'—' }}</strong></div>
     </div>
     <div class="smk-info-card__item">
-        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M5 20a7 7 0 0 1 14 0"/></svg></span>
-        <div><span>Создал</span><strong>{{ source.created_by|person_name }}</strong></div>
-    </div>
-    <div class="smk-info-card__item">
-        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M8 14h8"/></svg></span>
-        <div><span>Дата создания</span><strong>{{ source.created_at|date:'d.m.Y' }}</strong></div>
-    </div>
-    <div class="smk-info-card__item">
-        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 7h10l6 5-6 5H4z"/></svg></span>
-        <div><span>Статус</span><strong>{{ state.label }}</strong></div>
-    </div>
-    <div class="smk-info-card__item">
-        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 12l3 3 5-5"/></svg></span>
-        <div><span>Количество задач</span><strong>{{ task_count }}</strong></div>
+        {% comment %}
+        The подразделение the audit looked at — the record's own field, not the
+        department of anybody's мероприятие. Older records carry none until the
+        отдел СМК fills it in through «Редактировать», so «—» is a real answer
+        here rather than a placeholder.
+        {% endcomment %}
+        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/></svg></span>
+        <div><span>Отделение</span><strong class="user-text">{{ source.department|default:'—' }}</strong></div>
     </div>
 </section>
 

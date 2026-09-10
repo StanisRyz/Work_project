@@ -292,6 +292,44 @@ class ActDefect(models.Model):
         verbose_name='Решение КО внес',
     )
     ko_decision_at = models.DateTimeField('Дата решения КО', blank=True, null=True)
+    # «Анализ влияния отклонений на качество изделия» — раздел 1 акта, изм.2.
+    # Обоснование, которым КО сопровождает разрешающее решение: шесть пунктов
+    # чек-листа, три из которых несут собственные значения. Состав, порядок и
+    # правило обязательности живут в `acts/quality_impact.py` и только там;
+    # здесь — девять явных колонок, потому что чек-лист меняется формальным
+    # изменением документа, а не настройкой пользователя, и явные колонки
+    # отдают печатной форме, фильтрам и constraint ниже готовые значения.
+    #
+    # Все девять всегда допускают «не заполнено»: акты, решённые до изм.2, его
+    # не заполняли, и требование действует только для новых решений КО —
+    # проверяет его `acts.services.apply_ko_decision()`, не база.
+    quality_impact_no_interturn_short = models.BooleanField(
+        'Риск межвиткового замыкания исключен', default=False,
+    )
+    quality_impact_em_parameters = models.BooleanField(
+        'Электромагнитные параметры проверены', default=False,
+    )
+    quality_impact_em_value = models.CharField(
+        'Электромагнитные параметры, значение', max_length=200, blank=True,
+    )
+    quality_impact_em_tolerance = models.CharField(
+        'Электромагнитные параметры, допуск по КД/ГОСТ', max_length=200, blank=True,
+    )
+    quality_impact_insulation_margin = models.BooleanField(
+        'Расчетный запас по перегреву изоляции достаточен', default=False,
+    )
+    quality_impact_assembly = models.BooleanField(
+        'Собираемость обеспечена', default=False,
+    )
+    quality_impact_customer_agreed = models.BooleanField(
+        'Согласовано с заказчиком', default=False,
+    )
+    quality_impact_other = models.BooleanField(
+        'Другое', default=False,
+    )
+    quality_impact_other_text = models.TextField(
+        'Другое, описание', blank=True,
+    )
     created_at = models.DateTimeField('Создано', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлено', auto_now=True)
 
@@ -322,6 +360,25 @@ class ActDefect(models.Model):
                     )
                 ),
                 name='act_defect_pir_without_mp_only_data',
+            ),
+            # Неотмеченный пункт анализа не несёт текста. `quality_impact.
+            # normalize()` очищает его на единственном пути записи, поэтому
+            # через форму это состояние недостижимо; constraint закрывает
+            # всё остальное — админку, миграции данных, ручной SQL — и делает
+            # «галочка снята» единственным представлением незаполненного
+            # пункта, на которое печатная форма и режим чтения могут опереться.
+            models.CheckConstraint(
+                condition=(
+                    Q(quality_impact_em_parameters=True)
+                    | Q(quality_impact_em_value='', quality_impact_em_tolerance='')
+                ),
+                name='act_defect_em_values_only_when_checked',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(quality_impact_other=True) | Q(quality_impact_other_text='')
+                ),
+                name='act_defect_other_text_only_when_checked',
             ),
         ]
 

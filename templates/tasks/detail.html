@@ -24,6 +24,25 @@ the Django login, never the employee's name.
         {% endcomment %}
         <span class="act-badge act-badge--status">{{ task_state.label }}</span>
     </div>
+    {% comment %}
+    «Вернуть в работу» — the one administrative action on a closed task, shown
+    only when `can_reopen_task()` says so: an администратор, an ordinary task,
+    and only while it is «Выполнено». It goes through the one application
+    confirmation modal, never a browser `confirm()`, exactly as «Архивировать»
+    does on the СМК record. The button is the shortcut to a permitted action,
+    never the permission — `tasks:reopen` asks again under the row lock.
+    {% endcomment %}
+    {% if can_reopen %}
+        <div class="task-detail-heading__actions">
+            <button class="link-button link-button--warning" type="button"
+                    data-confirm
+                    data-confirm-title="Вернуть задачу {{ task.pk }} в работу?"
+                    data-confirm-text="Задача снова станет активной и её можно будет завершить заново. Вложения и результат выполнения сохранятся."
+                    data-confirm-label="Вернуть в работу"
+                    data-confirm-variant="warning"
+                    data-confirm-url="{% url 'tasks:reopen' task.pk %}">Вернуть в работу</button>
+        </div>
+    {% endif %}
 </section>
 
 <div class="task-detail-columns">

@@ -16,15 +16,41 @@
    `components.css`/`acts.css`, and so does whole-row navigation with its
    cursor and hover (`[data-row-url]`); only the minimum width the seven
    columns need is added here. */
-.smk-table { min-width: 820px; }
+/* Fixed, and wide enough that every declared column fits: under the default
+   `auto` layout the expanded «мероприятия» row — one cell spanning all seven
+   columns — took part in sizing them, and opening a record shifted the whole
+   table sideways. `.act-table-card .data-table` sets a 680px floor with two
+   classes, so the СМК floor is stated with two of its own rather than one that
+   would silently lose to it. */
+.act-table-card .smk-table {
+    min-width: 900px;
+    table-layout: fixed;
+}
+
+.smk-table__number { width: 120px; }
+.smk-table__origin { width: auto; }
+.smk-table__date { width: 130px; }
+.smk-table__department { width: 20%; }
+.smk-table__count { width: 90px; }
+.smk-table__due { width: 175px; }
+.smk-table__status { width: 145px; }
+
+/* A fixed layout clips rather than widens, so anything that can genuinely be
+   long says so on its `title` and ends in «…» instead of running under its
+   neighbour. */
+.smk-cell--clipped {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
 /* ------------------------------------------------------------------ header */
 
-/* Six facts, each read once on the page. Collapses to two columns
-   on a tablet and one on a phone, so a long department or name never squeezes
-   the others out. Three columns, not six: six facts across one line would give
-   each a column too narrow for a full name or «Внутренний аудит», so they read
-   as two rows of three. */
+/* Three facts — тип аудита, дата аудита, отделение — on one line, each read
+   once on the page. Collapses to two columns on a tablet and one on a phone,
+   so a long подразделение never squeezes the others out. The `nth-child` rules
+   below still speak of rows because they are written for three columns rather
+   than for three items: a card that grows a fourth fact keeps its dividers. */
 .smk-info-card {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -335,10 +361,18 @@
 /* Тип аудита and Дата аудита side by side in the «Источник» block. Its own
    rule rather than the protocol editor's `protocol-action-card__fields`,
    which is a single narrow column by design. */
+/* The source block's three questions — тип аудита, отделение, дата — and, in a
+   мероприятие card, its two. Three tracks either way: a row of two simply
+   leaves the third empty and keeps the same field width, so the two blocks
+   line up instead of sizing themselves independently. */
 .smk-source-fields {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 240px));
+    grid-template-columns: repeat(3, minmax(0, 240px));
     gap: 12px 16px;
+}
+
+@media (max-width: 900px) {
+    .smk-source-fields { grid-template-columns: repeat(2, minmax(0, 240px)); }
 }
 
 @media (max-width: 600px) {
@@ -352,4 +386,121 @@
 
 @media (max-width: 640px) {
     .smk-detail-heading__actions { margin-left: 0; }
+}
+
+/* ------------------------------------------------- реестр: срок и мероприятия */
+
+/* «Срок выполнения» and the arrow that expands the record's мероприятия, on one
+   line. `width: max-content` keeps the pair as narrow as its contents, so the
+   column is sized by the date rather than by the cell. */
+.smk-deadline {
+    display: flex;
+    width: max-content;
+    align-items: center;
+    gap: 6px;
+}
+
+.smk-deadline__none { color: var(--color-text-muted); }
+
+.smk-deadline__toggle {
+    display: inline-grid;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm, 6px);
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    place-items: center;
+}
+
+.smk-deadline__toggle:hover {
+    background: var(--color-surface-muted, rgb(15 23 42 / 6%));
+    color: var(--color-text);
+}
+
+.smk-deadline__toggle:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+}
+
+.smk-deadline__chevron {
+    width: 16px;
+    height: 16px;
+    transition: transform 120ms ease;
+}
+
+.smk-deadline__toggle[aria-expanded='true'] .smk-deadline__chevron {
+    transform: rotate(180deg);
+}
+
+/* The expanded мероприятия. A row of the table, so it spans every column and is
+   never clipped by the card's own scrolling; the tint is what separates it from
+   the records above and below it. A long list scrolls vertically inside itself
+   rather than pushing the rest of the registry down the page. */
+.smk-tasks-row > td {
+    padding: 0;
+    background: #f7f9fd;
+}
+
+.smk-tasks {
+    display: grid;
+    max-height: min(260px, 40vh);
+    gap: 6px;
+    margin: 0;
+    padding: 10px 16px 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    list-style: none;
+}
+
+/* One задача, in the shape `.task-detail-assignee-primary` gives one
+   исполнитель: its own bordered card, the flexible middle taking whatever
+   space is left, and the chip pinned to the right edge. The two blocks are
+   meant to read as the same thing, so they are built the same way — the only
+   difference is the срок, which an исполнитель row has no equivalent of. */
+.smk-tasks li {
+    display: grid;
+    align-items: center;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: #fbfcfe;
+    font-size: 14px;
+    color: var(--color-text);
+}
+
+/* `min-width: 0` is what lets the wording shrink at all — without it a grid
+   item refuses to go below its content and pushes the срок out of the row. */
+.smk-tasks__text {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-text);
+    text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.smk-tasks__text:hover { text-decoration: underline; }
+
+.smk-tasks__due { justify-self: end; }
+
+/* The same pill `.task-detail-assignee-role` puts at the end of an исполнитель
+   row, and for the same reason: it keeps its own width, truncates rather than
+   wrapping, and never lets the wording beside it push it out of the row. */
+.smk-tasks__status {
+    display: inline-block;
+    max-width: 160px;
+    overflow: hidden;
+    padding: 3px 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-radius: 999px;
+    background: #eef4ff;
+    color: var(--color-primary-dark);
+    font-size: 12px;
+    font-weight: 700;
 }
