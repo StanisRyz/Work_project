@@ -85,10 +85,12 @@ MIGRATION_SEEDED_MODELS = (
 )
 
 MIGRATION_SEEDED_ROWS = {
-    # accounts.0003 / accounts.0005 / accounts.0007 / accounts.0008 create
-    # organisational departments.
+    # accounts.0003 / accounts.0005 / accounts.0007 / accounts.0008 /
+    # accounts.0011 create organisational departments. ОТК, КО and ТО are
+    # deliberately absent: no migration creates them, so on a real target they
+    # are rows somebody entered by hand and this tool must not clear them.
     'accounts.Department': (
-        'PDO', 'MAS', 'SMK', 'OPR', 'OZK', 'LAB', 'SKL', 'FEO',
+        'PDO', 'MAS', 'SMK', 'OPR', 'OZK', 'LAB', 'SKL', 'FEO', 'MANAGEMENT',
     ),
     # acts.0014 / acts.0015 create these two act statuses.
     'references.ActStatus': ('ARCHIVED', 'OTK_REVIEW'),

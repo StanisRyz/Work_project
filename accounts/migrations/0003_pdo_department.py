@@ -13,6 +13,11 @@ def create_pdo_department(apps, schema_editor):
     an Admin decision and it grants nothing anyway —
     `calculator.permissions.can_manage_workup()` reads the role, not the
     department.
+
+    This code, however, is load-bearing and must not be «cleaned up» as unused:
+    `tasks.services.get_pdo_recipients()` selects the people to notify about a
+    rejection task by `department__code='PDO'` — by department rather than by
+    role, on purpose. Renaming the row is safe; changing its code is not.
     """
     Department = apps.get_model('accounts', 'Department')
     Department.objects.get_or_create(

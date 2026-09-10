@@ -211,12 +211,35 @@ class DemoAccountCommandTests(TestCase):
                     call_command('seed_demo_accounts', confirm_demo=True)
 
         # The command made no changes at all. Only the departments it would
-        # have seeded are checked: reference departments created by data
-        # migrations — PDO and MAS — legitimately exist.
+        # have seeded *and no migration creates* are checked: reference
+        # departments written by data migrations — PDO, MAS, СМК, the
+        # organisational units of `0008` and Руководство — legitimately exist,
+        # and Руководство is why `MANAGEMENT` is no longer in this list.
         self.assertFalse(
-            Department.objects.filter(code__in=['OTK', 'KO', 'TO', 'MANAGEMENT']).exists(),
+            Department.objects.filter(code__in=['OTK', 'KO', 'TO']).exists(),
         )
         self.assertFalse(User.objects.exists())
+
+
+class DepartmentReferenceDataTests(TestCase):
+    """Organisational units an installation must have without the demo seeder.
+
+    `seed_demo_accounts` refuses to run outside development, so anything only
+    it creates simply does not exist in production. A unit named by a role is
+    therefore reference data and belongs in a migration.
+    """
+
+    def test_the_management_unit_exists_from_migrations_alone(self):
+        """«Руководство» is where руководитель and администратор are filed.
+
+        The role has been created by a migration since it existed; the unit was
+        only ever created by the demo seeder, so a real installation had the
+        role and nowhere to put the people holding it — which is exactly what
+        made those accounts impossible to add.
+        """
+        department = Department.objects.get(code='MANAGEMENT')
+        self.assertEqual(department.name, 'Руководство')
+        self.assertTrue(department.is_active)
 
 
 class LandingRedirectTests(TestCase):
