@@ -65,13 +65,29 @@ class UserProfile(models.Model):
         PDO = 'pdo', 'ПДО'
         # Manufacturing supervisors are ordinary operational users. Their
         # organisational department is separate metadata and grants no rights.
+        #
+        # `MAS` is retired: «Мастера производства» has been split into three
+        # named productions, and new profiles are given one of the three below.
+        # It stays in `choices` because profiles created before the split still
+        # store `'mas'` — removing the value would leave those rows holding
+        # something the field no longer admits, which is a data problem, not a
+        # tidy-up. Retire a role by not offering it, never by deleting it.
         MAS = 'mas', 'Мастер производства'
+        # The three productions «Мастера производства» became. Titles of a
+        # person — the unit they work in is `Department` («Производство ПиР» and
+        # so on), and the two are deliberately worded differently so a reader
+        # can tell which of the two systems they are looking at. Like every
+        # role added since ОПР, they grant nothing: see the note below.
+        MAS_PIR = 'mas_pir', 'Мастер ПиР'
+        MAS_MP_RL = 'mas_mp_rl', 'Мастер МП и РЛ'
+        MAS_TR = 'mas_tr', 'Мастер ТР'
         # Отдел СМК: owns the quality-management-system corrective actions.
         # A first-class role like the others — never a department check, and
         # it grants nothing outside the SMK module.
         SMK = 'smk', 'СМК'
         # The remaining departments, as first-class roles like every other.
-        # Nothing in the project reads any of these five — that is the design,
+        # Nothing in the project reads any of these five, nor any of the three
+        # productions above — that is the design,
         # not an oversight, and a reader who greps for them and finds nothing
         # has found the truth rather than a gap.
         # They carry *no* rights of their own on purpose: an employee holding

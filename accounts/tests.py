@@ -229,6 +229,83 @@ class DepartmentReferenceDataTests(TestCase):
     therefore reference data and belongs in a migration.
     """
 
+    def test_the_three_production_roles_exist_beside_the_one_they_replace(self):
+        """Separate roles for the three productions, and «Мастер производства» kept.
+
+        Kept because production profiles still hold `'mas'`: dropping the value
+        from `choices` would leave those rows storing something the field no
+        longer admits. It is retired by not being offered any more, never by
+        being deleted.
+        """
+        self.assertEqual(
+            [(r.value, r.label) for r in (
+                UserProfile.Role.MAS_PIR,
+                UserProfile.Role.MAS_MP_RL,
+                UserProfile.Role.MAS_TR,
+            )],
+            [
+                ('mas_pir', 'Мастер ПиР'),
+                ('mas_mp_rl', 'Мастер МП и РЛ'),
+                ('mas_tr', 'Мастер ТР'),
+            ],
+        )
+        self.assertEqual(UserProfile.Role.MAS.value, 'mas')
+
+    def test_a_production_role_grants_nothing_and_is_storable(self):
+        """A profile really takes the new value, and it opens no door.
+
+        The three roles are labels: the same read scope any authenticated user
+        has, and no branch anywhere keys on them. Asserted rather than assumed,
+        because a role that silently granted something would be exactly the
+        kind of thing nobody notices until it matters.
+        """
+        from acts.permissions import has_full_act_access, is_act_admin
+
+        user = User.objects.create_user(username='pir_master', password='demo12345')
+        profile = user.userprofile
+        profile.role = UserProfile.Role.MAS_PIR
+        profile.full_clean()
+        profile.save()
+
+        profile.refresh_from_db()
+        self.assertEqual(profile.role, 'mas_pir')
+        self.assertEqual(profile.role_label, 'Мастер ПиР')
+        self.assertFalse(has_full_act_access(user))
+        self.assertFalse(is_act_admin(user))
+
+    def test_the_three_production_units_exist_from_migrations_alone(self):
+        """«Мастера производства» is being split into three named productions.
+
+        Reference data, so it belongs in a migration rather than in somebody's
+        Admin session — the same lesson «Руководство» taught.
+        """
+        expected = {
+            'PROD_PIR': 'Производство ПиР',
+            'PROD_MP_RL': 'Производство МП и РЛ',
+            'PROD_TR': 'Производство ТР',
+        }
+        stored = dict(
+            Department.objects.filter(code__in=expected)
+            .values_list('code', 'name')
+        )
+        self.assertEqual(stored, expected)
+        self.assertFalse(
+            Department.objects.filter(code__in=expected, is_active=False).exists(),
+        )
+
+    def test_the_unit_being_replaced_is_left_alone_by_the_migration(self):
+        """«Мастера производства» must survive the split, and stay usable.
+
+        Its tasks, мероприятия and протоколы still name it — six `PROTECT`ed
+        foreign keys point at it — and anyone still filed under it has to stay
+        selectable as an исполнитель until an administrator has moved them.
+        Retiring it is a separate, later decision, never a side effect of
+        creating its replacements.
+        """
+        mas = Department.objects.get(code='MAS')
+        self.assertEqual(mas.name, 'Мастера производства')
+        self.assertTrue(mas.is_active)
+
     def test_the_management_unit_exists_from_migrations_alone(self):
         """«Руководство» is where руководитель and администратор are filed.
 

@@ -67,6 +67,9 @@ logs/
 .idea/
 .vscode/
 
+# Локальный гайд переноса на ВМ: содержит адреса, пути и имена служб.
+VM_DEPLOYMENT_GUIDE.local.md
+
 media/
 staticfiles/
 
