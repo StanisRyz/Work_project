@@ -232,7 +232,12 @@ def complete_task_view(request, pk):
             request, 'tasks/detail.html',
             _task_detail_context(task, request.user, list_query, execution_comment, str(exc)), status=400,
         )
-    return redirect(f"{reverse('tasks:list')}?tab=archive&number={task.pk}")
+    # «Архив», unfiltered: it is ordered by when a task actually ended, newest
+    # first, so the task just closed is the row at the top. It used to be
+    # filtered down to that one task by number, which stopped meaning anything
+    # when the registry started filtering by исполнитель — and left the person
+    # looking at a one-row archive with nothing on screen explaining why.
+    return redirect(f"{reverse('tasks:list')}?tab=archive")
 
 
 @login_required

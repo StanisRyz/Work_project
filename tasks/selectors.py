@@ -58,6 +58,35 @@ def _source_search_filter(term):
     return criteria
 
 
+def _assignee_search_filter(term):
+    """Find a task by the person standing on it as исполнитель.
+
+    «Иванов», «Иван», «Иванов Иван» and «Иван Иванов» are what people type, so
+    the term is split into words and every word must match the *same*
+    исполнитель — on their surname, their first name or their login. Order
+    carries no meaning, and a word that matches nobody on the task rules the
+    task out.
+
+    The login is searched too, and not as an afterthought: an account with no
+    name filled in is shown by its login everywhere on screen
+    (`people.person_name`), so leaving it out would make those employees
+    unsearchable by the only name the registry ever displays for them.
+
+    Returns a single `Q` on purpose, and the caller must apply it in one
+    `filter()`. Two separate calls would join `assignees` twice and let each
+    word find a *different* person — «Иванов Пётр» would then match a task
+    Иванов and Пётр merely happen to share.
+    """
+    criteria = Q()
+    for word in term.split():
+        criteria &= (
+            Q(assignees__user__last_name__icontains=word)
+            | Q(assignees__user__first_name__icontains=word)
+            | Q(assignees__user__username__icontains=word)
+        )
+    return criteria
+
+
 def build_task_list_state(user, query_params):
     """Return everything the registry needs for `user` and these GET params."""
     today = timezone.localdate()
@@ -66,7 +95,10 @@ def build_task_list_state(user, query_params):
     if tab not in TABS:
         tab = 'my'
     selected = {
-        'number': query_params.get('number', '').strip(),
+        # Who is standing on the task, not which task it is: «№ задачи» used to
+        # live here and answered a question a person almost never has — they
+        # know the work by whose it is, not by its primary key.
+        'assignee': query_params.get('assignee', '').strip(),
         'source': query_params.get('source', '').strip(),
         'source_type': query_params.get('source_type', ''),
         'due': query_params.get('due', ''),
@@ -96,11 +128,10 @@ def build_task_list_state(user, query_params):
     if tab != 'archive':
         tasks = tasks.exclude(status__is_final=True)
 
-    if selected['number']:
-        if selected['number'].isdigit():
-            tasks = tasks.filter(pk=int(selected['number']))
-        else:
-            tasks = tasks.none()
+    if selected['assignee']:
+        # One `filter()`, and `distinct()` because the join is multi-valued: a
+        # task whose исполнители all match the term is still one row.
+        tasks = tasks.filter(_assignee_search_filter(selected['assignee'])).distinct()
     if selected['source_type']:
         tasks = tasks.filter(source_type=selected['source_type'])
     if selected['source']:

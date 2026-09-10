@@ -73,6 +73,108 @@ class TaskViewsTests(TestCase):
             TaskAssignee.objects.create(task=task, user=user)
         return task
 
+    # -------------------------------------------- фильтр по исполнителю
+
+    def _named(self, username, first_name, last_name):
+        """An employee with a real name, which the registry filter searches by."""
+        user = self._user(username, UserProfile.Role.TO, self.department)
+        user.first_name = first_name
+        user.last_name = last_name
+        user.save(update_fields=['first_name', 'last_name'])
+        return user
+
+    def _found(self, term, tab='all'):
+        """The tasks the registry lists for this «Исполнитель» term."""
+        response = self.client.get(
+            reverse('tasks:list'), {'tab': tab, 'assignee': term},
+        )
+        return [row['task'] for row in response.context['rows']]
+
+    def test_the_registry_finds_tasks_by_an_assignees_surname(self):
+        ivanov = self._named('ivanov', 'Иван', 'Иванов')
+        petrov = self._named('petrov', 'Пётр', 'Петров')
+        theirs = self._task(ivanov, timezone.localdate() + timedelta(days=3))
+        self._task(petrov, timezone.localdate() + timedelta(days=3))
+        self.client.force_login(self.manager)
+        self.assertEqual(self._found('Иванов'), [theirs])
+
+    def test_the_registry_finds_tasks_by_an_assignees_first_name(self):
+        ivanov = self._named('ivanov', 'Иван', 'Иванов')
+        petrov = self._named('petrov', 'Пётр', 'Петров')
+        self._task(ivanov, timezone.localdate() + timedelta(days=3))
+        theirs = self._task(petrov, timezone.localdate() + timedelta(days=3))
+        self.client.force_login(self.manager)
+        self.assertEqual(self._found('Пётр'), [theirs])
+
+    def test_a_surname_and_a_first_name_match_in_either_order(self):
+        """People type «Иванов Иван» and «Иван Иванов» and mean the same person."""
+        ivanov = self._named('ivanov', 'Иван', 'Иванов')
+        petrov = self._named('petrov', 'Пётр', 'Петров')
+        theirs = self._task(ivanov, timezone.localdate() + timedelta(days=3))
+        self._task(petrov, timezone.localdate() + timedelta(days=3))
+        self.client.force_login(self.manager)
+        for term in ('Иванов Иван', 'Иван Иванов', '  Иванов   Иван '):
+            with self.subTest(term=term):
+                self.assertEqual(self._found(term), [theirs])
+
+    def test_two_words_must_describe_one_person(self):
+        """«Иванов Пётр» is nobody — even when Иванов and Пётр hold the same task.
+
+        The whole reason every word is matched inside one `filter()`: two
+        separate ones would join the assignee table twice and let each word
+        find a different исполнитель.
+        """
+        ivanov = self._named('ivanov', 'Иван', 'Иванов')
+        petrov = self._named('petrov', 'Пётр', 'Петров')
+        self._task(ivanov, timezone.localdate() + timedelta(days=3), [petrov])
+        self.client.force_login(self.manager)
+        self.assertEqual(self._found('Иванов Пётр'), [])
+
+    def test_a_task_whose_assignees_all_match_is_listed_once(self):
+        """Two matching исполнителя on one task are still one row."""
+        first = self._named('ivanov', 'Иван', 'Иванов')
+        second = self._named('ivanova', 'Ирина', 'Иванова')
+        shared = self._task(
+            first, timezone.localdate() + timedelta(days=3), [second],
+        )
+        self._task(
+            self._named('petrov', 'Пётр', 'Петров'),
+            timezone.localdate() + timedelta(days=3),
+        )
+        self.client.force_login(self.manager)
+        self.assertEqual(self._found('Иванов'), [shared])
+
+    def test_an_account_without_a_name_is_found_by_its_login(self):
+        """`person_name()` shows the login for such an account, so the filter finds it."""
+        theirs = self._task(self.other_employee, timezone.localdate() + timedelta(days=3))
+        self._task(self.employee, timezone.localdate() + timedelta(days=3))
+        self.client.force_login(self.manager)
+        self.assertEqual(self._found('other'), [theirs])
+
+    def test_the_archive_filters_by_assignee_too(self):
+        ivanov = self._named('ivanov', 'Иван', 'Иванов')
+        petrov = self._named('petrov', 'Пётр', 'Петров')
+        theirs = self._task(ivanov, timezone.localdate() + timedelta(days=3))
+        mine = self._task(petrov, timezone.localdate() + timedelta(days=3))
+        complete_task(theirs, ivanov, 'Выполнено')
+        complete_task(mine, petrov, 'Выполнено')
+        self.client.force_login(self.manager)
+        self.assertEqual(self._found('Иванов', tab='archive'), [theirs])
+
+    def test_an_unknown_surname_finds_nothing(self):
+        ivanov = self._named('ivanov', 'Иван', 'Иванов')
+        self._task(ivanov, timezone.localdate() + timedelta(days=3))
+        self.client.force_login(self.manager)
+        self.assertEqual(self._found('Сидоров'), [])
+
+    def test_the_filter_panel_asks_for_an_assignee_rather_than_a_task_number(self):
+        self.client.force_login(self.manager)
+        response = self.client.get(reverse('tasks:list'), {'tab': 'all'})
+        self.assertContains(response, 'name="assignee"')
+        self.assertContains(response, 'Исполнитель')
+        self.assertNotContains(response, 'name="number"')
+        self.assertNotContains(response, '№ задачи')
+
     def test_the_assignee_block_renders_rows_that_cannot_overflow(self):
         """One исполнитель, several, and a very long name and подразделение.
 
@@ -236,7 +338,7 @@ class TaskViewsTests(TestCase):
         )
         self.assertRedirects(
             completed,
-            f"{reverse('tasks:list')}?tab=archive&number={ordinary.pk}",
+            f"{reverse('tasks:list')}?tab=archive",
         )
         ordinary.refresh_from_db()
         self.assertEqual(ordinary.status.code, 'COMPLETED')
@@ -371,13 +473,14 @@ class TaskViewsTests(TestCase):
         hidden = self._task(self.employee, timezone.localdate() + timedelta(days=4))
         self.client.force_login(self.employee)
         response = self.client.get(reverse('tasks:list'), {
-            'tab': 'my', 'number': matching.pk, 'source': self.act.number,
+            'tab': 'my', 'assignee': self.employee.username,
+            'source': self.act.number,
             'status': 'act', 'due': 'overdue', 'sort': 'nearest',
         })
         self.assertContains(response, reverse('tasks:detail', args=[matching.pk]))
         self.assertNotContains(response, reverse('tasks:detail', args=[hidden.pk]))
         self.assertContains(response, '?tab=my')
-        empty = self.client.get(reverse('tasks:list'), {'number': 'not-a-number'})
+        empty = self.client.get(reverse('tasks:list'), {'assignee': 'Сидоров'})
         self.assertContains(empty, 'Задачи не найдены')
 
     def test_due_date_sorting_and_links(self):
@@ -421,12 +524,15 @@ class TaskViewsTests(TestCase):
         self.assertEqual(task.status.code, 'IN_PROGRESS')
 
         response = self.client.post(url, {'execution_comment': 'Работа выполнена.', 'list_query': 'tab=all'})
-        self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive&number={task.pk}')
+        self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive')
         task.refresh_from_db()
         self.assertEqual(task.status.code, 'COMPLETED')
         self.assertEqual(task.completed_by, self.other_employee)
         self.assertEqual(task.execution_comment, 'Работа выполнена.')
-        archive = self.client.get(reverse('tasks:list'), {'tab': 'archive', 'number': task.pk})
+        archive = self.client.get(
+            reverse('tasks:list'),
+            {'tab': 'archive', 'assignee': self.other_employee.username},
+        )
         self.assertContains(archive, reverse('tasks:detail', args=[task.pk]))
 
     def test_a_required_attachment_blocks_completion_until_one_file_exists(self):
@@ -472,7 +578,7 @@ class TaskViewsTests(TestCase):
         allowed = self.client.post(complete_url, {'execution_comment': 'Сделано.'})
 
         self.assertRedirects(
-            allowed, f'{reverse("tasks:list")}?tab=archive&number={task.pk}'
+            allowed, f'{reverse("tasks:list")}?tab=archive'
         )
         task.refresh_from_db()
         self.assertEqual(task.status.code, 'COMPLETED')
@@ -702,7 +808,7 @@ class TaskViewsTests(TestCase):
         response = self.client.post(
             reverse('tasks:complete', args=[task.pk]), {'execution_comment': 'Завершено администратором.'}
         )
-        self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive&number={task.pk}')
+        self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive')
         task.refresh_from_db()
         self.assertEqual(task.completed_by, administrator)
 

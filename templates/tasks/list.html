@@ -23,7 +23,12 @@ permission, and so does the СМК form behind it.
 
 <form class="filter-form act-filter-panel task-filter-panel" method="get">
     <input type="hidden" name="tab" value="{{ tab }}">
-    <label><span>№ задачи</span><input type="search" name="number" value="{{ selected.number }}" inputmode="numeric"></label>
+    {% comment %}
+    Фамилия, имя, or both in either order — `_assignee_search_filter()` matches
+    every word against the same исполнитель. It replaces «№ задачи», which
+    answered a question nobody asks: work is remembered by whose it is.
+    {% endcomment %}
+    <label><span>Исполнитель</span><input type="search" name="assignee" value="{{ selected.assignee }}" placeholder="Фамилия или имя"></label>
     <label><span>Источник</span><input type="search" name="source" value="{{ selected.source }}" placeholder="Номер акта или протокола"></label>
     {% comment %}
     «Тип задачи» is the task's origin, built from `Task.SourceType` so a new
