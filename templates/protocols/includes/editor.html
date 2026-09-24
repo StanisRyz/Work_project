@@ -10,7 +10,7 @@ only adds, removes and renumbers rows, keeps the dependent selectors in step
 and re-opens a section whose field failed validation; every rule is re-checked
 on the server.
 {% endcomment %}
-<form class="protocol-editor" id="protocol-editor-form" method="post" action="{% url 'protocols:save_draft' protocol.pk %}" data-protocol-editor data-author-id="{{ protocol.author_id }}" data-author-name="{{ author_participant.display_name|default:protocol.author }}">
+<form class="protocol-editor" id="protocol-editor-form" method="post" action="{% url 'protocols:save_draft' protocol.pk %}" data-protocol-editor data-unsaved-guard{% if form_is_bound %}="dirty"{% endif %} data-author-id="{{ protocol.author_id }}" data-author-name="{{ author_participant.display_name|default:protocol.author }}">
     {% csrf_token %}
 
     {% for error in form.non_field_errors %}<p class="field-error protocol-editor__error">{{ error }}</p>{% endfor %}

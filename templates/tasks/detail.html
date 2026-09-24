@@ -149,7 +149,7 @@ still completed with the execution comment and nothing attached.
 {% endcomment %}
 <div class="task-detail-execution-columns">
     {% if can_complete %}
-        <form method="post" action="{% url 'tasks:complete' task.pk %}" class="task-detail-execution-card">
+        <form method="post" action="{% url 'tasks:complete' task.pk %}" class="task-detail-execution-card" data-unsaved-guard{% if execution_error %}="dirty"{% endif %}>
             {% csrf_token %}
             <input type="hidden" name="list_query" value="{{ list_query }}">
             <h2>Выполнение</h2>

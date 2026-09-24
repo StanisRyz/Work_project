@@ -198,6 +198,17 @@ class Element {
         });
     }
 
+    contains(node) {
+        let current = node;
+        while (current) {
+            if (current === this) {
+                return true;
+            }
+            current = current.parent;
+        }
+        return false;
+    }
+
     remove() {
         if (!this.parent) {
             return;
@@ -413,6 +424,9 @@ function createEnvironment({
     withEventSource = true,
     page = 'plain',
     actId = 3,
+    workRevision = 'work-rev-initial',
+    workBound = false,
+    actStatus = 'KO_REVIEW',
     storage: storageOption = new FakeStorage(),
     broadcast = true,
     resetSources = true,
@@ -481,6 +495,9 @@ function createEnvironment({
         actConfig.setAttribute('data-history-url', `/acts/${actId}/history-fragment/`);
         actConfig.setAttribute('data-comments-url', `/acts/${actId}/comments-fragment/`);
         actConfig.setAttribute('data-activities-url', `/acts/${actId}/activities-fragment/`);
+        actConfig.setAttribute('data-live-act-status', actStatus);
+        actConfig.setAttribute('data-work-revision', workRevision);
+        actConfig.setAttribute('data-work-bound', workBound ? 'true' : 'false');
         root.append(actConfig);
 
         const summary = new Element('div');
@@ -497,7 +514,9 @@ function createEnvironment({
         history.textContent = 'исходная история';
         const work = new Element('div');
         work.setAttribute('data-live-act-work', '');
-        work.textContent = 'исходная работа';
+        const workText = new Element('span');
+        workText.textContent = 'исходная работа';
+        work.append(workText);
 
         const conflict = new Element('div');
         conflict.setAttribute('data-act-conflict-banner', '');
@@ -506,15 +525,23 @@ function createEnvironment({
         access.setAttribute('data-act-access-banner', '');
         access.hidden = true;
 
-        // A working form the live refresh must never touch.
+        // A working form the live refresh must never touch — inside the work
+        // tab, exactly where the Django template renders it.
         const textarea = new Element('textarea');
         textarea.setAttribute('name', 'text');
         textarea.value = '';
         const workflowButton = new Element('button');
         workflowButton.setAttribute('data-workflow-submit', '');
         workflowButton.disabled = false;
+        work.append(textarea, workflowButton);
 
-        root.append(summary, work, history, comments, activities, conflict, access, textarea, workflowButton);
+        // A field outside the work tab — the confirmation modal's comment, the
+        // bug report — which is not part of the form a refresh could discard.
+        const modalTextarea = new Element('textarea');
+        modalTextarea.setAttribute('name', 'comment');
+        modalTextarea.value = '';
+
+        root.append(summary, work, history, comments, activities, conflict, access, modalTextarea);
         Object.assign(live, {
             actConfig,
             summary,
@@ -526,6 +553,7 @@ function createEnvironment({
             accessBanner: access,
             textarea,
             workflowButton,
+            modalTextarea,
         });
     }
 

@@ -15,6 +15,7 @@ from accounts.models import Department
 from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
 from realtime.emitters import emit_act_created
+from realtime.fragments import content_revision
 
 from . import quality_impact
 from .forms import (
@@ -179,11 +180,14 @@ def act_work_fragment(request, pk):
     """
     act = _get_live_act(request, pk)
     context = _get_act_detail_context(act, request.user, detail_tab='work')
+    html = render_to_string(WORK_TEMPLATE, context, request=request)
     return _fragment_response(
         {
-            'html': render_to_string(
-                'acts/includes/work_content.html', context, request=request
-            ),
+            'html': html,
+            # Compared by the client with the fingerprint the page was
+            # rendered with: an unchanged block is neither replaced nor
+            # reported as a conflict.
+            'revision': content_revision(html),
             'status_code': act.status.code,
         }
     )
@@ -285,7 +289,7 @@ def act_detail(request, pk):
     if not can_view_act(act, request.user):
         raise Http404('No Act matches the given query.')
     context = _get_act_detail_context(act, request.user, detail_tab=_get_detail_tab(request.GET.get('tab')))
-    return render(request, 'acts/detail.html', context)
+    return _render_act_detail(request, act, context)
 
 
 @login_required
@@ -377,7 +381,7 @@ def act_add_comment(request, pk):
 
     messages.error(request, 'Проверьте текст комментария.')
     context = _get_act_detail_context(act, request.user, comment_form=form, detail_tab='attachments')
-    return render(request, 'acts/detail.html', context)
+    return _render_act_detail(request, act, context)
 
 
 @login_required
@@ -402,7 +406,7 @@ def act_add_attachment(request, pk):
 
     messages.error(request, 'Проверьте файл вложения.')
     context = _get_act_detail_context(act, request.user, attachment_form=form, detail_tab='attachments')
-    return render(request, 'acts/detail.html', context)
+    return _render_act_detail(request, act, context)
 
 
 @login_required
@@ -637,7 +641,9 @@ def act_ko_decision(request, pk):
     context = _get_act_detail_context(
         act, request.user, ko_decision_form=form, ko_decision_formset=formset, detail_tab='work'
     )
-    return render(request, 'acts/detail.html', context)
+    # A rejected submission: the forms carry what the user typed, so the live
+    # client must never swap them for the clean server state.
+    return _render_act_detail(request, act, context, work_is_bound=True)
 
 
 def _handle_return_transition(request, pk, apply_return, success_message):
@@ -693,7 +699,7 @@ def act_to_analysis(request, pk):
             return _redirect_after_transition(act, request.user)
 
     context = _get_act_detail_context(act, request.user, detail_tab='work', to_analysis_form=form)
-    return render(request, 'acts/detail.html', context)
+    return _render_act_detail(request, act, context, work_is_bound=True)
 
 
 @login_required
@@ -722,6 +728,38 @@ def act_approve(request, pk):
     else:
         messages.success(request, 'Акт утверждён и перемещён в архив.')
     return _redirect_after_transition(act, request.user)
+
+
+WORK_TEMPLATE = 'acts/includes/work_content.html'
+
+
+def _render_act_detail(request, act, context, *, work_is_bound=False):
+    """The act page, with the fingerprint of its «Проработка» block.
+
+    The live client compares this fingerprint with the one every work fragment
+    returns, so a reconnect or a recovery sync that finds the block unchanged
+    touches nothing — and in particular never tells somebody filling in the
+    form that the act was changed when it was not.
+
+    An ordinary page renders the block once and reuses that markup, so the
+    page and the fingerprint cannot disagree. A page re-rendered after a
+    rejected submission shows the *bound* forms — what the user typed, with the
+    errors — so its fingerprint is taken from a clean render of the same act,
+    which is what a fragment would return, and the page is flagged as holding
+    unsaved input from the start: a refresh must never replace it.
+    """
+    if context['detail_tab'] == 'work':
+        if work_is_bound:
+            clean_context = _get_act_detail_context(act, request.user, detail_tab='work')
+            context['work_revision'] = content_revision(
+                render_to_string(WORK_TEMPLATE, clean_context, request=request)
+            )
+            context['work_is_bound'] = True
+        else:
+            work_html = render_to_string(WORK_TEMPLATE, context, request=request)
+            context['work_html'] = work_html
+            context['work_revision'] = content_revision(work_html)
+    return render(request, 'acts/detail.html', context)
 
 
 def _redirect_after_transition(act, user):

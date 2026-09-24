@@ -74,12 +74,31 @@
     if (reloadButton) {
         reloadButton.addEventListener('click', () => window.location.reload());
     }
+    const workElement = document.querySelector('[data-live-act-work]');
+
+    // The status and the fingerprint of the «Проработка» block the page was
+    // rendered with. A fragment carrying the same fingerprint describes the
+    // very same server state: there is nothing to replace and — above all —
+    // nothing to warn about. Without this every SSE reconnect and every
+    // recovery sync told a user in the middle of filling the form that the act
+    // had been changed by somebody else.
+    let workRevision = config.dataset.workRevision || '';
+    let statusCode = config.dataset.liveActStatus || '';
 
     // -- dirty-state tracking ---------------------------------------------
     //
-    // Only a real user gesture marks the page dirty. A programmatic fragment
-    // replacement dispatches nothing, so it cannot raise a false positive.
-    let dirty = false;
+    // Only a real user gesture marks the page dirty, and only one inside the
+    // work block: the confirmation modal, the bug report and the password
+    // dialog are not part of the form a refresh could discard. A programmatic
+    // fragment replacement dispatches nothing, so it cannot raise a false
+    // positive either.
+    //
+    // A page re-rendered after a rejected submission starts dirty: its forms
+    // hold what the user typed, and a clean server render must never replace
+    // them.
+    let dirty = config.dataset.workBound === 'true';
+    const insideWork = (target) =>
+        !workElement || typeof workElement.contains !== 'function' || workElement.contains(target);
     const markDirty = (event) => {
         if (event && event.isTrusted === false) {
             return;
@@ -93,7 +112,7 @@
                 return;
             }
             const tag = target.tagName.toUpperCase();
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+            if ((tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') && insideWork(target)) {
                 markDirty(event);
             }
         }),
@@ -144,6 +163,35 @@
         }
     };
 
+    /**
+     * The work block's own decision: replace, warn, or leave alone.
+     *
+     * An unchanged fingerprint means a reload would render exactly this block,
+     * so nothing happens. A changed one replaces a clean form and warns on a
+     * dirty one; the workflow submits are disabled only when the act's status
+     * really moved, because those buttons act on a status. A fragment without
+     * a fingerprint (an older server) is treated as changed.
+     */
+    const applyGuarded = (payload) => {
+        const revision = typeof payload.revision === 'string' ? payload.revision : '';
+        if (revision && revision === workRevision) {
+            return false;
+        }
+        if (dirty) {
+            showConflictBanner();
+            const nextStatus = typeof payload.status_code === 'string' ? payload.status_code : '';
+            if (nextStatus && statusCode && nextStatus !== statusCode) {
+                disableStaleWorkflowActions();
+            }
+            return false;
+        }
+        workRevision = revision;
+        if (typeof payload.status_code === 'string') {
+            statusCode = payload.status_code;
+        }
+        return true;
+    };
+
     const makeBlock = (selector, urlKey, options = {}) => {
         const element = document.querySelector(selector);
         const url = config.dataset[urlKey];
@@ -156,9 +204,8 @@
                 if (typeof payload.html !== 'string') {
                     return;
                 }
-                if (options.guardDirty && dirty) {
-                    // Unsaved input wins: warn instead of replacing.
-                    showConflictBanner();
+                if (options.guardDirty && !applyGuarded(payload)) {
+                    // Unchanged, or unsaved input wins: warn instead of replacing.
                     return;
                 }
                 element.innerHTML = payload.html;
@@ -210,10 +257,10 @@
         if (payload.resource_id !== actId) {
             return;
         }
-        refresh(['summary']);
-        if (dirty) {
-            showConflictBanner();
-        }
+        // An edit of the act changes what the work tab shows. Whether a dirty
+        // form is warned is decided by the work block's fingerprint, not by
+        // the event alone.
+        refresh(['summary', 'work', 'history']);
     });
 
     core.subscribe(core.EVENT_TYPES.ACT_STATUS_CHANGED, (payload) => {

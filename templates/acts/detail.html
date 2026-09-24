@@ -11,7 +11,10 @@
      data-work-url="{% url 'acts:work_fragment' act.pk %}"
      data-history-url="{% url 'acts:history_fragment' act.pk %}"
      data-comments-url="{% url 'acts:comments_fragment' act.pk %}"
-     data-activities-url="{% url 'acts:activities_fragment' act.pk %}"></div>
+     data-activities-url="{% url 'acts:activities_fragment' act.pk %}"
+     data-live-act-status="{{ act.status.code }}"
+     data-work-revision="{{ work_revision|default:'' }}"
+     data-work-bound="{% if work_is_bound %}true{% else %}false{% endif %}"></div>
 
 {% comment %}
 Read-only: number, status badge and route. Replaced live on act.updated
@@ -24,7 +27,7 @@ and act.status_changed.
 <div class="act-conflict-banner" data-act-conflict-banner hidden role="alert">
     <div>
         <strong>Акт изменён другим пользователем.</strong>
-        <p>Перед сохранением загрузите актуальную версию — введённые данные сохранены и их можно скопировать.</p>
+        <p>Введённые данные остаются на странице. Скопируйте их перед обновлением — после перезагрузки несохранённый текст будет потерян.</p>
     </div>
     <button class="link-button" type="button" data-act-conflict-reload>Обновить страницу</button>
 </div>
@@ -45,8 +48,8 @@ and act.status_changed.
 </nav>
 
 {% if detail_tab == 'work' %}
-<div data-live-act-work>
-    {% include 'acts/includes/work_content.html' %}
+<div data-live-act-work data-unsaved-guard{% if work_is_bound %}="dirty"{% endif %}>
+    {% if work_html %}{{ work_html }}{% else %}{% include 'acts/includes/work_content.html' %}{% endif %}
 </div>
 {% elif detail_tab == 'history' %}
     <div data-live-act-history>

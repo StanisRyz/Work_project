@@ -16,6 +16,7 @@ from django.views.decorators.http import require_GET
 
 from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
+from realtime.fragments import content_revision
 
 from .forms import ProtocolAttachmentForm, ProtocolCommentForm, ProtocolDraftForm
 from .models import Protocol, ProtocolAttachment, ProtocolType
@@ -165,11 +166,14 @@ def protocol_content_fragment(request, pk):
     """
     protocol = _get_live_protocol(request, pk)
     context = _detail_context(request, protocol)
+    html = render_to_string(CONTENT_TEMPLATE, context, request=request)
     return _fragment_response(
         {
-            'html': render_to_string(
-                'protocols/includes/detail_content.html', context, request=request
-            ),
+            'html': html,
+            # Compared by the client with the fingerprint the page was
+            # rendered with: an unchanged document is neither replaced nor
+            # reported as a conflict to an author with unsaved input.
+            'revision': content_revision(html),
             'status': protocol.status,
             'can_edit': context['can_edit'],
         }
@@ -270,7 +274,7 @@ def protocol_create(request):
 @login_required
 def protocol_detail(request, pk):
     protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
-    return render(request, 'protocols/detail.html', _detail_context(request, protocol))
+    return _render_detail(request, protocol, _detail_context(request, protocol))
 
 
 # --------------------------------------------------------------------------
@@ -325,23 +329,26 @@ def protocol_save_draft(request, pk):
     # The permission is enforced here and again inside the service under the
     # row lock; hiding the button is presentation, never the check.
     if not can_edit_protocol(protocol, request.user):
-        return render(
-            request, 'protocols/detail.html',
+        return _render_detail(
+            request, protocol,
             _detail_context(request, protocol, save_error='Изменить этот протокол нельзя.'),
             status=403,
         )
     form = ProtocolDraftForm(protocol, request.POST)
     if not form.is_valid():
-        return render(
-            request, 'protocols/detail.html', _detail_context(request, protocol, form=form),
+        return _render_detail(
+            request, protocol, _detail_context(request, protocol, form=form),
             status=400,
         )
     try:
         save_protocol_draft(protocol, request.user, form.cleaned)
     except ProtocolWorkflowError as exc:
-        return render(
-            request, 'protocols/detail.html',
-            _detail_context(request, protocol, save_error=str(exc)), status=400,
+        # Nothing was stored, so the editor is rendered from what was posted:
+        # the author must not lose the text the service refused.
+        protocol.refresh_from_db()
+        return _render_detail(
+            request, protocol,
+            _detail_context(request, protocol, form=form, save_error=str(exc)), status=400,
         )
     messages.success(request, 'Черновик протокола сохранён.')
     return redirect('protocols:detail', pk=protocol.pk)
@@ -355,8 +362,8 @@ def protocol_delete(request, pk):
     try:
         delete_draft_protocol(protocol, request.user)
     except ProtocolWorkflowError as exc:
-        return render(
-            request, 'protocols/detail.html',
+        return _render_detail(
+            request, protocol,
             _detail_context(request, protocol, save_error=str(exc)), status=400,
         )
     messages.success(request, 'Черновик протокола удалён.')
@@ -390,8 +397,8 @@ def protocol_send_for_approval(request, pk):
         return redirect('protocols:detail', pk=pk)
     protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
     if not can_send_protocol_for_approval(protocol, request.user):
-        return render(
-            request, 'protocols/detail.html',
+        return _render_detail(
+            request, protocol,
             _detail_context(
                 request, protocol,
                 save_error='Отправить этот протокол на согласование нельзя.',
@@ -400,8 +407,8 @@ def protocol_send_for_approval(request, pk):
         )
     form = ProtocolDraftForm(protocol, request.POST)
     if not form.is_valid():
-        return render(
-            request, 'protocols/detail.html', _detail_context(request, protocol, form=form),
+        return _render_detail(
+            request, protocol, _detail_context(request, protocol, form=form),
             status=400,
         )
     try:
@@ -410,11 +417,12 @@ def protocol_send_for_approval(request, pk):
     except ProtocolWorkflowError as exc:
         # The draft may already be stored — that is intended. The protocol
         # stays in its editable status, so the page re-renders as the editor
-        # with the refusal above it.
+        # with the refusal above it — from what was posted, so a refusal of
+        # the save itself does not throw the typed text away either.
         protocol.refresh_from_db()
-        return render(
-            request, 'protocols/detail.html',
-            _detail_context(request, protocol, save_error=str(exc)), status=400,
+        return _render_detail(
+            request, protocol,
+            _detail_context(request, protocol, form=form, save_error=str(exc)), status=400,
         )
     protocol.refresh_from_db()
     if protocol.status == Protocol.Status.ARCHIVED:
@@ -438,8 +446,8 @@ def protocol_approve(request, pk):
         approve_protocol(protocol, request.user)
     except ProtocolWorkflowError as exc:
         protocol.refresh_from_db()
-        return render(
-            request, 'protocols/detail.html',
+        return _render_detail(
+            request, protocol,
             _detail_context(request, protocol, save_error=str(exc)), status=400,
         )
     messages.success(request, 'Протокол согласован.')
@@ -455,8 +463,8 @@ def protocol_return_for_revision(request, pk):
         return_protocol_for_revision(protocol, request.user, request.POST.get('comment', ''))
     except ProtocolWorkflowError as exc:
         protocol.refresh_from_db()
-        return render(
-            request, 'protocols/detail.html',
+        return _render_detail(
+            request, protocol,
             _detail_context(request, protocol, save_error=str(exc)), status=400,
         )
     messages.success(request, 'Протокол возвращён на доработку.')
@@ -632,6 +640,34 @@ def protocol_delete_attachment(request, pk, attachment_id):
     return _redirect_to_tab(attachment.protocol, 'collaboration')
 
 
+CONTENT_TEMPLATE = 'protocols/includes/detail_content.html'
+
+
+def _render_detail(request, protocol, context, status=200):
+    """The protocol page, with the fingerprint of its document block.
+
+    The live client compares this fingerprint with the one the content
+    fragment returns, so a reconnect or a recovery sync that finds the document
+    unchanged neither replaces the editor nor tells the author it was changed.
+
+    An ordinary page renders the block once and reuses that markup. A page
+    re-rendered from a posted editor form shows what the author typed, so its
+    fingerprint comes from a clean render — what a fragment would return — and
+    the page is flagged as holding unsaved input from the start.
+    """
+    if context.get('detail_tab') == 'protocol':
+        if context.get('form_is_bound'):
+            clean = _detail_context(request, protocol)
+            context['content_revision'] = content_revision(
+                render_to_string(CONTENT_TEMPLATE, clean, request=request)
+            )
+        else:
+            content_html = render_to_string(CONTENT_TEMPLATE, context, request=request)
+            context['content_html'] = content_html
+            context['content_revision'] = content_revision(content_html)
+    return render(request, 'protocols/detail.html', context, status=status)
+
+
 def _redirect_to_tab(protocol, tab):
     """Back to the protocol page with the tab that issued the action open."""
     return redirect(f"{reverse('protocols:detail', args=[protocol.pk])}?tab={tab}")
@@ -690,6 +726,9 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
     if can_edit:
         directory = get_editor_directory()
         context['form'] = form or ProtocolDraftForm(protocol)
+        # A posted form holds the author's own input; the live client must
+        # never replace it with a clean render of the stored draft.
+        context['form_is_bound'] = form is not None
         context.update(directory)
         # The speaker selector offers exactly the current participants; the
         # browser keeps it in step as rows are added or removed.

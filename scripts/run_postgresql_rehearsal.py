@@ -36,7 +36,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone as dt_timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -83,8 +83,14 @@ def redact(text, secrets):
 
 
 def safe_path_label(path, keep=2):
-    """Short, non-sensitive label — reports never carry full server paths."""
-    parts = Path(path).parts
+    """Short, non-sensitive label — reports never carry full server paths.
+
+    A drive-rooted path is split as a Windows path whatever the host: the
+    rehearsal output of a Windows server read on Linux (or a test run there)
+    must not leave `C:\\Users\\<name>\\…` intact just because `Path` is POSIX.
+    """
+    text = str(path)
+    parts = (PureWindowsPath(text) if WINDOWS_DRIVE_PATH.match(text) else Path(text)).parts
     if len(parts) <= keep:
         return '/'.join(parts)
     return '.../' + '/'.join(parts[-keep:])
@@ -93,6 +99,7 @@ def safe_path_label(path, keep=2):
 # A drive-rooted Windows path, or a POSIX path of at least two segments. The
 # POSIX branch deliberately refuses a separator preceded by a word character so
 # ordinary prose such as "и/или" is left alone.
+WINDOWS_DRIVE_PATH = re.compile(r'^[A-Za-z]:[\\/]')
 ABSOLUTE_PATH_PATTERN = re.compile(
     r'[A-Za-z]:[\\/][^\s"\'<>|,;]*'
     r'|(?<![\w/.])/(?:[\w.@+-]+/)+[\w.@+-]*'

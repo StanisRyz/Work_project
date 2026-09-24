@@ -47,6 +47,27 @@ SAFE_PRODUCTION = {
 }
 
 
+class PreparedMediaRootMixin:
+    """A prepared installation has its MEDIA_ROOT; a fresh clone does not.
+
+    `media/` is not in Git, so these tests used to pass only on a working copy
+    that had already stored a file. The directory is supplied here instead.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._media_root = tempfile.TemporaryDirectory()
+        cls._media_override = override_settings(MEDIA_ROOT=cls._media_root.name)
+        cls._media_override.enable()
+        super().setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        cls._media_override.disable()
+        cls._media_root.cleanup()
+
+
 def _ids(messages):
     return {message.id for message in messages}
 
@@ -211,7 +232,7 @@ class DeploymentCheckTests(SimpleTestCase):
             self.assertNotIn(secret, rendered)
 
 
-class HealthEndpointTests(TestCase):
+class HealthEndpointTests(PreparedMediaRootMixin, TestCase):
     def test_liveness_returns_ok_without_touching_the_database(self):
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get(reverse('health_live'))
@@ -302,7 +323,7 @@ class HealthEndpointTests(TestCase):
         self.assertEqual(Act.objects.count(), before)
 
 
-class FreshBootstrapCommandTests(TestCase):
+class FreshBootstrapCommandTests(PreparedMediaRootMixin, TestCase):
     @classmethod
     def setUpTestData(cls):
         # Migrations seed only a couple of statuses; the full reference set is

@@ -116,11 +116,18 @@
             // `data-selected` is the server's answer and is only consulted
             // while the field has not been rebuilt yet; afterwards the live
             // value wins, so a user's own choice is never overwritten.
-            const current = select.value || select.dataset.selected || '';
+            const current = 'selected' in select.dataset
+                ? select.dataset.selected
+                : select.value;
             select.textContent = '';
             select.append(new Option('Не указано', ''));
             options.forEach((item) => select.append(new Option(item.label, item.value)));
             select.value = options.some((item) => item.value === current) ? current : '';
+            // Consulted once. Kept any longer, it would bring the server's
+            // answer back on every keystroke in a finding — and a link the
+            // author had deliberately set to «Не указано» could never be
+            // removed.
+            delete select.dataset.selected;
         });
     };
 
@@ -179,10 +186,17 @@
                 // content: what is left is a new empty row, not the measure
                 // that used to be there.
                 list.querySelectorAll(
-                    'textarea, input[type="date"], input[type="hidden"]',
+                    'textarea, input[type="date"], input[type="hidden"], select',
                 ).forEach((field) => { field.value = ''; });
                 list.querySelectorAll('input[type="checkbox"]').forEach((field) => {
                     field.checked = false;
+                });
+                // A cleared мероприятие keeps one empty исполнитель row, as a
+                // new one starts with — not the whole list of the old one.
+                list.querySelectorAll('[data-assignee-list]').forEach((assignees) => {
+                    [...assignees.querySelectorAll('[data-assignee-row]')]
+                        .slice(1)
+                        .forEach((row) => row.remove());
                 });
             }
             renumber(block);

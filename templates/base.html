@@ -67,6 +67,12 @@
     {% endcomment %}
     <script src="{% static 'js/clickable_rows.js' %}?v=20260903-1"></script>
     {% comment %}
+    The browser's leave-page prompt for every `[data-unsaved-guard]` form that
+    holds unsaved input — a reload or a stray click must not silently discard
+    an act, a protocol or an СМК record typed for minutes.
+    {% endcomment %}
+    <script src="{% static 'js/unsaved_guard.js' %}?v=20260924-1"></script>
+    {% comment %}
     «Сменить пароль» in the profile menu: a real link to the full form page,
     opened as the topbar dialog where `<dialog>` works. Loaded for every
     authenticated page because the menu is in every one of them.
@@ -107,9 +113,9 @@
     <script src="{% static 'js/realtime/sync.js' %}?v=20260805-1" defer></script>
     <script src="{% static 'js/realtime/notifications.js' %}?v=20260903-1" defer></script>
     <script src="{% static 'js/realtime/tasks.js' %}?v=20260805-1" defer></script>
-    <script src="{% static 'js/realtime/acts.js' %}?v=20260805-1" defer></script>
+    <script src="{% static 'js/realtime/acts.js' %}?v=20260924-1" defer></script>
     <script src="{% static 'js/realtime/workup.js' %}?v=20260818-1" defer></script>
-    <script src="{% static 'js/realtime/protocols.js' %}?v=20260824-1" defer></script>
+    <script src="{% static 'js/realtime/protocols.js' %}?v=20260924-1" defer></script>
     <script src="{% static 'js/realtime/start.js' %}?v=20260805-1" defer></script>
     {% endif %}
     {% block scripts %}{% endblock %}

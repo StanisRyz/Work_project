@@ -95,11 +95,32 @@
         reloadButton.addEventListener('click', () => window.location.reload());
     }
 
+    const contentElement = document.querySelector('[data-live-protocol-content]');
+
+    // The status and the fingerprint of the document block the page was
+    // rendered with. A fragment carrying the same fingerprint describes the
+    // same stored document: nothing is replaced and nobody is warned. Before
+    // this, every SSE reconnect, every recovery sync and every comment on the
+    // protocol told an author in the middle of typing that the protocol had
+    // changed — and disabled «Сохранить черновик» on top of it.
+    let contentRevision = config.dataset.contentRevision || '';
+    let protocolStatus = config.dataset.liveProtocolStatus || '';
+
     // -- dirty-state tracking ---------------------------------------------
     //
-    // Only a real user gesture marks the page dirty. A programmatic fragment
-    // replacement dispatches nothing, so it cannot raise a false positive.
-    let dirty = false;
+    // Only a real user gesture marks the page dirty, and only one inside the
+    // document block: the comment textarea, the confirmation modal and the
+    // other dialogs are not part of the editor a refresh could discard. A
+    // programmatic fragment replacement dispatches nothing, so it cannot raise
+    // a false positive.
+    //
+    // A page re-rendered from a posted editor (a validation error, a refused
+    // save) starts dirty: it holds the author's own input.
+    let dirty = config.dataset.contentBound === 'true';
+    const insideContent = (target) =>
+        !contentElement
+        || typeof contentElement.contains !== 'function'
+        || contentElement.contains(target);
     const markDirty = (event) => {
         if (event && event.isTrusted === false) {
             return;
@@ -113,7 +134,7 @@
                 return;
             }
             const tag = target.tagName.toUpperCase();
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+            if ((tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') && insideContent(target)) {
                 markDirty(event);
             }
         }),
@@ -168,6 +189,36 @@
         }
     };
 
+    /**
+     * The document block's own decision: replace, warn, or leave alone.
+     *
+     * An unchanged fingerprint means a reload would render exactly this block,
+     * so nothing happens. A changed one replaces a clean editor and warns on a
+     * dirty one. The workflow buttons — «Сохранить черновик» among them — are
+     * disabled only when the protocol's status really moved: after a mere edit
+     * by somebody else the author keeps the choice to save what they typed.
+     * A fragment without a fingerprint (an older server) is treated as changed.
+     */
+    const applyGuarded = (payload) => {
+        const revision = typeof payload.revision === 'string' ? payload.revision : '';
+        if (revision && revision === contentRevision) {
+            return false;
+        }
+        const nextStatus = typeof payload.status === 'string' ? payload.status : '';
+        if (dirty) {
+            showConflictBanner();
+            if (nextStatus && protocolStatus && nextStatus !== protocolStatus) {
+                disableStaleWorkflowActions();
+            }
+            return false;
+        }
+        contentRevision = revision;
+        if (nextStatus) {
+            protocolStatus = nextStatus;
+        }
+        return true;
+    };
+
     const makeBlock = (selector, urlKey, options = {}) => {
         const element = document.querySelector(selector);
         const url = config.dataset[urlKey];
@@ -180,11 +231,8 @@
                 if (typeof payload.html !== 'string') {
                     return;
                 }
-                if (options.guardDirty && dirty) {
-                    // Unsaved input wins: warn instead of replacing, and stop
-                    // offering actions built for the state that just changed.
-                    showConflictBanner();
-                    disableStaleWorkflowActions();
+                if (options.guardDirty && !applyGuarded(payload)) {
+                    // Unchanged, or unsaved input wins: warn instead of replacing.
                     return;
                 }
                 element.innerHTML = payload.html;
@@ -271,10 +319,10 @@
         // Somebody else stored a different document than the one on screen —
         // or added a comment or a file, which the collaboration services
         // announce on this same event because they change what a reader sees.
+        // Whether an author with unsaved input is warned is decided by the
+        // document block's fingerprint: a comment or a file changes nothing
+        // the editor holds.
         refresh(['heading', 'content', 'history', 'comments', 'attachments']);
-        if (dirty) {
-            showConflictBanner();
-        }
     });
 
     [core.EVENT_TYPES.PROTOCOL_STATUS_CHANGED, core.EVENT_TYPES.PROTOCOL_APPROVAL_CHANGED].forEach(
@@ -284,12 +332,10 @@
                     return;
                 }
                 // A clean page is replaced with current server markup, actions
-                // included. A dirty one keeps its input and is told instead.
+                // included. A dirty one keeps its input and is told — by the
+                // document block, only if the document really changed; a
+                // signature on the approval panel does not touch the editor.
                 refreshAll();
-                if (dirty) {
-                    showConflictBanner();
-                    disableStaleWorkflowActions();
-                }
                 // The protocol workflow creates and closes approval and
                 // decision tasks in the same transaction. Task events already
                 // reach their assignees; this is what keeps an open task

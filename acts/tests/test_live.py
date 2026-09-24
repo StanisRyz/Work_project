@@ -496,3 +496,63 @@ class ActWorkFragmentTests(ActLiveMixin, TestCase):
 
         self.assertIn('data-live-act-work', content)
         self.assertIn(f'data-work-url="{self.url}"', content)
+
+
+class ActWorkFingerprintTests(ActLiveMixin, TestCase):
+    """The page and the work fragment agree on one fingerprint of the tab.
+
+    It is what lets the live client leave an unchanged work tab — and a user
+    typing into it — alone after a reconnect or a recovery sync, instead of
+    announcing a conflict that does not exist.
+    """
+
+    def setUp(self):
+        self.act = self.make_act('CREATED_OTK')
+        self.client.force_login(self.otk)
+
+    def _page_revision(self, response):
+        return response.context['work_revision']
+
+    def test_the_page_and_the_fragment_carry_the_same_fingerprint(self):
+        page = self.client.get(reverse('acts:detail', args=[self.act.pk]), {'tab': 'work'})
+        payload = self.client.get(reverse('acts:work_fragment', args=[self.act.pk])).json()
+
+        self.assertTrue(payload['revision'])
+        self.assertEqual(self._page_revision(page), payload['revision'])
+        self.assertContains(page, f'data-work-revision="{payload["revision"]}"')
+        self.assertContains(page, 'data-work-bound="false"')
+
+    def test_the_fingerprint_ignores_the_per_render_csrf_token(self):
+        # The ТО analysis form carries a CSRF input, masked afresh per render.
+        act = self.make_act('TO_ANALYSIS')
+        self.client.force_login(self.make_user('live_to_csrf', UserProfile.Role.TO))
+        first = self.client.get(reverse('acts:work_fragment', args=[act.pk])).json()
+        second = self.client.get(reverse('acts:work_fragment', args=[act.pk])).json()
+
+        self.assertIn('csrfmiddlewaretoken', first['html'])
+        self.assertEqual(first['revision'], second['revision'])
+
+    def test_the_fingerprint_moves_when_the_tab_changes(self):
+        before = self.client.get(reverse('acts:work_fragment', args=[self.act.pk])).json()
+        self.act.nomenclature = 'Другая номенклатура'
+        self.act.save(update_fields=['nomenclature'])
+
+        after = self.client.get(reverse('acts:work_fragment', args=[self.act.pk])).json()
+
+        self.assertNotEqual(before['revision'], after['revision'])
+
+    def test_a_rejected_submission_is_flagged_as_holding_unsaved_input(self):
+        to_user = self.make_user('live_to', UserProfile.Role.TO)
+        act = self.make_act('TO_ANALYSIS')
+        self.client.force_login(to_user)
+        clean = self.client.get(reverse('acts:work_fragment', args=[act.pk])).json()
+
+        response = self.client.post(
+            reverse('acts:to_analysis', args=[act.pk]), {'action': 'send_to_otk'}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-work-bound="true"')
+        # The fingerprint is the clean server state's, so a later refresh that
+        # finds nothing new stays silent too.
+        self.assertEqual(response.context['work_revision'], clean['revision'])

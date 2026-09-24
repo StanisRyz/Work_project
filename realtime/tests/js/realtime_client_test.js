@@ -733,6 +733,97 @@ test('a programmatic refresh never marks the form dirty', async () => {
     assert.ok(env.live.work.querySelector('[data-work]'), 'a clean form is refreshed');
 });
 
+test('a reconnect that finds the work tab unchanged never warns a dirty form', async () => {
+    // The stream ends by itself every REALTIME_MAX_CONNECTION_SECONDS; the
+    // reconnect refetches the work tab. Same fingerprint, same server state:
+    // no banner, no disabled buttons, nothing replaced.
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler((call) =>
+        call.url.startsWith('/realtime/sync/')
+            ? snapshot({ acts: `a-${call.url}` })
+            : { html: '<section data-work></section>', revision: 'work-rev-initial', status_code: 'KO_REVIEW' },
+    );
+
+    env.live.textarea.value = 'анализ, который заполняют уже двадцать минут';
+    env.document.dispatch('input', { target: env.live.textarea });
+    env.source.emit('open');
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.live.conflictBanner.hidden, true, 'no false conflict');
+    assert.equal(env.live.workflowButton.disabled, false);
+    assert.equal(env.live.work.textContent, 'исходная работа');
+    assert.equal(env.live.textarea.value, 'анализ, который заполняют уже двадцать минут');
+});
+
+test('a changed work tab warns a dirty form but keeps its buttons while the status stays', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler(() => ({ html: '<section data-work></section>', revision: 'work-rev-2', status_code: 'KO_REVIEW' }));
+
+    env.document.dispatch('input', { target: env.live.textarea });
+    env.source.emitEvent('act.updated', actEvent('act.updated', 3));
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.live.conflictBanner.hidden, false);
+    assert.equal(env.live.workflowButton.disabled, false, 'the status did not move');
+    assert.equal(env.live.work.textContent, 'исходная работа');
+});
+
+test('a page re-rendered after a rejected submission is never replaced by a refresh', async () => {
+    // The bound form holds what the user typed and the errors; the fragment is
+    // a clean render. Replacing one with the other is how the typed text used
+    // to disappear a second after the page loaded.
+    const env = load({ page: 'act-detail', workBound: true });
+    env.setFetchHandler((call) =>
+        call.url.startsWith('/realtime/sync/')
+            ? snapshot()
+            : { html: '<section data-work></section>', revision: 'work-rev-other', status_code: 'KO_REVIEW' },
+    );
+
+    env.source.emit('open');
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.live.work.textContent, 'исходная работа', 'the bound form stays');
+    assert.equal(env.live.work.querySelector('[data-work]'), null);
+});
+
+test('typing outside the work tab does not hold the work tab back', async () => {
+    const env = load({ page: 'act-detail' });
+    env.setFetchHandler(() => ({ html: '<section data-work></section>', revision: 'work-rev-2', status_code: 'KO_REVIEW' }));
+
+    env.live.modalTextarea.value = 'комментарий в модальном окне';
+    env.document.dispatch('input', { target: env.live.modalTextarea });
+    env.source.emitEvent('act.updated', actEvent('act.updated', 3));
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.live.conflictBanner.hidden, true);
+    assert.ok(env.live.work.querySelector('[data-work]'), 'a clean work tab is refreshed');
+    assert.equal(env.core.actDetail.isDirty, false);
+});
+
+test('a clean work tab takes the new fingerprint, so the next identical refresh is a no-op', async () => {
+    const env = load({ page: 'act-detail' });
+    let html = '<section data-work></section>';
+    env.setFetchHandler(() => ({ html, revision: 'work-rev-2', status_code: 'KO_REVIEW' }));
+
+    env.source.emitEvent('act.updated', actEvent('act.updated', 3, 'first'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.work.querySelector('[data-work]'));
+
+    env.document.dispatch('input', { target: env.live.work.querySelector('[data-work]') });
+    html = '<section data-other></section>';
+    env.source.emitEvent('act.updated', actEvent('act.updated', 3, 'second'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.live.conflictBanner.hidden, true, 'same fingerprint: no conflict');
+    assert.ok(env.live.work.querySelector('[data-work]'), 'and nothing replaced');
+});
+
 test('losing access stops updates and shows the access banner', async () => {
     const env = load({ page: 'act-detail' });
     env.setFetchHandler((call) => (call.url.startsWith('/acts/') ? { status: 404 } : snapshot()));

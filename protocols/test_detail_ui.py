@@ -163,3 +163,88 @@ class ProtocolDetailUiTests(TestCase):
             fragment = self.client.get(reverse(f'protocols:{name}', args=[protocol.pk]))
             self.assertEqual(fragment.status_code, 200, name)
             self.assertIn('protocol-', fragment.json()['html'])
+
+
+class ProtocolContentFingerprintTests(TestCase):
+    """The page and the content fragment agree on one fingerprint.
+
+    It is what keeps the live client from replacing an unchanged editor, and
+    from telling an author in the middle of typing that the protocol changed
+    when only the SSE stream reconnected.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.quality = ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE)
+        cls.to = Department.objects.create(name='ТО', code='FP_TO')
+        cls.author = _employee('fp_author', cls.to, 'Иван', 'Петров')
+        cls.reviewer = _employee('fp_reviewer', cls.to, 'Пётр', 'Сидоров')
+
+    def setUp(self):
+        self.protocol = create_protocol(self.quality, self.author)
+        self.client.force_login(self.author)
+
+    def _payload(self, text):
+        return {
+            'participants-TOTAL_FORMS': '1',
+            'participants-0-department': str(self.to.pk),
+            'participants-0-user': str(self.reviewer.pk),
+            'participants-0-requires_approval': 'on',
+            'agenda-TOTAL_FORMS': '1',
+            'agenda-0-text': text,
+            'speeches-TOTAL_FORMS': '1',
+            'speeches-0-speaker': str(self.author.pk),
+            'speeches-0-text': 'Доложено.',
+            'actions-TOTAL_FORMS': '0',
+        }
+
+    def test_the_page_and_the_fragment_carry_the_same_fingerprint(self):
+        page = self.client.get(reverse('protocols:detail', args=[self.protocol.pk]))
+        payload = self.client.get(
+            reverse('protocols:content_fragment', args=[self.protocol.pk])
+        ).json()
+
+        self.assertTrue(payload['revision'])
+        self.assertEqual(page.context['content_revision'], payload['revision'])
+        self.assertContains(page, f'data-content-revision="{payload["revision"]}"')
+        self.assertContains(page, 'data-content-bound="false"')
+
+    def test_a_rejected_draft_is_flagged_as_holding_unsaved_input(self):
+        payload = self._payload('')
+        payload['agenda-TOTAL_FORMS'] = 'сломано'
+
+        response = self.client.post(
+            reverse('protocols:save_draft', args=[self.protocol.pk]), payload
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, 'data-content-bound="true"', status_code=400)
+
+    def test_a_save_refused_by_the_service_keeps_what_was_typed(self):
+        from unittest import mock
+
+        from .services import ProtocolWorkflowError
+
+        with mock.patch(
+            'protocols.views.save_protocol_draft',
+            side_effect=ProtocolWorkflowError('Протокол уже изменён.'),
+        ):
+            response = self.client.post(
+                reverse('protocols:save_draft', args=[self.protocol.pk]),
+                self._payload('Набранная, но не сохранённая повестка'),
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, 'Протокол уже изменён.', status_code=400)
+        self.assertContains(
+            response, 'Набранная, но не сохранённая повестка', status_code=400
+        )
+
+    def test_the_editor_script_is_loaded_for_a_reader_too(self):
+        # A protocol returned for revision while its author looks at the
+        # read-only page arrives as a live editor; its script must be there.
+        editor_page = self.client.get(reverse('protocols:detail', args=[self.protocol.pk]))
+        self.assertContains(editor_page, 'js/protocol_editor.js')
+        self.client.force_login(self.reviewer)
+        page = self.client.get(reverse('protocols:detail', args=[self.protocol.pk]))
+        self.assertContains(page, 'js/protocol_editor.js')

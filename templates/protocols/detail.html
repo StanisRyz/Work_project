@@ -18,7 +18,10 @@
      data-comments-url="{% url 'protocols:comments_fragment' protocol.pk %}"
      data-attachments-url="{% url 'protocols:attachments_fragment' protocol.pk %}"
      data-activities-url="{% url 'protocols:activities_fragment' protocol.pk %}"
-     data-can-edit="{% if can_edit %}true{% else %}false{% endif %}"></div>
+     data-can-edit="{% if can_edit %}true{% else %}false{% endif %}"
+     data-live-protocol-status="{{ protocol.status }}"
+     data-content-revision="{{ content_revision|default:'' }}"
+     data-content-bound="{% if form_is_bound %}true{% else %}false{% endif %}"></div>
 
 <div data-live-protocol-heading>
     {% include 'protocols/includes/detail_heading.html' %}
@@ -32,7 +35,7 @@ when they are ready.
 <div class="act-conflict-banner" data-protocol-conflict-banner hidden role="alert">
     <div>
         <strong>Протокол изменён.</strong>
-        <p>Перед сохранением загрузите актуальную версию — введённые данные сохранены и их можно скопировать.</p>
+        <p>Введённые данные остаются на странице. Скопируйте их перед обновлением — после перезагрузки несохранённый текст будет потерян.</p>
     </div>
     <button class="link-button" type="button" data-protocol-conflict-reload>Обновить страницу</button>
 </div>
@@ -79,7 +82,7 @@ server render and is therefore already current.
     section without touching an editor that may hold unsaved input.
     {% endcomment %}
     <div class="protocol-sections" data-live-protocol-content>
-        {% include 'protocols/includes/detail_content.html' %}
+        {% if content_html %}{{ content_html }}{% else %}{% include 'protocols/includes/detail_content.html' %}{% endif %}
     </div>
     <div class="protocol-sections" data-live-protocol-approval>
         {% include 'protocols/includes/detail_approval.html' %}
@@ -88,7 +91,13 @@ server render and is therefore already current.
 {% endblock %}
 
 {% block scripts %}
-{% if detail_tab == 'protocol' and can_edit %}
-    <script src="{% static 'js/protocol_editor.js' %}?v=20260825-1"></script>
+{% comment %}
+Loaded on the document tab whatever the reader may do right now: the editor is
+a repeatable initialiser, and a protocol returned for revision while its author
+is looking at it arrives as a live replacement of the read-only block. Without
+the script that editor's «+»/«×» buttons would do nothing until a reload.
+{% endcomment %}
+{% if detail_tab == 'protocol' %}
+    <script src="{% static 'js/protocol_editor.js' %}?v=20260924-1"></script>
 {% endif %}
 {% endblock %}
