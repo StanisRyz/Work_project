@@ -49,6 +49,7 @@ from .selectors import (
     get_user_approval,
 )
 from .services import (
+    create_protocol_based_on,
     ProtocolWorkflowError,
     add_protocol_attachment,
     add_protocol_comment,
@@ -351,6 +352,32 @@ def protocol_save_draft(request, pk):
             _detail_context(request, protocol, form=form, save_error=str(exc)), status=400,
         )
     messages.success(request, 'Черновик протокола сохранён.')
+    return redirect('protocols:detail', pk=protocol.pk)
+
+
+@login_required
+def protocol_create_based_on(request, pk):
+    """«Создать на основе»: POST only, a new draft of the same type.
+
+    Anybody who may create a protocol may do it — reading the source is open
+    to every authenticated user, and the new draft is theirs. What is copied
+    is `create_protocol_based_on()`'s decision, not this view's.
+    """
+    if request.method != 'POST':
+        return redirect('protocols:detail', pk=pk)
+    source = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
+    try:
+        protocol = create_protocol_based_on(source, request.user)
+    except ProtocolWorkflowError as exc:
+        return _render_detail(
+            request, source,
+            _detail_context(request, source, save_error=str(exc)), status=400,
+        )
+    messages.success(
+        request,
+        f'Создан черновик на основе «{source.protocol_type.name} №{source.number}»: '
+        'участники и повестка перенесены, проверьте их перед сохранением.',
+    )
     return redirect('protocols:detail', pk=protocol.pk)
 
 

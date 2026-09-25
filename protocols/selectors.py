@@ -31,11 +31,48 @@ def build_protocol_list_state(params):
     tab = params.get('tab') if params else None
     if tab not in TAB_STATUSES:
         tab = DEFAULT_TAB
-    protocols = get_readable_protocols_queryset().filter(status__in=TAB_STATUSES[tab])
+    protocols = (
+        get_readable_protocols_queryset()
+        .filter(status__in=TAB_STATUSES[tab])
+        .prefetch_related('agenda_items', 'approvals')
+    )
+    readable = get_readable_protocols_queryset()
     return {
         'tab': tab,
         'protocols': protocols,
+        'rows': [describe_protocol_row(protocol) for protocol in protocols],
+        'tab_counts': {
+            name: readable.filter(status__in=statuses).count()
+            for name, statuses in TAB_STATUSES.items()
+        },
         'status_labels': dict(Protocol.Status.choices),
+    }
+
+
+def describe_protocol_row(protocol):
+    """One registry row: the protocol, what it was about, where signing stands.
+
+    `subject` is the first «Повестка» line — two «Качество» protocols are told
+    apart by their topic, not by their number. `approval` is filled only while
+    the protocol is *in* a signing round and reads the current revision's rows
+    exactly as `get_approval_progress()` does, plus who is still awaited, by
+    the frozen `display_name` the approval panel shows. Both come from the
+    prefetched relations, so the registry costs no query per row.
+    """
+    agenda = list(protocol.agenda_items.all())
+    approval = None
+    if protocol.status == Protocol.Status.APPROVAL:
+        current = [row for row in protocol.approvals.all() if row.revision == protocol.revision]
+        pending = [row.display_name for row in current if row.status == ProtocolApproval.Status.PENDING]
+        approval = {
+            'approved': sum(row.status == ProtocolApproval.Status.APPROVED for row in current),
+            'total': len(current),
+            'pending_names': pending,
+        }
+    return {
+        'protocol': protocol,
+        'subject': agenda[0].text if agenda else '',
+        'approval': approval,
     }
 
 

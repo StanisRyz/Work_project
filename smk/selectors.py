@@ -117,6 +117,19 @@ def _next_due_date(tasks):
     return None
 
 
+def _in_tab(sources, tab):
+    """The records of one registry tab."""
+    if tab == 'archive':
+        return sources.filter(status=SmkSource.Status.ARCHIVED)
+    # The same predicate `is_task_set_completed()` states, expressed over the
+    # annotations: done work exists and nothing is still open. `work` is its
+    # complement within the live records, so no record can fall between the
+    # two tabs or appear in both.
+    done = Q(completed_task_count__gt=0, open_task_count=0)
+    live = sources.filter(status=SmkSource.Status.ACTIVE)
+    return live.filter(done) if tab == 'completed' else live.exclude(done)
+
+
 def build_smk_list_state(params):
     """The СМК registry for one tab.
 
@@ -126,9 +139,24 @@ def build_smk_list_state(params):
     list the arrow expands are read from one prefetch of the same tasks, which
     is two reads for the whole table however long it is.
     """
-    tab = params.get('tab') if params else None
+    params = params or {}
+    tab = params.get('tab')
     if tab not in LIST_TABS:
         tab = DEFAULT_LIST_TAB
+    # Filters: the audit's kind, the отдел it looked at and its year. Each is
+    # checked against what it may be, so an unknown value is «Все», never an
+    # error and never a query on something the page does not offer.
+    selected = {
+        'origin': params.get('origin', ''),
+        'department': params.get('department', ''),
+        'year': params.get('year', ''),
+    }
+    if selected['origin'] not in SmkSource.Origin.values:
+        selected['origin'] = ''
+    if not str(selected['department']).isdigit():
+        selected['department'] = ''
+    if not (str(selected['year']).isdigit() and len(str(selected['year'])) == 4):
+        selected['year'] = ''
     sources = (
         SmkSource.objects.select_related('created_by', 'department')
         .prefetch_related('actions__tasks__status')
@@ -145,21 +173,34 @@ def build_smk_list_state(params):
             open_task_count=_OPEN_TASKS,
         )
     )
-    if tab == 'archive':
-        sources = sources.filter(status=SmkSource.Status.ARCHIVED)
-    else:
-        # The same predicate `is_task_set_completed()` states, expressed over
-        # the annotations: done work exists and nothing is still open. `work`
-        # is its complement within the live records, so no record can fall
-        # between the two tabs or appear in both.
-        done = Q(completed_task_count__gt=0, open_task_count=0)
-        sources = sources.filter(status=SmkSource.Status.ACTIVE)
-        sources = sources.filter(done) if tab == 'completed' else sources.exclude(done)
+    if selected['origin']:
+        sources = sources.filter(origin=selected['origin'])
+    if selected['department']:
+        sources = sources.filter(department_id=int(selected['department']))
+    if selected['year']:
+        sources = sources.filter(audit_date__year=int(selected['year']))
+    tab_querysets = {name: _in_tab(sources, name) for name in LIST_TABS}
+    sources = tab_querysets[tab]
     # Rows, not the bare queryset: the state pill is derived per record, and
     # deriving it here keeps the template to reading values rather than
     # computing one.
+    all_sources = SmkSource.objects.all()
     return {
         'tab': tab,
+        'selected': selected,
+        'has_filters': any(selected.values()),
+        # How many records each tab holds under the filters the page shows.
+        'tab_counts': {name: queryset.count() for name, queryset in tab_querysets.items()},
+        'origin_options': SmkSource.Origin.choices,
+        # Only the отделы and years some record actually names: a filter that
+        # can only ever answer «ничего не найдено» is not an option.
+        'department_options': Department.objects.filter(
+            pk__in=all_sources.exclude(department=None).values('department')
+        ).order_by('name'),
+        'year_options': sorted(
+            {day.year for day in all_sources.exclude(audit_date=None).values_list('audit_date', flat=True)},
+            reverse=True,
+        ),
         # The one «сегодня» every row's overdue mark is compared against, so a
         # long table cannot straddle midnight and read two different answers.
         'today': timezone.localdate(),
@@ -167,6 +208,12 @@ def build_smk_list_state(params):
             {
                 'source': source,
                 'task_count': source.task_count,
+                # «3 из 5»: done against done-or-open, the same two annotations
+                # the state is read from — a withdrawn task is in neither.
+                'progress': {
+                    'done': source.completed_task_count,
+                    'total': source.completed_task_count + source.open_task_count,
+                },
                 'tasks': tasks,
                 'next_due_date': _next_due_date(tasks),
                 'state': describe_smk_state(

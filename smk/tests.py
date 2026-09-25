@@ -27,10 +27,11 @@ from notifications.email_delivery import process_delivery
 from notifications.models import Notification, NotificationDelivery
 from notifications.services import get_notification_header_state
 from references.models import TaskStatus
-from tasks.models import Task
+from tasks.models import Task, TaskAssignee
 from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
 
 from .models import SmkHistoryEvent, SmkSource
+from .selectors import build_smk_list_state
 from .permissions import (
     can_archive_smk_source,
     can_create_smk_task,
@@ -1192,3 +1193,50 @@ class SmkTests(TestCase):
         self.assertContains(response, 'Срок выполнения')
         self.assertContains(response, self.department.name)
         self.assertNotContains(response, 'Дата создания')
+
+    # ------------------------------------------------ registry conveniences
+    # «3 из 5», the three filters and the counts beside the tabs.
+
+    def _split_source(self, origin=SmkSource.Origin.INTERNAL_AUDIT, audit_date=None):
+        return create_smk_source(
+            origin=origin,
+            audit_date=audit_date or self.audit_date,
+            department=self.department,
+            non_conformities=[{'id': None, 'text': 'Замечание'}],
+            actions=self._actions(assignees=[self.employee, self.colleague], split_for_assignees=True),
+            created_by=self.smk,
+        )
+
+    def test_progress_counts_done_against_done_or_open(self):
+        source = self._split_source()
+        first = source.actions.get().tasks.order_by('pk').first()
+        TaskAssignee.objects.get_or_create(task=first, user=self.employee)
+        self._complete(first, 'Сделано')
+
+        row = build_smk_list_state({'tab': 'work'})['sources'][0]
+
+        self.assertEqual(row['progress'], {'done': 1, 'total': 2})
+        self.client.force_login(self.employee)
+        self.assertContains(self.client.get(reverse('smk:list')), '1 из 2')
+
+    def test_filters_narrow_the_rows_and_the_tab_counts(self):
+        internal = self._split_source()
+        external = self._split_source(
+            origin=SmkSource.Origin.EXTERNAL_AUDIT,
+            audit_date=self.audit_date.replace(year=self.audit_date.year - 1),
+        )
+
+        everything = build_smk_list_state({})
+        self.assertEqual(everything['tab_counts']['work'], 2)
+        self.assertEqual(everything['year_options'], [self.audit_date.year, self.audit_date.year - 1])
+
+        by_origin = build_smk_list_state({'origin': SmkSource.Origin.EXTERNAL_AUDIT})
+        self.assertEqual([row['source'] for row in by_origin['sources']], [external])
+        self.assertEqual(by_origin['tab_counts']['work'], 1)
+
+        by_year = build_smk_list_state({'year': str(self.audit_date.year)})
+        self.assertEqual([row['source'] for row in by_year['sources']], [internal])
+
+        nonsense = build_smk_list_state({'origin': 'DROP', 'department': 'x', 'year': '20'})
+        self.assertEqual(nonsense['selected'], {'origin': '', 'department': '', 'year': ''})
+        self.assertEqual(len(nonsense['sources']), 2)

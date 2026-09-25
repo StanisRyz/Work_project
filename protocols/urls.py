@@ -27,6 +27,7 @@ urlpatterns = [
         views.protocol_activities_fragment,
         name='activities_fragment',
     ),
+    path('<int:pk>/create-based-on/', views.protocol_create_based_on, name='create_based_on'),
     path('<int:pk>/delete/', views.protocol_delete, name='delete'),
     # The official document: the printable page and the same document as PDF.
     path('<int:pk>/print/', views.protocol_print, name='print'),

@@ -14,10 +14,10 @@
 The registry opens on its tabs, like Акты and Задачи. «В работе» is written
 against every live status, not only «Черновик».
 {% endcomment %}
-<div class="act-registry-toolbar">
+<div class="act-registry-toolbar" data-registry-memory="protocols:{{ request.user.pk }}">
     <nav class="act-registry-tabs" aria-label="Область списка протоколов">
-        <a class="act-registry-tabs__link{% if tab == 'work' %} act-registry-tabs__link--active{% endif %}" href="?tab=work">В работе</a>
-        <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?tab=archive">Архив</a>
+        <a class="act-registry-tabs__link{% if tab == 'work' %} act-registry-tabs__link--active{% endif %}" href="?tab=work">В работе <span class="tab-count">{{ tab_counts.work }}</span></a>
+        <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?tab=archive">Архив <span class="tab-count">{{ tab_counts.archive }}</span></a>
     </nav>
     <a class="link-button" href="{% url 'protocols:create' %}">+ Создать протокол</a>
 </div>

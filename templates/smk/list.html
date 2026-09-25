@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static registry %}
 
 {% block title %}СМК - Единая цифровая экосистема управления качеством{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260903-8">
+<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260925-3">
 {% endblock %}
 
 {% block content_class %}page-container--fill{% endblock %}
@@ -23,16 +23,30 @@ employee sees what is ready to archive without opening each record.
 «Создать» is rendered only for the roles that may create, and the form re-checks
 that right anyway; the tabs and the table are open to every reader.
 {% endcomment %}
-<div class="act-registry-toolbar">
+<div class="act-registry-toolbar" data-registry-memory="smk:{{ request.user.pk }}">
     <nav class="act-registry-tabs" aria-label="Область списка СМК">
-        <a class="act-registry-tabs__link{% if tab == 'work' %} act-registry-tabs__link--active{% endif %}" href="?tab=work">Работа</a>
-        <a class="act-registry-tabs__link{% if tab == 'completed' %} act-registry-tabs__link--active{% endif %}" href="?tab=completed">Выполнено</a>
-        <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?tab=archive">Архив</a>
+        <a class="act-registry-tabs__link{% if tab == 'work' %} act-registry-tabs__link--active{% endif %}" href="{% query_with tab='work' %}">Работа <span class="tab-count">{{ tab_counts.work }}</span></a>
+        <a class="act-registry-tabs__link{% if tab == 'completed' %} act-registry-tabs__link--active{% endif %}" href="{% query_with tab='completed' %}">Выполнено <span class="tab-count">{{ tab_counts.completed }}</span></a>
+        <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="{% query_with tab='archive' %}">Архив <span class="tab-count">{{ tab_counts.archive }}</span></a>
     </nav>
     {% if can_create %}
         <a class="link-button" href="{% url 'smk:create' %}">+ Создать запись СМК</a>
     {% endif %}
 </div>
+
+{% comment %}
+Тип аудита, отдел and год: only values some record actually names are
+offered. The tabs keep the filters and the counts beside them are counted
+under them, so a tab never promises rows the filter then hides.
+{% endcomment %}
+<form class="filter-form act-filter-panel smk-filter-panel" method="get" data-registry-filter>
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <label><span>Тип аудита</span><select name="origin"><option value="">Все</option>{% for value, label in origin_options %}<option value="{{ value }}"{% if selected.origin == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label><span>Отдел</span><select name="department"><option value="">Все</option>{% for department in department_options %}<option value="{{ department.pk }}"{% if selected.department == department.pk|stringformat:'s' %} selected{% endif %}>{{ department.name }}</option>{% endfor %}</select></label>
+    <label><span>Год аудита</span><select name="year"><option value="">Все</option>{% for year in year_options %}<option value="{{ year }}"{% if selected.year == year|stringformat:'s' %} selected{% endif %}>{{ year }}</option>{% endfor %}</select></label>
+    <button class="link-button" type="submit">Применить</button>
+    <a class="link-button link-button--secondary" href="?tab={{ tab }}">Сбросить</a>
+</form>
 
 <div class="fill-region">
     {% include 'smk/includes/registry_results.html' %}

@@ -31,8 +31,8 @@
 .smk-table__origin { width: auto; }
 .smk-table__date { width: 130px; }
 .smk-table__department { width: 20%; }
-.smk-table__count { width: 90px; }
-.smk-table__due { width: 175px; }
+.smk-table__count { width: 130px; }
+.smk-table__due { width: 230px; }
 .smk-table__status { width: 145px; }
 
 /* A fixed layout clips rather than widens, so anything that can genuinely be
@@ -504,3 +504,11 @@
     font-size: 12px;
     font-weight: 700;
 }
+
+/* Registry «Выполнено»: «3 из 5» above a thin bar of the same ratio. */
+.smk-progress { display: grid; gap: 4px; max-width: 110px; }
+.smk-progress__label { font-weight: 700; white-space: nowrap; }
+.smk-progress__bar { display: block; height: 4px; overflow: hidden; border-radius: 999px; background: var(--color-bg); }
+.smk-progress__bar > span { display: block; height: 100%; background: #16a34a; }
+
+.smk-filter-panel { grid-template-columns: repeat(3, minmax(160px, 240px)) auto auto; }

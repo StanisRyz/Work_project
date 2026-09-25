@@ -30,7 +30,7 @@ nowhere else, so opening and closing a record moves nothing.
 <section class="table-card act-table-card">
     <table class="data-table smk-table">
         <colgroup><col class="smk-table__number"><col class="smk-table__origin"><col class="smk-table__date"><col class="smk-table__department"><col class="smk-table__count"><col class="smk-table__due"><col class="smk-table__status"></colgroup>
-        <thead><tr><th>№</th><th>Тип аудита</th><th>Дата аудита</th><th>Отдел</th><th>Задач</th><th>Срок выполнения</th><th>Статус</th></tr></thead>
+        <thead><tr><th>№</th><th>Тип аудита</th><th>Дата аудита</th><th>Отдел</th><th>Выполнено</th><th>Срок выполнения</th><th>Статус</th></tr></thead>
         <tbody>
         {% for row in sources %}
             <tr data-row-url="{% url 'smk:detail' row.source.pk %}">
@@ -39,11 +39,23 @@ nowhere else, so opening and closing a record moves nothing.
                 <td>{{ row.source.audit_date|date:'d.m.Y'|default:'—' }}</td>
                 {# Empty on a record written before «Отделение» existed, until the отдел СМК fills it in. #}
                 <td class="user-text smk-cell--clipped" title="{{ row.source.department|default:'' }}">{{ row.source.department|default:'—' }}</td>
-                <td>{{ row.task_count }}</td>
+                {% comment %}
+                «3 из 5»: completed against completed-or-open, so a withdrawn
+                задача counts as neither — the same two numbers «Выполнено» as
+                a state is decided by.
+                {% endcomment %}
+                <td>
+                    {% if row.progress.total %}
+                        <span class="smk-progress" title="Выполнено задач: {{ row.progress.done }} из {{ row.progress.total }}">
+                            <span class="smk-progress__label">{{ row.progress.done }} из {{ row.progress.total }}</span>
+                            <span class="smk-progress__bar" aria-hidden="true"><span style="width: {% widthratio row.progress.done row.progress.total 100 %}%"></span></span>
+                        </span>
+                    {% else %}—{% endif %}
+                </td>
                 <td>
                     <div class="smk-deadline">
                         {% if row.next_due_date %}
-                            <span class="{% if row.state.code != 'archived' and row.next_due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ row.next_due_date|date:'d.m.Y' }}</span>
+                            {% if row.state.code == 'archived' %}{% include 'includes/due_date.html' with date=row.next_due_date done=True %}{% else %}{% include 'includes/due_date.html' with date=row.next_due_date %}{% endif %}
                         {% else %}
                             <span class="smk-deadline__none">—</span>
                         {% endif %}

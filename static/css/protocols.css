@@ -731,3 +731,9 @@
 }
 
 .smk-confirm-warning li + li { margin-top: 4px; }
+
+/* Registry: «Тема» takes the room; «Согласование» is «3 из 5» over who is
+   still awaited (`describe_protocol_row()`). */
+.protocol-table__subject { min-width: 240px; }
+.protocol-table__progress { display: block; font-weight: 700; white-space: nowrap; }
+.protocol-table__pending { color: var(--color-muted); font-size: 12px; max-width: 260px; }

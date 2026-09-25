@@ -164,6 +164,49 @@ def create_protocol(protocol_type, author):
 
 
 @transaction.atomic
+def create_protocol_based_on(source, author):
+    """«Создать на основе»: a new draft of the same type for a recurring meeting.
+
+    It is `create_protocol()` — number, author participant, `CREATED` event,
+    realtime — plus two things copied from `source`: who took part (with each
+    person's «требует согласования» answer) and the повестка. Nothing that
+    records what *happened* at the old meeting is carried over: «Слушали», the
+    decisions, the approvals, comments and files belong to that document.
+
+    Every participant gets a *fresh* snapshot, exactly as a person added in the
+    editor would — a new document says who they are today. Accounts that no
+    longer qualify are skipped rather than copied as dead rows, and a type that
+    has since been deactivated refuses, as the type selection page would.
+    """
+    # Read fresh, not off the instance: the type may have been switched off
+    # since the source page was loaded.
+    protocol_type = ProtocolType.objects.filter(pk=source.protocol_type_id, is_active=True).first()
+    if protocol_type is None:
+        raise ProtocolWorkflowError('Этот тип протокола больше не используется.')
+    protocol = create_protocol(protocol_type, author)
+    order = 1
+    for participant in source.participants.select_related('user__userprofile', 'department'):
+        user = participant.user
+        if user.pk == author.pk or not _is_usable_employee(user):
+            continue
+        department = participant.department if participant.department and participant.department.is_active else None
+        add_participant(
+            protocol, user, department=department,
+            requires_approval=participant.requires_approval, display_order=order,
+        )
+        order += 1
+    for index, item in enumerate(source.agenda_items.all()):
+        ProtocolAgendaItem.objects.create(protocol=protocol, text=item.text, display_order=index)
+    protocol.history_events.filter(event_type=ProtocolHistoryEvent.EventType.CREATED).update(
+        message=(
+            f'Протокол «{protocol.protocol_type.name} №{protocol.number}» создан на основе '
+            f'«{source.protocol_type.name} №{source.number}».'
+        )
+    )
+    return protocol
+
+
+@transaction.atomic
 def delete_draft_protocol(protocol, user):
     """Delete an own draft, releasing its number for the next protocol.
 

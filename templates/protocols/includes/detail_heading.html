@@ -50,6 +50,18 @@ renders exactly what a reload would, including the disappearance of «Удали
         {% endcomment %}
         <a class="link-button link-button--secondary link-button--compact" href="{% url 'protocols:print' protocol.pk %}">Печать</a>
         <a class="link-button link-button--secondary link-button--compact" href="{% url 'protocols:pdf' protocol.pk %}">PDF</a>
+        {% comment %}
+        For a recurring meeting: a new draft of the same type with these
+        participants and this повестка, and nothing of what happened here.
+        Confirmed through the one application modal; `create_protocol_based_on()`
+        decides what is copied.
+        {% endcomment %}
+        <button class="link-button link-button--secondary link-button--compact" type="button"
+                data-confirm
+                data-confirm-url="{% url 'protocols:create_based_on' protocol.pk %}"
+                data-confirm-title="Создать протокол на основе этого?"
+                data-confirm-text="Будет создан новый черновик «{{ protocol.protocol_type.name }}» с теми же участниками и повесткой. «Слушали», решения и согласования не переносятся."
+                data-confirm-label="Создать">На основе</button>
         {% if can_delete %}
             {% comment %}
             Author-only while the protocol is a draft, and confirmed through the
