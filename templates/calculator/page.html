@@ -34,7 +34,7 @@ re-checks `calculator.permissions.can_manage_workup()` on its own.
         <div class="calc-layout">
             <section class="calc-card">
                 <h2>Параметры изделия</h2>
-                <form id="calc-form" novalidate>
+                <form id="calc-form" novalidate data-field-memory="winding:{{ request.user.pk }}">
                     <div class="calc-fields">
                         <label><span>d, мм</span><input name="d" type="number" min="0" step="0.01" value="100" required></label>
                         <label><span>D, мм</span><input name="D" type="number" min="0" step="0.01" value="130" required></label>
@@ -160,4 +160,6 @@ persistence layer, and the controller last.
 <script src="{% static 'js/calculator/journal.js' %}?v=20260817-1"></script>
 <script src="{% static 'js/calculator/api.js' %}?v=20260817-2"></script>
 <script src="{% static 'js/calculator/app.js' %}?v=20260818-1"></script>
+{# The calculation inputs come back as they were left: per user, in this browser only. #}
+<script src="{% static 'js/field_memory.js' %}?v=20260925-1"></script>
 {% endblock %}

@@ -78,6 +78,14 @@ Every class is namespaced under `.plate-cutting-module`.
         <article class="pcut-package" data-package>
             <div class="pcut-package__head">
                 <h3 data-package-title>Пакет</h3>
+                {% comment %}
+                «Копировать»: a new, still editable package right below this one
+                with the same three inputs — for a set of nearly equal packages.
+                Nothing is calculated here; the copy is read like any package.
+                {% endcomment %}
+                <button class="link-button link-button--compact link-button--secondary pcut-package__copy" type="button" data-copy-package title="Копировать пакет" aria-label="Копировать пакет">
+                    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                </button>
                 <button class="link-button link-button--compact link-button--danger pcut-package__remove" type="button" data-remove-package title="Удалить пакет" aria-label="Удалить пакет">
                     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
                 </button>
@@ -212,9 +220,9 @@ Every class is namespaced under `.plate-cutting-module`.
 {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/plate_cutting.css' %}?v=20260925-2">
+<link rel="stylesheet" href="{% static 'css/plate_cutting.css' %}?v=20260925-3">
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'js/plate_cutting.js' %}?v=20260903-1"></script>
+<script src="{% static 'js/plate_cutting.js' %}?v=20260925-1"></script>
 {% endblock %}

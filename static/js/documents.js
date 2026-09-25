@@ -7,6 +7,9 @@
  * same dialog as every other action in the project (`confirm_modal.js` owns
  * the dialog; nothing here reimplements it).
  *
+ * Files dropped anywhere on the page take the same path as files picked
+ * with «+» (the page shows where they will go while they are dragged).
+ *
  * Cancelling clears the selection, so picking the same files again reopens the
  * dialog instead of silently doing nothing. No business rule lives here: the
  * server re-checks the role, the folder and every file.
@@ -47,6 +50,56 @@
         trigger.dataset.confirmText = describe(input.files);
         awaitingConfirmation = true;
         trigger.click();
+    });
+
+    // Dropping files anywhere on the page is the same as picking them with
+    // «+»: they are handed to the very same input, and its `change` opens the
+    // very same confirmation. Only files are accepted — a dragged link or a
+    // selection of text is left to the browser.
+    const carriesFiles = (event) => Boolean(
+        event.dataTransfer && Array.from(event.dataTransfer.types || []).includes('Files')
+    );
+    let dragDepth = 0;
+    const setDropping = (on) => document.body.classList.toggle('doc-dropping', on);
+
+    document.addEventListener('dragenter', (event) => {
+        if (!carriesFiles(event)) {
+            return;
+        }
+        dragDepth += 1;
+        setDropping(true);
+    });
+    document.addEventListener('dragover', (event) => {
+        if (carriesFiles(event)) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+        }
+    });
+    document.addEventListener('dragleave', (event) => {
+        if (!carriesFiles(event)) {
+            return;
+        }
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) {
+            setDropping(false);
+        }
+    });
+    document.addEventListener('drop', (event) => {
+        if (!carriesFiles(event)) {
+            return;
+        }
+        event.preventDefault();
+        dragDepth = 0;
+        setDropping(false);
+        if (!event.dataTransfer.files.length) {
+            return;
+        }
+        try {
+            input.files = event.dataTransfer.files;
+        } catch (error) {
+            return;
+        }
+        input.dispatchEvent(new Event('change', { bubbles: true }));
     });
 
     if (dialog) {

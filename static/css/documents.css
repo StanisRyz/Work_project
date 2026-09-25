@@ -835,3 +835,21 @@
     .doc-viewer__frame { height: 60vh; }
     .doc-menu__popup { right: auto; left: 0; }
 }
+
+/* Files dragged over a folder page (`documents.js`): the whole page says where
+   they will land. `pointer-events: none` keeps the drop target the page. */
+body.doc-dropping::after {
+    content: 'Отпустите файлы, чтобы загрузить их в эту папку';
+    position: fixed;
+    inset: 12px;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    border: 3px dashed var(--color-primary);
+    border-radius: var(--radius);
+    background: rgb(37 99 235 / 8%);
+    color: var(--color-primary-dark);
+    font-size: 20px;
+    font-weight: 700;
+    pointer-events: none;
+}

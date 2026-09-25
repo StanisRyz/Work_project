@@ -693,6 +693,21 @@
       return;
     }
 
+    var copy = event.target.closest('[data-copy-package]');
+    if (copy) {
+      var original = copy.closest('[data-package]');
+      var duplicate = createPackage({
+        range: original.querySelector('[data-field="range"]').value,
+        plates: original.querySelector('[data-field="plates"]').value,
+        holes: original.querySelector('[data-field="holes"]').value,
+      }, false);
+      // Right below its original, and editable: a copy is a starting point.
+      original.after(duplicate);
+      refresh();
+      duplicate.querySelector('[data-field="plates"]').focus();
+      return;
+    }
+
     var remove = event.target.closest('[data-remove-package]');
     if (remove && !remove.disabled) {
       remove.closest('[data-package]').remove();
