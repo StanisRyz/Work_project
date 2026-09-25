@@ -456,10 +456,27 @@ class ActViewTests(TestCase):
 
         response = self.client.get(reverse('acts:list'))
 
-        for header in ('Номер', 'Дата создания', 'Тип', 'Статус', 'Срок'):
+        for header in ('Номер', 'Дата создания', 'Тип', 'Заказчик', 'Статус', 'Срок'):
             self.assertContains(response, f'<th>{header}</th>', html=False)
         for removed_header in ('Партия', 'Номенклатура', 'Операция', 'Вид дефекта', 'Приоритет', 'Создал'):
             self.assertNotContains(response, f'<th>{removed_header}</th>', html=False)
+
+    def test_registry_shows_the_customer_and_a_neutral_dash_without_one(self):
+        named = self._create_act(self.status_created)
+        named.customer = 'АО «Электрощит»'
+        named.save(update_fields=['customer'])
+        unnamed = self._create_act(self.status_created)
+        self.client.force_login(self.otk_user)
+
+        response = self.client.get(reverse('acts:list'))
+
+        self.assertContains(
+            response,
+            '<span class="user-text text-clamp-1" title="АО «Электрощит»">АО «Электрощит»</span>',
+            html=True,
+        )
+        row = response.content.decode().split(f'data-act-row="{unnamed.pk}"', 1)[1].split('</tr>', 1)[0]
+        self.assertIn('<td>—</td>', row)
 
     def test_registry_ignores_removed_operation_query_parameter(self):
         visible = self._create_act(self.status_created, party_number='P-VISIBLE')
