@@ -11,6 +11,16 @@
     {% if header_title %}<span class="topbar__page-title">{{ header_title }}</span>{% endif %}
     <div class="topbar__actions">
         {% if user.is_authenticated %}
+        {% comment %}
+        Quick search across акты, протоколы, задачи and СМК — a plain GET form,
+        so it works without JavaScript; «/» focuses it from anywhere
+        (`keyboard.js`). What it may find is `dashboard/search.py`'s answer,
+        drawn from each section's own readable queryset.
+        {% endcomment %}
+        <form class="topbar-search" method="get" action="{% url 'dashboard:search' %}" role="search">
+            <svg class="topbar-search__icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="search" name="q" placeholder="Поиск: акт, протокол, задача…  /" aria-label="Быстрый поиск" data-quick-search>
+        </form>
         <details class="notification-menu" data-notification-menu data-mark-read-url="{% url 'notifications:mark_read_bulk' %}">
             <summary class="topbar__icon-button topbar__icon-button--notification" aria-label="Уведомления{% if notification_unread_count %}: {{ notification_unread_count }} непрочитанных{% endif %}" title="Уведомления" data-notification-summary>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>

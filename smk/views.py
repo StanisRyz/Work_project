@@ -22,6 +22,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from ecosystem.xlsx import xlsx_response
+
 from .forms import SmkSourceForm
 from .permissions import (
     can_archive_smk_source,
@@ -115,12 +117,36 @@ def smk_list(request):
     Reading is open to every authenticated user, exactly as the record page is;
     what a user without the right loses is «Создать», not the list.
     """
+    state = build_smk_list_state(request.GET)
+    if request.GET.get('export') == 'xlsx':
+        return _export_smk_registry(state)
     return render(request, 'smk/list.html', {
         'active_page': 'smk',
         'header_title': 'СМК',
         'can_create': can_create_smk_task(request.user),
-        **build_smk_list_state(request.GET),
+        **state,
     })
+
+
+def _export_smk_registry(state):
+    """The registry exactly as the page shows it — tab and filters included."""
+    rows = [
+        [
+            row['source'].label,
+            row['source'].get_origin_display(),
+            row['source'].audit_date,
+            str(row['source'].department or ''),
+            f"{row['progress']['done']} из {row['progress']['total']}" if row['progress']['total'] else '',
+            row['next_due_date'],
+            row['state']['label'],
+        ]
+        for row in state['sources']
+    ]
+    return xlsx_response(
+        'smk', 'СМК',
+        ['№', 'Тип аудита', 'Дата аудита', 'Отдел', 'Выполнено задач', 'Срок выполнения', 'Статус'],
+        rows,
+    )
 
 
 @login_required

@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/png" sizes="32x32" href="{% static 'images/favicon.png' %}">
-    <title>{% block title %}Единая цифровая экосистема управления качеством{% endblock %}</title>
+    <title>{% block title %}{% if header_title %}{{ header_title }} · {% endif %}Экосистема качества{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260925-2">
     <link rel="stylesheet" href="{% static 'css/layout.css' %}?v=20260925-2">
     <link rel="stylesheet" href="{% static 'css/components.css' %}?v=20260925-2">
@@ -84,6 +84,14 @@
     server's answer to the query string.
     {% endcomment %}
     <script src="{% static 'js/registry_tools.js' %}?v=20260925-1"></script>
+    {% comment %}
+    «/» to search and Ctrl+Enter to send a one-button form; text areas that
+    grow with their text; the unread count in the tab title. Presentation
+    only, delegated from `document`, so live fragments need nothing extra.
+    {% endcomment %}
+    <script src="{% static 'js/keyboard.js' %}?v=20260925-1"></script>
+    <script src="{% static 'js/autogrow.js' %}?v=20260925-1"></script>
+    <script src="{% static 'js/title_badge.js' %}?v=20260925-1"></script>
     {% comment %}
     «Сменить пароль» in the profile menu: a real link to the full form page,
     opened as the topbar dialog where `<dialog>` works. Loaded for every

@@ -61,7 +61,7 @@ somebody is typing into.
 <section class="detail-section act-comments-section">
     <div class="act-collaboration-section__header"><h2>Комментарии</h2><span class="act-collaboration-section__hint">Обсуждение протокола</span></div>
     {% if can_contribute %}
-    <form class="comment-form" method="post" action="{% url 'protocols:add_comment' protocol.pk %}">
+    <form class="comment-form" method="post" action="{% url 'protocols:add_comment' protocol.pk %}" data-hotkey-submit>
         {% csrf_token %}
         {{ comment_form.non_field_errors }}
         <div class="comment-form__field">

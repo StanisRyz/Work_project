@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static registry %}
 
-{% block title %}СМК - Единая цифровая экосистема управления качеством{% endblock %}
+{% block title %}СМК · Экосистема качества{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260925-3">
@@ -46,6 +46,8 @@ under them, so a tab never promises rows the filter then hides.
     <label><span>Год аудита</span><select name="year"><option value="">Все</option>{% for year in year_options %}<option value="{{ year }}"{% if selected.year == year|stringformat:'s' %} selected{% endif %}>{{ year }}</option>{% endfor %}</select></label>
     <button class="link-button" type="submit">Применить</button>
     <a class="link-button link-button--secondary" href="?tab={{ tab }}">Сбросить</a>
+    {% comment %}The list exactly as shown — tab, filters, search and order — as a spreadsheet.{% endcomment %}
+    <a class="link-button link-button--secondary" href="{% query_with export='xlsx' %}" title="Выгрузить список в Excel" download>Excel</a>
 </form>
 
 <div class="fill-region">

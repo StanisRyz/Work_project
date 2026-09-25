@@ -1,9 +1,9 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Главная - Единая цифровая экосистема управления качеством{% endblock %}
+{% block title %}Главная · Экосистема качества{% endblock %}
 
-{% block extra_head %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20260903-1">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20260925-1">{% endblock %}
 
 {% block content %}
 {% comment %}
@@ -44,6 +44,30 @@ card carries an icon *name* and no markup is assembled in Python.
 <section class="dashboard-intro">
     <h1>Добро пожаловать, {{ user.get_full_name|default:user.username }}!</h1>
     <p class="dashboard-intro__lead">Быстрый доступ к ключевым разделам системы</p>
+</section>
+
+{% comment %}
+«Сегодня»: what is waiting for this user, each figure a link to the list it
+counts. The numbers are `dashboard/summary.py` — the owning modules' own
+querysets, the same ones the menu counts read — so the page, the menu and the
+lists behind the links agree.
+{% endcomment %}
+<section class="dashboard-today" aria-label="Что ждёт вас сегодня">
+    <a class="dashboard-today__item" href="{% url 'acts:list' %}?scope=my">
+        <strong>{{ my_counts.acts }}</strong><span>Мои акты в работе</span>
+    </a>
+    <a class="dashboard-today__item{% if my_counts.acts_overdue %} dashboard-today__item--alert{% endif %}" href="{% url 'acts:list' %}?scope=my&amp;due=overdue">
+        <strong>{{ my_counts.acts_overdue }}</strong><span>Акты с просроченным сроком</span>
+    </a>
+    <a class="dashboard-today__item" href="{% url 'tasks:list' %}?tab=my">
+        <strong>{{ my_counts.tasks }}</strong><span>Мои задачи</span>
+    </a>
+    <a class="dashboard-today__item{% if my_counts.tasks_overdue %} dashboard-today__item--alert{% endif %}" href="{% url 'tasks:list' %}?tab=my&amp;due=overdue">
+        <strong>{{ my_counts.tasks_overdue }}</strong><span>Просроченные задачи</span>
+    </a>
+    <a class="dashboard-today__item{% if my_counts.approvals %} dashboard-today__item--attention{% endif %}" href="{% url 'protocols:list' %}?tab=work">
+        <strong>{{ my_counts.approvals }}</strong><span>Протоколы ждут вашей подписи</span>
+    </a>
 </section>
 
 <div class="dashboard-layout">

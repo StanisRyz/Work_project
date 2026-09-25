@@ -7,7 +7,9 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from accounts.templatetags.people import person_name
 from ecosystem.attachments import format_file_size
+from ecosystem.xlsx import xlsx_response
 from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
 from smk.permissions import can_create_smk_task, requires_task_type_choice
@@ -74,6 +76,8 @@ def _take_execution_draft(request, task):
 @login_required
 def task_list(request):
     state = build_task_list_state(request.user, request.GET)
+    if request.GET.get('export') == 'xlsx':
+        return _export_task_registry(state)
     return render(request, 'tasks/list.html', {
         'active_page': 'tasks', 'header_title': 'Задачи',
         # Whether «Создать задачу» is offered at all. The same answer the
@@ -82,6 +86,27 @@ def task_list(request):
         'can_create_task': can_create_smk_task(request.user),
         **state,
     })
+
+
+def _export_task_registry(state):
+    """The registry exactly as the page shows it: the same rows, the same labels."""
+    rows = [
+        [
+            row['task'].pk,
+            row['task'].task_text,
+            ', '.join(person_name(a.user) for a in row['task'].assignees.all()),
+            row['type_label'],
+            row['source']['label'],
+            row['state']['label'],
+            row['task'].due_date,
+        ]
+        for row in state['rows']
+    ]
+    return xlsx_response(
+        'tasks', 'Задачи',
+        ['№', 'Что сделать', 'Исполнители', 'Тип задачи', 'Источник', 'Статус', 'Срок'],
+        rows,
+    )
 
 
 @login_required

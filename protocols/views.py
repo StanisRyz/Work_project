@@ -18,6 +18,8 @@ from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
 from realtime.fragments import LIVE_REVISION_PLACEHOLDER, content_revision
 
+from ecosystem.xlsx import xlsx_response
+
 from .forms import ProtocolAttachmentForm, ProtocolCommentForm, ProtocolDraftForm
 from .models import Protocol, ProtocolAttachment, ProtocolType
 from .permissions import (
@@ -67,9 +69,34 @@ from .services import (
 @login_required
 def protocol_list(request):
     state = build_protocol_list_state(request.GET)
+    if request.GET.get('export') == 'xlsx':
+        return _export_protocol_registry(state)
     return render(request, 'protocols/list.html', {
         'active_page': 'protocols', 'header_title': 'Протоколы', **state,
     })
+
+
+def _export_protocol_registry(state):
+    """The registry exactly as the page shows it, from the same rows."""
+    rows = []
+    for row in state['rows']:
+        protocol = row['protocol']
+        approval = row['approval']
+        rows.append([
+            protocol.number,
+            protocol.protocol_type.name,
+            row['subject'],
+            protocol.author.get_full_name() or protocol.author.get_username(),
+            timezone.localtime(protocol.created_at).date(),
+            protocol.get_status_display(),
+            f"{approval['approved']} из {approval['total']}" if approval else '',
+            ', '.join(approval['pending_names']) if approval else '',
+        ])
+    return xlsx_response(
+        'protocols', 'Протоколы',
+        ['№', 'Тип протокола', 'Тема', 'Автор', 'Дата создания', 'Статус', 'Согласовано', 'Ожидаем'],
+        rows,
+    )
 
 
 # --------------------------------------------------------------------------

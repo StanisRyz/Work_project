@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static registry %}
 
-{% block title %}Протоколы - Единая цифровая экосистема управления качеством{% endblock %}
+{% block title %}Протоколы · Экосистема качества{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260925-2">
@@ -19,7 +19,10 @@ against every live status, not only «Черновик».
         <a class="act-registry-tabs__link{% if tab == 'work' %} act-registry-tabs__link--active{% endif %}" href="?tab=work">В работе <span class="tab-count">{{ tab_counts.work }}</span></a>
         <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?tab=archive">Архив <span class="tab-count">{{ tab_counts.archive }}</span></a>
     </nav>
-    <a class="link-button" href="{% url 'protocols:create' %}">+ Создать протокол</a>
+    <div class="act-registry-toolbar__actions">
+        <a class="link-button link-button--secondary" href="{% query_with export='xlsx' %}" title="Выгрузить список в Excel" download>Excel</a>
+        <a class="link-button" href="{% url 'protocols:create' %}">+ Создать протокол</a>
+    </div>
 </div>
 
 {% comment %}

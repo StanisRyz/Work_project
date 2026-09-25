@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if term %}«{{ term }}» · {% endif %}Поиск · Экосистема качества{% endblock %}
+
+{% block content %}
+{% comment %}
+Results of the topbar search, grouped by section. Each group is the owning
+module's readable queryset (`dashboard/search.py`), capped per group; a single
+hit never reaches this page — the view opens it directly.
+{% endcomment %}
+<section class="quick-search-page">
+    <form class="quick-search-page__form" method="get" action="{% url 'dashboard:search' %}" role="search">
+        <input type="search" name="q" value="{{ term }}" placeholder="Номер акта, «Качество 4», задача 12, СМК 3, заказчик…" autofocus aria-label="Поиск">
+        <button class="link-button" type="submit">Найти</button>
+    </form>
+
+    {% if too_short %}
+        <p class="placeholder-text">Введите хотя бы два символа.</p>
+    {% elif term and not groups %}
+        {% include 'acts/includes/empty_state.html' with title='Ничего не найдено' message='Проверьте номер или попробуйте часть названия, заказчика или текста задачи.' %}
+    {% endif %}
+
+    {% for label, hits in groups %}
+        <section class="quick-search-group">
+            <h2>{{ label }} <span class="tab-count">{{ hits|length }}</span></h2>
+            <ul>
+                {% for hit in hits %}
+                    <li><a class="quick-search-hit" href="{{ hit.url }}"><strong class="user-text">{{ hit.title }}</strong><span class="user-text text-clamp-1" title="{{ hit.subtitle }}">{{ hit.subtitle }}</span></a></li>
+                {% endfor %}
+            </ul>
+        </section>
+    {% endfor %}
+</section>
+{% endblock %}

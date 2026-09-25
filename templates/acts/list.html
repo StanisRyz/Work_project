@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
+{% load registry %}
 
-{% block title %}Акты - Единая цифровая экосистема управления качеством{% endblock %}
+{% block title %}Акты · Экосистема качества{% endblock %}
 
 {% block content_class %}page-container--fill{% endblock %}
 
@@ -76,6 +77,8 @@ filters and search survive.
     </label>
     <button class="link-button" type="submit">Применить</button>
     <a class="link-button link-button--secondary" href="{% url 'acts:list' %}?scope={{ scope }}">Сбросить</a>
+    {% comment %}The list exactly as shown — tab, filters, search and order — as a spreadsheet.{% endcomment %}
+    <a class="link-button link-button--secondary" href="{% query_with export='xlsx' %}" title="Выгрузить список в Excel" download>Excel</a>
 </form>
 
 <div class="fill-region" data-live-act-registry-results>

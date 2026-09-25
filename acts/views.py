@@ -13,6 +13,7 @@ from django.views.decorators.http import require_GET
 
 from accounts.models import Department, UserProfile
 from ecosystem.logging_utils import log_event
+from ecosystem.xlsx import xlsx_response
 from realtime.auth import realtime_login_required
 from realtime.emitters import emit_act_created
 from realtime.fragments import LIVE_REVISION_PLACEHOLDER, content_revision
@@ -72,9 +73,36 @@ from .workshops import client_config as workshop_client_config
 @login_required
 def act_list(request):
     state = build_act_list_state(request.user, request.GET)
+    if request.GET.get('export') == 'xlsx':
+        return _export_act_registry(state)
     return render(request, 'acts/list.html', {
         'active_page': 'acts', 'header_title': 'Акты', **state,
     })
+
+
+def _export_act_registry(state):
+    """The registry exactly as the page shows it — tab, filters, search, order."""
+    archive = state['scope'] == 'archive'
+    rows = [
+        [
+            act.number or 'б/н',
+            timezone.localtime(act.approved_at).date() if archive and act.approved_at else (
+                None if archive else timezone.localtime(act.created_at).date()
+            ),
+            act.get_act_type_display(),
+            act.customer,
+            act.nomenclature,
+            act.status.name if act.status_id else '',
+            act.due_date,
+        ]
+        for act in state['acts'].select_related('status')
+    ]
+    return xlsx_response(
+        'acts', 'Акты',
+        ['Номер', 'Дата архивации' if archive else 'Дата создания', 'Тип', 'Заказчик',
+         'Наименование продукции', 'Статус', 'Срок'],
+        rows,
+    )
 
 
 @realtime_login_required

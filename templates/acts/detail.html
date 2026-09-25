@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}{{ act.number }} - Единая цифровая экосистема управления качеством{% endblock %}
+{% block title %}{{ act.number|default:'Акт б/н' }} · Акты{% endblock %}
 
 {% block content %}
 {# Server-built fragment URLs: the client never assembles a URL from an id. #}

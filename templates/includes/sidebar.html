@@ -3,6 +3,10 @@ Two-level navigation: the first level is a row of category buttons inside the
 full-width panel under the topbar, each opening its own vertical submenu on
 click. The buttons are toggles, never links — only the leaf items navigate.
 All open/close state lives in `static/js/app.js`.
+
+The small counts are «what is waiting for me» (`dashboard/summary.py`): my
+acts queue, my open tasks and the protocols awaiting my approval, each the
+owning module's own queryset.
 {% endcomment %}
 <aside class="sidebar" aria-label="Основная навигация">
     <div class="sidebar__top">
@@ -17,13 +21,14 @@ All open/close state lives in `static/js/app.js`.
             <button class="sidebar__category{% if active_page == 'acts' or active_page == 'tasks' or active_page == 'protocols' or active_page == 'smk' %} sidebar__category--active{% endif %}"
                     type="button" aria-expanded="false" aria-controls="sidebar-submenu-quality" data-nav-category>
                 <span>Качество</span>
+                {% if my_counts.quality %}<span class="nav-count" title="Ждут вас: акты, задачи и согласования">{{ my_counts.quality }}</span>{% endif %}
                 <svg class="ui-icon sidebar__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
             </button>
             <div class="sidebar__submenu" id="sidebar-submenu-quality" data-nav-submenu hidden>
-                <a class="sidebar__link{% if active_page == 'acts' %} sidebar__link--active{% endif %}" href="{% url 'acts:list' %}">Акты</a>
-                <a class="sidebar__link{% if active_page == 'protocols' %} sidebar__link--active{% endif %}" href="{% url 'protocols:list' %}">Протоколы</a>
+                <a class="sidebar__link{% if active_page == 'acts' %} sidebar__link--active{% endif %}" href="{% url 'acts:list' %}">Акты{% if my_counts.acts %} <span class="nav-count" title="Мои акты в работе">{{ my_counts.acts }}</span>{% endif %}</a>
+                <a class="sidebar__link{% if active_page == 'protocols' %} sidebar__link--active{% endif %}" href="{% url 'protocols:list' %}">Протоколы{% if my_counts.approvals %} <span class="nav-count" title="Ждут вашего согласования">{{ my_counts.approvals }}</span>{% endif %}</a>
                 <a class="sidebar__link{% if active_page == 'smk' %} sidebar__link--active{% endif %}" href="{% url 'smk:list' %}">СМК</a>
-                <a class="sidebar__link{% if active_page == 'tasks' %} sidebar__link--active{% endif %}" href="{% url 'tasks:list' %}">Задачи</a>
+                <a class="sidebar__link{% if active_page == 'tasks' %} sidebar__link--active{% endif %}" href="{% url 'tasks:list' %}">Задачи{% if my_counts.tasks %} <span class="nav-count{% if my_counts.tasks_overdue %} nav-count--alert{% endif %}" title="Мои задачи в работе{% if my_counts.tasks_overdue %}, просрочено: {{ my_counts.tasks_overdue }}{% endif %}">{{ my_counts.tasks }}</span>{% endif %}</a>
             </div>
         </div>
         {% comment %}

@@ -229,3 +229,38 @@
         gap: 8px;
     }
 }
+
+/* «Сегодня»: five figures, each a link to the list it counts. */
+.dashboard-today {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.dashboard-today__item {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.dashboard-today__item:hover { border-color: #9db8ed; }
+
+.dashboard-today__item strong {
+    color: var(--color-primary-dark);
+    font-size: 22px;
+    line-height: 1.1;
+}
+
+.dashboard-today__item--alert strong { color: #b91c1c; }
+.dashboard-today__item--attention strong { color: #b45309; }
+
+@media (max-width: 1100px) {
+    .dashboard-today { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
