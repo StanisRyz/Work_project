@@ -220,6 +220,25 @@ tasks never live inside `acts`.
   several defects, КО must decide on **every** defect before the act may leave
   `KO_REVIEW`; legacy decision values stay readable and must not be rewritten by
   a data migration.
+- **КО is per workshop.** `UserProfile.Role.KO_MP`/`KO_PIR`/`KO_TR` decide the
+  defects of their own цех (`acts.permissions.WORKSHOP_KO_ROLES`); the general
+  `KO` is retired (`accounts.models.RETIRED_ROLES`: kept in `choices`, not
+  offered by `UserProfileAdminForm`, never lent) and, like руководитель and
+  администратор, still decides every defect. A defect with no workshop is every
+  КО's. `can_decide_defect()`/`decidable_defects()` are the rule;
+  `apply_ko_decision()` accepts exactly the user's decidable set under the act
+  lock, stamps each decision with the act's КО round, and moves the act to
+  `TO_ANALYSIS` in the same transaction only when every defect is
+  `is_decided_this_round()`; otherwise the act stays in `KO_REVIEW`, the open
+  `KO_REVIEW` routing entry is narrowed to `pending_ko_roles()` and
+  `act.updated` is emitted. `Act.ko_round` is incremented on every entry into
+  `KO_REVIEW` (`send_to_ko()`, `return_to_ko()`), so an earlier round's
+  decision never counts; `acts.0030` put acts already in review into round 1.
+  Routing, notifications and the «Мои» queue address `ko_roles_for_act()`
+  through `tasks.services.active_users_for_roles()`. «Цех ТР» is a template:
+  `workshops.TR_PROFILE` in `PLANNED_WORKSHOP_PROFILES`, not an
+  `ActDefect.Workshop` choice and not offered by the form — introducing it is
+  the choice plus moving the profile into `WORKSHOP_PROFILES`.
 - Every defect requires a workshop/supplier choice on the form, while the model
   field stays `blank=True` so existing rows keep no invented value. Revealing
   the remaining fields must never clear already-entered values.

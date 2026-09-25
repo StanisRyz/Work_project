@@ -1,10 +1,11 @@
 from django.contrib.auth import get_user_model
-from django.db.models import Q
+from django.db.models import F, Q
 
 from accounts.models import UserProfile
-from accounts.roles import get_user_roles, has_role, role_holders_q
+from accounts.roles import get_user_roles, has_any_role, has_role, role_holders_q
 
-from .models import Act
+from . import workshops
+from .models import Act, ActDefect
 
 
 def get_user_profile(user):
@@ -36,8 +37,96 @@ def is_otk(user):
     return has_role(user, UserProfile.Role.OTK)
 
 
+# КО per workshop. Each decides the defects of its own цех; the retired general
+# `KO` still decides every defect, as it always did, until an administrator
+# moves its holders to a workshop role. `TR_SHOP` is planned: «КО ТР» exists
+# and will decide those defects the day the workshop is introduced.
+WORKSHOP_KO_ROLES = {
+    workshops.MP_SHOP: UserProfile.Role.KO_MP,
+    workshops.PIR_SHOP: UserProfile.Role.KO_PIR,
+    workshops.TR_SHOP: UserProfile.Role.KO_TR,
+}
+KO_ROLES = frozenset({UserProfile.Role.KO, *WORKSHOP_KO_ROLES.values()})
+
+
 def is_ko(user):
-    return has_role(user, UserProfile.Role.KO)
+    """Any КО — the general one or a workshop one."""
+    return has_any_role(user, KO_ROLES)
+
+
+def ko_workshops(user):
+    """The workshops whose defects `user` decides as КО.
+
+    `None` means «every defect»: руководитель, администратор and the retired
+    general КО. An empty set means none.
+    """
+    if has_full_act_access(user) or has_role(user, UserProfile.Role.KO):
+        return None
+    roles = get_user_roles(user)
+    return frozenset(
+        workshop for workshop, role in WORKSHOP_KO_ROLES.items() if role in roles
+    )
+
+
+def ko_roles_for_defect(defect):
+    """The КО roles that decide this defect: its workshop's and the general one.
+
+    A defect with no workshop (recorded before the choice was required) is not
+    anybody's in particular, so every КО may decide it.
+    """
+    role = WORKSHOP_KO_ROLES.get(defect.workshop or '')
+    if role is None:
+        return KO_ROLES
+    return frozenset({UserProfile.Role.KO, role})
+
+
+def can_decide_defect(defect, user):
+    """Whether `user` may enter the КО decision for this one defect."""
+    allowed = ko_workshops(user)
+    if allowed is None:
+        return True
+    if not defect.workshop:
+        return bool(allowed) or is_ko(user)
+    return defect.workshop in allowed
+
+
+def decidable_defects(act, user):
+    """This act's defects the user may decide as КО, in the act's order."""
+    if _status_code(act) != 'KO_REVIEW' or not (is_ko(user) or has_full_act_access(user)):
+        return []
+    return [defect for defect in act.defects.all() if can_decide_defect(defect, user)]
+
+
+def is_decided_this_round(defect, act):
+    """A decision counts only if it was made in the act's current КО round."""
+    return bool(
+        act.ko_round
+        and defect.ko_round == act.ko_round
+        and defect.ko_decision
+    )
+
+
+def pending_ko_roles(act):
+    """The КО roles still owing a decision on this act in the current round."""
+    roles = set()
+    defects = list(act.defects.all())
+    if not defects:
+        return KO_ROLES
+    for defect in defects:
+        if not is_decided_this_round(defect, act):
+            roles |= ko_roles_for_defect(defect)
+    return frozenset(roles)
+
+
+def ko_roles_for_act(act):
+    """Every КО role that decides some defect of this act."""
+    defects = list(act.defects.all())
+    if not defects:
+        return KO_ROLES
+    roles = set()
+    for defect in defects:
+        roles |= ko_roles_for_defect(defect)
+    return frozenset(roles)
 
 
 def is_to(user):
@@ -181,7 +270,7 @@ def can_contribute_to_act(act, user):
             return True
         if status == 'CREATED_OTK' and can_work_on_created_otk_act(act, user):
             return True
-    if is_ko(user) and status == 'KO_REVIEW':
+    if is_ko(user) and status == 'KO_REVIEW' and _has_ko_share(act, user):
         return True
     if is_to(user) and (
         status == 'TO_ANALYSIS'
@@ -207,8 +296,29 @@ def can_edit_act(act, user):
     return can_work_on_created_otk_act(act, user)
 
 
+def _has_ko_share(act, user):
+    """Whether some defect of this act is `user`'s to decide as КО.
+
+    An act with no defects at all (the legacy act-level decision) is every
+    КО's.
+    """
+    if not act.defects.exists():
+        return True
+    return any(can_decide_defect(defect, user) for defect in act.defects.all())
+
+
 def can_apply_ko_decision(act, user):
-    return _status_code(act) == 'KO_REVIEW' and (is_ko(user) or has_full_act_access(user))
+    """КО of a workshop the act has defects in — or full access.
+
+    Deciding is per defect: a workshop КО is offered only their own defects
+    (`decidable_defects()`), and the act moves on to ТО once every defect has
+    this round's decision.
+    """
+    if _status_code(act) != 'KO_REVIEW':
+        return False
+    if has_full_act_access(user):
+        return True
+    return is_ko(user) and _has_ko_share(act, user)
 
 
 def can_return_to_otk(act, user):
@@ -297,7 +407,20 @@ def get_visible_acts_queryset(user):
             & (Q(created_by=user) | ~Q(pk__in=eligible_authors))
         ) | Q(status__code='OTK_REVIEW')
     if is_ko(user):
-        condition |= Q(status__code='KO_REVIEW')
+        allowed = ko_workshops(user)
+        if allowed is None:
+            condition |= Q(status__code='KO_REVIEW')
+        else:
+            # Acts with a defect of the user's workshop — or one recorded
+            # without a workshop — still waiting for this round's decision.
+            # Once their share is decided the act leaves their queue, though
+            # they may still open it and correct their own decisions.
+            waiting = (
+                ActDefect.objects.filter(Q(workshop__in=allowed) | Q(workshop=''))
+                .exclude(ko_round=F('act__ko_round'), ko_decision__gt='')
+                .values('act_id')
+            )
+            condition |= Q(status__code='KO_REVIEW', pk__in=waiting)
     if is_to(user):
         condition |= Q(status__code='TO_ANALYSIS') | Q(
             status__code='ACTIONS_ASSIGNED', to_analysis_by=user,

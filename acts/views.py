@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
-from accounts.models import Department
+from accounts.models import Department, UserProfile
 from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
 from realtime.emitters import emit_act_created
@@ -31,6 +31,11 @@ from .forms import (
     ToAnalysisStructureForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, calculate_act_due_date, get_act_status
+from .permissions import (
+    WORKSHOP_KO_ROLES,
+    decidable_defects,
+    is_decided_this_round,
+)
 from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_contribute_to_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act
 from .selectors import (
     build_act_list_state,
@@ -602,7 +607,10 @@ def act_ko_decision(request, pk):
 
     defects = act.defects.select_related('defect_type')
     if defects.exists():
-        formset = ActDefectKoDecisionFormSet(request.POST, queryset=defects)
+        # Only the defects this user decides — a workshop КО's own цех.
+        formset = ActDefectKoDecisionFormSet(
+            request.POST, queryset=_decidable_defects_queryset(act, request.user)
+        )
         is_valid = formset.is_valid()
         defect_decisions = [
             (
@@ -635,6 +643,14 @@ def act_ko_decision(request, pk):
             else:
                 form.add_error(None, str(exc))
         else:
+            if act.status.code == 'KO_REVIEW':
+                waiting = describe_pending_ko(act)
+                messages.success(
+                    request,
+                    'Решения КО по вашим дефектам сохранены. '
+                    f'Акт перейдёт в ТО после решения: {waiting}.',
+                )
+                return _redirect_to_detail_tab(act, 'work')
             messages.success(request, 'Решения КО сохранены. Акт передан в ТО.')
             return _redirect_after_transition(act, request.user)
 
@@ -798,7 +814,13 @@ def _get_act_for_detail(pk):
     )
 
 
-def _defect_decision_rows(defects, ko_forms=()):
+def _decidable_defects_queryset(act, user):
+    """The defects `user` decides as КО on this act, as a queryset for the formset."""
+    ids = [defect.pk for defect in decidable_defects(act, user)]
+    return act.defects.filter(pk__in=ids).select_related('defect_type').order_by('created_at', 'pk')
+
+
+def _defect_decision_rows(defects, ko_forms=(), act=None):
     """Дефекты вместе с решением КО — одна форма строки для страницы и печати.
 
     `ko_forms` пуст везде, кроме страницы акта в статусе KO_REVIEW: в печатной
@@ -810,16 +832,41 @@ def _defect_decision_rows(defects, ko_forms=()):
     должен сказать это прямо, иначе пустой чек-лист прочтётся как сегодняшняя
     недоработка.
     """
-    return [
-        {
+    # Paired by defect, not by position: a workshop КО's formset holds only
+    # their own defects, so its forms no longer line up with the act's list.
+    forms_by_defect = {form.instance.pk: form for form in ko_forms}
+    in_review = act is not None and getattr(act.status, 'code', '') == 'KO_REVIEW'
+    rows = []
+    for defect in defects:
+        # While КО is deciding, a decision from an earlier round is not the
+        # answer: the card says whose decision it is waiting for instead.
+        pending = in_review and not is_decided_this_round(defect, act)
+        rows.append({
             'defect': defect,
-            'ko_form': ko_forms[index] if index < len(ko_forms) else None,
+            'ko_form': forms_by_defect.get(defect.pk),
+            'ko_pending_label': ko_role_label_for_defect(defect) if pending else '',
             'impact': quality_impact.describe(quality_impact.values_of(defect)),
             'impact_applies': bool(defect.ko_decision)
             and not quality_impact.clears(defect.ko_decision),
-        }
-        for index, defect in enumerate(defects)
-    ]
+        })
+    return rows
+
+
+def ko_role_label_for_defect(defect):
+    """«КО МП» for a МП defect; plain «КО» for one without a workshop."""
+    role = WORKSHOP_KO_ROLES.get(defect.workshop or '')
+    return UserProfile.Role(role).label if role else 'КО'
+
+
+def describe_pending_ko(act):
+    """«КО ЦПиР» — whose decisions the act is still waiting for, in order."""
+    labels = []
+    for defect in act.defects.all():
+        if not is_decided_this_round(defect, act):
+            label = ko_role_label_for_defect(defect)
+            if label not in labels:
+                labels.append(label)
+    return ', '.join(labels) or 'КО'
 
 
 def _get_act_detail_context(
@@ -842,7 +889,7 @@ def _get_act_detail_context(
     defect_rows = list(act.defects.select_related('defect_type', 'operation'))
     if ko_decision_formset is None and defect_rows:
         ko_decision_formset = ActDefectKoDecisionFormSet(
-            queryset=act.defects.select_related('defect_type')
+            queryset=_decidable_defects_queryset(act, user)
         )
     if ko_decision_formset is not None:
         for field in ko_decision_formset.management_form.fields.values():
@@ -857,7 +904,15 @@ def _get_act_detail_context(
         ko_decision_form = KoDecisionForm(instance=act)
     for field in ko_decision_form.fields.values():
         field.widget.attrs['form'] = 'ko-decision-form'
-    defect_decision_rows = _defect_decision_rows(defect_rows, ko_forms)
+    defect_decision_rows = _defect_decision_rows(defect_rows, ko_forms, act=act)
+    # Whose decisions the act would still wait for once this user saves theirs:
+    # names the КО button «Сохранить решения КО» instead of «Передать в ТО».
+    own_ids = {form.instance.pk for form in ko_forms}
+    ko_waiting_for_others = ', '.join(dict.fromkeys(
+        row['ko_pending_label']
+        for row in defect_decision_rows
+        if row['ko_pending_label'] and row['defect'].pk not in own_ids
+    ))
     attachments = [
         {
             'object': attachment,
@@ -899,6 +954,7 @@ def _get_act_detail_context(
             is_active=True, userprofile__is_active=True
         ).select_related('userprofile').order_by('username'),
         'ko_decision_form': ko_decision_form,
+        'ko_waiting_for_others': ko_waiting_for_others,
         'ko_decision_formset': ko_decision_formset,
         'attachments': attachments,
         'attachment_form': attachment_form or ActAttachmentForm(),

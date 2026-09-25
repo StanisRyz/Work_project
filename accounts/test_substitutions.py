@@ -19,7 +19,7 @@ from django.utils import timezone
 
 from accounts.models import Department, RoleSubstitution, UserProfile
 from accounts.roles import get_user_roles, has_role, role_holders_q
-from acts.models import Act, ActHistoryEvent
+from acts.models import Act, ActDefect, ActHistoryEvent
 from acts.permissions import (
     can_apply_ko_decision,
     can_contribute_to_act,
@@ -29,7 +29,7 @@ from acts.permissions import (
 )
 from acts.services import send_to_ko
 from calculator.permissions import can_manage_workup
-from references.models import ActStatus
+from references.models import ActStatus, DefectType
 from tasks.models import Task
 from tasks.services import active_users_for_role
 
@@ -58,7 +58,7 @@ class SubstitutionTestCase(TestCase):
             'subst_to', UserProfile.Role.TO, first_name='Пётр', last_name='Петров'
         )
         cls.designer = _user(
-            'subst_ko', UserProfile.Role.KO, first_name='Иван', last_name='Иванов'
+            'subst_ko', UserProfile.Role.KO_MP, first_name='Иван', last_name='Иванов'
         )
         cls.otk = _user('subst_otk', UserProfile.Role.OTK)
         cls.admin = _user('subst_admin', UserProfile.Role.ADMIN)
@@ -72,37 +72,44 @@ class SubstitutionTestCase(TestCase):
             date_to=self.today + timedelta(days=end),
         )
 
-    def act(self, status_code, *, author=None):
-        return Act.objects.create(
+    def act(self, status_code, *, author=None, workshops=('MP_SHOP',)):
+        act = Act.objects.create(
             created_by=author or self.otk,
             nomenclature='Катушка',
             status=ActStatus.objects.get(code=status_code),
+            ko_round=1 if status_code == 'KO_REVIEW' else 0,
         )
+        for workshop in workshops:
+            ActDefect.objects.create(
+                act=act, workshop=workshop, detected_at=self.today,
+                defect_type=DefectType.objects.get(code='OTHER'),
+            )
+        return act
 
 
 class RoleHelperTests(SubstitutionTestCase):
     def test_a_lent_role_is_added_to_the_own_one(self):
-        self.lend(self.technologist, UserProfile.Role.KO)
+        self.lend(self.technologist, UserProfile.Role.KO_MP)
 
         user = _fresh(self.technologist)
-        self.assertEqual(get_user_roles(user), {UserProfile.Role.TO, UserProfile.Role.KO})
+        self.assertEqual(get_user_roles(user), {UserProfile.Role.TO, UserProfile.Role.KO_MP})
         self.assertTrue(is_to(user))
         self.assertTrue(is_ko(user))
 
     def test_only_the_period_counts_both_ends_included(self):
-        self.lend(self.technologist, UserProfile.Role.KO, start=1, end=3)
-        self.assertFalse(has_role(_fresh(self.technologist), UserProfile.Role.KO))
+        self.lend(self.technologist, UserProfile.Role.KO_MP, start=1, end=3)
+        self.assertFalse(has_role(_fresh(self.technologist), UserProfile.Role.KO_MP))
 
         RoleSubstitution.objects.all().delete()
-        self.lend(self.technologist, UserProfile.Role.KO, start=-3, end=-1)
-        self.assertFalse(has_role(_fresh(self.technologist), UserProfile.Role.KO))
+        self.lend(self.technologist, UserProfile.Role.KO_MP, start=-3, end=-1)
+        self.assertFalse(has_role(_fresh(self.technologist), UserProfile.Role.KO_MP))
 
         RoleSubstitution.objects.all().delete()
-        self.lend(self.technologist, UserProfile.Role.KO, start=0, end=0)
-        self.assertTrue(has_role(_fresh(self.technologist), UserProfile.Role.KO))
+        self.lend(self.technologist, UserProfile.Role.KO_MP, start=0, end=0)
+        self.assertTrue(has_role(_fresh(self.technologist), UserProfile.Role.KO_MP))
 
     def test_an_inactive_profile_holds_no_role_lent_or_own(self):
-        self.lend(self.technologist, UserProfile.Role.KO)
+        self.lend(self.technologist, UserProfile.Role.KO_MP)
         profile = self.technologist.userprofile
         profile.is_active = False
         profile.save(update_fields=['is_active'])
@@ -110,7 +117,7 @@ class RoleHelperTests(SubstitutionTestCase):
         self.assertEqual(get_user_roles(_fresh(self.technologist)), frozenset())
 
     def test_the_person_replaced_keeps_their_rights(self):
-        self.lend(self.technologist, UserProfile.Role.KO, substitutes_for=self.designer)
+        self.lend(self.technologist, UserProfile.Role.KO_MP, substitutes_for=self.designer)
 
         self.assertTrue(is_ko(_fresh(self.designer)))
 
@@ -126,14 +133,14 @@ class RoleHelperTests(SubstitutionTestCase):
 
     def test_the_period_must_be_ordered(self):
         with self.assertRaises(IntegrityError), transaction.atomic():
-            self.lend(self.technologist, UserProfile.Role.KO, start=2, end=1)
+            self.lend(self.technologist, UserProfile.Role.KO_MP, start=2, end=1)
 
     def test_the_queryset_answer_agrees_with_the_python_one(self):
-        self.lend(self.technologist, UserProfile.Role.KO)
-        self.lend(self.otk, UserProfile.Role.KO, start=3, end=4)
+        self.lend(self.technologist, UserProfile.Role.KO_MP)
+        self.lend(self.otk, UserProfile.Role.KO_MP, start=3, end=4)
 
         holders = set(
-            User.objects.filter(role_holders_q(UserProfile.Role.KO)).distinct()
+            User.objects.filter(role_holders_q(UserProfile.Role.KO_MP)).distinct()
         )
 
         self.assertEqual(holders, {self.designer, self.technologist})
@@ -143,7 +150,7 @@ class ActRightsTests(SubstitutionTestCase):
     def test_a_substitute_works_the_lent_queue_and_keeps_their_own(self):
         ko_act = self.act('KO_REVIEW')
         to_act = self.act('TO_ANALYSIS')
-        self.lend(self.technologist, UserProfile.Role.KO)
+        self.lend(self.technologist, UserProfile.Role.KO_MP)
 
         user = _fresh(self.technologist)
         self.assertTrue(can_apply_ko_decision(ko_act, user))
@@ -156,7 +163,7 @@ class ActRightsTests(SubstitutionTestCase):
 
     def test_the_right_ends_with_the_period(self):
         ko_act = self.act('KO_REVIEW')
-        self.lend(self.technologist, UserProfile.Role.KO, start=-5, end=-1)
+        self.lend(self.technologist, UserProfile.Role.KO_MP, start=-5, end=-1)
 
         user = _fresh(self.technologist)
         self.assertFalse(can_apply_ko_decision(ko_act, user))
@@ -164,7 +171,7 @@ class ActRightsTests(SubstitutionTestCase):
 
     def test_the_decision_page_offers_the_ko_form(self):
         ko_act = self.act('KO_REVIEW')
-        self.lend(self.technologist, UserProfile.Role.KO)
+        self.lend(self.technologist, UserProfile.Role.KO_MP)
         self.client.force_login(self.technologist)
 
         page = self.client.get(reverse('acts:detail', args=[ko_act.pk]))
@@ -180,9 +187,9 @@ class ActRightsTests(SubstitutionTestCase):
 
 class RoutingAndHistoryTests(SubstitutionTestCase):
     def test_new_stage_tasks_and_recipients_include_the_substitute(self):
-        self.lend(self.technologist, UserProfile.Role.KO)
+        self.lend(self.technologist, UserProfile.Role.KO_MP)
 
-        self.assertIn(self.technologist, active_users_for_role(UserProfile.Role.KO))
+        self.assertIn(self.technologist, active_users_for_role(UserProfile.Role.KO_MP))
 
         act = self.act('CREATED_OTK')
         send_to_ko(act, self.otk)
@@ -204,7 +211,7 @@ class RoutingAndHistoryTests(SubstitutionTestCase):
             reverse('admin:accounts_rolesubstitution_add'),
             {
                 'user': self.technologist.pk,
-                'role': UserProfile.Role.KO,
+                'role': UserProfile.Role.KO_MP,
                 'substitutes_for': self.designer.pk,
                 'date_from': self.today.isoformat(),
                 'date_to': (self.today + timedelta(days=7)).isoformat(),
@@ -249,9 +256,9 @@ class RoutingAndHistoryTests(SubstitutionTestCase):
         self.assertEqual(event.substitution_note, '')
 
     def test_the_profile_menu_names_the_lent_role_and_its_end(self):
-        substitution = self.lend(self.technologist, UserProfile.Role.KO)
+        substitution = self.lend(self.technologist, UserProfile.Role.KO_MP)
         self.client.force_login(self.technologist)
 
         page = self.client.get(reverse('acts:list'))
 
-        self.assertContains(page, f'ТО, замещает КО до {substitution.date_to:%d.%m}')
+        self.assertContains(page, f'ТО, замещает КО МП до {substitution.date_to:%d.%m}')

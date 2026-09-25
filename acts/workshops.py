@@ -17,6 +17,10 @@ from dataclasses import dataclass
 
 MP_SHOP = 'MP_SHOP'
 PIR_SHOP = 'PIR_SHOP'
+# «Цех ТР» — planned, not yet in use. Its code, profile and КО role («КО ТР»)
+# exist so introducing it is one step (see `PLANNED_WORKSHOP_PROFILES`), but it
+# is not an `ActDefect.Workshop` choice and the defect form does not offer it.
+TR_SHOP = 'TR_SHOP'
 
 # Every field of a defect the create/edit form may collect. A profile lists the
 # subset its workshop actually applies; the rest is cleared before persistence.
@@ -132,6 +136,26 @@ PIR_PROFILE = WorkshopProfile(
 WORKSHOP_PROFILES = {
     MP_SHOP: MP_PROFILE,
     PIR_SHOP: PIR_PROFILE,
+}
+
+# A template for «Цех ТР», deliberately *not* in `WORKSHOP_PROFILES`: nothing
+# offers, validates or stores it yet. The field set and defect types are the
+# ПиР ones as a starting point and must be confirmed before it goes live.
+# Introducing the workshop is: a `TR_SHOP` choice on `ActDefect.Workshop`
+# (with its migration), moving this profile into `WORKSHOP_PROFILES`, and
+# listing its defect type codes — «КО ТР» already decides `TR_SHOP` defects.
+TR_PROFILE = WorkshopProfile(
+    code=TR_SHOP,
+    label='Цех ТР',
+    fields=PIR_DEFECT_FIELDS,
+    required_fields=PIR_DEFECT_FIELDS,
+    defect_type_codes=PIR_DEFECT_TYPE_CODES,
+    legend='Цех',
+    detected_at_group='control',
+)
+
+PLANNED_WORKSHOP_PROFILES = {
+    TR_SHOP: TR_PROFILE,
 }
 
 # Every defect type any workshop may offer; the per-workshop set is what

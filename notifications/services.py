@@ -542,8 +542,15 @@ def _create_email_delivery(notification):
 
 
 def _recipients_for_event(event_type, act):
-    if event_type == Notification.EventType.ACT_SENT_TO_KO:
-        return _active_users_for_role(UserProfile.Role.KO)
+    if event_type in {
+        Notification.EventType.ACT_SENT_TO_KO,
+        Notification.EventType.ACT_RETURNED_TO_KO,
+    }:
+        # КО is per workshop: the КО of every цех the act has defects in.
+        from acts.permissions import ko_roles_for_act
+        from tasks.services import active_users_for_roles
+
+        return active_users_for_roles(ko_roles_for_act(act))
     if event_type in {Notification.EventType.ACT_SENT_TO_TO, Notification.EventType.ACT_RETURNED_TO_TO}:
         return _active_users_for_role(UserProfile.Role.TO)
     if event_type == Notification.EventType.ACT_SENT_TO_OTK:
@@ -552,8 +559,6 @@ def _recipients_for_event(event_type, act):
         return _active_users_for_role(UserProfile.Role.OTK)
     if event_type == Notification.EventType.ACT_RETURNED_TO_OTK:
         return _returned_otk_recipients(act)
-    if event_type == Notification.EventType.ACT_RETURNED_TO_KO:
-        return _active_users_for_role(UserProfile.Role.KO)
     if event_type == Notification.EventType.ACT_APPROVED:
         return get_act_participants(act)
     return []
@@ -613,7 +618,10 @@ def get_comment_participants(act):
     candidates = list(get_act_participants(act))
     status_code = getattr(act.status, 'code', '')
     if status_code == 'KO_REVIEW':
-        candidates.extend(_active_users_for_role(UserProfile.Role.KO))
+        from acts.permissions import ko_roles_for_act
+        from tasks.services import active_users_for_roles
+
+        candidates.extend(active_users_for_roles(ko_roles_for_act(act)))
     elif status_code == 'TO_ANALYSIS':
         candidates.extend(_active_users_for_role(UserProfile.Role.TO))
     elif status_code in {'CREATED_OTK', 'OTK_REVIEW'}:

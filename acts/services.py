@@ -32,7 +32,13 @@ from .permissions import (
     can_send_to_ko,
     can_view_act,
     creator_is_eligible_otk,
+    decidable_defects,
     is_act_admin,
+    is_decided_this_round,
+    KO_ROLES,
+    ko_roles_for_act,
+    ko_workshops,
+    pending_ko_roles,
     get_user_role,
     get_visible_acts_queryset,
     is_ko,
@@ -199,7 +205,11 @@ def _move_act_workflow_task(act, stage_name, user, *, reason):
     this module: `tasks.models` already imports `acts.models`.
     """
     from tasks.models import Task
-    from tasks.services import active_users_for_role, move_act_workflow_task
+    from tasks.services import (
+        active_users_for_role,
+        active_users_for_roles,
+        move_act_workflow_task,
+    )
 
     role_for_stage = {
         Task.WorkflowStage.KO_REVIEW: UserProfile.Role.KO,
@@ -221,6 +231,10 @@ def _move_act_workflow_task(act, stage_name, user, *, reason):
             assignees = [act.created_by]
         else:
             assignees = active_users_for_role(UserProfile.Role.OTK)
+    elif stage == Task.WorkflowStage.KO_REVIEW:
+        # КО is per workshop: the entry goes to the КО of every цех the act
+        # has defects in (and to the retired general КО, who decides all).
+        assignees = active_users_for_roles(ko_roles_for_act(act))
     else:
         assignees = active_users_for_role(role_for_stage[stage])
     return move_act_workflow_task(act, stage, assignees, created_by=user, reason=reason)
@@ -238,7 +252,9 @@ def send_to_ko(act, user):
         log_state['previous_status'] = _status_code_of(from_status)
         log_state['next_status'] = _status_code_of(to_status)
         act.status = to_status
-        act.save(update_fields=['status', 'updated_at'])
+        # A new КО round: decisions from an earlier one no longer count.
+        act.ko_round += 1
+        act.save(update_fields=['status', 'ko_round', 'updated_at'])
         add_act_history_event(
             act,
             user,
@@ -254,7 +270,7 @@ def send_to_ko(act, user):
 
 
 def apply_ko_decision(act, user, defect_decisions):
-    """Внести решение КО по каждому дефекту и передать акт в ТО.
+    """Внести решения КО по дефектам своего цеха; когда решены все — передать в ТО.
 
     `defect_decisions` — последовательность кортежей
     `(дефект, решение, комментарий, анализ)`, где `анализ` — словарь значений
@@ -262,16 +278,26 @@ def apply_ko_decision(act, user, defect_decisions):
     пустой словарь означает незаполненный анализ и допустим ровно там, где
     правило его не требует.
 
+    КО разделён по цехам (`acts.permissions.WORKSHOP_KO_ROLES`): каждый вносит
+    решения ровно по тем дефектам, которые ему принадлежат
+    (`decidable_defects()`), — не больше и не меньше. Руководитель,
+    администратор и прежняя общая роль КО решают все дефекты сразу, как и
+    раньше. Решение помечается раундом КО акта (`Act.ko_round`), и акт уходит
+    в ТО в той же транзакции, как только у каждого дефекта есть решение этого
+    раунда; до того он остаётся на рассмотрении КО, а задача этапа — за теми,
+    чьи дефекты ещё не решены.
+
     Анализ принадлежит дефекту, поэтому на устаревшем пути «решение на уровне
-    акта» (`дефект is None`, акт без дефектов) он не хранится и не требуется:
-    `Act` таких колонок не имеет, а форма требует минимум один дефект с тех
-    пор, как эта структура появилась.
+    акта» (`дефект is None`, акт без дефектов) он не хранится и не требуется.
     """
     with _workflow_logging('apply_ko_decision', act, user) as log_state, transaction.atomic():
         act = lock_act_for_update(act)
         if not can_apply_ko_decision(act, user):
             raise ActWorkflowError('Решение КО недоступно для вашей роли или текущего статуса.')
         _require_status(act, 'KO_REVIEW')
+        if not act.ko_round:
+            # An act that entered КО before rounds were counted.
+            act.ko_round = 1
         defect_decisions = list(defect_decisions)
         # Re-read the act's defects under lock and match submitted decisions by
         # primary key, so a decision aimed at another act's defect — or at a
@@ -282,12 +308,17 @@ def apply_ko_decision(act, user, defect_decisions):
                 defect.pk if defect is not None else None
                 for defect, _d, _c, _i in defect_decisions
             ]
-            if None in received_ids:
-                raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
-            if len(received_ids) != len(set(received_ids)):
-                raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
-            if set(received_ids) != set(current_defects):
-                raise ActWorkflowError('Необходимо внести решение КО по каждому дефекту.')
+            # Exactly the defects this user decides: a workshop КО answers for
+            # every defect of their цех, and for nothing else.
+            owned_ids = {defect.pk for defect in decidable_defects(act, user)}
+            if (
+                not owned_ids
+                or None in received_ids
+                or len(received_ids) != len(set(received_ids))
+                or set(received_ids) != owned_ids
+                or not owned_ids <= set(current_defects)
+            ):
+                raise ActWorkflowError('Необходимо внести решение КО по каждому своему дефекту.')
             # Replace any stale instance the caller passed with the locked one.
             defect_decisions = [
                 (current_defects[defect.pk], decision, comment, impact)
@@ -305,16 +336,53 @@ def apply_ko_decision(act, user, defect_decisions):
         # запрос в обход страницы получает тот же отказ.
         defect_decisions = _validated_quality_impacts(defect_decisions)
 
+        decided_at = timezone.now()
+        for defect, decision, comment, impact in defect_decisions:
+            if defect is not None:
+                defect.ko_decision = decision
+                defect.ko_comment = comment
+                defect.ko_decision_by = user
+                defect.ko_decision_at = decided_at
+                defect.ko_round = act.ko_round
+                for name, value in impact.items():
+                    setattr(defect, name, value)
+                defect.save(update_fields=[
+                    'ko_decision', 'ko_comment', 'ko_decision_by', 'ko_decision_at',
+                    'ko_round', *quality_impact.FIELDS, 'updated_at',
+                ])
+                message = f'Решение КО по дефекту «{defect.defect_type}»: {defect.get_ko_decision_display()}.'
+                checked = len(quality_impact.describe(impact))
+                if checked:
+                    message = f'{message} Анализ влияния отклонений: пунктов — {checked}.'
+            else:
+                message = f'Решение КО внесено: {Act.KoDecision(decision).label}.'
+            add_act_history_event(act, user, ActHistoryEvent.EventType.KO_DECISION_APPLIED, message)
+
+        # Every defect of the act, as the database now holds them, in its order.
+        all_defects = sorted(current_defects.values(), key=lambda item: (item.created_at, item.pk))
+        waiting = [defect for defect in all_defects if not is_decided_this_round(defect, act)]
+        log_state['act_id'] = act.pk
+        log_state['previous_status'] = _status_code_of(act.status)
+        if waiting:
+            # Another workshop's КО still owes a decision: the act stays here,
+            # and the stage entry keeps only the people it is still waiting on.
+            act.save(update_fields=['ko_round', 'updated_at'])
+            log_state['next_status'] = _status_code_of(act.status)
+            _narrow_ko_workflow_task(act, user)
+            # The other КО looking at the act see the decision appear.
+            emit_act_updated(act)
+            return act
+
         from_status = act.status
         to_status = _get_required_status('TO_ANALYSIS')
-        log_state['act_id'] = act.pk
-        log_state['previous_status'] = _status_code_of(from_status)
         log_state['next_status'] = _status_code_of(to_status)
-        first_defect, first_decision, first_comment, _first_impact = defect_decisions[0]
-        act.ko_decision = first_decision
-        act.ko_comment = first_comment
+        if all_defects:
+            first = all_defects[0]
+            act.ko_decision, act.ko_comment = first.ko_decision, first.ko_comment
+        else:
+            _none, act.ko_decision, act.ko_comment, _impact = defect_decisions[0]
         act.ko_decision_by = user
-        act.ko_decision_at = timezone.now()
+        act.ko_decision_at = decided_at
         act.status = to_status
         act.save(
             update_fields=[
@@ -322,29 +390,11 @@ def apply_ko_decision(act, user, defect_decisions):
                 'ko_comment',
                 'ko_decision_by',
                 'ko_decision_at',
+                'ko_round',
                 'status',
                 'updated_at',
             ]
         )
-        for defect, decision, comment, impact in defect_decisions:
-            if defect is not None:
-                defect.ko_decision = decision
-                defect.ko_comment = comment
-                defect.ko_decision_by = user
-                defect.ko_decision_at = act.ko_decision_at
-                for name, value in impact.items():
-                    setattr(defect, name, value)
-                defect.save(update_fields=[
-                    'ko_decision', 'ko_comment', 'ko_decision_by', 'ko_decision_at',
-                    *quality_impact.FIELDS, 'updated_at',
-                ])
-                message = f'Решение КО по дефекту «{defect.defect_type}»: {defect.get_ko_decision_display()}.'
-                checked = len(quality_impact.describe(impact))
-                if checked:
-                    message = f'{message} Анализ влияния отклонений: пунктов — {checked}.'
-            else:
-                message = f'Решение КО внесено: {act.get_ko_decision_display()}.'
-            add_act_history_event(act, user, ActHistoryEvent.EventType.KO_DECISION_APPLIED, message)
         add_act_history_event(
             act,
             user,
@@ -356,8 +406,40 @@ def apply_ko_decision(act, user, defect_decisions):
         _move_act_workflow_task(
             act, 'TO_ANALYSIS', user, reason='ko_decision_applied'
         )
-        _ensure_rejection_task(act, defect_decisions, user)
+        _ensure_rejection_task(
+            act,
+            [(defect, defect.ko_decision, defect.ko_comment, {}) for defect in all_defects]
+            or defect_decisions,
+            user,
+        )
     return act
+
+
+def _narrow_ko_workflow_task(act, user):
+    """Keep the open КО stage entry on the people whose defects still wait.
+
+    The КО who has just decided their share is taken off it — their part is
+    done — and nobody is ever left without work: if nobody would remain, the
+    entry is left as it is.
+    """
+    from tasks.models import Task
+    from tasks.services import active_users_for_roles, replace_task_assignees
+
+    task = (
+        Task.objects.filter(
+            act=act,
+            source_type=Task.SourceType.ACT_WORKFLOW,
+            workflow_stage=Task.WorkflowStage.KO_REVIEW,
+            status__code='IN_PROGRESS',
+        )
+        .order_by('-pk')
+        .first()
+    )
+    if task is None:
+        return
+    remaining = active_users_for_roles(pending_ko_roles(act))
+    if remaining:
+        replace_task_assignees(task, remaining, actor=user)
 
 
 def _validated_quality_impacts(defect_decisions):
@@ -593,7 +675,9 @@ def return_to_ko(act, user, return_comment):
         log_state['next_status'] = _status_code_of(to_status)
         add_act_comment(act, user, return_comment, notify=False)
         act.status = to_status
-        act.save(update_fields=['status', 'updated_at'])
+        # A new КО round: every defect is decided again.
+        act.ko_round += 1
+        act.save(update_fields=['status', 'ko_round', 'updated_at'])
         add_act_history_event(
             act,
             user,
@@ -784,17 +868,20 @@ def describe_acting_substitution(act, user, event_type, from_status=None):
         role = _STATUS_ROLES.get(getattr(status, 'code', ''))
     if role is None:
         return ''
-    if own_role == role:
+    # КО is any of the КО roles — the general one or a workshop one.
+    needed = KO_ROLES if role == UserProfile.Role.KO else (role,)
+    if own_role in needed:
         return ''
     # The stage's own role first; a lent «Руководитель» opens every stage too.
-    substitution = substitution_for(user, role) or substitution_for(
-        user, UserProfile.Role.MANAGER
-    )
+    substitution = next(
+        (found for found in (substitution_for(user, item) for item in needed) if found),
+        None,
+    ) or substitution_for(user, UserProfile.Role.MANAGER)
     if substitution is None:
         return ''
     if substitution.substitutes_for_id:
         return f'замещает {person_name(substitution.substitutes_for)}'[:200]
-    return f'по замещению: {substitution.get_role_display()}'[:200]
+    return f'по замещению: {substitution.role_label}'[:200]
 
 
 def add_act_history_event(
@@ -1123,7 +1210,11 @@ def get_role_context_text(user):
             'созданные вами акты на этапе ОТК и все акты, ожидающие итоговой проверки ОТК'
         )
     if is_ko(user):
-        parts.append('только акты, находящиеся на рассмотрении КО')
+        parts.append(
+            'только акты, находящиеся на рассмотрении КО'
+            if ko_workshops(user) is None
+            else 'только акты на рассмотрении КО с дефектами вашего цеха'
+        )
     if is_to(user):
         parts.append('только акты, находящиеся на анализе ТО')
     if len(parts) == 1:

@@ -57,7 +57,18 @@ class UserProfile(models.Model):
         """
 
         OTK = 'otk', 'ОТК'
+        # `KO` is retired in favour of the three workshop КО below: it stays in
+        # `choices` so the profiles that hold it keep working — deciding every
+        # defect, as before — until an administrator gives each of them their
+        # workshop role, but Admin no longer offers it (`RETIRED_ROLES`).
         KO = 'ko', 'КО'
+        # КО per workshop: each decides the defects of its own цех only
+        # (`acts.permissions.WORKSHOP_KO_ROLES`). «КО ТР» already exists for the
+        # planned «Цех ТР», whose workshop profile is a template not yet
+        # offered in the defect form, so today it has no defects to decide.
+        KO_MP = 'ko_mp', 'КО МП'
+        KO_TR = 'ko_tr', 'КО ТР'
+        KO_PIR = 'ko_pir', 'КО ЦПиР'
         TO = 'to', 'ТО'
         # Планово-диспетчерский отдел: owns the calculator's «Проработка»
         # journal. A first-class role like the others — never a department
@@ -155,12 +166,19 @@ class UserProfile(models.Model):
         return self.department.name if self.department else 'Без подразделения'
 
 
-# Roles a substitution may hand over. Everything but «Администратор»: the
+# Roles kept only so the profiles that already hold them stay valid. Admin does
+# not offer them for a new assignment (`accounts.admin.UserProfileAdminForm`),
+# and a substitution never lends one. Retire a role by listing it here, never
+# by deleting it from `choices`.
+RETIRED_ROLES = frozenset({UserProfile.Role.MAS, UserProfile.Role.KO})
+
+
+# Roles a substitution may hand over. Everything but «Администратор» — the
 # administrative role is given deliberately, in the profile, and never borrows
-# a vacation's end date.
+# a vacation's end date — and the retired roles.
 SUBSTITUTABLE_ROLES = tuple(
     (value, label) for value, label in UserProfile.Role.choices
-    if value != UserProfile.Role.ADMIN
+    if value != UserProfile.Role.ADMIN and value not in RETIRED_ROLES
 )
 
 
@@ -231,7 +249,7 @@ class RoleSubstitution(models.Model):
         ]
 
     def __str__(self):
-        return f'{self.user}: {self.get_role_display()} ({self.date_from:%d.%m.%Y}–{self.date_to:%d.%m.%Y})'
+        return f'{self.user}: {self.role_label} ({self.date_from:%d.%m.%Y}–{self.date_to:%d.%m.%Y})'
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -248,3 +266,11 @@ class RoleSubstitution(models.Model):
 
     def is_active_on(self, day):
         return self.date_from <= day <= self.date_to
+
+    @property
+    def role_label(self):
+        """The role's name, also for a retired role the form no longer offers."""
+        try:
+            return UserProfile.Role(self.role).label
+        except ValueError:
+            return self.role

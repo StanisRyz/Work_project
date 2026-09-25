@@ -2,7 +2,9 @@ from django.contrib import admin
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Department, RoleSubstitution, UserProfile
+from django import forms
+
+from .models import RETIRED_ROLES, Department, RoleSubstitution, UserProfile
 
 
 @admin.register(Department)
@@ -10,6 +12,31 @@ class DepartmentAdmin(admin.ModelAdmin):
     list_display = ('name', 'code', 'is_active', 'updated_at')
     search_fields = ('name', 'code')
     list_filter = ('is_active',)
+
+
+class UserProfileAdminForm(forms.ModelForm):
+    """The profile form, without the retired roles for a new assignment.
+
+    A profile that already holds a retired role (the general «КО», the old
+    «Мастер производства») keeps it on the list, so saving the profile for any
+    other reason does not force a change — the administrator moves it to the
+    new role when they decide to.
+    """
+
+    class Meta:
+        model = UserProfile
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        field = self.fields.get('role')
+        if field is None:
+            return
+        current = self.instance.role if self.instance and self.instance.pk else None
+        field.choices = [
+            (value, label) for value, label in field.choices
+            if value not in RETIRED_ROLES or value == current
+        ]
 
 
 @admin.register(UserProfile)
@@ -23,6 +50,7 @@ class UserProfileAdmin(admin.ModelAdmin):
     here takes effect on the next report with nothing to restart.
     """
 
+    form = UserProfileAdminForm
     list_display = (
         'user', 'role', 'department', 'position', 'is_active', 'is_bug_responsible',
     )

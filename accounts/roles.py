@@ -130,7 +130,7 @@ def describe_roles(user):
         if substitution.role == profile.role:
             continue
         parts.append(
-            f'замещает {substitution.get_role_display()} до {substitution.date_to:%d.%m}'
+            f'замещает {substitution.role_label} до {substitution.date_to:%d.%m}'
         )
     return ', '.join(parts)
 

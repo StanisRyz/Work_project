@@ -750,6 +750,9 @@ def create_act_workflow_task(act, stage, assignees, *, created_by, due_date=None
 SUBSTITUTABLE_WORKFLOW_STAGES = {
     'otk': (Task.WorkflowStage.OTK_REVIEW,),
     'ko': (Task.WorkflowStage.KO_REVIEW,),
+    'ko_mp': (Task.WorkflowStage.KO_REVIEW,),
+    'ko_tr': (Task.WorkflowStage.KO_REVIEW,),
+    'ko_pir': (Task.WorkflowStage.KO_REVIEW,),
     'to': (Task.WorkflowStage.TO_ANALYSIS,),
 }
 
@@ -778,8 +781,16 @@ def add_substitute_to_open_act_workflow_tasks(user, role, *, actor=None):
         .exclude(assignees__user=user)
         .order_by('pk')
     )
+    from acts.permissions import ko_roles_for_act
+
     added = 0
-    for task in tasks:
+    for task in tasks.select_related('act'):
+        if (
+            task.workflow_stage == Task.WorkflowStage.KO_REVIEW
+            and role not in ko_roles_for_act(task.act)
+        ):
+            # A workshop КО joins only the acts that have defects of their цех.
+            continue
         current = list(TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True))
         replace_task_assignees(task, [*current, user.pk], actor=actor)
         added += 1
@@ -809,6 +820,26 @@ def move_act_workflow_task(act, stage, assignees, *, created_by, reason='stage_c
     if stage is None:
         return None
     return create_act_workflow_task(act, stage, assignees, created_by=created_by)
+
+
+def active_users_for_roles(roles):
+    """Active holders of any of `roles`, each once, in a stable order."""
+    from django.contrib.auth import get_user_model
+    from django.db.models import Q
+
+    from accounts.roles import role_holders_q
+
+    condition = Q(pk__in=[])
+    for role in roles:
+        condition |= role_holders_q(role)
+    return list(
+        get_user_model()
+        .objects.select_related('userprofile__department')
+        .filter(is_active=True, userprofile__is_active=True)
+        .filter(condition)
+        .distinct()
+        .order_by('pk')
+    )
 
 
 def active_users_for_role(role):

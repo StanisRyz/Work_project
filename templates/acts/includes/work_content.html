@@ -41,7 +41,7 @@ user has no unsaved input; a dirty form is never touched.
         {% if not defect_decision_rows %}<p class="placeholder-text">Дефекты не добавлены.</p>{% endif %}
         <div class="act-defect-cards">
         {% for row in defect_decision_rows %}
-            <details class="act-defect-card"{% if available_actions.ko_decision %} open{% endif %} data-defect-card>
+            <details class="act-defect-card"{% if row.ko_form %} open{% endif %} data-defect-card>
                 <summary class="act-defect-card__header">
                     <svg class="ui-icon act-defect-card__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
                     <span class="act-defect-card__number">Дефект {{ forloop.counter }}</span>
@@ -61,7 +61,7 @@ user has no unsaved input; a dirty form is never touched.
                     вносят, авторитет у `select` в теле карточки, и бейдж рядом
                     с ним показывал бы устаревшее значение.
                     {% endcomment %}
-                    {% if not available_actions.ko_decision and row.defect.ko_decision %}<span class="act-badge act-badge--status act-defect-card__verdict">{{ row.defect.get_ko_decision_display }}</span>{% endif %}
+                    {% if row.ko_form %}{% elif row.ko_pending_label %}<span class="act-defect-card__meta act-defect-card__verdict">Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--status act-defect-card__verdict">{{ row.defect.get_ko_decision_display }}</span>{% endif %}
                 </summary>
                 <div class="act-defect-card__body">
                     <div class="act-defect-card__grid">
@@ -80,16 +80,22 @@ user has no unsaved input; a dirty form is never touched.
                     возвращаются в одну колонку.
                     {% endcomment %}
                     <div class="act-defect-card__work">
-                    {% if available_actions.ko_decision %}
+                    {% comment %}
+                    Редактируемая карточка — только у дефекта, который этот
+                    пользователь решает как КО (`row.ko_form`): КО цеха видит
+                    формы своих дефектов, а чужие — для чтения, с пометкой, чьё
+                    решение ещё ожидается.
+                    {% endcomment %}
+                    {% if row.ko_form %}
                         <div class="act-defect-card__decision">
-                            {% if row.ko_form %}{{ row.ko_form.id }}{% endif %}
+                            {{ row.ko_form.id }}
                             <label class="act-defect-card__field">
                                 <span class="act-defect-card__label">Решение КО</span>
-                                {% if row.ko_form %}{{ row.ko_form.ko_decision }}{{ row.ko_form.ko_decision.errors }}{% else %}{{ ko_decision_form.ko_decision }}{{ ko_decision_form.ko_decision.errors }}{% endif %}
+                                {{ row.ko_form.ko_decision }}{{ row.ko_form.ko_decision.errors }}
                             </label>
                             <label class="act-defect-card__field">
                                 <span class="act-defect-card__label">Комментарий КО</span>
-                                {% if row.ko_form %}{{ row.ko_form.ko_comment }}{{ row.ko_form.ko_comment.errors }}{% else %}{{ ko_decision_form.ko_comment }}{{ ko_decision_form.ko_comment.errors }}{% endif %}
+                                {{ row.ko_form.ko_comment }}{{ row.ko_form.ko_comment.errors }}
                             </label>
                         </div>
                         {% if row.ko_form %}
@@ -116,12 +122,12 @@ user has no unsaved input; a dirty form is never touched.
                         <div class="act-defect-card__decision act-defect-card__decision--readonly">
                             <div class="act-defect-card__field">
                                 <span class="act-defect-card__label">Решение КО</span>
-                                {% if row.defect.ko_decision %}<span class="act-badge act-badge--status">{{ row.defect.get_ko_decision_display }}</span>{% else %}<span>—</span>{% endif %}
+                                {% if row.ko_pending_label %}<span>Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--status">{{ row.defect.get_ko_decision_display }}</span>{% else %}<span>—</span>{% endif %}
                             </div>
-                            <div class="act-defect-card__field">
+                            {% if not row.ko_pending_label %}<div class="act-defect-card__field">
                                 <span class="act-defect-card__label">Комментарий КО</span>
                                 <p class="user-text">{{ row.defect.ko_comment|default:'—' }}</p>
-                            </div>
+                            </div>{% endif %}
                         </div>
                         {% comment %}
                         Блок анализа в режиме чтения показывается только там,
@@ -130,7 +136,7 @@ user has no unsaved input; a dirty form is never touched.
                         заполнялся, — пустой чек-лист выглядел бы как
                         сегодняшняя недоработка.
                         {% endcomment %}
-                        {% if row.impact_applies %}
+                        {% if row.impact_applies and not row.ko_pending_label %}
                         <div class="act-defect-card__impact act-defect-card__impact--readonly">
                             <span class="act-defect-card__label">Анализ влияния отклонений на качество изделия</span>
                             {% if row.impact %}
@@ -358,12 +364,17 @@ user has no unsaved input; a dirty form is never touched.
                 data-confirm-title="Утвердить акт"
                 data-confirm-text="Акт будет утверждён и перемещён в архив, по каждому мероприятию появится задача."
                 data-confirm-label="Утвердить">Утвердить</button>{% endif %}
-            {% if available_actions.ko_decision %}<button class="link-button" type="button" data-workflow-submit
+            {% if available_actions.ko_decision %}{% if ko_waiting_for_others %}<button class="link-button" type="button" data-workflow-submit
+                data-confirm
+                data-confirm-form="ko-decision-form"
+                data-confirm-title="Сохранить решения КО"
+                data-confirm-text="Решения по вашим дефектам будут сохранены. Акт перейдёт на анализ ТО, когда решения внесут: {{ ko_waiting_for_others }}."
+                data-confirm-label="Сохранить решения">Сохранить решения КО</button>{% else %}<button class="link-button" type="button" data-workflow-submit
                 data-confirm
                 data-confirm-form="ko-decision-form"
                 data-confirm-title="Передать акт в ТО"
                 data-confirm-text="Решения КО по всем дефектам будут сохранены, акт перейдёт на анализ ТО."
-                data-confirm-label="Передать в ТО">Передать в ТО</button>{% endif %}
+                data-confirm-label="Передать в ТО">Передать в ТО</button>{% endif %}{% endif %}
             {% if available_actions.send_to_ko %}<button class="link-button" type="button" data-workflow-submit
                 data-confirm
                 data-confirm-url="{% url 'acts:send_to_ko' act.pk %}"

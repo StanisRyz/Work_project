@@ -188,6 +188,12 @@ class Act(models.Model):
         verbose_name='Решение КО внес',
     )
     ko_decision_at = models.DateTimeField('Дата решения КО', blank=True, null=True)
+    # Which КО round the act is in: incremented every time it enters
+    # `KO_REVIEW` (sent from ОТК, or returned from ТО). With several КО — one
+    # per workshop — each saves the decisions for its own defects, and the act
+    # moves on to ТО once every defect carries a decision *of this round*
+    # (`ActDefect.ko_round`), so an earlier round's decision never counts.
+    ko_round = models.PositiveIntegerField('Раунд решения КО', default=0)
     to_root_cause = models.TextField('Корневая причина', blank=True)
     to_action_summary = models.TextField('Предлагаемые мероприятия', blank=True)
     to_analysis_by = models.ForeignKey(
@@ -292,6 +298,8 @@ class ActDefect(models.Model):
         verbose_name='Решение КО внес',
     )
     ko_decision_at = models.DateTimeField('Дата решения КО', blank=True, null=True)
+    # The КО round (`Act.ko_round`) this decision was made in. 0 — never.
+    ko_round = models.PositiveIntegerField('Раунд решения КО', default=0)
     # «Анализ влияния отклонений на качество изделия» — раздел 1 акта, изм.2.
     # Обоснование, которым КО сопровождает разрешающее решение: шесть пунктов
     # чек-листа, три из которых несут собственные значения. Состав, порядок и
