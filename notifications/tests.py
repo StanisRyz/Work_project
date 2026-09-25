@@ -361,6 +361,27 @@ class NotificationViewTests(NotificationTestMixin, TestCase):
         self.assertTrue(second.is_read)
         self.assertFalse(other.is_read)
 
+    def test_marking_one_read_returns_to_the_same_page_and_filter(self):
+        notification = self.create_notification(self.otk, 'page three')
+        self.client.force_login(self.otk)
+
+        response = self.client.post(
+            reverse('notifications:mark_read', args=[notification.pk]),
+            {'filter': 'unread', 'page': '3'},
+        )
+        self.assertRedirects(
+            response, f"{reverse('notifications:list')}?filter=unread&page=3",
+            fetch_redirect_response=False,
+        )
+
+        forged = self.client.post(
+            reverse('notifications:mark_read', args=[notification.pk]),
+            {'filter': 'https://evil.example', 'page': '//evil.example'},
+        )
+        self.assertRedirects(
+            forged, reverse('notifications:list'), fetch_redirect_response=False
+        )
+
     def test_notifications_are_paginated(self):
         for index in range(22):
             self.create_notification(self.otk, f'page-{index}')

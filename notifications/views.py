@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 from django.views.decorators.http import require_GET, require_POST
 
 from realtime.auth import realtime_login_required
@@ -15,6 +16,10 @@ from .services import (
     get_notification_header_state,
     mark_notifications_read,
 )
+
+
+# More than the bell ever shows at once; see `mark_notifications_read_bulk`.
+MAX_BULK_IDS = 200
 
 
 @login_required
@@ -79,10 +84,17 @@ def notification_header_fragment(request):
 def mark_notification_read(request, pk):
     notification = get_object_or_404(Notification, pk=pk, recipient=request.user)
     mark_notifications_read(request.user, scope='single', notification_ids=[notification.pk])
-    selected_filter = request.POST.get('filter')
-    if selected_filter == 'unread':
-        return redirect(f"{reverse('notifications:list')}?filter=unread")
-    return redirect('notifications:list')
+    # Back to the page the button was on, not to page 1. Both values are
+    # re-validated rather than echoed: the filter is one of two words and the
+    # page a positive number, so nothing from the body reaches the URL as is.
+    query = {}
+    if request.POST.get('filter') == 'unread':
+        query['filter'] = 'unread'
+    page = request.POST.get('page', '')
+    if page.isdigit() and int(page) > 1:
+        query['page'] = int(page)
+    url = reverse('notifications:list')
+    return redirect(f'{url}?{urlencode(query)}' if query else url)
 
 
 @login_required
@@ -96,7 +108,9 @@ def mark_all_notifications_read(request):
 @require_POST
 def mark_notifications_read_bulk(request):
     ids = []
-    for raw_id in request.POST.getlist('ids'):
+    # The bell shows a handful of rows; a body with thousands of ids is not
+    # one it sent, and it must not become a thousand-parameter query.
+    for raw_id in request.POST.getlist('ids')[:MAX_BULK_IDS]:
         try:
             ids.append(int(raw_id))
         except (TypeError, ValueError):

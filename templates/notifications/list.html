@@ -41,6 +41,7 @@
                 <form method="post" action="{% url 'notifications:mark_read' notification.pk %}">
                     {% csrf_token %}
                     <input type="hidden" name="filter" value="{{ selected_filter }}">
+                    <input type="hidden" name="page" value="{{ page_obj.number }}">
                     <button class="link-button link-button--muted" type="submit">Прочитано</button>
                 </form>
                 {% endif %}
