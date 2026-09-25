@@ -53,7 +53,8 @@
 
 - [Перенос данных из SQLite в PostgreSQL](archive/postgresql_migration.md);
 - [Репетиция переноса SQLite → PostgreSQL](archive/postgresql_rehearsal.md);
-- [Производительность real-time](archive/realtime_performance.md).
+- [Производительность real-time](archive/realtime_performance.md);
+- [Аудит репозитория 25.09.2026](archive/audit_2026-09-25.md).
 
 ## Проверка документации
 

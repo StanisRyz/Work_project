@@ -19,6 +19,7 @@
 | [Перенос данных из SQLite в PostgreSQL](postgresql_migration.md) | описывает команды приложения `maintenance` (`export_migration_bundle`, `import_migration_bundle`, `verify_migration_bundle` и другие), которые остаются в коде |
 | [Репетиция переноса SQLite → PostgreSQL](postgresql_rehearsal.md) | описывает `scripts/run_postgresql_rehearsal.py` и чтение его отчёта |
 | [Производительность real-time](realtime_performance.md) | методика измерений и назначение команд `profile_realtime_sync`, `seed_performance_dataset`, `check_sse_db_connections` |
+| [Аудит репозитория 25.09.2026](audit_2026-09-25.md) | найденные несоответствия по критичности, что исправлено и что оставлено рекомендацией |
 
 ## Чем архив не является
 

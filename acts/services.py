@@ -31,6 +31,7 @@ from .permissions import (
     can_add_attachment,
     can_send_to_ko,
     can_view_act,
+    creator_is_eligible_otk,
     is_act_admin,
     get_user_role,
     get_visible_acts_queryset,
@@ -210,15 +211,12 @@ def _move_act_workflow_task(act, stage_name, user, *, reason):
         # author may send it on again — so the rework queue entry is theirs,
         # not the whole department's. An author who lost the role or the
         # account falls back to ОТК at large, so the act is never stranded.
-        creator = act.created_by
-        profile = getattr(creator, 'userprofile', None)
-        usable = bool(
-            creator.is_active
-            and profile is not None
-            and profile.is_active
-            and profile.role == UserProfile.Role.OTK
-        )
-        assignees = [creator] if usable else active_users_for_role(UserProfile.Role.OTK)
+        # `creator_is_eligible_otk()` is the one statement of that rule, shared
+        # with the permissions and the notification routing.
+        if creator_is_eligible_otk(act):
+            assignees = [act.created_by]
+        else:
+            assignees = active_users_for_role(UserProfile.Role.OTK)
     else:
         assignees = active_users_for_role(role_for_stage[stage])
     return move_act_workflow_task(act, stage, assignees, created_by=user, reason=reason)
