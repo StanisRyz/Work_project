@@ -153,3 +153,98 @@ class UserProfile(models.Model):
     @property
     def department_label(self):
         return self.department.name if self.department else 'Без подразделения'
+
+
+# Roles a substitution may hand over. Everything but «Администратор»: the
+# administrative role is given deliberately, in the profile, and never borrows
+# a vacation's end date.
+SUBSTITUTABLE_ROLES = tuple(
+    (value, label) for value, label in UserProfile.Role.choices
+    if value != UserProfile.Role.ADMIN
+)
+
+
+class RoleSubstitution(models.Model):
+    """«Замещение»: a role lent to a user for a period, on top of their own.
+
+    A technologist covering a designer's vacation gets КО from `date_from` to
+    `date_to` inclusive and keeps being ТО the whole time: rights are only
+    ever *added*, and the person being replaced loses nothing. Every
+    permission in the project asks `accounts.roles.get_user_roles()`, which is
+    the profile role plus the substitutions in force today — so nothing has to
+    be undone when the period ends, it simply stops counting.
+
+    Set in Django Admin, like roles themselves. The tasks already assigned to
+    the person being replaced do not move: a substitution lends a role, not
+    somebody's personal work.
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='role_substitutions',
+        verbose_name='Сотрудник',
+    )
+    role = models.CharField('Дополнительная роль', max_length=20, choices=SUBSTITUTABLE_ROLES)
+    # Whom the user stands in for. Optional — a role can be lent without
+    # naming anybody — and kept only to say so in the header and in the act
+    # history; it grants nothing and takes nothing from that person.
+    substitutes_for = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='substituted_by',
+        verbose_name='Замещает',
+        blank=True,
+        null=True,
+    )
+    date_from = models.DateField('С')
+    date_to = models.DateField('По (включительно)')
+    reason = models.CharField('Основание', max_length=200, blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        verbose_name='Кто назначил',
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date_from', 'pk']
+        verbose_name = 'Замещение (дополнительная роль)'
+        verbose_name_plural = 'Замещения (дополнительные роли)'
+        indexes = [
+            models.Index(fields=['user', 'date_from', 'date_to'], name='role_subst_user_dates'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(date_to__gte=models.F('date_from')),
+                name='role_substitution_period_is_ordered',
+            ),
+            # Admin's form offers no «Администратор», and this is what keeps a
+            # hand-written row from lending it anyway.
+            models.CheckConstraint(
+                condition=~models.Q(role='admin'),
+                name='role_substitution_never_admin',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.user}: {self.get_role_display()} ({self.date_from:%d.%m.%Y}–{self.date_to:%d.%m.%Y})'
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        errors = {}
+        if self.date_from and self.date_to and self.date_to < self.date_from:
+            errors['date_to'] = 'Дата окончания не может быть раньше даты начала.'
+        if self.role == UserProfile.Role.ADMIN:
+            errors['role'] = 'Роль «Администратор» не передаётся замещением.'
+        if self.substitutes_for_id and self.substitutes_for_id == self.user_id:
+            errors['substitutes_for'] = 'Сотрудник не может замещать сам себя.'
+        if errors:
+            raise ValidationError(errors)
+
+    def is_active_on(self, day):
+        return self.date_from <= day <= self.date_to

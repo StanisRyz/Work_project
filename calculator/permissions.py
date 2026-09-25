@@ -32,4 +32,7 @@ def can_manage_workup(user):
     # An inactive profile grants no application role anywhere in this project.
     if profile.pk is None or not profile.is_active:
         return False
-    return profile.role in MANAGING_ROLES
+    # The profile's role or one lent by a substitution in force today.
+    from accounts.roles import has_any_role
+
+    return has_any_role(user, MANAGING_ROLES)

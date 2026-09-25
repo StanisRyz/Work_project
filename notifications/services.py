@@ -577,10 +577,15 @@ def _returned_otk_recipients(act):
 
 
 def _active_users_for_role(role):
-    return get_user_model().objects.select_related('userprofile').filter(
-        is_active=True,
-        userprofile__is_active=True,
-        userprofile__role=role,
+    # Holders today: the profile's own role or one lent by a substitution —
+    # `accounts.roles.role_holders_q()`, the same answer the permissions give.
+    from accounts.roles import role_holders_q
+
+    return (
+        get_user_model().objects.select_related('userprofile')
+        .filter(is_active=True, userprofile__is_active=True)
+        .filter(role_holders_q(role))
+        .distinct()
     )
 
 

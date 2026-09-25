@@ -35,6 +35,10 @@ from .permissions import (
     is_act_admin,
     get_user_role,
     get_visible_acts_queryset,
+    is_ko,
+    is_manager,
+    is_otk,
+    is_to,
 )
 
 
@@ -735,6 +739,64 @@ def _validate_corrective_actions_for_approval(corrective_actions):
                 raise ActWorkflowError('Исполнитель должен быть активен.')
 
 
+# The role a step of the route is taken in. Transitions name it by their
+# event; a comment, a file or an edit belongs to the stage the act is in.
+_EVENT_ROLES = {
+    ActHistoryEvent.EventType.CREATED: UserProfile.Role.OTK,
+    ActHistoryEvent.EventType.SENT_TO_KO: UserProfile.Role.OTK,
+    ActHistoryEvent.EventType.ACT_EDITED: UserProfile.Role.OTK,
+    ActHistoryEvent.EventType.RETURNED_TO_TO: UserProfile.Role.OTK,
+    ActHistoryEvent.EventType.APPROVED: UserProfile.Role.OTK,
+    ActHistoryEvent.EventType.KO_DECISION_APPLIED: UserProfile.Role.KO,
+    ActHistoryEvent.EventType.SENT_TO_TO: UserProfile.Role.KO,
+    ActHistoryEvent.EventType.RETURNED_TO_OTK: UserProfile.Role.KO,
+    ActHistoryEvent.EventType.TO_ANALYSIS_APPLIED: UserProfile.Role.TO,
+    ActHistoryEvent.EventType.RETURNED_TO_KO: UserProfile.Role.TO,
+    ActHistoryEvent.EventType.ACT_CLOSED: UserProfile.Role.TO,
+}
+_STATUS_ROLES = {
+    'CREATED_OTK': UserProfile.Role.OTK,
+    'OTK_REVIEW': UserProfile.Role.OTK,
+    'KO_REVIEW': UserProfile.Role.KO,
+    'TO_ANALYSIS': UserProfile.Role.TO,
+    'ACTIONS_ASSIGNED': UserProfile.Role.TO,
+}
+
+
+def describe_acting_substitution(act, user, event_type, from_status=None):
+    """«замещает Иванова И. И.», if `user` took this step in a lent role.
+
+    Empty when the user holds the needed role themselves, and for a
+    руководитель or администратор — they act on every stage in their own
+    right. The text is stored on the event, so it survives the substitution.
+    """
+    from accounts.roles import substitution_for
+    from accounts.templatetags.people import person_name
+
+    if not getattr(user, 'is_authenticated', False):
+        return ''
+    own_role = get_user_role(user)
+    if is_act_admin(user) or own_role == UserProfile.Role.MANAGER:
+        return ''
+    role = _EVENT_ROLES.get(event_type)
+    if role is None:
+        status = from_status or getattr(act, 'status', None)
+        role = _STATUS_ROLES.get(getattr(status, 'code', ''))
+    if role is None:
+        return ''
+    if own_role == role:
+        return ''
+    # The stage's own role first; a lent «Руководитель» opens every stage too.
+    substitution = substitution_for(user, role) or substitution_for(
+        user, UserProfile.Role.MANAGER
+    )
+    if substitution is None:
+        return ''
+    if substitution.substitutes_for_id:
+        return f'замещает {person_name(substitution.substitutes_for)}'[:200]
+    return f'по замещению: {substitution.get_role_display()}'[:200]
+
+
 def add_act_history_event(
     act,
     user,
@@ -749,6 +811,7 @@ def add_act_history_event(
         user=user if getattr(user, 'is_authenticated', False) else None,
         event_type=event_type,
         message=message,
+        substitution_note=describe_acting_substitution(act, user, event_type, from_status),
         from_status=from_status,
         to_status=to_status,
     )
@@ -1051,19 +1114,23 @@ def get_role_context_text(user):
             'Администратор: показаны все акты на всех этапах. Доступны все действия, '
             'разрешённые текущим статусом акта.'
         )
-    role = get_user_role(user)
-    if role == 'otk':
-        return (
-            'Показаны созданные вами акты на этапе ОТК и все акты, '
-            'ожидающие итоговой проверки ОТК.'
-        )
-    if role == 'ko':
-        return 'Показаны только акты, находящиеся на рассмотрении КО.'
-    if role == 'to':
-        return 'Показаны только акты, находящиеся на анализе ТО.'
-    if role == 'manager':
+    if is_manager(user):
         return 'Показаны все акты.'
-    if role == UserProfile.Role.MAS:
+    # Several at once when a substitution lends a role: the queue is their union.
+    parts = []
+    if is_otk(user):
+        parts.append(
+            'созданные вами акты на этапе ОТК и все акты, ожидающие итоговой проверки ОТК'
+        )
+    if is_ko(user):
+        parts.append('только акты, находящиеся на рассмотрении КО')
+    if is_to(user):
+        parts.append('только акты, находящиеся на анализе ТО')
+    if len(parts) == 1:
+        return f'Показаны {parts[0]}.'
+    if parts:
+        return 'Показаны ' + '; '.join(part.removeprefix('только ') for part in parts) + '.'
+    if get_user_role(user) == UserProfile.Role.MAS:
         return 'Акты доступны для чтения во вкладках «Все акты» и «Архив».'
     return 'Для пользователя без роли список актов недоступен.'
 

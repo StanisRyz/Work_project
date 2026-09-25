@@ -185,7 +185,7 @@
                             <tr>
                                 <td>{{ event.created_at|date:'d.m.Y H:i' }}</td>
                                 <td>{{ event.get_event_type_display }}</td>
-                                <td>{{ event.user.get_full_name|default:event.user.username|default:'Система' }}</td>
+                                <td>{{ event.user.get_full_name|default:event.user.username|default:'Система' }}{% if event.substitution_note %} ({{ event.substitution_note }}){% endif %}</td>
                                 <td>{{ event.message }}</td>
                             </tr>
                         {% endfor %}

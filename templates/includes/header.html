@@ -1,4 +1,4 @@
-{% load static %}
+{% load static people %}
 <header class="topbar">
     <a class="topbar__brand" href="{% url 'dashboard:home' %}" aria-label="Экосистема качества, главная">
         <img class="topbar__logo" src="{% static 'images/quality-ecosystem-logo.png' %}" alt="">
@@ -56,7 +56,7 @@
         <details class="profile-menu">
             <summary aria-label="Открыть меню профиля">
                 <span class="profile-menu__avatar">{{ user.first_name|first|default:user.username|first|upper }}{{ user.last_name|first|upper }}</span>
-                <span class="profile-menu__identity"><strong>{{ user.get_full_name|default:user.username }}</strong><small>{% if user.userprofile %}{{ user.userprofile.role_label }}{% endif %}</small></span>
+                <span class="profile-menu__identity"><strong>{{ user.get_full_name|default:user.username }}</strong>{% with role_text=user|role_summary %}<small title="{{ role_text }}">{{ role_text }}</small>{% endwith %}</span>
                 {# Same stroked chevron as the assignee dropdown inside a task. #}
                 <svg class="ui-icon profile-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
             </summary>

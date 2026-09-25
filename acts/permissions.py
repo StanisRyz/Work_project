@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 
 from accounts.models import UserProfile
+from accounts.roles import get_user_roles, has_role, role_holders_q
 
 from .models import Act
 
@@ -20,20 +21,27 @@ def get_user_profile(user):
 
 
 def get_user_role(user):
+    """The profile's own role — for display. Rights ask `get_user_roles()`."""
     profile = get_user_profile(user)
     return profile.role if profile else ''
 
 
+# Every `is_*()` below asks the roles a user holds *today*: the profile's own
+# plus any lent by a `RoleSubstitution` («замещение»). A technologist covering
+# a designer is `is_to()` and `is_ko()` at once, so every rule written as
+# «if is_otk … if is_ko …» must treat the roles as a union, never as a choice.
+
+
 def is_otk(user):
-    return get_user_role(user) == UserProfile.Role.OTK
+    return has_role(user, UserProfile.Role.OTK)
 
 
 def is_ko(user):
-    return get_user_role(user) == UserProfile.Role.KO
+    return has_role(user, UserProfile.Role.KO)
 
 
 def is_to(user):
-    return get_user_role(user) == UserProfile.Role.TO
+    return has_role(user, UserProfile.Role.TO)
 
 
 def is_smk(user):
@@ -43,11 +51,11 @@ def is_smk(user):
     means something. It lives here so no module invents a second way of
     asking what role a user has.
     """
-    return get_user_role(user) == UserProfile.Role.SMK
+    return has_role(user, UserProfile.Role.SMK)
 
 
 def is_manager(user):
-    return get_user_role(user) == UserProfile.Role.MANAGER
+    return has_role(user, UserProfile.Role.MANAGER)
 
 
 def is_admin(user):
@@ -101,12 +109,10 @@ def creator_is_eligible_otk(act):
     creator = getattr(act, 'created_by', None)
     if creator is None or not creator.is_active:
         return False
-    profile = getattr(creator, 'userprofile', None)
-    return bool(
-        profile is not None
-        and profile.is_active
-        and profile.role == UserProfile.Role.OTK
-    )
+    # ОТК held today, own or lent: an author who created the act while
+    # substituting stops being «the author who is still there» when the
+    # substitution ends, and the act is then open to ОТК at large.
+    return UserProfile.Role.OTK in get_user_roles(creator)
 
 
 def _eligible_otk_creator_filter():
@@ -114,8 +120,7 @@ def _eligible_otk_creator_filter():
     return Q(
         created_by__is_active=True,
         created_by__userprofile__is_active=True,
-        created_by__userprofile__role=UserProfile.Role.OTK,
-    )
+    ) & role_holders_q(UserProfile.Role.OTK, prefix='created_by__')
 
 
 def can_work_on_created_otk_act(act, user):
@@ -164,20 +169,25 @@ def can_contribute_to_act(act, user):
         return False
     if has_full_act_access(user):
         return True
+    status = _status_code(act)
+    # A union, not a choice: a user may hold several roles at once through a
+    # substitution, and each one opens its own stage.
     if is_otk(user):
         # `OTK_REVIEW` is the department's queue, not the author's: any active
         # ОТК employee reviews, returns and approves it. `CREATED_OTK` stays
         # the creator's own act — unless the creator is no longer an eligible
         # ОТК employee, which would otherwise leave a returned act stranded.
-        if _status_code(act) == 'OTK_REVIEW':
+        if status == 'OTK_REVIEW':
             return True
-        return _status_code(act) == 'CREATED_OTK' and can_work_on_created_otk_act(act, user)
-    if is_ko(user):
-        return _status_code(act) == 'KO_REVIEW'
-    if is_to(user):
-        return _status_code(act) == 'TO_ANALYSIS' or (
-            _status_code(act) == 'ACTIONS_ASSIGNED' and act.to_analysis_by_id == user.id
-        )
+        if status == 'CREATED_OTK' and can_work_on_created_otk_act(act, user):
+            return True
+    if is_ko(user) and status == 'KO_REVIEW':
+        return True
+    if is_to(user) and (
+        status == 'TO_ANALYSIS'
+        or (status == 'ACTIONS_ASSIGNED' and act.to_analysis_by_id == user.id)
+    ):
+        return True
     return False
 
 
@@ -274,23 +284,25 @@ def get_visible_acts_queryset(user):
     )
     if has_full_act_access(user):
         return queryset
+    # One condition per role held today, OR-ed: a substitute works both queues.
+    condition = Q(pk__in=[])
     if is_otk(user):
         # Own acts still waiting to be sent to КО — plus any `CREATED_OTK` act
         # whose author is no longer an eligible ОТК employee, which nobody
         # else could otherwise pick up — plus every act the route brought back
         # for the final review, a queue that belongs to the department.
-        created_otk = Q(status__code='CREATED_OTK') & (
-            Q(created_by=user) | ~_eligible_otk_creator_filter()
-        )
-        return queryset.filter(created_otk | Q(status__code='OTK_REVIEW'))
+        eligible_authors = Act.objects.filter(_eligible_otk_creator_filter()).values('pk')
+        condition |= (
+            Q(status__code='CREATED_OTK')
+            & (Q(created_by=user) | ~Q(pk__in=eligible_authors))
+        ) | Q(status__code='OTK_REVIEW')
     if is_ko(user):
-        return queryset.filter(status__code='KO_REVIEW')
+        condition |= Q(status__code='KO_REVIEW')
     if is_to(user):
-        return queryset.filter(status__code='TO_ANALYSIS') | queryset.filter(
-            status__code='ACTIONS_ASSIGNED',
-            to_analysis_by=user,
+        condition |= Q(status__code='TO_ANALYSIS') | Q(
+            status__code='ACTIONS_ASSIGNED', to_analysis_by=user,
         )
-    return queryset.none()
+    return queryset.filter(condition)
 
 
 def get_archived_acts_queryset(user):
@@ -335,8 +347,12 @@ def get_full_act_access_users_queryset():
         .objects.filter(is_active=True, userprofile__is_active=True)
         .filter(
             Q(is_superuser=True)
-            | Q(userprofile__role__in=[UserProfile.Role.ADMIN, UserProfile.Role.MANAGER])
+            | Q(userprofile__role=UserProfile.Role.ADMIN)
+            # A lent «Руководитель» is full access too, exactly as
+            # `is_manager()` answers it; «Администратор» is never lent.
+            | role_holders_q(UserProfile.Role.MANAGER)
         )
+        .distinct()
     )
 
 

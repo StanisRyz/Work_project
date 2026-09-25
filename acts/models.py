@@ -523,6 +523,12 @@ class ActHistoryEvent(models.Model):
     )
     event_type = models.CharField('Тип события', max_length=40, choices=EventType.choices)
     message = models.TextField('Сообщение')
+    # «замещает Иванова И. И.» when the actor held the role this step needed
+    # only through a `RoleSubstitution`. A snapshot, written with the event and
+    # never recomputed: the substitution ends, the account may be renamed, and
+    # the act must keep saying on what grounds the step was taken. Empty for
+    # everybody acting in their own role.
+    substitution_note = models.CharField('Основание (замещение)', max_length=200, blank=True)
     from_status = models.ForeignKey(
         ActStatus,
         on_delete=models.SET_NULL,

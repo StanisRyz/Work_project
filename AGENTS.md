@@ -1261,6 +1261,28 @@ tasks never live inside `acts`.
   organisational only. Руководитель and администратор are shown a task-type
   step at `tasks:create`; an СМК user, having one kind, is redirected straight
   to the form.
+- **A role can be lent for a period, and only ever added.**
+  `accounts.RoleSubstitution` («Замещения», Django Admin only) gives a user a
+  second role from `date_from` to `date_to` inclusive — a technologist covering
+  a designer's vacation is ТО *and* КО until the end date, then just ТО again,
+  with nothing to undo. `accounts/roles.py` is the one answer to «which roles
+  does this user hold today»: `get_user_roles()`/`has_role()`/`has_any_role()`
+  in Python and `role_holders_q()` as a filter, used by every `is_*()` helper in
+  `acts.permissions`, by `calculator`/`plate_cutting`/`documents` permissions
+  and by the role-routed querysets (`tasks.services.active_users_for_role()`,
+  the notification routing). Never compare `profile.role` in a permission
+  again — `get_user_role()` is the profile's own role for display only. A user
+  may hold several roles, so a rule written as `if is_otk … if is_ko …` must
+  OR them (see `can_contribute_to_act()`, `get_visible_acts_queryset()`),
+  never return on the first match. «Администратор» is never lent
+  (`role_substitution_never_admin`), the person replaced loses nothing, an
+  inactive account or profile holds no role at all, and personal tasks never
+  move — only the open `ACT_WORKFLOW` entries of the lent role's stage gain the
+  substitute when a substitution in force today is saved
+  (`tasks.services.add_substitute_to_open_act_workflow_tasks()`). The act
+  history stores the grounds with the event (`ActHistoryEvent.substitution_note`,
+  «замещает Иванова И. И.»), and the profile menu shows «ТО, замещает КО до
+  10.10» through `people.role_summary`.
 - **`OPR`, `OZK`, `LAB`, `SKL`, `FEO` are roles that grant nothing.** «Отдел
   продаж», «Отдел закупок», «Лаборатория», «Склад» and «ФЭО» exist so an
   employee can be labelled with the department they work in; not one

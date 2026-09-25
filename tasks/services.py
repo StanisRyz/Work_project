@@ -745,6 +745,58 @@ def create_act_workflow_task(act, stage, assignees, *, created_by, due_date=None
     return _save_new_task(task, sorted({user.pk for user in assignees}), actor=created_by)
 
 
+# Which open routing entries a role lent by a substitution joins. `OTK_REWORK`
+# is not here: it belongs to the act's author, not to ОТК at large.
+SUBSTITUTABLE_WORKFLOW_STAGES = {
+    'otk': (Task.WorkflowStage.OTK_REVIEW,),
+    'ko': (Task.WorkflowStage.KO_REVIEW,),
+    'to': (Task.WorkflowStage.TO_ANALYSIS,),
+}
+
+
+def add_substitute_to_open_act_workflow_tasks(user, role, *, actor=None):
+    """Put a substitute on the act-stage entries their lent role already has.
+
+    A routing task is assigned when the act enters a stage, to whoever holds
+    the role *then*; a substitution that starts while acts are already waiting
+    would otherwise leave those entries out of the substitute's «Мои задачи»
+    even though they may act on the acts themselves. Only open `ACT_WORKFLOW`
+    entries of the matching stage, and only by adding — nobody is taken off.
+    Personal work (corrective actions, protocol and СМК tasks) is never moved:
+    a substitution lends a role, not somebody's tasks. Returns how many tasks
+    gained the user.
+    """
+    stages = SUBSTITUTABLE_WORKFLOW_STAGES.get(role, ())
+    if not stages:
+        return 0
+    tasks = (
+        Task.objects.filter(
+            source_type=Task.SourceType.ACT_WORKFLOW,
+            workflow_stage__in=stages,
+            status__code='IN_PROGRESS',
+        )
+        .exclude(assignees__user=user)
+        .order_by('pk')
+    )
+    added = 0
+    for task in tasks:
+        current = list(TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True))
+        replace_task_assignees(task, [*current, user.pk], actor=actor)
+        added += 1
+    if added:
+        log_event(
+            logger,
+            'INFO',
+            'task.substitute_added',
+            user_id=user.pk,
+            role=role,
+            task_count=added,
+            actor_user_id=_pk_of(actor),
+            outcome='ok',
+        )
+    return added
+
+
 def move_act_workflow_task(act, stage, assignees, *, created_by, reason='stage_changed'):
     """Close the act's current routing task and open the next one, in order.
 
@@ -768,10 +820,15 @@ def active_users_for_role(role):
     """
     from django.contrib.auth import get_user_model
 
+    from accounts.roles import role_holders_q
+
+    # The profile's own role or one lent by a substitution in force today.
     return list(
         get_user_model()
         .objects.select_related('userprofile__department')
-        .filter(is_active=True, userprofile__is_active=True, userprofile__role=role)
+        .filter(is_active=True, userprofile__is_active=True)
+        .filter(role_holders_q(role))
+        .distinct()
         .order_by('pk')
     )
 

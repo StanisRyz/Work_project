@@ -47,3 +47,18 @@ def person_initials(user):
     if len(parts) >= 2:
         return (parts[0][:1] + parts[1][:1]).upper()
     return name[:2].upper()
+
+
+@register.filter
+def role_summary(user):
+    """«ТО, замещает КО до 10.10» — the role and what is lent today.
+
+    For the profile menu: the substitute sees, on every page, that they are
+    working with someone else's role and until when. Presentation only — the
+    rights themselves come from `accounts.roles`, which this merely describes.
+    """
+    from accounts.roles import describe_roles
+
+    if user is None or not getattr(user, 'is_authenticated', False):
+        return ''
+    return describe_roles(user)

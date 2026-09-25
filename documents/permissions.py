@@ -18,6 +18,7 @@ uses the same helpers only to decide which buttons to draw.
 """
 
 from accounts.models import UserProfile
+from accounts.roles import has_any_role
 
 from .models import CORPORATE_FOLDER_CODE
 
@@ -69,8 +70,8 @@ def can_view_documents(user):
         return False
     if getattr(user, 'is_superuser', False):
         return True
-    profile = get_user_profile(user)
-    return profile is not None and profile.role in DOCUMENT_VIEWER_ROLES
+    # The profile's role or one lent by a substitution in force today.
+    return get_user_profile(user) is not None and has_any_role(user, DOCUMENT_VIEWER_ROLES)
 
 
 def can_manage_documents(user):
@@ -79,8 +80,7 @@ def can_manage_documents(user):
         return False
     if getattr(user, 'is_superuser', False):
         return True
-    profile = get_user_profile(user)
-    return profile is not None and profile.role in DOCUMENT_MANAGER_ROLES
+    return get_user_profile(user) is not None and has_any_role(user, DOCUMENT_MANAGER_ROLES)
 
 
 # ---------------------------------------------------------------------------
