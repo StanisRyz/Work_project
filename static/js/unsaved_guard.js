@@ -87,5 +87,9 @@
         markClean() {
             dirty = false;
         },
+        // A restored draft (`form_drafts.js`) is unsaved input too.
+        markDirty() {
+            dirty = true;
+        },
     };
 })();

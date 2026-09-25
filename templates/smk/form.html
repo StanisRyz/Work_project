@@ -35,7 +35,7 @@ re-checked on the server.
         </div>
     </header>
 
-    <form class="protocol-editor" method="post" action="{{ form_action }}" data-smk-form data-unsaved-guard{% if form.is_bound %}="dirty"{% endif %}>
+    <form class="protocol-editor" method="post" action="{{ form_action }}" data-smk-form data-unsaved-guard{% if form.is_bound %}="dirty"{% endif %} data-draft-key="{{ user.pk }}:smk:{% if editing %}{{ source.pk }}:edit{% else %}new{% endif %}"{% if editing %} data-draft-base="{{ source.updated_at|date:'U' }}"{% endif %}>
         {% csrf_token %}
 
         {% for error in form.non_field_errors %}<p class="field-error protocol-editor__error">{{ error }}</p>{% endfor %}
@@ -195,5 +195,5 @@ re-checked on the server.
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'js/smk_form.js' %}?v=20260924-1" defer></script>
+<script src="{% static 'js/smk_form.js' %}?v=20260925-1" defer></script>
 {% endblock %}

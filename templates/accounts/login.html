@@ -9,7 +9,7 @@
         <h1 id="login-title">Вход в систему</h1>
         <p>Используйте учетную запись Django для доступа к внутренним разделам.</p>
 
-        <form class="auth-form" method="post">
+        <form class="auth-form" method="post" data-login-form>
             {% csrf_token %}
             {% if form.non_field_errors %}
                 <div class="form-error">{{ form.non_field_errors }}</div>

@@ -139,6 +139,14 @@
             }
         }),
     );
+    // A draft restored from this browser (`form_drafts.js`) is unsaved input
+    // as much as typing is; its replayed events are untrusted on purpose, so
+    // it says so explicitly.
+    document.addEventListener('quality:form-restored', (event) => {
+        if (insideContent(event.target)) {
+            dirty = true;
+        }
+    });
     // Adding or removing an editor row changes the submission just as much as
     // typing does, even though no field fired an `input`.
     document.addEventListener('click', (event) => {

@@ -8,7 +8,7 @@
     <title>{% block title %}Единая цифровая экосистема управления качеством{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260722-5">
     <link rel="stylesheet" href="{% static 'css/layout.css' %}?v=20260904-1">
-    <link rel="stylesheet" href="{% static 'css/components.css' %}?v=20260904-2">
+    <link rel="stylesheet" href="{% static 'css/components.css' %}?v=20260925-1">
     <link rel="stylesheet" href="{% static 'css/acts.css' %}?v=20260909-9">
     {# Page-specific stylesheets, so a module's CSS is not loaded everywhere. #}
     {% block extra_head %}{% endblock %}
@@ -71,7 +71,13 @@
     holds unsaved input — a reload or a stray click must not silently discard
     an act, a protocol or an СМК record typed for minutes.
     {% endcomment %}
-    <script src="{% static 'js/unsaved_guard.js' %}?v=20260924-1"></script>
+    <script src="{% static 'js/unsaved_guard.js' %}?v=20260925-1"></script>
+    {% comment %}
+    «Восстановить черновик» for every `[data-draft-key]` form: a copy in this
+    browser's localStorage, offered back when the form is opened again. Never
+    sent to the server — the document is still stored only by its own button.
+    {% endcomment %}
+    <script src="{% static 'js/form_drafts.js' %}?v=20260925-1"></script>
     {% comment %}
     «Сменить пароль» in the profile menu: a real link to the full form page,
     opened as the topbar dialog where `<dialog>` works. Loaded for every
@@ -115,7 +121,7 @@
     <script src="{% static 'js/realtime/tasks.js' %}?v=20260805-1" defer></script>
     <script src="{% static 'js/realtime/acts.js' %}?v=20260924-1" defer></script>
     <script src="{% static 'js/realtime/workup.js' %}?v=20260818-1" defer></script>
-    <script src="{% static 'js/realtime/protocols.js' %}?v=20260924-1" defer></script>
+    <script src="{% static 'js/realtime/protocols.js' %}?v=20260925-1" defer></script>
     <script src="{% static 'js/realtime/start.js' %}?v=20260805-1" defer></script>
     {% endif %}
     {% block scripts %}{% endblock %}

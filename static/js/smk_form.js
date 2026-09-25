@@ -231,7 +231,14 @@
             return;
         }
         const pair = event.target.closest('[data-employee-pair]');
-        if (pair) syncPair(pair);
+        if (pair) {
+            syncPair(pair);
+            // Naming a second исполнитель is what makes splitting meaningful;
+            // without this the option stayed disabled until yet another row
+            // was added.
+            const action = pair.closest('[data-block="actions"] [data-row]');
+            if (action) syncSplitOption(action);
+        }
     });
 
     // Typing a finding changes what the measures below may point at. `input`

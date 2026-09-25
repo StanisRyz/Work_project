@@ -1824,7 +1824,13 @@ tasks never live inside `acts`.
   workflow buttons are disabled only when the status moved. Long forms carry
   `[data-unsaved-guard]` (`static/js/unsaved_guard.js`), the browser's own
   leave-page prompt — the one browser dialog the application modal cannot
-  replace, since nothing else can hold a navigation back. The protocol page follows the act page exactly: `protocols.js`
+  replace, since nothing else can hold a navigation back. The act form, the
+  protocol editor and the СМК form also carry `[data-draft-key]`
+  (`<user id>:<kind>:<pk|new>`): `static/js/form_drafts.js` copies them into
+  `localStorage` and offers «Восстановить черновик» when the form is opened
+  again. That is local recovery, **not** an autosave — nothing reaches the
+  server, the «no autosave» rule for protocols still holds — and a draft is
+  dropped once the page after a submission shows it went through. The protocol page follows the act page exactly: `protocols.js`
   guards the content block, and `protocol_editor.js` is a repeatable
   initialiser registered with `qualityFragments` so replaced markup re-binds
   through the same code — no business rule moved into the browser. Recovery has one owner per authenticated session — every periodic request is gated

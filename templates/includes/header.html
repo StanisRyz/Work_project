@@ -68,7 +68,7 @@
                 brings the user back to the page they were on.
                 {% endcomment %}
                 <a href="{% url 'accounts:password_change' %}?next={{ request.get_full_path|urlencode }}" data-password-modal-open>Сменить пароль</a>
-                <form method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}<button type="submit">Выйти</button></form>
+                <form method="post" action="{% url 'accounts:logout' %}" data-logout-form data-draft-owner="{{ user.pk }}">{% csrf_token %}<button type="submit">Выйти</button></form>
             </div>
         </details>
         {% endif %}

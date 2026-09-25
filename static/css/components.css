@@ -973,6 +973,40 @@ tr[data-row-url]:hover { background: #f7f9ff; }
     flex: none;
 }
 
+/* «Найден несохранённый черновик»: drawn by `form_drafts.js` above the form.
+   The conflict banner's shape, in the primary colour — an offer, not a warning. */
+.draft-restore {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 14px;
+    margin: 0 0 14px;
+    padding: 12px 15px;
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-primary);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.draft-restore strong {
+    display: block;
+    font-size: 13px;
+}
+
+.draft-restore p {
+    margin: 2px 0 0;
+    color: var(--color-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.draft-restore__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 @media (max-width: 760px) {
     .act-conflict-banner,
     .act-access-banner {

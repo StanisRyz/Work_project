@@ -15,7 +15,7 @@
         </div>
     </header>
 
-    <form class="act-form act-form--editor" method="post" data-unsaved-guard{% if form.is_bound %}="dirty"{% endif %}>
+    <form class="act-form act-form--editor" method="post" data-unsaved-guard{% if form.is_bound %}="dirty"{% endif %} data-draft-key="{{ user.pk }}:act:{% if is_edit %}{{ act.pk }}:edit{% else %}new{% endif %}"{% if is_edit %} data-draft-base="{{ act.updated_at|date:'U' }}"{% endif %}>
         {% csrf_token %}
         {{ form.non_field_errors }}
         {{ defect_formset.non_form_errors }}
