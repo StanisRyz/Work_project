@@ -11,7 +11,7 @@
     /* The shared height of every main package-row control. Declared once so
        the inputs, the range select, the «Время пакета» value box and the
        confirm/edit button beside it cannot drift apart. */
-    --pcut-control-height: 40px;
+    --pcut-control-height: var(--control-height);
 
     display: grid;
     gap: 16px;
@@ -113,12 +113,13 @@
 .plate-cutting-module .pcut-package__time {
     width: 100%;
     min-height: var(--pcut-control-height);
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 /* The same neutral grey on every numeric field of the row. */

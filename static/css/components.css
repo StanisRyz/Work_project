@@ -318,9 +318,9 @@
     justify-content: center;
     gap: 7px;
     width: fit-content;
-    min-height: 38px;
+    min-height: var(--control-height);
     margin-top: 14px;
-    padding: 8px 14px;
+    padding: 6px 14px;
     /* A transparent border on the filled variants: an outlined neighbour is
        then exactly the same height. */
     border: 1px solid transparent;
@@ -365,9 +365,9 @@
 
 /* The one dense size, for buttons sitting inside a card's own toolbar. */
 .link-button--compact {
-    min-height: 34px;
+    min-height: 30px;
     margin-top: 0;
-    padding: 7px 11px;
+    padding: 5px 10px;
     font-size: 13px;
 }
 
@@ -428,11 +428,12 @@
 
 .auth-form input {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .auth-form .link-button {
@@ -523,7 +524,7 @@
 .filter-form {
     grid-template-columns: 1.4fr repeat(3, minmax(160px, 1fr)) auto auto;
     align-items: end;
-    padding: 18px;
+    padding: 12px 14px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -543,11 +544,30 @@
 .form-card select,
 .form-card textarea {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
+}
+
+/* The floor under every module's own control rule: whatever a form lays out,
+   a single-line field is exactly one control height and a list box is white,
+   never the grey the browser draws once a border is set. A `height`, not a
+   `min-height`: a text input sizes itself from the inherited 1.5 line height
+   while a select ignores it, so the two stood 3 px apart in one row, and a
+   date input's calendar button made it taller still. Modules add layout and
+   never restate the height, the padding or the font size — those are the
+   density tokens in `base.css`. */
+input:not([type='checkbox'], [type='radio'], [type='file'], [type='hidden'], [type='range'], [type='color'], [type='submit'], [type='button']),
+select:not([multiple], [size]) {
+    box-sizing: border-box;
+    height: var(--control-height);
+}
+
+select {
+    background-color: var(--color-surface);
 }
 
 .form-actions {
@@ -568,7 +588,7 @@
 
 .data-table th,
 .data-table td {
-    padding: 12px;
+    padding: var(--cell-padding);
     border-bottom: 1px solid var(--color-border);
     text-align: left;
     vertical-align: top;
@@ -763,11 +783,12 @@ tr[data-row-url]:hover { background: #f7f9ff; }
 
 .app-modal__comment textarea {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
     resize: vertical;
 }
 
@@ -783,11 +804,12 @@ tr[data-row-url]:hover { background: #f7f9ff; }
 
 .app-modal__field input {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .app-modal__error {

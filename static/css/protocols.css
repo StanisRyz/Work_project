@@ -282,11 +282,12 @@
 .protocol-section input[type='date'],
 .protocol-section textarea {
     width: 100%;
-    padding: 9px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .protocol-section textarea { resize: vertical; }
@@ -312,10 +313,16 @@
 
 .protocol-participant-card {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    /* The two selects hold a department and a name, so they stop at 760 px
+       instead of stretching across a 1920 px screen; the approval flag follows
+       them, and the spare column keeps «×» at the card's right edge where
+       every other card in the editor has it. */
+    grid-template-columns: minmax(0, 760px) auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px 14px;
 }
+
+.protocol-participant-card > .protocol-remove-button { grid-column: 4; }
 
 .protocol-participant-card--author { background: #f7f9ff; }
 
@@ -336,7 +343,10 @@
     gap: 8px;
 }
 
-.protocol-checkbox {
+/* `.protocol-section label` lays every label out as a grid, which stacked the
+   box above its own caption; the section prefix is what outranks it. */
+.protocol-checkbox,
+.protocol-section .protocol-checkbox {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -675,6 +685,7 @@
 
     .protocol-participant-card__flags { justify-content: flex-start; }
     .protocol-remove-button { justify-self: end; }
+    .protocol-participant-card > .protocol-remove-button { grid-column: auto; }
     .protocol-section__summary { flex-wrap: wrap; }
     .protocol-section__add { order: 1; margin-left: 0; }
     .protocol-workflow__step { min-width: 78px; }

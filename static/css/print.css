@@ -1,6 +1,10 @@
+/* A printed act is a controlled document, not a screen: it keeps the 16px
+   body it was laid out with and does not follow the application's density
+   token (`--font-size-base` in `base.css`). */
 .print-page {
     background: #f6f7f9;
     color: #172033;
+    font-size: 16px;
 }
 
 .print-document {

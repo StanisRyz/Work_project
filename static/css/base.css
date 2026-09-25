@@ -7,6 +7,15 @@
     --color-muted: #667085;
     --color-border: #d9dee8;
     --radius: 8px;
+
+    /* Density. One set of numbers every module's controls, buttons and table
+       cells read, sized for the plant's 23–24" 1920×1080 screens: 14px text,
+       34px controls. A module never restates them — it names the token. */
+    --font-size-base: 14px;
+    --control-height: 34px;
+    --control-padding: 7px 10px;
+    --control-font-size: 14px;
+    --cell-padding: 8px 12px;
 }
 
 * {
@@ -19,6 +28,7 @@ body {
     background: var(--color-bg);
     color: var(--color-text);
     font-family: Arial, Helvetica, sans-serif;
+    font-size: var(--font-size-base);
     line-height: 1.5;
 }
 

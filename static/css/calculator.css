@@ -80,6 +80,9 @@
 .calculator-module label,
 .calc-readonly-field {
     display: grid;
+    /* The neighbour's hint («(130,00 − 100,00) / 2») makes its grid row
+       taller; without this the extra height went into the input beside it. */
+    align-content: start;
     gap: 6px;
     color: var(--color-muted);
     font-size: 14px;
@@ -88,17 +91,19 @@
 .calculator-module input,
 .calculator-module select {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .calc-readonly-field output {
     display: block;
-    padding: 10px 12px;
+    min-height: var(--control-height);
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-bg);

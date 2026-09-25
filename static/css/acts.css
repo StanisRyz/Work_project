@@ -1,7 +1,7 @@
 .act-kpi-grid {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 14px;
+    gap: 10px;
 }
 
 /* The registry's top row: the scope tabs plus «Создать АКТ», sharing one
@@ -23,34 +23,45 @@
     flex: none;
 }
 
+/* A strip, not a row of tiles: number and label on one line, so the five
+   counters cost one control height and the list below keeps the screen. The
+   markup keeps label-then-number; `row-reverse` only puts the figure first. */
 .act-kpi-card {
-    padding: 16px;
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 8px 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
 }
 
 .act-kpi-card span {
-    display: block;
+    min-width: 0;
     color: var(--color-muted);
     font-size: 13px;
 }
 
 .act-kpi-card strong {
-    display: block;
-    margin-top: 8px;
+    flex: none;
     color: var(--color-primary-dark);
-    font-size: 30px;
-    line-height: 1;
+    font-size: 22px;
+    line-height: 1.1;
 }
 
 .act-kpi-card--warning strong {
     color: #b45309;
 }
 
+/* Fields are as wide as what is typed into them, not as wide as the screen:
+   on 1920 px a «Все» select used to stretch to 390 px. The row starts at the
+   left and the spare width stays spare. */
 .act-filter-panel {
     margin: 0;
-    grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(150px, 1fr)) repeat(2, auto);
+    grid-template-columns: minmax(220px, 420px) repeat(3, minmax(150px, 240px)) repeat(2, auto);
+    justify-content: start;
 }
 
 .act-clear-form {
@@ -85,6 +96,12 @@
 
 .act-table-card .data-table th {
     background: var(--color-surface);
+}
+
+/* A registry row is one line of facts and a pill or two; centring keeps the
+   text on the pills' midline instead of riding on their top edge. */
+.act-table-card .data-table td {
+    vertical-align: middle;
 }
 
 .act-registry-actions {
@@ -173,7 +190,7 @@
     display: inline-flex;
     align-items: center;
     gap: 9px;
-    padding: 12px 14px 11px;
+    padding: 9px 12px 8px;
     border-bottom: 3px solid transparent;
     color: var(--color-muted);
     font-weight: 700;
@@ -202,18 +219,18 @@
     display: flex;
     align-items: center;
     gap: 18px;
-    min-height: 44px;
+    min-height: var(--control-height);
 }
 
 .act-detail-heading h1 {
     display: inline-block;
     margin: 0 14px 0 0;
     color: var(--color-primary-dark);
-    font-size: 26px;
+    font-size: 22px;
     line-height: 1.2;
 }
 
-.act-back-link { display: inline-grid; width: 38px; height: 38px; place-items: center; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: #2d477f; font-size: 25px; line-height: 1; }
+.act-back-link { display: inline-grid; width: var(--control-height); height: var(--control-height); place-items: center; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: #2d477f; font-size: 25px; line-height: 1; }
 .act-back-link:hover { border-color: #9db8ed; color: var(--color-primary); }
 .act-detail-heading__title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .act-stage-badge { display: inline-flex; align-items: center; min-height: 30px; padding: 5px 12px; border: 1px solid #fdba74; border-radius: 5px; background: #fffaf5; color: #f97316; font-size: 13px; font-weight: 700; }
@@ -223,7 +240,7 @@
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 14px;
     margin: 0;
-    padding: 18px 14px;
+    padding: 10px 14px;
     overflow-x: auto;
     list-style: none;
     border: 1px solid var(--color-border);
@@ -478,11 +495,12 @@
 .act-defect-card__impact-value textarea {
     width: 100%;
     min-width: 0;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .act-defect-card__decision textarea { min-height: 62px; resize: vertical; }
@@ -532,7 +550,7 @@
 .act-defect-card__impact-value { flex: 1 1 140px; min-width: 0; max-width: 220px; }
 
 .act-defect-card__impact-value input,
-.act-defect-card__impact-value textarea { padding: 6px 10px; }
+.act-defect-card__impact-value textarea { padding: var(--control-padding); }
 
 /* «Другое» — единственный пункт со свободным текстом: ему нужна вся ширина
    строки, поэтому ограничение снимается. */
@@ -622,7 +640,7 @@
 }
 
 .task-filter-panel {
-    grid-template-columns: repeat(4, minmax(130px, 1fr)) auto auto;
+    grid-template-columns: repeat(2, minmax(180px, 300px)) repeat(2, minmax(150px, 240px)) auto auto;
 }
 
 .task-sort-link {
@@ -931,11 +949,11 @@
 .task-detail-execution-card textarea {
     box-sizing: border-box;
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     font: inherit;
-    font-size: 15px;
+    font-size: var(--control-font-size);
     resize: vertical;
 }
 
@@ -1109,11 +1127,12 @@
 .act-ko-decision-fields select,
 .act-ko-decision-fields textarea {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .act-primary-actions {
@@ -1288,13 +1307,14 @@
 .act-form--editor textarea {
     width: 100%;
     box-sizing: border-box;
-    min-height: 42px;
-    padding: 10px 12px;
+    min-height: var(--control-height);
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: 6px;
     background: var(--color-surface);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .act-form-section {
@@ -1508,10 +1528,10 @@
 .act-form-actions {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
     gap: 10px;
     margin: 0;
-    min-height: 68px;
-    padding: 12px 22px;
+    padding: 10px 16px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: rgb(255 255 255 / 96%);
@@ -1619,11 +1639,12 @@
 .act-decision-form select,
 .act-decision-form textarea {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .act-ko-decision-hint {
@@ -1680,7 +1701,7 @@
 .attachment-picker--selected { border-style: solid; border-color: #86efac; background: #f3fdf7; color: #166534; }
 .attachment-description { display: grid; gap: 5px; color: var(--color-muted); font-size: 13px; }
 .attachment-description textarea,
-.comment-form textarea { box-sizing: border-box; width: 100%; min-height: 58px; padding: 9px 10px; border: 1px solid var(--color-border); border-radius: 6px; font: inherit; resize: vertical; }
+.comment-form textarea { box-sizing: border-box; width: 100%; min-height: 58px; padding: var(--control-padding); border: 1px solid var(--color-border); border-radius: 6px; font: inherit; font-size: var(--control-font-size); resize: vertical; }
 .attachment-list,
 .comment-list { gap: 0; }
 .attachment-card { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
@@ -1750,11 +1771,12 @@
 
 .comment-form textarea {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .to-analysis-form,
@@ -1825,11 +1847,12 @@
 .to-analysis-form select,
 .to-analysis-form input {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .corrective-action-card__fields {
@@ -2081,11 +2104,12 @@
 .attachment-form input,
 .attachment-form textarea {
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
 }
 
 .attachment-card {
@@ -2129,7 +2153,7 @@
 .act-collaboration-layout .attachment-card__main p { margin: 0; color: #6a7b9d; font-size: 12px; }
 .act-collaboration-layout .attachment-card__meta { display: grid; gap: 2px; color: #6a7b9d; font-size: 11px; }
 .act-collaboration-layout .attachment-card__actions { display: flex; grid-column: 3; grid-row: 1 / span 2; flex-wrap: nowrap; gap: 6px; }
-.act-collaboration-layout .comment-form textarea { box-sizing: border-box; width: 100%; min-height: 58px; padding: 9px 10px; border: 1px solid var(--color-border); border-radius: 6px; font: inherit; resize: vertical; }
+.act-collaboration-layout .comment-form textarea { box-sizing: border-box; width: 100%; min-height: 58px; padding: var(--control-padding); border: 1px solid var(--color-border); border-radius: 6px; font: inherit; font-size: var(--control-font-size); resize: vertical; }
 .act-collaboration-layout .comment-card { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
 .act-collaboration-layout .comment-card p { margin: 0; color: #405778; font-size: 13px; line-height: 1.4; }
 

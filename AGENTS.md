@@ -148,7 +148,11 @@ tasks never live inside `acts`.
   it. Never a fixed `height` on the card: that is exactly what left dead space
   under the table. Siblings keep the default `flex: 0 1 auto` and their
   automatic `min-height`, so a toolbar, KPI grid or filter panel is never
-  squeezed. Below 760px both classes fall back to the ordinary flow — a phone
+  squeezed. `min-height` alone is only a floor, so a registry also bounds the
+  shell: `.app-shell:has(.page-container--fill)` is exactly `100vh/dvh` tall
+  above 760px — without it every item grew to its rows and the whole page
+  scrolled past the sticky header once the list was longer than the screen.
+  Below 760px both classes fall back to the ordinary flow — a phone
   has no viewport to spare. Widths are untouched by all of this.
 - One clickable-row system: a `<tr data-row-url="…">` opens that object when the
   row is clicked anywhere. `static/js/clickable_rows.js` (one delegated
@@ -161,6 +165,20 @@ tasks never live inside `acts`.
 - One button system: `.link-button` fixes font, size, height, padding, radius and
   states; a modifier (`--secondary`, `--warning`, `--danger`, `--success`,
   `--compact`) changes only colour or density.
+- **One density, sized for the plant's 23–24" 1920×1080 screens.** The numbers
+  live once, as tokens in `static/css/base.css`: `--font-size-base` (14px, the
+  `body` size), `--control-height` (34px), `--control-padding` (7px 10px),
+  `--control-font-size` (14px) and `--cell-padding` (8px 12px for
+  `.data-table`). `components.css` makes every single-line `input` and every
+  `select` exactly `--control-height` tall and every `select` white — a
+  `height`, because a text input takes the inherited 1.5 line height and a
+  select does not, so a `min-height` left them 3px apart in one row. A
+  module's control rule names the tokens and never restates a pixel value;
+  `.link-button` is `--control-height` too, so a field and the button beside it
+  line up. Widths follow content, not the screen: a filter row is left-aligned
+  with capped columns (`.act-filter-panel`, `.task-filter-panel`), and a pair of
+  person selects stops at 760px (`.protocol-participant-card`). The printed
+  documents are not screens and keep their own size (`.print-page` is 16px).
 - One text system: `static/css/text.css`, loaded **last** in `base.html` (after
   `{% block extra_head %}`) and in both print templates. It is the floor under
   every other stylesheet — never add a one-off `overflow-wrap`, `word-break` or
@@ -289,7 +307,7 @@ tasks never live inside `acts`.
   a spare ring of padding, and it is what made the card read as a mockup.
   Everything else follows that block too: tokens only (`--color-text`,
   `--color-muted`, `--radius` — no hex, no 10px, no pill), form controls at the
-  project's `padding: 10px 12px` + `font: inherit` so this `select` and the
+  project's `padding: var(--control-padding)` + `font: inherit` so this `select` and the
   department `select` below it match, and the checklist drawn as the same
   `--color-bg` block with a 13px/700 muted label that «Исполнители» uses.
   `fieldset`/`legend` are kept for the screen-reader grouping and styled flat.

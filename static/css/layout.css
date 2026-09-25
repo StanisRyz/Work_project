@@ -67,6 +67,19 @@
     min-height: 0;
 }
 
+/* The ceiling the chain above passes down. `min-height` alone is only a
+   floor: with more rows than fit, every flex item grew to its content and the
+   whole page scrolled instead of the list. A registry therefore bounds the
+   shell at exactly one viewport; the list card's own `min-height` still wins
+   on a very short window, where the page scrolls as before. Phones keep the
+   ordinary flow (see the 760px query below). */
+@media (min-width: 761px) {
+    .app-shell:has(.page-container--fill) {
+        height: 100vh;
+        height: 100dvh;
+    }
+}
+
 .sidebar {
     display: flex;
     align-items: center;
