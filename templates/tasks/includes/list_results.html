@@ -1,21 +1,23 @@
-{% load people %}{% comment %}
-Task registry results only: table, rows, overdue state and the empty state.
-The tabs and the filter form deliberately live outside, so a live refresh
-never replaces controls the user may be typing into.
+{% load people registry %}{% comment %}
+Task registry results only: table, rows and the empty state. The tabs and the
+filter form deliberately live outside, so a live refresh never replaces
+controls the user may be typing into.
 
-Every row comes pre-described by `tasks/presentation.py`: «Тип задачи» is the
-task's origin, «Источник» is the act or protocol behind it with its own link,
-and «Статус» is the real business state — for an approval queue entry that is
-the `ProtocolApproval` decision, never the queue's own «Выполнено».
+Drawn like the other registries: one line per row, sortable headers
+(`sortable_th`), the state as a `.status-badge` pill and the deadline through
+`includes/due_date.html` — an overdue task says so in its date, not with a
+red row. Every row comes pre-described by `tasks/presentation.py`: «Тип
+задачи» is the task's origin, «Источник» the document behind it with its own
+link, and «Статус» the real business state — for an approval queue entry the
+`ProtocolApproval` decision, never the queue's own «Выполнено».
+
+Fixed column widths, not the browser's guess: with an automatic layout a long
+wording claimed the whole table and squeezed every other column to a single
+character. The wording takes what the fixed columns leave and is cut to one
+line; the full text is on `title` and on the task page.
 {% endcomment %}
 {% if rows %}
 <section class="table-card act-table-card">
-    {% comment %}
-    Fixed widths, not the browser's guess: with an automatic layout the
-    wording's one long line claimed the whole table and squeezed every other
-    column to a single character, so dates and «Выполнено» broke letter by
-    letter. The wording takes what the fixed columns leave and is clamped.
-    {% endcomment %}
     <table class="data-table task-registry-table">
         <colgroup>
             <col class="task-registry-table__number">
@@ -26,7 +28,17 @@ the `ProtocolApproval` decision, never the queue's own «Выполнено».
             <col class="task-registry-table__status">
             <col class="task-registry-table__due">
         </colgroup>
-        <thead><tr><th>№</th><th>Что сделать</th><th>Исполнители</th><th>Тип задачи</th><th>Источник</th><th>Статус</th><th>Срок <a class="task-sort-link{% if selected.sort %} task-sort-link--active{% endif %}" href="{{ sort_url }}" aria-label="Изменить сортировку по сроку" title="{% if selected.sort == 'nearest' %}Дальние сначала{% else %}Ближайшие сначала{% endif %}">⇅</a></th></tr></thead>
+        <thead>
+            <tr>
+                {% sortable_th '№' 'number' sort %}
+                <th>Что сделать</th>
+                <th>Исполнители</th>
+                <th>Тип задачи</th>
+                <th>Источник</th>
+                <th>Статус</th>
+                {% sortable_th 'Срок' 'due' sort %}
+            </tr>
+        </thead>
         <tbody>
         {% for row in rows %}
             {% comment %}
@@ -34,17 +46,13 @@ the `ProtocolApproval` decision, never the queue's own «Выполнено».
             URL as the number, list query included. The «Источник» link keeps
             its own target: a click on it is its click.
             {% endcomment %}
-            <tr data-task-row="{{ row.task.pk }}" data-row-url="{% url 'tasks:detail' row.task.pk %}{% if list_query %}?{{ list_query }}{% endif %}"{% if tab != 'archive' and row.task.due_date < today %} class="task-row--overdue"{% endif %}>
-                <td><a class="table-link" href="{% url 'tasks:detail' row.task.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{{ row.task.pk }}</a></td>
-                {% comment %}
-                The wording and the people, clamped for display only: the full
-                text and every name stay on `title`, and on the task page.
-                {% endcomment %}
-                <td class="task-list__text"><span class="user-text text-clamp-2" title="{{ row.task.task_text }}">{{ row.task.task_text }}</span></td>
-                <td class="task-list__people">{% with people=row.task.assignees.all %}{% if people %}<span class="text-clamp-2" title="{% for a in people %}{{ a.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for a in people %}{{ a.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>{% else %}—{% endif %}{% endwith %}</td>
-                <td><span class="user-text text-clamp-2" title="{{ row.type_label }}">{{ row.type_label }}</span></td>
-                <td>{% if row.source.url %}<a class="table-link user-text text-clamp-2" href="{{ row.source.url }}" title="{{ row.source.label }}">{{ row.source.label }}</a>{% else %}—{% endif %}</td>
-                <td>{% if row.state.variant %}<span class="approval-status approval-status--{{ row.state.variant }}">{{ row.state.label }}</span>{% else %}{{ row.state.label }}{% endif %}</td>
+            <tr data-task-row="{{ row.task.pk }}" data-row-url="{% url 'tasks:detail' row.task.pk %}{% if list_query %}?{{ list_query }}{% endif %}">
+                <td><a class="table-link" href="{% url 'tasks:detail' row.task.pk %}{% if list_query %}?{{ list_query }}{% endif %}">№{{ row.task.pk }}</a></td>
+                <td><span class="user-text text-ellipsis task-registry-table__line" title="{{ row.task.task_text }}">{{ row.task.task_text }}</span></td>
+                <td>{% with people=row.task.assignees.all %}{% if people %}<span class="text-ellipsis task-registry-table__line" title="{% for a in people %}{{ a.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for a in people %}{{ a.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>{% else %}—{% endif %}{% endwith %}</td>
+                <td><span class="text-ellipsis task-registry-table__line" title="{{ row.type_label }}">{{ row.type_label }}</span></td>
+                <td>{% if row.source.url %}<a class="table-link text-ellipsis task-registry-table__line" href="{{ row.source.url }}" title="{{ row.source.label }}">{{ row.source.label }}</a>{% else %}—{% endif %}</td>
+                <td>{% if row.state.variant %}<span class="approval-status approval-status--{{ row.state.variant }}">{{ row.state.label }}</span>{% else %}<span class="status-badge status-badge--{{ row.state.badge }}">{{ row.state.label }}</span>{% endif %}</td>
                 <td>{% include 'includes/due_date.html' with date=row.task.due_date done=row.task.status.is_final %}</td>
             </tr>
         {% endfor %}

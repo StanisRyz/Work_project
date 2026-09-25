@@ -84,7 +84,22 @@ def describe_task_state(task):
             'label': approval.get_status_display(),
             'variant': APPROVAL_STATUS_VARIANTS.get(approval.status, 'pending'),
         }
-    return {'label': str(task.status), 'variant': ''}
+    return {
+        'label': str(task.status),
+        'variant': '',
+        # The same pill the other registries draw a state with.
+        'badge': TASK_STATUS_BADGES.get(task.status.code, 'in_progress'),
+    }
+
+
+# `TaskStatus.code` → the `.status-badge--*` tint: blue running, green done,
+# grey withdrawn — the colours the СМК registry already uses for the same
+# meanings.
+TASK_STATUS_BADGES = {
+    'IN_PROGRESS': 'in_progress',
+    'COMPLETED': 'completed',
+    'CANCELLED': 'archived',
+}
 
 
 def describe_task_type(task):

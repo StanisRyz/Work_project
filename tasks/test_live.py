@@ -146,7 +146,7 @@ class TaskListFragmentTests(TaskLiveMixin, TestCase):
         payload = self.client.get(self.url, {'tab': 'all', 'sort': 'nearest'}).json()
 
         self.assertEqual(payload['tab'], 'all')
-        self.assertIn('task-sort-link--active', payload['results_html'])
+        self.assertIn('sort-link--active', payload['results_html'])
 
     def test_another_users_task_is_present_in_the_all_tab(self):
         theirs = self.make_task(self.other, text='Чужое мероприятие')

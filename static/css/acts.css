@@ -689,20 +689,6 @@
     grid-template-columns: repeat(2, minmax(180px, 300px)) repeat(2, minmax(150px, 240px)) repeat(3, auto);
 }
 
-.task-sort-link {
-    display: inline-block;
-    margin-left: 4px;
-    color: var(--color-muted);
-    font-size: 18px;
-    line-height: 1;
-    text-decoration: none;
-}
-
-.task-sort-link:hover,
-.task-sort-link--active {
-    color: var(--color-primary);
-}
-
 .task-detail-heading {
     display: flex;
     align-items: center;
@@ -1138,18 +1124,6 @@
     .task-detail-execution-columns {
         grid-template-columns: 1fr;
     }
-}
-
-.task-row--overdue td {
-    background: #fef2f2;
-}
-
-/* The tint above is painted on the cells, so the shared `tr[data-row-url]`
-   hover sits behind it and would never show — an overdue row would be the one
-   clickable row in the project that does not answer the pointer. A slightly
-   deeper red of the same family keeps the overdue identity and restores it. */
-.task-row--overdue[data-row-url]:hover td {
-    background: #fde4e4;
 }
 
 .act-work-sequence {
@@ -2406,12 +2380,16 @@
 
 /* Task registry: fixed column widths — see `tasks/includes/list_results.html`.
    «Что сделать» takes what the fixed columns leave; below the table's
-   `min-width` the card scrolls sideways instead of squeezing a column. */
+   `min-width` the card scrolls sideways instead of squeezing a column. Every
+   cell is one line, like the act, protocol and СМК registries. */
 .task-registry-table { table-layout: fixed; min-width: 1100px; }
-.task-registry-table__number { width: 64px; }
-.task-registry-table__people { width: 220px; }
-.task-registry-table__type { width: 170px; }
-.task-registry-table__source { width: 150px; }
-.task-registry-table__status { width: 124px; }
-.task-registry-table__due { width: 200px; }
-.task-registry-table th { white-space: nowrap; }
+.task-registry-table__number { width: 84px; }
+.task-registry-table__people { width: 230px; }
+.task-registry-table__type { width: 210px; }
+.task-registry-table__source { width: 170px; }
+.task-registry-table__status { width: 140px; }
+.task-registry-table__due { width: 230px; }
+.task-registry-table th,
+.task-registry-table td { white-space: nowrap; }
+.task-registry-table__line { display: block; }
+.task-registry-table .due-date-cell { flex-wrap: nowrap; }

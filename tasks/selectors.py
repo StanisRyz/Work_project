@@ -20,7 +20,17 @@ TABS = ('my', 'all', 'archive')
 # the two is what this replaces.
 SOURCE_TYPE_CHOICES = ('', *Task.SourceType.values)
 DUE_CHOICES = ('', 'overdue', 'not_overdue')
-SORT_CHOICES = ('', 'nearest', 'farthest')
+# The same `field` / `-field` values `sortable_th` writes on every registry.
+# «nearest»/«farthest» are the older spelling of the deadline order, still
+# accepted so a remembered or bookmarked list keeps its order.
+SORT_CHOICES = ('', 'due', '-due', 'number', '-number', 'nearest', 'farthest')
+SORT_ALIASES = {'nearest': 'due', 'farthest': '-due'}
+SORT_ORDERS = {
+    'due': ('due_date', 'pk'),
+    '-due': ('-due_date', 'pk'),
+    'number': ('pk',),
+    '-number': ('-pk',),
+}
 
 
 def _source_search_filter(term):
@@ -141,10 +151,9 @@ def build_task_list_state(user, query_params):
     elif selected['due'] == 'not_overdue':
         tasks = tasks.filter(due_date__gte=today)
 
-    if selected['sort'] == 'nearest':
-        tasks = tasks.order_by('due_date', 'pk')
-    elif selected['sort'] == 'farthest':
-        tasks = tasks.order_by('-due_date', 'pk')
+    order = SORT_ORDERS.get(SORT_ALIASES.get(selected['sort'], selected['sort']))
+    if order:
+        tasks = tasks.order_by(*order)
     elif tab == 'archive':
         # Newest first by when the task actually ended: a cancelled one has no
         # `completed_at` — it was never performed — so `cancelled_at` stands in
@@ -197,5 +206,8 @@ def build_task_list_state(user, query_params):
         'tab_counts': tab_counts,
         'reset_url': f'?tab={tab}',
         'sort_url': f'?{sort_query.urlencode()}',
+        # What the column headers' arrows read (`sortable_th`), with the old
+        # spelling translated so an arrow still shows for it.
+        'sort': SORT_ALIASES.get(selected['sort'], selected['sort']),
         'list_query': query_params.urlencode(),
     }

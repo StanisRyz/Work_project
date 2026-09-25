@@ -283,7 +283,8 @@ class TaskViewsTests(TestCase):
         self.assertContains(response, str(overdue.pk))
         self.assertNotContains(response, reverse('tasks:detail', args=[hidden.pk]))
         self.assertEqual(list(response.context['tasks'])[0], overdue)
-        self.assertContains(response, 'task-row--overdue')
+        # Overdue is said by the date, as on every registry — not a red row.
+        self.assertContains(response, 'due-date--overdue')
         self.assertContains(response, 'По акту')
         self.assertContains(response, reverse('tasks:detail', args=[overdue.pk]))
         self.assertContains(response, reverse('acts:detail', args=[self.act.pk]))
@@ -293,7 +294,13 @@ class TaskViewsTests(TestCase):
         self.assertContains(response, '<th>Исполнители</th>')
         # «Тип задачи» is the source type; «Статус» is the task's own workflow
         # status. They are separate columns and never the same value.
-        self.assertContains(response, '№</th><th>Что сделать</th><th>Исполнители</th><th>Тип задачи</th><th>Источник</th><th>Статус</th><th>Срок <a class="task-sort-link"')
+        self.assertContains(response, '<th>Тип задачи</th>')
+        self.assertContains(response, '<th>Источник</th>')
+        self.assertContains(response, '<th>Статус</th>')
+        self.assertContains(response, 'class="status-badge status-badge--in_progress"')
+        # № and Срок sort like every other registry.
+        self.assertContains(response, 'sort=number')
+        self.assertContains(response, 'sort=due')
 
     def test_every_employee_can_read_other_tasks_but_cannot_complete_them(self):
         own_task = self._task(self.employee, timezone.localdate())
@@ -490,7 +497,7 @@ class TaskViewsTests(TestCase):
         archive_response = self.client.get(reverse('tasks:list'), {'tab': 'archive'})
         self.assertContains(archive_response, reverse('tasks:detail', args=[completed.pk]))
         self.assertContains(archive_response, reverse('tasks:detail', args=[other_completed.pk]))
-        self.assertNotContains(archive_response, 'task-row--overdue')
+        self.assertNotContains(archive_response, 'due-date--overdue')
 
         self.client.force_login(self.manager)
         all_response = self.client.get(reverse('tasks:list'), {'tab': 'all'})
@@ -525,6 +532,10 @@ class TaskViewsTests(TestCase):
         self.assertEqual(list(nearest_response.context['tasks'])[0], overdue)
         farthest_response = self.client.get(reverse('tasks:list'), {'sort': 'farthest'})
         self.assertEqual(list(farthest_response.context['tasks'])[0], farthest)
+        # The headers' own spelling orders the same way.
+        self.assertEqual(list(self.client.get(reverse('tasks:list'), {'sort': '-due'}).context['tasks'])[0], farthest)
+        self.assertEqual(list(self.client.get(reverse('tasks:list'), {'sort': 'due'}).context['tasks'])[0], overdue)
+        self.assertEqual(list(self.client.get(reverse('tasks:list'), {'sort': '-number'}).context['tasks'])[0], overdue)
         self.assertContains(farthest_response, reverse('tasks:detail', args=[nearest.pk]))
         self.assertContains(farthest_response, reverse('acts:detail', args=[self.act.pk]))
 
