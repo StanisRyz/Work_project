@@ -16,7 +16,7 @@ from django.views.decorators.http import require_GET
 
 from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
-from realtime.fragments import content_revision
+from realtime.fragments import LIVE_REVISION_PLACEHOLDER, content_revision
 
 from .forms import ProtocolAttachmentForm, ProtocolCommentForm, ProtocolDraftForm
 from .models import Protocol, ProtocolAttachment, ProtocolType
@@ -655,17 +655,23 @@ def _render_detail(request, protocol, context, status=200):
     fingerprint comes from a clean render — what a fragment would return — and
     the page is flagged as holding unsaved input from the start.
     """
-    if context.get('detail_tab') == 'protocol':
-        if context.get('form_is_bound'):
-            clean = _detail_context(request, protocol)
-            context['content_revision'] = content_revision(
-                render_to_string(CONTENT_TEMPLATE, clean, request=request)
-            )
-        else:
-            content_html = render_to_string(CONTENT_TEMPLATE, context, request=request)
-            context['content_html'] = content_html
-            context['content_revision'] = content_revision(content_html)
-    return render(request, 'protocols/detail.html', context, status=status)
+    if context.get('detail_tab') != 'protocol':
+        return render(request, 'protocols/detail.html', context, status=status)
+    if not context.get('form_is_bound'):
+        content_html = render_to_string(CONTENT_TEMPLATE, context, request=request)
+        context['content_html'] = content_html
+        context['content_revision'] = content_revision(content_html)
+        return render(request, 'protocols/detail.html', context, status=status)
+    # The page first, with a placeholder for the fingerprint, and the clean
+    # render second — so the posted form is the one the response is about.
+    context['content_revision'] = LIVE_REVISION_PLACEHOLDER
+    response = render(request, 'protocols/detail.html', context, status=status)
+    clean = _detail_context(request, protocol)
+    revision = content_revision(render_to_string(CONTENT_TEMPLATE, clean, request=request))
+    response.content = response.content.replace(
+        LIVE_REVISION_PLACEHOLDER.encode(), revision.encode()
+    )
+    return response
 
 
 def _redirect_to_tab(protocol, tab):

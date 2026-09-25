@@ -15,7 +15,7 @@ from accounts.models import Department
 from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
 from realtime.emitters import emit_act_created
-from realtime.fragments import content_revision
+from realtime.fragments import LIVE_REVISION_PLACEHOLDER, content_revision
 
 from . import quality_impact
 from .forms import (
@@ -748,18 +748,26 @@ def _render_act_detail(request, act, context, *, work_is_bound=False):
     which is what a fragment would return, and the page is flagged as holding
     unsaved input from the start: a refresh must never replace it.
     """
-    if context['detail_tab'] == 'work':
-        if work_is_bound:
-            clean_context = _get_act_detail_context(act, request.user, detail_tab='work')
-            context['work_revision'] = content_revision(
-                render_to_string(WORK_TEMPLATE, clean_context, request=request)
-            )
-            context['work_is_bound'] = True
-        else:
-            work_html = render_to_string(WORK_TEMPLATE, context, request=request)
-            context['work_html'] = work_html
-            context['work_revision'] = content_revision(work_html)
-    return render(request, 'acts/detail.html', context)
+    if context['detail_tab'] != 'work':
+        return render(request, 'acts/detail.html', context)
+    if not work_is_bound:
+        work_html = render_to_string(WORK_TEMPLATE, context, request=request)
+        context['work_html'] = work_html
+        context['work_revision'] = content_revision(work_html)
+        return render(request, 'acts/detail.html', context)
+    # The page itself is rendered first, with a placeholder for the
+    # fingerprint, and the clean render second: the page's own forms are the
+    # ones the response is about, and they come first wherever the rendered
+    # contexts are read back.
+    context['work_revision'] = LIVE_REVISION_PLACEHOLDER
+    context['work_is_bound'] = True
+    response = render(request, 'acts/detail.html', context)
+    clean_context = _get_act_detail_context(act, request.user, detail_tab='work')
+    revision = content_revision(render_to_string(WORK_TEMPLATE, clean_context, request=request))
+    response.content = response.content.replace(
+        LIVE_REVISION_PLACEHOLDER.encode(), revision.encode()
+    )
+    return response
 
 
 def _redirect_after_transition(act, user):

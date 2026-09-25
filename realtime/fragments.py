@@ -23,6 +23,11 @@ import hashlib
 import re
 
 
+# What a page re-rendered from a posted form writes where the fingerprint goes,
+# before the clean render that produces the real value replaces it. Never a
+# value a hash could produce.
+LIVE_REVISION_PLACEHOLDER = '__live-block-revision__'
+
 _CSRF_INPUT = re.compile(r'<input\b[^>]*\bname="csrfmiddlewaretoken"[^>]*>')
 
 

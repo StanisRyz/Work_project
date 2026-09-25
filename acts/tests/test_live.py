@@ -555,4 +555,5 @@ class ActWorkFingerprintTests(ActLiveMixin, TestCase):
         self.assertContains(response, 'data-work-bound="true"')
         # The fingerprint is the clean server state's, so a later refresh that
         # finds nothing new stays silent too.
-        self.assertEqual(response.context['work_revision'], clean['revision'])
+        self.assertContains(response, f'data-work-revision="{clean["revision"]}"')
+        self.assertNotIn('__live-block-revision__', response.content.decode())

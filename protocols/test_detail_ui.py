@@ -219,6 +219,12 @@ class ProtocolContentFingerprintTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertContains(response, 'data-content-bound="true"', status_code=400)
+        clean = self.client.get(
+            reverse('protocols:content_fragment', args=[self.protocol.pk])
+        ).json()
+        self.assertContains(
+            response, f'data-content-revision="{clean["revision"]}"', status_code=400
+        )
 
     def test_a_save_refused_by_the_service_keeps_what_was_typed(self):
         from unittest import mock
