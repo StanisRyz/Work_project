@@ -10,25 +10,25 @@ The tabs share their row with «Создать задачу», exactly as the ac
 does. The button is only the entry point — `tasks:create` re-asks the same
 permission, and so does the СМК form behind it.
 {% endcomment %}
-<div class="act-registry-toolbar">
+<div class="act-registry-toolbar" data-registry-memory="tasks:{{ request.user.pk }}">
     <nav class="act-registry-tabs" aria-label="Область списка задач">
-        <a class="act-registry-tabs__link{% if tab == 'my' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.my }}">Мои задачи</a>
-        <a class="act-registry-tabs__link{% if tab == 'all' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.all }}">Все задачи</a>
-        <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.archive }}">Архив</a>
+        <a class="act-registry-tabs__link{% if tab == 'my' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.my }}">Мои задачи <span class="tab-count">{{ tab_counts.my }}</span></a>
+        <a class="act-registry-tabs__link{% if tab == 'all' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.all }}">Все задачи <span class="tab-count">{{ tab_counts.all }}</span></a>
+        <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.archive }}">Архив <span class="tab-count">{{ tab_counts.archive }}</span></a>
     </nav>
     {% if can_create_task %}
         <a class="link-button" href="{% url 'tasks:create' %}">Создать задачу</a>
     {% endif %}
 </div>
 
-<form class="filter-form act-filter-panel task-filter-panel" method="get">
+<form class="filter-form act-filter-panel task-filter-panel" method="get" data-registry-filter>
     <input type="hidden" name="tab" value="{{ tab }}">
     {% comment %}
     Фамилия, имя, or both in either order — `_assignee_search_filter()` matches
     every word against the same исполнитель. It replaces «№ задачи», which
     answered a question nobody asks: work is remembered by whose it is.
     {% endcomment %}
-    <label><span>Исполнитель</span><input type="search" name="assignee" value="{{ selected.assignee }}" placeholder="Фамилия или имя"></label>
+    <label><span>Исполнитель</span><input type="search" name="assignee" value="{{ selected.assignee }}" placeholder="Фамилия или имя" data-registry-search></label>
     <label><span>Источник</span><input type="search" name="source" value="{{ selected.source }}" placeholder="Номер акта или протокола"></label>
     {% comment %}
     «Тип задачи» is the task's origin, built from `Task.SourceType` so a new

@@ -728,23 +728,84 @@
     line-height: 1.2;
 }
 
-.task-detail-columns,
-.task-detail-analysis-columns,
+/* The task page (`tasks/detail.html`): the statement on the full width, then
+   «Выполнение» on the left and a side column — «Вложения» above «Исполнители»
+   — on the right. The side column is a stack of its own, so a one-person
+   исполнители card is exactly as tall as its content, not as its neighbour. */
 .task-detail-execution-columns {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
     gap: 10px;
     align-items: start;
     margin-bottom: 10px;
 }
 
-.task-detail-columns {
-    align-items: stretch;
+.task-detail-side {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
 }
 
-.task-detail-info-card,
+.task-detail-statement {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 16px 20px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+/* The facts a person checks before starting, laid out as the act's «Данные
+   акта» are: a small muted label above its value, on one row. */
+.task-detail-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 36px;
+    margin: 0 0 4px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.task-detail-facts > div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.task-detail-facts dt {
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.task-detail-facts dd {
+    margin: 0;
+    font-weight: 700;
+}
+
+/* The wording itself: the one thing on the page set larger than the rest. */
+.task-detail-statement__text {
+    font-size: 16px;
+    line-height: 1.55;
+}
+
+.task-detail-context {
+    border-top: 1px solid var(--color-border);
+    padding-top: 8px;
+}
+
+.task-detail-context > summary {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.task-detail-context[open] > summary {
+    margin-bottom: 8px;
+}
+
 .task-detail-assignee-card,
-.task-detail-analysis-card,
 .task-detail-execution-card,
 .task-detail-attachments-card {
     padding: 16px 20px;
@@ -753,34 +814,7 @@
     border-radius: var(--radius);
 }
 
-.task-detail-info-card {
-    display: grid;
-    align-content: center;
-    gap: 14px;
-}
-
-.task-detail-info-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.task-detail-info-row dt {
-    margin: 0;
-    color: var(--color-text);
-    font-size: 15px;
-    font-weight: 700;
-}
-
-.task-detail-info-row dd {
-    margin: 0;
-    color: #1d2d5e;
-    font-size: 16px;
-    font-weight: 700;
-}
-
 .task-detail-assignee-card,
-.task-detail-analysis-card,
 .task-detail-execution-card,
 .task-detail-attachments-card {
     display: grid;
@@ -789,7 +823,6 @@
 }
 
 .task-detail-assignee-card h2,
-.task-detail-analysis-card h2,
 .task-detail-execution-card h2,
 .task-detail-attachments-card h2 {
     margin: 0;
@@ -1093,8 +1126,6 @@
 }
 
 @media (max-width: 900px) {
-    .task-detail-columns,
-    .task-detail-analysis-columns,
     .task-detail-execution-columns {
         grid-template-columns: 1fr;
     }
@@ -1732,7 +1763,7 @@
 .attachment-form,
 .comment-form { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .attachment-picker { position: relative; display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 48px; padding: 7px 8px 7px 12px; border: 1px dashed #8db7ff; border-radius: 7px; background: #f8fbff; color: #5c6f92; font-size: 13px; }
-.act-collaboration-layout .attachment-picker > input[type='file'] { position: absolute; top: 0; left: 0; width: 1px; min-width: 0; height: 1px; padding: 0; overflow: hidden; border: 0; clip-path: inset(50%); opacity: 0; pointer-events: none; }
+.attachment-picker > input[type='file'] { position: absolute; top: 0; left: 0; width: 1px; min-width: 0; height: 1px; padding: 0; overflow: hidden; border: 0; clip-path: inset(50%); opacity: 0; pointer-events: none; }
 .attachment-picker > .ui-icon { width: 18px; height: 18px; color: #2563eb; }
 .attachment-picker [data-attachment-file-name] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-picker--selected { border-style: solid; border-color: #86efac; background: #f3fdf7; color: #166534; }
@@ -2356,3 +2387,7 @@
     .to-analysis-readonly__cause { grid-column: 2; border-right: 0; border-bottom: 1px solid #1e407a; }
     .to-analysis-readonly__actions { grid-column: 2; }
 }
+
+/* Task registry: «Что сделать» takes the room, «Исполнители» a fair share. */
+.task-list__text { min-width: 280px; }
+.task-list__people { min-width: 150px; max-width: 280px; }

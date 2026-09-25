@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load people %}
 
-{% block title %}Задача {{ task.pk }}{% endblock %}
+{% block title %}Задача №{{ task.pk }} · Задачи{% endblock %}
 
 {% block content %}
 {% comment %}
@@ -16,13 +16,13 @@ the Django login, never the employee's name.
 <section class="task-detail-heading">
     <a class="act-back-link" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}" aria-label="К списку задач">←</a>
     <div class="task-detail-heading__title">
-        <h1>Задача {{ task.pk }}</h1>
+        <h1>Задача №{{ task.pk }}</h1>
         {% comment %}
-        The same answer the «Статус» row gives, not the raw queue status: an
-        approval task whose round was cancelled is closed as «Выполнено» in the
-        queue, and the badge must not contradict the card below it.
+        The task's one «Статус»: `describe_task_state()`, not the raw queue
+        status — an approval task whose round was cancelled is closed as
+        «Выполнено» in the queue and must never read as approved.
         {% endcomment %}
-        <span class="act-badge act-badge--status">{{ task_state.label }}</span>
+        <span class="act-badge act-badge--status{% if task_state.variant %} approval-status approval-status--{{ task_state.variant }}{% endif %}" title="Статус задачи">Статус: {{ task_state.label }}</span>
     </div>
     {% comment %}
     «Вернуть в работу» — the one administrative action on a closed task, shown
@@ -45,102 +45,49 @@ the Django login, never the employee's name.
     {% endif %}
 </section>
 
-<div class="task-detail-columns">
-    <section class="task-detail-info-card">
-        <div class="task-detail-info-row"><dt>Тип задачи</dt><dd>{{ task_type_label }}</dd></div>
-        <div class="task-detail-info-row"><dt>Статус</dt><dd>{% if task_state.variant %}<span class="approval-status approval-status--{{ task_state.variant }}">{{ task_state.label }}</span>{% else %}{{ task_state.label }}{% endif %}</dd></div>
+{% comment %}
+What the task asks, first and on the full width: the statement card opens with
+the facts a person checks before starting (where it came from, which
+подразделение, until when) and then the wording itself. The status is not
+repeated here — the pill in the heading is the one answer.
+{% endcomment %}
+<section class="task-detail-statement">
+    <dl class="task-detail-facts">
+        <div><dt>Тип задачи</dt><dd>{{ task_type_label }}</dd></div>
         {% comment %}
         One source row for every origin: `describe_task_source()` already
         resolved the label and the `reverse()`d link, so the template does not
         branch on which relation happens to be filled.
         {% endcomment %}
-        {% if task_source.url %}<div class="task-detail-info-row"><dt>Источник</dt><dd class="user-text"><a class="table-link" href="{{ task_source.url }}">{{ task_source.label }}</a></dd></div>{% endif %}
-{% comment %}
+        {% if task_source.url %}<div><dt>Источник</dt><dd class="user-text"><a class="table-link" href="{{ task_source.url }}">{{ task_source.label }}</a></dd></div>{% endif %}
+        {% comment %}
         Every real work item names a department except a bug report, whose
         assignees are chosen by the «Ответственный за ошибки» flag and may sit
-        in any number of them. The row is omitted rather than filled with a
-        dash: a fact the task does not have is not a fact worth a line.
+        in any number of them. The fact is omitted rather than filled with a
+        dash.
         {% endcomment %}
-        {% if task.department %}<div class="task-detail-info-row"><dt>Подразделение</dt><dd class="user-text">{{ task.department }}</dd></div>{% endif %}
-        <div class="task-detail-info-row"><dt>Срок</dt><dd><span class="{% if not task.status.is_final and task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ task.due_date|date:'d.m.Y' }}</span></dd></div>
-    </section>
-
-    <section class="task-detail-assignee-card">
-        <h2>Исполнители</h2>
-        {% with assignees=task.assignees.all %}
-            {% if assignees %}
-{% comment %}
-                The three parts of an исполнитель row, here and in the expanded
-                list below, in that order: the avatar never shrinks, the name
-                takes the space that is left, and the подразделение keeps its
-                own width and truncates with the full text on its `title`. The
-                classes are what `acts.css` sizes — nothing here is laid out by
-                the order of unclassed spans.
-                {% endcomment %}
-                <div class="task-detail-assignee-primary">
-                    <span class="task-detail-assignee-avatar">{{ assignees.0.user|person_initials }}</span>
-                    <span class="task-detail-assignee-name">{{ assignees.0.user|person_name }}</span>
-                    {% if assignees.0.user.userprofile.department %}<span class="task-detail-assignee-role" title="{{ assignees.0.user.userprofile.department }}">{{ assignees.0.user.userprofile.department }}</span>{% endif %}
-                </div>
-                <div class="task-detail-assignee-toggle-row">
-                    {% if assignees|length > 1 %}
-                        <details class="task-detail-assignee-toggle">
-                            <summary class="task-detail-assignee-toggle-button" aria-label="Показать всех исполнителей">
-                                <svg class="ui-icon task-detail-assignee-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
-                            </summary>
-{% comment %}
-                            The expanded part of the block, not a menu of its
-                            own: it is positioned against the full-width toggle
-                            row, so it lines up with «Исполнители» above it and
-                            each row has the same space the primary one has. A
-                            long list scrolls vertically inside it; nothing
-                            scrolls sideways.
-                            {% endcomment %}
-                            <ul class="task-detail-assignee-popup">
-                                {% for assignee in assignees|slice:"1:" %}
-                                <li>
-                                    <span class="task-detail-assignee-avatar">{{ assignee.user|person_initials }}</span>
-                                    <span class="task-detail-assignee-name">{{ assignee.user|person_name }}</span>
-                                    {% if assignee.user.userprofile.department %}<span class="task-detail-assignee-role" title="{{ assignee.user.userprofile.department }}">{{ assignee.user.userprofile.department }}</span>{% endif %}
-                                </li>
-                                {% endfor %}
-                            </ul>
-                        </details>
-                    {% else %}
-                        <span class="task-detail-assignee-toggle-spacer" aria-hidden="true"></span>
-                    {% endif %}
-                </div>
-            {% else %}
-                <p class="task-detail-assignee-empty">—</p>
-            {% endif %}
-        {% endwith %}
-    </section>
-</div>
-
-<div class="task-detail-analysis-columns">
+        {% if task.department %}<div><dt>Подразделение</dt><dd class="user-text">{{ task.department }}</dd></div>{% endif %}
+        <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=task.due_date done=task.status.is_final %}</dd></div>
+    </dl>
     {% comment %}
-    Корневая причина is an act-only section and is keyed on the source type,
-    not merely on the relation being present: a protocol task has no root
-    analysis and must not be shown an empty one.
+    What the text below *is*, per source type. Every branch is named: an
+    unnamed source falling through to «Решение протокола» would label an СМК
+    measure and a bug report as something they are not.
+    {% endcomment %}
+    <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% elif task.is_act_rejection_task %}Решение КО{% elif task.is_smk_task %}Мероприятие СМК{% elif task.is_bug_task %}Сообщение об ошибке{% else %}Решение протокола{% endif %}</span>
+    <div class="task-detail-statement__text user-text">{{ task.task_text|linebreaksbr }}</div>
+    {% comment %}
+    Корневая причина is context, not the work: folded under the statement and
+    keyed on the source type, not merely on the relation being present — a
+    protocol task has no root analysis and must not be shown an empty one.
     {% endcomment %}
     {% if task.is_act_task and task.root_analysis_id %}
-    <section class="task-detail-analysis-card">
-        <span class="task-detail-eyebrow">Анализ ТО</span>
-        <h2>Корневая причина</h2>
-        <div class="task-comment-block user-text">{{ task.root_analysis.root_cause|linebreaksbr }}</div>
-    </section>
+        <details class="task-detail-context">
+            <summary>Анализ ТО · Корневая причина</summary>
+            <div class="task-comment-block user-text">{{ task.root_analysis.root_cause|linebreaksbr }}</div>
+        </details>
     {% endif %}
-    <section class="task-detail-analysis-card">
-{% comment %}
-        What the text below *is*, per source type. Every branch is named: an
-        unnamed source falling through to «Решение протокола» would label an
-        СМК measure and a bug report as something they are not.
-        {% endcomment %}
-        <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% elif task.is_act_rejection_task %}Решение КО{% elif task.is_smk_task %}Мероприятие СМК{% elif task.is_bug_task %}Сообщение об ошибке{% else %}Решение протокола{% endif %}</span>
-        <h2>Задача</h2>
-        <div class="task-comment-block user-text">{{ task.task_text|linebreaksbr }}</div>
-    </section>
-</div>
+</section>
 
 {% comment %}
 «Выполнение» on the left, «Вложения» on the right. The two are separate forms
@@ -161,8 +108,11 @@ still completed with the execution comment and nothing attached.
             {% endcomment %}
             <textarea id="task-execution-comment" name="execution_comment" rows="4" required placeholder="Опишите результат выполнения задачи">{{ execution_comment }}</textarea>
             {% if execution_error %}<p class="field-error">{{ execution_error }}</p>{% endif %}
+            {% comment %}
+            The way back is the «←» in the heading; this row holds the one
+            action the card exists for.
+            {% endcomment %}
             <div class="task-detail-actions">
-                <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a>
                 <button class="link-button" type="submit">Завершить задачу</button>
             </div>
         </form>
@@ -184,8 +134,19 @@ still completed with the execution comment and nothing attached.
             <div class="task-comment-block user-text">{{ task.execution_comment|linebreaksbr }}</div>
             <p class="task-completion-meta">Завершил {{ task.completed_by|person_name }}, {{ task.completed_at|date:'d.m.Y H:i' }}</p>
         </section>
+    {% else %}
+        {% comment %}
+        A reader who is not an исполнитель: the card keeps its place, so the
+        page has the same shape for everybody and «Вложения» never slides into
+        the left column.
+        {% endcomment %}
+        <section class="task-detail-execution-card">
+            <h2>Выполнение</h2>
+            <p class="task-completion-meta">Результат ещё не внесён.</p>
+        </section>
     {% endif %}
 
+    <div class="task-detail-side">
     <section class="task-detail-attachments-card">
         <h2>Вложения</h2>
         {% comment %}
@@ -224,7 +185,17 @@ still completed with the execution comment and nothing attached.
                 {% endcomment %}
                 <input type="hidden" name="execution_comment" value="{{ execution_comment }}"
                        data-attachment-carry-from="#task-execution-comment">
-                {{ attachment_form.file }}
+                {% comment %}
+                The act and protocol picker, not the browser's bare «Выберите
+                файл»: `attachment_upload.js` writes the chosen name into the
+                label and turns the card green, exactly as on those pages.
+                {% endcomment %}
+                <div class="attachment-picker">
+                    {{ attachment_form.file }}
+                    <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>
+                    <span data-attachment-file-name>{% if task.requires_attachment %}Приложите подтверждающий файл{% else %}Файл к задаче, если нужен{% endif %}</span>
+                    <button class="link-button link-button--secondary link-button--compact" type="button" data-attachment-file-trigger>Выбрать файл</button>
+                </div>
                 {{ attachment_form.file.errors }}
         {% comment %}
         Hidden, and clicked by `attachment_upload.js` — never by a person. It
@@ -292,11 +263,58 @@ still completed with the execution comment and nothing attached.
             <p class="task-completion-meta">Вложения пока не добавлены.</p>
         {% endif %}
     </section>
+
+    <section class="task-detail-assignee-card">
+        <h2>Исполнители</h2>
+        {% with assignees=task.assignees.all %}
+            {% if assignees %}
+{% comment %}
+                The three parts of an исполнитель row, here and in the expanded
+                list below, in that order: the avatar never shrinks, the name
+                takes the space that is left, and the подразделение keeps its
+                own width and truncates with the full text on its `title`. The
+                classes are what `acts.css` sizes — nothing here is laid out by
+                the order of unclassed spans.
+                {% endcomment %}
+                <div class="task-detail-assignee-primary">
+                    <span class="task-detail-assignee-avatar">{{ assignees.0.user|person_initials }}</span>
+                    <span class="task-detail-assignee-name">{{ assignees.0.user|person_name }}</span>
+                    {% if assignees.0.user.userprofile.department %}<span class="task-detail-assignee-role" title="{{ assignees.0.user.userprofile.department }}">{{ assignees.0.user.userprofile.department }}</span>{% endif %}
+                </div>
+                <div class="task-detail-assignee-toggle-row">
+                    {% if assignees|length > 1 %}
+                        <details class="task-detail-assignee-toggle">
+                            <summary class="task-detail-assignee-toggle-button" aria-label="Показать всех исполнителей">
+                                <svg class="ui-icon task-detail-assignee-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+                            </summary>
+{% comment %}
+                            The expanded part of the block, not a menu of its
+                            own: it is positioned against the full-width toggle
+                            row, so it lines up with «Исполнители» above it and
+                            each row has the same space the primary one has. A
+                            long list scrolls vertically inside it; nothing
+                            scrolls sideways.
+                            {% endcomment %}
+                            <ul class="task-detail-assignee-popup">
+                                {% for assignee in assignees|slice:"1:" %}
+                                <li>
+                                    <span class="task-detail-assignee-avatar">{{ assignee.user|person_initials }}</span>
+                                    <span class="task-detail-assignee-name">{{ assignee.user|person_name }}</span>
+                                    {% if assignee.user.userprofile.department %}<span class="task-detail-assignee-role" title="{{ assignee.user.userprofile.department }}">{{ assignee.user.userprofile.department }}</span>{% endif %}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </details>
+                    {% else %}
+                        <span class="task-detail-assignee-toggle-spacer" aria-hidden="true"></span>
+                    {% endif %}
+                </div>
+            {% else %}
+                <p class="task-detail-assignee-empty">—</p>
+            {% endif %}
+        {% endwith %}
+    </section>
+    </div>
 </div>
 
-{% if not can_complete %}
-    <div class="task-detail-actions">
-        <a class="link-button link-button--secondary" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}">К списку задач</a>
-    </div>
-{% endif %}
 {% endblock %}

@@ -1,4 +1,4 @@
-{% comment %}
+{% load people %}{% comment %}
 Task registry results only: table, rows, overdue state and the empty state.
 The tabs and the filter form deliberately live outside, so a live refresh
 never replaces controls the user may be typing into.
@@ -11,7 +11,7 @@ the `ProtocolApproval` decision, never the queue's own «Выполнено».
 {% if rows %}
 <section class="table-card act-table-card">
     <table class="data-table">
-        <thead><tr><th>№ задачи</th><th>Тип задачи</th><th>Источник</th><th>Статус</th><th>Срок <a class="task-sort-link{% if selected.sort %} task-sort-link--active{% endif %}" href="{{ sort_url }}" aria-label="Изменить сортировку по сроку" title="{% if selected.sort == 'nearest' %}Дальние сначала{% else %}Ближайшие сначала{% endif %}">⇅</a></th></tr></thead>
+        <thead><tr><th>№</th><th>Что сделать</th><th>Исполнители</th><th>Тип задачи</th><th>Источник</th><th>Статус</th><th>Срок <a class="task-sort-link{% if selected.sort %} task-sort-link--active{% endif %}" href="{{ sort_url }}" aria-label="Изменить сортировку по сроку" title="{% if selected.sort == 'nearest' %}Дальние сначала{% else %}Ближайшие сначала{% endif %}">⇅</a></th></tr></thead>
         <tbody>
         {% for row in rows %}
             {% comment %}
@@ -21,10 +21,16 @@ the `ProtocolApproval` decision, never the queue's own «Выполнено».
             {% endcomment %}
             <tr data-task-row="{{ row.task.pk }}" data-row-url="{% url 'tasks:detail' row.task.pk %}{% if list_query %}?{{ list_query }}{% endif %}"{% if tab != 'archive' and row.task.due_date < today %} class="task-row--overdue"{% endif %}>
                 <td><a class="table-link" href="{% url 'tasks:detail' row.task.pk %}{% if list_query %}?{{ list_query }}{% endif %}">{{ row.task.pk }}</a></td>
+                {% comment %}
+                The wording and the people, clamped for display only: the full
+                text and every name stay on `title`, and on the task page.
+                {% endcomment %}
+                <td class="task-list__text"><span class="user-text text-clamp-2" title="{{ row.task.task_text }}">{{ row.task.task_text }}</span></td>
+                <td class="task-list__people">{% with people=row.task.assignees.all %}{% if people %}<span class="text-clamp-2" title="{% for a in people %}{{ a.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for a in people %}{{ a.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>{% else %}—{% endif %}{% endwith %}</td>
                 <td class="user-text">{{ row.type_label }}</td>
                 <td class="user-text">{% if row.source.url %}<a class="table-link" href="{{ row.source.url }}">{{ row.source.label }}</a>{% else %}—{% endif %}</td>
                 <td>{% if row.state.variant %}<span class="approval-status approval-status--{{ row.state.variant }}">{{ row.state.label }}</span>{% else %}{{ row.state.label }}{% endif %}</td>
-                <td><span class="{% if tab != 'archive' and row.task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ row.task.due_date|date:'d.m.Y' }}</span></td>
+                <td>{% include 'includes/due_date.html' with date=row.task.due_date done=row.task.status.is_final %}</td>
             </tr>
         {% endfor %}
         </tbody>

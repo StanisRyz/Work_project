@@ -161,6 +161,20 @@ def build_task_list_state(user, query_params):
             )
         ).order_by('overdue_order', 'due_date', 'pk')
 
+    # «Что сделать» and «Исполнители» are columns now: one query for every
+    # row's people instead of one per row.
+    tasks = tasks.prefetch_related('assignees__user')
+
+    # The unfiltered size of each tab, for the counts beside the tab names —
+    # the same three querysets the tabs open, before any filter.
+    readable = get_readable_tasks_queryset(user)
+    tab_counts = {
+        'my': get_visible_tasks_queryset(user).filter(assignees__user=user)
+        .exclude(status__is_final=True).distinct().count(),
+        'all': readable.exclude(status__is_final=True).count(),
+        'archive': readable.filter(status__is_final=True).count(),
+    }
+
     tab_urls = {}
     for tab_name in TABS:
         query = query_params.copy()
@@ -180,6 +194,7 @@ def build_task_list_state(user, query_params):
         'source_type_options': Task.SourceType.choices,
         'today': today,
         'tab_urls': tab_urls,
+        'tab_counts': tab_counts,
         'reset_url': f'?tab={tab}',
         'sort_url': f'?{sort_query.urlencode()}',
         'list_query': query_params.urlencode(),

@@ -1,6 +1,6 @@
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.http import FileResponse, Http404, JsonResponse
+from django.http import FileResponse, Http404, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -164,7 +164,7 @@ def task_detail(request, pk):
         # `complete_task()` is still the only writer of that column.
         execution_comment=_take_execution_draft(request, task) or task.execution_comment,
     )
-    context['header_title'] = f'Задача {task.pk}'
+    context['header_title'] = f'Задача №{task.pk}'
     return render(request, 'tasks/detail.html', context)
 
 
@@ -198,7 +198,7 @@ def _task_detail_context(
     attachment_form=None,
 ):
     return {
-        'active_page': 'tasks', 'header_title': f'Задача {task.pk}', 'task': task, 'today': timezone.localdate(),
+        'active_page': 'tasks', 'header_title': f'Задача №{task.pk}', 'task': task, 'today': timezone.localdate(),
         'can_complete': can_complete_task(task, user), 'list_query': list_query,
         # «Вернуть в работу», offered only to an administrator and only for a
         # completed ordinary task. Never both this and `can_complete` — the two
@@ -232,12 +232,31 @@ def complete_task_view(request, pk):
             request, 'tasks/detail.html',
             _task_detail_context(task, request.user, list_query, execution_comment, str(exc)), status=400,
         )
-    # «Архив», unfiltered: it is ordered by when a task actually ended, newest
-    # first, so the task just closed is the row at the top. It used to be
-    # filtered down to that one task by number, which stopped meaning anything
-    # when the registry started filtering by исполнитель — and left the person
-    # looking at a one-row archive with nothing on screen explaining why.
-    return redirect(f"{reverse('tasks:list')}?tab=archive")
+    return _redirect_to_next_task(request, task, list_query)
+
+
+def _redirect_to_next_task(request, done_task, list_query):
+    """After «Завершить задачу»: the next open task of «Мои задачи».
+
+    The queue is `build_task_list_state()` itself, tab «Мои задачи», so «next»
+    means what the registry shows first — overdue, then nearest deadline — and
+    never a task this user could not open. With nothing left the registry
+    opens instead, and a message says the work is done either way.
+    """
+    params = QueryDict(mutable=True)
+    params['tab'] = 'my'
+    queue = build_task_list_state(request.user, params)['tasks']
+    upcoming = queue.exclude(pk=done_task.pk).first()
+    if upcoming is None:
+        messages.success(
+            request, f'Задача №{done_task.pk} выполнена. Других задач в работе у вас нет.'
+        )
+        return redirect(f"{reverse('tasks:list')}?tab=my")
+    messages.success(
+        request,
+        f'Задача №{done_task.pk} выполнена. Открыта следующая из «Мои задачи» — №{upcoming.pk}.',
+    )
+    return redirect(f"{reverse('tasks:detail', args=[upcoming.pk])}?tab=my")
 
 
 @login_required

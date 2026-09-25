@@ -54,6 +54,37 @@ class TaskViewsTests(TestCase):
         user.userprofile.save()
         return user
 
+    def assert_opens_next_task(self, response, user):
+        """«Завершить задачу» lands on the next open task of «Мои задачи»,
+        or on that tab itself when nothing is left — never on the archive."""
+        self.assertEqual(response.status_code, 302)
+        location = response['Location']
+        if location == f"{reverse('tasks:list')}?tab=my":
+            return
+        next_pk = int(location.split('/')[-2])
+        next_task = Task.objects.get(pk=next_pk)
+        self.assertEqual(location, f"{reverse('tasks:detail', args=[next_pk])}?tab=my")
+        self.assertEqual(next_task.status.code, 'IN_PROGRESS')
+        self.assertTrue(next_task.assignees.filter(user=user).exists())
+
+    def test_completion_opens_the_next_task_and_then_the_empty_queue(self):
+        first = self._task(self.employee, timezone.localdate() - timedelta(days=1))
+        second = self._task(self.employee, timezone.localdate() + timedelta(days=2))
+        self.client.force_login(self.employee)
+
+        response = self.client.post(
+            reverse('tasks:complete', args=[first.pk]), {'execution_comment': 'Сделано.'}
+        )
+        self.assertRedirects(
+            response, f"{reverse('tasks:detail', args=[second.pk])}?tab=my", fetch_redirect_response=False
+        )
+        self.assertContains(self.client.get(response['Location']), f'Задача №{first.pk} выполнена')
+
+        response = self.client.post(
+            reverse('tasks:complete', args=[second.pk]), {'execution_comment': 'Сделано.'}
+        )
+        self.assertRedirects(response, f"{reverse('tasks:list')}?tab=my", fetch_redirect_response=False)
+
     def _task(self, responsible, due_date, extra_assignees=()):
         root = ActRootAnalysis.objects.create(act=self.act, root_cause=f'Причина {ActRootAnalysis.objects.count()}')
         action = ActCorrectiveAction.objects.create(
@@ -256,11 +287,13 @@ class TaskViewsTests(TestCase):
         self.assertContains(response, 'По акту')
         self.assertContains(response, reverse('tasks:detail', args=[overdue.pk]))
         self.assertContains(response, reverse('acts:detail', args=[self.act.pk]))
-        self.assertNotContains(response, future.task_text)
-        self.assertNotContains(response, 'Исполнители</th>')
+        # What the task asks and who stands on it are columns of their own.
+        self.assertContains(response, future.task_text)
+        self.assertContains(response, '<th>Что сделать</th>')
+        self.assertContains(response, '<th>Исполнители</th>')
         # «Тип задачи» is the source type; «Статус» is the task's own workflow
         # status. They are separate columns and never the same value.
-        self.assertContains(response, '№ задачи</th><th>Тип задачи</th><th>Источник</th><th>Статус</th><th>Срок <a class="task-sort-link"')
+        self.assertContains(response, '№</th><th>Что сделать</th><th>Исполнители</th><th>Тип задачи</th><th>Источник</th><th>Статус</th><th>Срок <a class="task-sort-link"')
 
     def test_every_employee_can_read_other_tasks_but_cannot_complete_them(self):
         own_task = self._task(self.employee, timezone.localdate())
@@ -336,10 +369,7 @@ class TaskViewsTests(TestCase):
             reverse('tasks:complete', args=[ordinary.pk]),
             {'execution_comment': 'Работа выполнена мастером.'},
         )
-        self.assertRedirects(
-            completed,
-            f"{reverse('tasks:list')}?tab=archive",
-        )
+        self.assert_opens_next_task(completed, self.mas)
         ordinary.refresh_from_db()
         self.assertEqual(ordinary.status.code, 'COMPLETED')
         self.assertEqual(ordinary.completed_by, self.mas)
@@ -502,7 +532,7 @@ class TaskViewsTests(TestCase):
         task = self._task(self.employee, timezone.localdate() - timedelta(days=1), [self.other_employee])
         self.client.force_login(self.employee)
         response = self.client.get(reverse('tasks:detail', args=[task.pk]), {'tab': 'all', 'source': self.act.number})
-        self.assertEqual(response.context['header_title'], f'Задача {task.pk}')
+        self.assertEqual(response.context['header_title'], f'Задача №{task.pk}')
         self.assertNotContains(response, '<section class="task-detail-card">\n    <h1>')
         self.assertContains(response, 'Статус')
         self.assertContains(response, str(task.status))
@@ -524,7 +554,7 @@ class TaskViewsTests(TestCase):
         self.assertEqual(task.status.code, 'IN_PROGRESS')
 
         response = self.client.post(url, {'execution_comment': 'Работа выполнена.', 'list_query': 'tab=all'})
-        self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive')
+        self.assert_opens_next_task(response, self.other_employee)
         task.refresh_from_db()
         self.assertEqual(task.status.code, 'COMPLETED')
         self.assertEqual(task.completed_by, self.other_employee)
@@ -577,9 +607,7 @@ class TaskViewsTests(TestCase):
         self.client.force_login(self.employee)
         allowed = self.client.post(complete_url, {'execution_comment': 'Сделано.'})
 
-        self.assertRedirects(
-            allowed, f'{reverse("tasks:list")}?tab=archive'
-        )
+        self.assert_opens_next_task(allowed, self.employee)
         task.refresh_from_db()
         self.assertEqual(task.status.code, 'COMPLETED')
 
@@ -808,7 +836,7 @@ class TaskViewsTests(TestCase):
         response = self.client.post(
             reverse('tasks:complete', args=[task.pk]), {'execution_comment': 'Завершено администратором.'}
         )
-        self.assertRedirects(response, f'{reverse("tasks:list")}?tab=archive')
+        self.assert_opens_next_task(response, administrator)
         task.refresh_from_db()
         self.assertEqual(task.completed_by, administrator)
 
