@@ -86,11 +86,30 @@
         }
         const link = button.dataset.copyLink;
         closeMenus(null);
-        const done = () => toast('Ссылка скопирована');
+        // The plant's intranet is often plain HTTP, where the async clipboard
+        // does not exist; the selection-copy fallback works there, and no
+        // browser dialog is ever used.
+        const fallback = () => {
+            const area = document.createElement('textarea');
+            area.value = link;
+            area.setAttribute('readonly', '');
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            let copied = false;
+            try {
+                copied = document.execCommand('copy');
+            } catch (error) {
+                copied = false;
+            }
+            area.remove();
+            toast(copied ? 'Ссылка скопирована' : `Ссылка: ${link}`);
+        };
         if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(link).then(done, () => window.prompt('Ссылка на документ:', link));
+            navigator.clipboard.writeText(link).then(() => toast('Ссылка скопирована'), fallback);
         } else {
-            window.prompt('Ссылка на документ:', link);
+            fallback();
         }
     });
 
@@ -247,7 +266,9 @@
         }
         const form = document.createElement('form');
         form.method = 'post';
-        form.action = bulk ? bulk.action : '/documents/bulk/';
+        // `getAttribute`, not `.action`: the bar's buttons are named «action»,
+        // and a named control shadows the form property.
+        form.action = bulk ? bulk.getAttribute('action') : '/documents/bulk/';
         const field = (name, value) => {
             const input = document.createElement('input');
             input.type = 'hidden';

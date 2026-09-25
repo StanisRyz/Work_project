@@ -47,7 +47,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 
 | Тип | Ресурс | Значимые поля `data` |
 | --- | --- | --- |
-| `notification.created` | `notification` | `recipient_id`, `actor_id`, `act_id`, `notification_event_type` |
+| `notification.created` | `notification` | `recipient_id`, `actor_id`, `source_type`, `act_id`, `protocol_id`, `task_id`, `bug_report_id`, `document_id`, `notification_event_type` |
 | `notification.read` | `user` | `changed_count`, `unread_count`, `scope`, `notification_ids` (только для небольшой операции) |
 | `task.created` | `task` | `act_id`, `source_action_id`, `status_code`, `assignee_count` |
 | `task.updated` | `task` | `act_id`, `status_code`, `changed_fields` |

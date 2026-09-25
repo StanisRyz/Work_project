@@ -65,7 +65,7 @@
 | Reverse proxy с HTTPS | да | внешний доступ только по HTTPS |
 | Redis | только для real-time | при `REALTIME_ENABLED=false` не нужен вовсе |
 | Корпоративный SMTP relay | только для email-уведомлений | при выключенных уведомлениях не требуется |
-| Планировщик ОС | только для email-очереди | systemd timer или Windows Task Scheduler |
+| Планировщик ОС | для email-очереди и ежедневных задач «Документации» | systemd timer или Windows Task Scheduler |
 
 Celery, Docker, Kubernetes и PgBouncer в проекте не используются.
 
@@ -303,6 +303,27 @@ $credential = Get-Credential 'DOMAIN\quality-service'
 При `EMAIL_NOTIFICATIONS_ENABLED=false` новые доставки создаются сразу со
 статусом `skipped`: после включения SMTP они не превращаются в накопленную
 рассылку.
+
+### Ежедневные задания «Документации»
+
+Два идемпотентных запуска раз в сутки (удобно ночью), тем же планировщиком и
+под той же служебной учётной записью, что и email-очередь:
+
+```powershell
+python manage.py document_review_reminders   # задачи «Пересмотреть документ» за 30 дней до даты
+python manage.py purge_document_trash        # удалить из корзины то, что лежит дольше 30 дней
+```
+
+Обе команды можно запускать чаще — повторный запуск ничего не дублирует.
+Документ, по которому выдавались задачи, из корзины не удаляется никогда.
+
+Поиск по тексту файлов использует `pypdf` (в `requirements.txt`, чистый Python —
+работает и на Windows). Текст извлекается при загрузке; для файлов, загруженных
+до обновления, один раз выполните:
+
+```powershell
+python manage.py reindex_documents
+```
 
 ## 11. Health и readiness
 

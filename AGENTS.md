@@ -27,7 +27,7 @@ model without explicit approval.
 | `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
-| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree), `Document` + `DocumentVersion` + `DocumentHistoryEvent` + `DocumentFavorite` (corporate documents, files under `media/documents/library/`), the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`, the unified search layer in `documents/search/`, the file browser, and every mutation in `documents/services.py` |
+| `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
@@ -43,8 +43,8 @@ its own registry and, as before, from «Задачи» through `tasks:create`. `
 dashboard itself — not a redirect — and it is the login fallback for every role
 including superusers (`accounts/navigation.py` → `dashboard:home`); the topbar and
 sidebar brand links open it. It has no navigation entry of its own and adds no
-rights: each card asks the owning section's existing rule, so today only
-«Документация» is conditional. Django Admin (`/admin/`) is reached directly, not
+rights: each card asks the owning section's existing rule («Документация» asks
+`can_view_documents()`, today every signed-in employee). Django Admin (`/admin/`) is reached directly, not
 from the sidebar.
 
 Public URLs follow the two-level convention `/quality/<module>/` and
@@ -63,8 +63,9 @@ The navigation panel is two levels deep: the click-controlled top-level
 categories Качество (Акты, Задачи, Протоколы) and Калькуляторы (Калькулятор
 времени навивки, Калькулятор рубки пластин), each opening its own vertical submenu,
 plus Документация — a first-level item that is a plain link to `/documents/`,
-has no submenu, and is drawn only for administrative roles
-(`documents.context_processors.documentation_access` → `can_view_documentation`). Only leaf items are links; categories are buttons, one submenu open at a time,
+has no submenu, and is drawn for whoever `can_view_documents()` admits — every
+signed-in employee (`documents.context_processors.documentation_access` →
+`can_view_documentation`). Only leaf items are links; categories are buttons, one submenu open at a time,
 and the panel and the profile menu are never open together. All of that state
 lives in `static/js/app.js`.
 
@@ -92,7 +93,8 @@ tasks never live inside `acts`.
 - **Attachments are protected media**, served only by
   `acts.views.act_download_attachment`,
   `protocols.views.protocol_download_attachment` and
-  `tasks.views.task_download_attachment`, each with a per-request
+  `tasks.views.task_download_attachment` — and library files only by the
+  `documents` download, preview and ZIP views — each with a per-request
   permission check. `MEDIA_ROOT` is never published by the web server and is a
   different directory from `STATIC_ROOT`.
 - Django Templates and vanilla JavaScript only: no framework, bundler or npm.
@@ -457,9 +459,10 @@ tasks never live inside `acts`.
   no completion time. `can_complete_task()` is unchanged and already refuses
   anything but `IN_PROGRESS`. Written **only** by
   `tasks.services.cancel_smk_action_tasks()`, inside the caller's transaction.
-- **A task's origin is `source_type`, never a nullable relation.** Seven values
+- **A task's origin is `source_type`, never a nullable relation.** Ten values
   exist — `ACT`, `ACT_WORKFLOW`, `ACT_REJECTION`, `PROTOCOL_APPROVAL`,
-  `PROTOCOL_ACTION`, `SMK`, `BUG` — and exactly one relation shape is valid for each,
+  `PROTOCOL_ACTION`, `SMK`, `BUG`, `DOCUMENT_ACK`, `DOCUMENT_APPROVAL`,
+  `DOCUMENT_REVIEW` — and exactly one relation shape is valid for each,
   enforced by `Task.clean()` and by the
   `task_source_relations_match_source_type` check constraint:
 
@@ -472,6 +475,7 @@ tasks never live inside `acts`.
   | `PROTOCOL_ACTION` | `protocol`, `protocol_action`, `department` | `act`, `root_analysis`, `source_action`, `workflow_stage` |
   | `SMK` | `smk_source`, `smk_action`, `department` | `act`, `root_analysis`, `source_action`, `protocol`, `protocol_action`, `workflow_stage` |
   | `BUG` | `bug_report` | everything else, `department` and `individual_assignee` included |
+  | `DOCUMENT_ACK`, `DOCUMENT_APPROVAL`, `DOCUMENT_REVIEW` | `document_version`, `individual_assignee` | every act, protocol, СМК and bug relation, `workflow_stage`; `department` free (the owning подразделение when the card names one) |
 
   The act relations are nullable *only* so the other shapes can exist; for an
   `ACT` task all three stay required. `department` is nullable for the same
@@ -482,7 +486,19 @@ tasks never live inside `acts`.
   leaving it to the column, and `IS NULL` on the `BUG` branch. `smk_source`/`smk_action` are stated `IS NULL` on
   every non-`SMK` branch for the same reason: a relation outside a shape must
   be provably absent, not merely unmentioned. `Task.clean()` adds them to
-  `forbidden` in one place instead of restating them in five tuples.
+  `forbidden` in one place instead of restating them in five tuples, and
+  `document_version` likewise on every non-document branch. A document task is
+  always **personal** — one version, one person — so `individual_assignee` is
+  required there and `TaskAssignee` is exactly that person;
+  `unique_document_ack_task` / `unique_document_approval_task` (per version and
+  person) and `unique_document_review_task` (per version and due date) make a
+  repeated request or a daily reminder unable to duplicate one.
+  `Task.document_version` is `PROTECT`: a document with task history is never
+  purged. `DOCUMENT_ACK` and `DOCUMENT_APPROVAL` are routing entries
+  (`is_routing_task`): `tasks:detail` redirects them to the document, and they
+  are closed only by `tasks.services.complete_document_routing_task()` /
+  `cancel_document_tasks()`, called from `documents/services.py`.
+  `DOCUMENT_REVIEW` is ordinary work, completed with a comment.
 - **`ACT_WORKFLOW` is the act's route made visible in «Задачи», and is not an
   `ACT` task.** An `ACT` task is a corrective action somebody performs; an
   `ACT_WORKFLOW` task is a work-queue entry saying which stage the act is
@@ -750,8 +766,10 @@ tasks never live inside `acts`.
   shared one, for both domains.** NULL is the task everybody shares; set is the
   task split off for that person, whose `TaskAssignee` rows are exactly them.
   It is optional on the two split-capable sources — `ACT` and `PROTOCOL_ACTION`
-  — and forbidden on an approval task, which is one person's queue entry and
-  has nothing to split. There is no second, act-specific field.
+  — and forbidden on a protocol approval task, which is one person's queue
+  entry and has nothing to split. The three document sources are the other way
+  round: always one person's, so it is required there. There is no second,
+  act-specific field.
 - **How many tasks a source may own is stated by constraints, not by the
   relation.** `source_action` and `protocol_action` are both foreign keys, and
   four unique constraints replace what their one-to-ones used to guarantee:
@@ -930,25 +948,31 @@ tasks never live inside `acts`.
   deduplicated per recipient by a stable source key, and routed in one place:
   `notifications/services.py`. Never create a `Notification` from a view, a
   template, a model signal or JavaScript.
-- **A notification's origin is `source_type`, never a nullable relation.** Four
-  values exist — `ACT`, `PROTOCOL`, `TASK`, `BUG` — and exactly one relation
+- **A notification's origin is `source_type`, never a nullable relation.** Five
+  values exist — `ACT`, `PROTOCOL`, `TASK`, `BUG`, `DOCUMENT` — and exactly one relation
   shape is valid for each, enforced by `Notification.clean()` and by the
   `notification_source_relations_match_source_type` check constraint:
 
   | `source_type` | required | must be NULL |
   | --- | --- | --- |
-  | `ACT` | `related_act` | `related_protocol`, `related_task`, `related_bug_report` |
-  | `PROTOCOL` | `related_protocol` | `related_act`, `related_task`, `related_bug_report` |
-  | `TASK` | `related_task` | `related_act`, `related_protocol`, `related_bug_report` |
-  | `BUG` | `related_bug_report` | `related_act`, `related_protocol`, `related_task` |
+  | `ACT` | `related_act` | `related_protocol`, `related_task`, `related_bug_report`, `related_document` |
+  | `PROTOCOL` | `related_protocol` | `related_act`, `related_task`, `related_bug_report`, `related_document` |
+  | `TASK` | `related_task` | `related_act`, `related_protocol`, `related_bug_report`, `related_document` |
+  | `BUG` | `related_bug_report` | `related_act`, `related_protocol`, `related_task`, `related_document` |
+  | `DOCUMENT` | `related_document` | `related_act`, `related_protocol`, `related_task`, `related_bug_report` |
 
   `related_act` keeps its name and its meaning; it is nullable *only* so the
   other shapes can exist. `create_notifications()` takes exactly one of
-  `act=`/`protocol=`/`task=`/`bug_report=` and derives `source_type` from it, so
-  the type and the stored relation can never disagree. `get_notification_url()`
-  resolves by source type through named routes — `acts:detail`,
-  `protocols:detail`, `tasks:detail`, `bugs:detail` — from the stored foreign
-  key id, never a hard-coded path. A new source type is one entry in each of
+  `act=`/`protocol=`/`task=`/`bug_report=`/`document=` and derives
+  `source_type` from it, so the type and the stored relation can never
+  disagree. `get_notification_url()` resolves by source type through named
+  routes — `acts:detail`, `protocols:detail`, `tasks:detail`, `bugs:detail`,
+  `documents:document_detail` — from the stored foreign key id passed
+  positionally (every such route takes one integer, whatever it calls it),
+  never a hard-coded path. A document task's notification is
+  `DOCUMENT`-sourced, not `TASK`-sourced: the page to open is the document,
+  where the answer is given (`notify_document_task()`, keyed on the task, one
+  per task, `exclude_actor=False`). A new source type is one entry in each of
   `SOURCE_FIELDS`, `SOURCE_ROUTES`, `_resolve_source()`, `_event_text()` and
   `describe_notification_source()` — never a conditional spread through the
   model, the services and the templates.
@@ -980,6 +1004,7 @@ tasks never live inside `acts`.
   | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
   | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED` | — |
   | bug | `BUG_REPORTED` | — |
+  | document | `DOCUMENT_ACK_REQUIRED`, `DOCUMENT_APPROVAL_REQUIRED`, `DOCUMENT_REVIEW_DUE`, `DOCUMENT_VERSION_RETURNED` | `DOCUMENT_UPDATED` (a subscriber's «новая версия» — information asked for, not a duty) |
 
   `COMMENT_ADDED` stays out on purpose: comments are frequent, carry no
   required action of their own and would turn the mailbox into noise.
@@ -998,6 +1023,8 @@ tasks never live inside `acts`.
 - **Routing tasks never produce a second email.** `ACT_WORKFLOW` and
   `PROTOCOL_APPROVAL` rows create no notification at all — the act transition
   and `PROTOCOL_APPROVAL_REQUIRED` already tell the same person the same thing.
+  A document task produces exactly one notification, the document one — never
+  an additional «задача назначена».
 - **«Сообщить об ошибке» is a topbar button, one service and no JavaScript.**
   The bug icon in `includes/header.html` is an ordinary `[data-confirm]`
   trigger of the shared confirmation modal with
@@ -1068,7 +1095,7 @@ tasks never live inside `acts`.
   when email is enabled and never opens an SMTP connection during startup or a
   readiness check — connectivity is an explicit operational smoke test.
 - **`notification.created` carries identifiers only** — recipient, actor,
-  `source_type`, the nullable act/protocol/task ids and the event type — and
+  `source_type`, the nullable act/protocol/task/bug report/document ids and the event type — and
   never protocol text, a return comment, a task description, a name or an
   address.
 - **The protocol lifecycle is `DRAFT → APPROVAL → REVISION → ARCHIVED`, and
@@ -1613,11 +1640,19 @@ tasks never live inside `acts`.
 
 ### Documentation library (`documents`)
 
-- **Two models, generically named.** `DocumentFolder` (`name`, `parent` →
-  `self`, `code`, `is_system`, `created_by`, timestamps) and `Document`
-  (`file`, `name`, `folder`, `original_name`, `file_size`, `content_type`,
-  `uploaded_by`, timestamps). Never `UserFile` or `UploadedFile`: the same
-  tables are meant to carry the future attachments branch.
+- **The models.** `DocumentFolder` (`name`, `parent` → `self`, `code`,
+  `is_system`, `allowed_roles`, `created_by`, timestamps); `Document` — the
+  logical document and its **card**: `name`, `designation`, `status`
+  (`DRAFT`/`ACTIVE`/`CANCELLED`), `effective_date`, `review_date`,
+  `owner_department`, `responsible`, the cancellation trio and the trash pair
+  `deleted_at`/`deleted_by`; `DocumentVersion` — one uploaded file, with
+  `number`, `is_current`, `comment`, `revision_label` («изм.»),
+  `text_content`, `approval_status`/`approval_comment` and the uploader's
+  `ack_roles`/`ack_department_ids`; `DocumentVersionApproval`,
+  `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink` (a document cited
+  by exactly one act *or* protocol) and `DocumentSubscription` (a user on
+  exactly one document *or* folder). Every one of them is written only by
+  `documents/services.py`.
 - **«Документация» is not a row.** It is the browse root, and it holds exactly
   two branches: «Корпоративные документы» (a system folder, `code='corporate'`)
   and «Вложения» (generated, no rows at all). Nothing else may be created at
@@ -1628,16 +1663,26 @@ tasks never live inside `acts`.
   idempotent.
 - **Storage is its own tree.** `media/documents/library/<folder_id>/<uuid>.<ext>`,
   untouched by and untouching `acts/attachments/`, `protocols/attachments/` and
-  task attachments. The stored path carries no user text; files are served only
-  through `documents:document_download`, never from a media URL.
-- **Two access levels, two helpers.** `documents/permissions.py` decides
-  everything through `can_view_documents()` and `can_manage_documents()`, whose
-  role sets are `DOCUMENT_VIEWER_ROLES` (`{ADMIN, MANAGER}`) and
-  `DOCUMENT_MANAGER_ROLES` (`{ADMIN}`), plus a genuine superuser in both. The
-  library is administrative: an ordinary employee neither sees «Документация»
-  in the navigation nor reaches any of its URLs. Giving «Руководство» the same
-  *write* rights is adding `MANAGER` to the manager set and nothing else. Never
-  write a bare `is_superuser` check in a view or a template.
+  task attachments. The stored path carries no user text (moving a document
+  never moves its file — the path is an opaque key); files are served only
+  through the documents views, never from a media URL.
+- **Reading is open, a folder may be closed, managing is a flag.**
+  `documents/permissions.py` is the whole rule. `can_view_documents()` is every
+  signed-in employee — «Документация» is in everybody's navigation and on the
+  dashboard. `DocumentFolder.allowed_roles` closes a folder to all but those
+  roles; the restriction **inherits downwards** (`can_view_folder()` walks the
+  ancestors) and a document is readable exactly when its folder is.
+  `visible_folder_ids()` is the listing-side twin — the tree, the folder table,
+  search, «Недавние», favourites, acknowledgement recipients and the link
+  picker all filter by it, so a closed folder never leaks through a side door;
+  a closed folder and its documents answer 404, not 403. Roles are read
+  through `accounts.roles`, so a lent role opens a folder like the profile's
+  own. `can_manage_documents()` is the administrator, a genuine superuser, or
+  `UserProfile.is_document_responsible` («Ответственный за документацию»,
+  ticked in `UserProfileAdmin` — a `list_editable` column plus two bulk
+  actions); a manager sees every folder, so a folder can never be closed to
+  the people who keep it. Never write a bare `is_superuser` or role check in a
+  view or a template.
 - **The server enforces it.** Every management endpoint checks the permission
   *before* the HTTP method, so a typed-in URL answers 403 rather than 405.
   Hiding a button is presentation only.
@@ -1646,185 +1691,198 @@ tasks never live inside `acts`.
   `ecosystem/attachments.py` — an act attachment and a library document are
   different things and must not drift into one set.
 
-#### Versions and history (corporate documents only)
+#### Versions, approval and acknowledgement (corporate documents only)
 
-- **`Document` holds no file.** It is the logical document — name, folder,
-  identity. `DocumentVersion` holds the file, one row per uploaded revision,
-  with `number`, `is_current`, `comment` and the copied
-  `original_name`/`file_size`/`content_type`. `document.current_version` is the
-  accessor; a listing must add `Document.current_version_prefetch()` or it pays
-  one query per row.
+- **`Document` holds no file**; `DocumentVersion` does, one row per upload.
+  `document.current_version` is the accessor; a listing adds
+  `Document.current_version_prefetch()` or pays one query per row.
 - **Append-only.** `add_document_version()` allocates the next number under
-  `select_for_update()` on the document, clears `is_current` on the previous
-  row and inserts a new one with its own UUID path — it never overwrites,
-  renames or deletes a stored file, so every earlier revision stays
-  downloadable. A partial unique constraint (`documents_version_single_current`)
-  is the database's own word on «exactly one current version»; a second
-  constraint keeps `(document, number)` unique. `restore_document_version()`
-  only moves `is_current` — it is not an edit.
-- **All version work goes through `documents/services.py`.** Never create a
-  `DocumentVersion` in a view or in Admin: the number, `is_current`,
-  `Document.updated_at` and the history row are set together, and any one of
-  them written alone leaves the document inconsistent. Both are read-only in
-  Admin for that reason.
-- **`DocumentHistoryEvent`** is four actions, a user, a timestamp and a
-  sentence — not an audit framework. Its `document` FK is `SET_NULL` and the
-  name is snapshotted, so `DOCUMENT_DELETED` survives the document it records.
-  `_record_history()` swallows and logs write failures: history must not roll
-  back the upload it describes.
-- **The document page has two tabs**, the same `?tab=` pattern and the same
-  `.act-detail-tabs` component acts and protocols use: «Документ» (header +
-  viewer) and «История» (versions, the upload form, the event log). The version
-  table must not return to the first tab. `?version=` selects which revision is
-  on screen — a query parameter, never session state, and an unknown value
-  falls back to the current version instead of 404ing.
+  `select_for_update()` on the document and inserts a row with its own UUID
+  path — it never overwrites, renames or deletes a stored file. A partial
+  unique constraint (`documents_version_single_current`) is the database's
+  word on «exactly one current version»; `(document, number)` is unique too.
+  **«Что изменилось» is required from v2 on** (the service refuses a blank
+  comment) — a revision nobody can review is not a revision.
+  `restore_document_version()` only moves `is_current`, and refuses a version
+  that was on approval or returned from it — it was never in force.
+- **Approval is a round on the version, the protocol's shape at the size of
+  one file.** Uploaded with approvers, a version is `PENDING` and **not
+  current**: the document keeps reading as its previous version. Each approver
+  gets a `DocumentVersionApproval` row and a personal `DOCUMENT_APPROVAL` task
+  (+2 working days) and a `DOCUMENT_APPROVAL_REQUIRED` notification; the
+  uploader is excluded from their own round. `approve_version()` under the
+  document lock records one decision; the **last** one makes the version
+  current in the same transaction and puts it in force. `return_version()`
+  needs a reason, cancels the rest of the round and their tasks, leaves the
+  version a readable non-current `RETURNED` row and notifies the uploader
+  (`DOCUMENT_VERSION_RETURNED`). One pending version per document at a time.
+  The first version of a new document is always current at once — approval is
+  for a revision of a document already in force. `can_decide_version()` is
+  «holds a `PENDING` row»; a manager does not sign for somebody else.
+- **In force → `_put_version_in_force()`**, called for every version that
+  becomes current (upload without a round, the last approval): the open
+  `DOCUMENT_ACK` tasks of the version it replaced are cancelled (confirming an
+  outdated text is worthless; what was read stays read), the uploader's
+  «ознакомить» is issued, and subscribers are notified.
+- **Acknowledgement is a personal routing task on the version in force.**
+  Chosen at upload (`ack_roles`/`ack_department_ids`, stored on the version
+  so a version on approval is acknowledged only once it comes into force) or
+  later by «Разослать на ознакомление» (`request_acknowledgement()`).
+  Recipients are active employees holding one of the roles (`role_holders_q`)
+  or working in one of the departments, minus the requester and the uploader,
+  minus anyone the folder is closed to; one `DOCUMENT_ACK` task each (+5
+  working days, `unique_document_ack_task`), so a repeated request asks nobody
+  twice. «Ознакомлен» (`acknowledge_document()`) completes the reader's own
+  task; the side panel lists who has and who has not.
+- **Review is ordinary work.** `create_review_tasks()` — run daily by
+  `manage.py document_review_reminders` — gives the `responsible` of every
+  `ACTIVE` document whose `review_date` is within 30 days one `DOCUMENT_REVIEW`
+  task on the current version, due on that date
+  (`unique_document_review_task`), completed like any task with a comment.
+  Moving the review date is what asks for the next one.
+- **Cancelling keeps the document.** `update_document_card()` is the one
+  card writer: one `CARD_UPDATED` event naming the changed fields and a
+  `STATUS_CHANGED` one for the status. `CANCELLED` needs a reason, is stamped
+  `cancelled_at/by`, withdraws the open tasks and any round in flight, and the
+  document stays listed and readable — acts and protocols decided under it
+  still cite it.
+- **`DocumentHistoryEvent`** is a short list of actions, a user, a timestamp
+  and a sentence — not an audit framework. `document` is `SET_NULL` and the
+  name is snapshotted, so a purge survives the document it records.
+  `_record_history()` swallows and logs write failures.
 - **Preview is `documents/preview.py`'s decision.** `INLINE_TYPES` maps an
-  extension to the content type it may be served inline as; anything absent has
-  no preview and the page says so. `document_version_preview` derives the type
-  from that map (**never** from the stored `content_type`, which came from the
-  browser) and sends `nosniff` + `Content-Security-Policy: sandbox`. No HTML and
+  extension to the content type it may be served inline as; anything absent
+  has no preview and the page says so. The preview views derive the type from
+  that map (never from the stored `content_type`), send `nosniff` and
+  `Content-Security-Policy: sandbox; frame-ancestors 'self'`, and are the only
+  views with `@xframe_options_sameorigin`: the project-wide
+  `X-Frame-Options: DENY` is what used to leave the viewer empty. No HTML and
   no SVG are ever inline, and no external viewer or JS library is loaded.
-- **Where an approval workflow goes:** on `DocumentVersion` (status, approver,
-  decision date, signature) — revisions are approved one at a time — plus new
-  members of `DocumentHistoryEvent.Action`. Not on `Document`, and not in a new
-  table. None of it is implemented.
-- `document_download` (the pre-versioning URL) still works and resolves to the
-  current version; `documents/migrations/0004`–`0006` created the tables, moved
-  every existing document's file *pointer* into a version 1 row without
-  touching MEDIA_ROOT, and then dropped the old columns.
+- **Text search reads what upload extracted.** `documents/text_extraction.py`
+  reads PDF (pypdf, pure Python — Windows too), `.docx`/`.xlsx`/`.pptx` (the
+  XML in the zip) and plain text once, at store time, into
+  `DocumentVersion.text_content` (capped); an unreadable file simply gets no
+  text and a logged `documents.text_extraction_failed`. Search matches the
+  text of the **current** version only. `manage.py reindex_documents` fills
+  versions uploaded before the column existed.
+
+#### «Корзина», moving and links
+
+- **«Удалить» is «В корзину».** `trash_documents()` sets `deleted_at`,
+  withdraws the document's open tasks and approval round, and records
+  `TRASHED`. `Document.objects` is `LiveDocumentManager` and hides the trash
+  everywhere; `Document.all_objects` (also the base manager, so a version or a
+  task still reaches its document) is what the trash page, restore and purge
+  use. A trashed document is readable by managers only. `restore_document()`
+  puts it back in its folder. `purge_document()` — by hand from the trash, or
+  `manage.py purge_document_trash` after `TRASH_RETENTION_DAYS` (30) — deletes
+  the rows and then, `on_commit`, the files, and **refuses a document tasks
+  were issued on**: those tasks are records and `Task.document_version` is
+  `PROTECT`. Such a document stays in the trash for good.
+- **Folder deletion refuses non-empty folders** — documents at any depth,
+  subfolders, *and* documents of the folder sitting in the trash (restoring
+  one puts it back there). Only «Корпоративные документы» is structural
+  (`is_structural_folder()`); the shipped folders are content, and `is_system`
+  grants no protection. Never branch on `is_system` in a template or a view.
+- **Moving is `move_documents()`**, one `MOVED` event per document; the folder
+  table's selection bar, a row dragged onto a folder (tree or table) and the
+  document page's «Перенести в папку…» all post to `documents:bulk`.
+  `documents:bulk` also answers «Скачать ZIP» — reading, open to whoever may
+  read the files — with the current versions in a temporary-file archive. The
+  selection is re-read and filtered by `can_view_document()`; move and trash
+  are management.
+- **«Где используется» is `DocumentLink`, owned by Documentation.** The act's
+  and the protocol's «Вложения и комментарии» tab renders
+  `templates/documents/includes/linked_documents.html` («Нормативные
+  документы») from `documents.selectors.build_document_links_for()`; adding
+  and removing go through `documents:link_create`/`link_delete` →
+  `link_document()`/`unlink_document()`, allowed to whoever may contribute to
+  that act (`can_contribute_to_act`) or protocol
+  (`can_contribute_to_protocol`). The document page lists the acts and
+  protocols citing it, the acts filtered by the reader's act visibility.
+- **Subscriptions** (`toggle_subscription()`) are private rows on a document or
+  a folder; `subscribers_of()` is the document's own subscribers plus those of
+  every folder above it who may still read it. They hear `DOCUMENT_UPDATED`
+  (bell only, no email) when a document appears in the folder or a new
+  version comes into force.
 
 #### Corporate documents vs system attachments
 
-- **Corporate documents** are the library's own rows and are writable by a
-  document manager. Everything above applies to them.
 - **System attachments** («Вложения» → Акты / Протоколы / Задачи) are act,
   protocol and task files shown through `documents/references.py`. **They have
-  no versions and no history, and never will**: the file belongs to the act,
-  protocol or task that owns it, and versioning it here would fork another
-  module's record. `DocumentVersion` is reachable only from `Document`.
-  `DocumentReference` is a **frozen dataclass, not a table**: it is built per
-  request from `ActAttachment` / `ProtocolAttachment` / `TaskAttachment`, so
-  Documentation never holds a second copy of a file, a second row describing
-  it, or a `DocumentFolder` for it. Never add a mirror table — a stored copy
-  would have to be synchronised with three other apps and would drift on the
-  first missed hook. The generated folders are views, not `DocumentFolder`
-  rows.
+  no versions, no card and no history, and never will**: the file belongs to
+  the record that owns it. `DocumentReference` is a **frozen dataclass, not a
+  table**, built per request from `ActAttachment` / `ProtocolAttachment` /
+  `TaskAttachment`; never add a mirror table.
 - **Never re-implement another module's rules.** One `AttachmentSource`
   subclass per module answers four questions — readable records, record label,
-  record link, download rule — and each delegates: `acts`
-  `get_all_visible_acts_queryset()` / `can_download_attachment()`, `protocols`
-  `get_readable_protocols_queryset()` / `can_download_protocol_attachment()`,
-  `tasks` `get_readable_tasks_queryset()` / `can_download_task_attachment()`.
-  A record invisible in the owning module is invisible here in the same
-  request. Adding a fourth source is a subclass plus a `SOURCES` entry.
+  record link, download rule — and each delegates to the owning app. A record
+  invisible there is invisible here in the same request.
+- **The «Вложения» page is one flat table** (`AttachmentSource.listing()`),
+  filtered by раздел, period, file type and a term, newest first, with an
+  image thumbnail served inline by `documents:system_preview` under the same
+  two checks as the download; the per-module and per-record pages remain for
+  links that point at them.
 - **System attachments are immutable from Documentation, for everybody.**
-  `can_modify_system_attachments()` returns False unconditionally —
-  administrators and superusers included, and `can_manage_documents()` is not
-  consulted. Upload-, delete- and rename-shaped URLs under `system/` are
-  registered onto `system_readonly`, which answers 403 on GET and POST alike,
-  so a direct attempt is refused rather than 404'd. A file is changed where it
-  was uploaded, so the owning workflow writes its history event. Do not add an
-  exemption; a stage that wants one changes that single function in the open.
-- The reference carries a stable `(source, attachment_id)` identity and a
-  `created_at`, which is the interface a later version chain, audit entry or
-  approval flow attaches to. None of those is implemented.
+  `can_modify_system_attachments()` returns False unconditionally. Upload-,
+  delete- and rename-shaped URLs under `system/` are registered onto
+  `system_readonly`, which answers 403 on GET and POST alike.
 
-#### Archive conveniences
+#### The explorer
 
-- **One card for every file.** `documents/cards.py` owns `DocumentCard` (a
-  frozen dataclass, not a table) and the two builders — `corporate_card()` from
-  a `Document` + its current version, `reference_card()` from a
-  `DocumentReference`. `templates/documents/includes/document_card.html` renders
-  it in folder listings, search results, «Избранное» and «Недавние документы».
-  Its only branch is `is_readonly`; never add a per-source rendering path.
-  `file_icon()` picks the emoji (PDF/Word/Excel/image/text), and a system
-  attachment always shows 🔒 — read-only matters more than the file type.
-- **`DocumentFavorite` is a private join row** (`user`, `document`, unique
-  together). Starring is a personal bookmark, not a permission:
-  `can_favorite_document()` is «may read the library». `build_favorite_documents()`
-  filters on `request.user` with no parameter that could widen it, and
-  `DocumentFavorite.ids_for()` resolves a whole listing in one query. Corporate
-  documents only — a system attachment has no `Document` row to point at.
-- **«Недавние документы» means recently *uploaded/updated*.** There is no
-  per-user access log and none is to be added for a shortcut block; ordering is
-  `Document.updated_at`, which `add_document_version()` touches.
-- **Folder deletion refuses non-empty folders.** `delete_folder()` checks the
-  whole subtree and raises `DocumentError` if it holds any document or any
-  subfolder. This is an archive: removing a folder must never be a way to
-  destroy documents and their version history in one click. System folders are
-  still undeletable, and «Вложения» is not a folder at all.
-- **Only «Корпоративные документы» is structural.** `is_structural_folder()`
-  names the one folder a manager may not rename or delete — it is a branch of
-  the browse root, and `create_folder()` refuses `parent=None`, so removing it
-  would leave nowhere to store anything. The shipped folders inside it
-  («Инструкции», «Шаблоны», …) are *content*: `is_system` marks them so
-  `ensure_default_folders()` can recreate them idempotently, and it grants no
-  protection. **Never branch on `is_system` in a template or a view** — ask
-  `can_rename_folder()`/`can_delete_folder()`; `build_folder_rows()` resolves
-  both per row, because the template doing it itself is what once left an
-  administrator with no actions on the shipped folders.
-- **Creating and renaming a folder both go through the shared confirmation
-  modal** (`data-confirm-comment="required"` with `data-confirm-comment-name="name"`).
-  There is no inline name field in the toolbar.
-- **Uploading is the green «+».** `DocumentUploadForm` uses
-  `MultipleFileField`, so a manager picks several files at once; picking them
-  *is* the action — `static/js/documents.js` fills the shared confirmation
-  modal with the names and submits the form, and there is no name field
-  (a selection has no single name). The upload policy is applied **per file**
-  by `upload_documents()` and deliberately not in the form: a form error would
-  refuse the whole selection, and nine good files should not be lost to one
-  bad one. The view reports both halves.
-- Inside a folder, documents render as a **four-column table** (name, size,
-  date, version) with `table-layout: fixed` so a long name clips with an
-  ellipsis; the card is for search results and the personal blocks, where a hit
-  has to say where it came from.
-- A `<td>` that holds row actions keeps `display: table-cell`; the flex row
-  goes on an inner `div.doc-actions`. Putting `display: flex` on the cell
-  pulls the column out of the table layout.
-- Django's `{# … #}` is **single-line only** — a multi-line one renders as page
-  text. Use `{% comment %}` for anything longer.
+- **One layout for every page**: `templates/documents/layout.html` — the
+  folder tree on the left (`build_folder_tree()`: visible folders only, the
+  top level and the path to the current folder unfolded, a count per folder,
+  🔐 on a closed one, every row a drop target), the page on the right, inside
+  the one-screen chain (`page-container--fill`), so the tree and the main
+  column scroll on their own. `static/css/documents.css` is written in the
+  project's density tokens.
+- **The library home** is this person's: «Ждут моего согласования», «Ждут
+  моего ознакомления», «Скоро пересмотр» (a manager sees all, anybody else the
+  documents they are responsible for), «Избранное», «Недавно обновлённые», and
+  for a manager the storage line. An empty block is not drawn.
+- **The folder table** is one `table-layout: fixed` table of subfolders and
+  documents — name, обозначение, статус, версия, изменён, владелец, «⋯» — with
+  GET filters (`q`, `status`, `type`) and `sortable_th` sorting, so a filtered
+  view is a link. A `<td>` keeps `display: table-cell`; any flex row goes on an
+  inner element. Uploading is the «Загрузить файлы» panel (a `<details>`, so
+  it works without JavaScript) with a drop zone and an optional «Ознакомить
+  сотрудников»; files dropped anywhere on the page land in it. The selection
+  bar belongs to `form="doc-bulk-form"`; the script reads that form's target
+  through `getAttribute('action')`, because its buttons are *named* «action».
+- **The document page** has no tabs: the viewer on the left, a column of
+  `<details>` on the right — Карточка, Версии (with «Загрузить новую
+  версию»), Согласование, Ознакомление, Где используется, История. Exactly one
+  «Скачать» in the header (the current version; each version downloads from
+  its row), «Ссылка» (copied with the async clipboard, or the selection-copy
+  fallback on plain HTTP — never a browser dialog), ☆ and 🔔. Banners say what
+  this person has to do: «Ознакомлен», «Согласовать»/«Вернуть» (the shared
+  modal with the required comment). `?version=` selects the revision on
+  screen; an unknown value falls back to the current one.
+- **One list for every file**: `templates/documents/includes/doc_list.html`
+  renders `DocumentCard`s in «Избранное», «Недавно обновлённые» and the search
+  results; its only branch is `is_readonly`. `documents/cards.py` builds the
+  card (`corporate_card()`, `reference_card()`), including the designation,
+  status and — for a search — the highlighted `snippet`.
+- Django's `{# … #}` is **single-line only**. Use `{% comment %}` for anything
+  longer.
 
 #### Search (`documents/search/`)
 
-- **A package, in dependency order:** `types.py` (the scope constants;
-  `SearchResult` is an alias of `documents.cards.DocumentCard`) →
-  `services.py` (what matches, and what is recent) → `selectors.py` (what the
-  page renders). `documents/search/__init__.py`
-  re-exports the public names; import from `documents.search`, never from a
-  submodule. `documents/selectors.py` is separate and belongs to the *browser*
-  — breadcrumbs and «Недавние документы» — so a search backend change cannot
-  reach the navigation.
-- **One search over both halves**, at `/documents/search/`. Corporate
-  documents match on document name, stored filename and folder name; system
-  attachments match on the filename *or* on the record that owns them, through
-  each source's `record_search_filter()` (act number/nomenclature, protocol
-  type + number, task id/text) — so an act number finds that act's photographs.
-- **Unified results.** `SearchResult` is a frozen dataclass — never a table,
-  never an index — carrying title, `document_type`, source, path, `open_url`,
-  `download_url` and `can_download`. Both kinds render through
-  `templates/documents/includes/result_card.html`, whose only branch is
-  `is_readonly`: there is no per-source rendering path, and adding one is a
-  regression. The «Недавние документы» block reuses the same card.
-- **`DocumentReference` stays the only system-attachment shape.** Search does
-  not query `ActAttachment`/`ProtocolAttachment`/`TaskAttachment` directly — it
-  calls each source's `search()`/`recent()`, which build references. Nothing is
-  mirrored, indexed or copied.
-- The search runs **unscoped once** and is narrowed in Python
-  (`filter_by_scope()`), because every chip needs a count. Results are capped
-  per source (`RESULT_LIMIT`) and a term shorter than `MIN_QUERY_LENGTH` is
-  «no search», not «no results». «Недавние» means recently *uploaded*: there is
-  no per-user access log and a shortcut block is not a reason to add one.
-- **Search grants nothing.** Corporate hits go through `can_view_documents()`,
-  system hits through each source's readable queryset, so a result set is
-  always a subset of what the same user could reach by clicking. Never add a
-  visibility rule here.
-- Full-text ranking, a PDF text index, OCR or metadata filters replace
-  `_search_corporate()` and each source's `search()` and keep `types.py` and
-  the view. Do not push matching into a view.
-- `documents/selectors.py:build_breadcrumbs()` is the one trail builder; every
-  item is a link, the current one included, and
-  `templates/documents/includes/breadcrumbs.html` renders it on all three page
-  types.
+- **A package, in dependency order:** `types.py` → `services.py` (what
+  matches) → `selectors.py` (what the page renders); import from
+  `documents.search`.
+- **One search over both halves.** Corporate documents match on name,
+  designation, any version's filename, folder name and the current version's
+  text, inside `visible_folder_ids()`; `build_snippet()` returns the escaped
+  fragment around the first hit with every occurrence in `<mark>`. System
+  attachments match on the filename or the owning record
+  (`record_search_filter()`). Filters: folder (with its subtree), status, file
+  type, period — folder and status describe corporate documents and therefore
+  narrow the attachments away; type and period apply to both.
+- The search runs unscoped once and is narrowed in Python for the chips.
+  Search grants nothing: every hit is a subset of what the same user could
+  reach by clicking.
 
 ## Security and permissions
 

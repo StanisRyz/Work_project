@@ -643,7 +643,11 @@ def _put_version_in_force(document, version, user, *, previous):
             reason=f'Вышла новая версия документа ({version.full_label}).',
         )
     if version.ack_roles or version.ack_department_ids:
-        _issue_acknowledgements(document, version, user, version.ack_roles, version.ack_department_ids)
+        # Asked by whoever uploaded the version — after an approval `user` is
+        # the last approver, who asked nobody for anything.
+        _issue_acknowledgements(
+            document, version, version.uploaded_by or user, version.ack_roles, version.ack_department_ids,
+        )
     # A new document tells the subscribers of its folder, a new version
     # those of the document too.
     subscribers = [person for person in subscribers_of(document) if person.pk != getattr(user, 'pk', None)]
@@ -819,7 +823,7 @@ def acknowledgement_recipients(roles, department_ids):
 def _issue_acknowledgements(document, version, user, roles, department_ids):
     """One personal «Ознакомиться» task per recipient not already asked.
 
-    The requester is left out — they uploaded the text — and a person already
+    The requester and the uploader are left out, and a person already
     holding a task for this version (open or done) is skipped, which with
     `unique_document_ack_task` makes a repeated request harmless.
     """
@@ -827,10 +831,14 @@ def _issue_acknowledgements(document, version, user, roles, department_ids):
         Task.objects.filter(source_type=Task.SourceType.DOCUMENT_ACK, document_version=version)
         .values_list('individual_assignee_id', flat=True)
     )
+    # The uploader wrote it and the requester is asking; neither needs to be
+    # told to read it.
+    authors = {getattr(user, 'pk', None), version.uploaded_by_id}
+    requested_by = user
     due_date = add_working_days(timezone.localdate(), ACKNOWLEDGEMENT_WORKING_DAYS)
     created = []
     for person in acknowledgement_recipients(roles, department_ids):
-        if person.pk in asked or person.pk == getattr(user, 'pk', None):
+        if person.pk in asked or person.pk in authors:
             continue
         # A closed folder is closed for acknowledgement too: nobody is asked
         # to read what they may not open.
@@ -840,12 +848,12 @@ def _issue_acknowledgements(document, version, user, roles, department_ids):
             Task.SourceType.DOCUMENT_ACK,
             version,
             person,
-            created_by=user,
+            created_by=requested_by,
             due_date=due_date,
             task_text=f'Ознакомиться с документом «{document.title}» ({version.full_label}).',
             department=document.owner_department,
         )
-        notify_document_task(task, _actor(user))
+        notify_document_task(task, requested_by)
         created.append(task)
     return created
 
