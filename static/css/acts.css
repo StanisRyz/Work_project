@@ -2404,6 +2404,14 @@
     .to-analysis-readonly__actions { grid-column: 2; }
 }
 
-/* Task registry: «Что сделать» takes the room, «Исполнители» a fair share. */
-.task-list__text { min-width: 280px; }
-.task-list__people { min-width: 150px; max-width: 280px; }
+/* Task registry: fixed column widths — see `tasks/includes/list_results.html`.
+   «Что сделать» takes what the fixed columns leave; below the table's
+   `min-width` the card scrolls sideways instead of squeezing a column. */
+.task-registry-table { table-layout: fixed; min-width: 1100px; }
+.task-registry-table__number { width: 64px; }
+.task-registry-table__people { width: 220px; }
+.task-registry-table__type { width: 170px; }
+.task-registry-table__source { width: 150px; }
+.task-registry-table__status { width: 124px; }
+.task-registry-table__due { width: 200px; }
+.task-registry-table th { white-space: nowrap; }
