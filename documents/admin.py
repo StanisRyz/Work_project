@@ -1,8 +1,11 @@
 """Inspection of the documentation library from Admin.
 
-Folders stay editable here: the tree is reference-like structure, and an
-administrator occasionally has to fix a system folder's name, which the page
-deliberately refuses. Versions and history are read-only — a version is
+A folder's name stays editable here: an administrator occasionally has to fix
+a system folder's name, which the page deliberately refuses. Its place in the
+tree does not, and neither adding nor deleting one is offered: `create_folder()`
+refuses the browse root, and `delete_folder()` refuses a folder that still
+holds documents — an Admin delete would cascade through them and their version
+history and leave their files behind in MEDIA_ROOT. Versions and history are read-only — a version is
 created and removed through `documents/services.py`, which allocates the
 number, moves `is_current` and writes the history event, and an Admin edit
 would leave all three inconsistent.
@@ -27,8 +30,14 @@ class DocumentFolderAdmin(admin.ModelAdmin):
     list_filter = ('is_system',)
     search_fields = ('name', 'code')
     ordering = ('parent__name', 'name')
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = ('parent', 'code', 'is_system', 'created_by', 'created_at', 'updated_at')
     list_select_related = ('parent', 'created_by')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class DocumentVersionInline(ReadOnlyAdminMixin, admin.TabularInline):

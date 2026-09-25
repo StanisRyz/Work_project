@@ -8,10 +8,14 @@ stage — cannot skip the rule by not being a view.
 
 Storage is cleaned up explicitly. Django does not delete a `FileField`'s file
 when its row goes away, and a library that accumulates unreferenced blobs is
-one nobody can size, so deletions here remove the file first and the row after.
+one nobody can size, so deletions here remove the row and then — once the
+transaction has committed — the file. An upload that fails after its file was
+written removes that file again, so a rollback leaves no orphan behind.
 """
 
 import logging
+from contextlib import contextmanager
+from functools import partial
 
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
@@ -287,6 +291,40 @@ def _deletion_event(document, user, description):
     )
 
 
+@contextmanager
+def _discard_files_on_rollback(written):
+    """Remove the blobs a failed upload already wrote.
+
+    Storage is not transactional: the file is on disk before the row that
+    points at it is committed. If the block fails after that, the rows roll
+    back and the file would stay behind in MEDIA_ROOT with nothing referring to
+    it. `written` is filled by `_store_version_file()`.
+    """
+    try:
+        yield
+    except BaseException:
+        for field in written:
+            try:
+                field.delete(save=False)
+            except OSError:
+                log_event(
+                    logger,
+                    'WARNING',
+                    'documents.storage_failed',
+                    operation='rollback_cleanup',
+                    outcome='failed',
+                )
+        raise
+
+
+def _store_version_file(version, uploaded_file, written):
+    """Write the blob, remember it for rollback cleanup, then insert the row."""
+    version.file.save(uploaded_file.name, uploaded_file, save=False)
+    written.append(version.file)
+    version.save()
+    return version
+
+
 def _version_payload(uploaded_file):
     """The columns copied off an upload, shared by create and add-version."""
     return {
@@ -316,21 +354,22 @@ def upload_document(folder, uploaded_file, user, name='', comment=''):
     payload = _version_payload(uploaded_file)
     display_name = safe_document_name(name) if (name or '').strip() else payload['original_name']
 
-    with transaction.atomic():
+    written = []
+    with _discard_files_on_rollback(written), transaction.atomic():
         document = Document.objects.create(
             folder=folder,
             name=display_name,
             uploaded_by=_actor(user),
         )
-        version = DocumentVersion.objects.create(
+        version = DocumentVersion(
             document=document,
-            file=uploaded_file,
             number=1,
             is_current=True,
             comment=(comment or '').strip(),
             uploaded_by=_actor(user),
             **payload,
         )
+        _store_version_file(version, uploaded_file, written)
         _record_history([
             _history_event(
                 document,
@@ -410,7 +449,8 @@ def add_document_version(document, uploaded_file, user, comment=''):
     validate_document_upload(uploaded_file)
 
     payload = _version_payload(uploaded_file)
-    with transaction.atomic():
+    written = []
+    with _discard_files_on_rollback(written), transaction.atomic():
         locked = Document.objects.select_for_update().get(pk=document.pk)
         previous = locked.versions.filter(is_current=True).first()
         next_number = (
@@ -419,15 +459,15 @@ def add_document_version(document, uploaded_file, user, comment=''):
         # Cleared before the insert, so the «one current version» constraint
         # never sees two rows claiming it.
         locked.versions.filter(is_current=True).update(is_current=False)
-        version = DocumentVersion.objects.create(
+        version = DocumentVersion(
             document=locked,
-            file=uploaded_file,
             number=next_number,
             is_current=True,
             comment=(comment or '').strip(),
             uploaded_by=_actor(user),
             **payload,
         )
+        _store_version_file(version, uploaded_file, written)
         # `updated_at` is auto_now, so saving the row is what refreshes it —
         # a new revision is an update to the document even though no column of
         # its own changed.
@@ -535,11 +575,14 @@ def delete_document(document, user):
     document_id = document.pk
     with transaction.atomic():
         versions = list(document.versions.all())
-        for version in versions:
-            _delete_stored_file(version)
         _record_history([_deletion_event(document, user, 'Документ удалён.')])
         # The cascade takes the version rows; history survives, by SET_NULL.
         document.delete()
+        # The blobs go only once the rows are really gone. Deleted inside the
+        # block, a rollback would have left every version row pointing at a
+        # file that no longer exists.
+        for version in versions:
+            transaction.on_commit(partial(_delete_stored_file, version))
     log_event(
         logger,
         'INFO',

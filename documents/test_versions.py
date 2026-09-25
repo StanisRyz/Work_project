@@ -6,18 +6,21 @@ a lock, the single-current constraint — is enforced by the database and the
 service, and is exercised by these three going through the real endpoints.
 """
 
+import os
 import shutil
 import tempfile
+from unittest import mock
 
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import DatabaseError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import UserProfile
 
 from .models import Document, DocumentHistoryEvent, DocumentVersion
-from .services import get_corporate_root, upload_document
+from .services import delete_document, get_corporate_root, upload_document
 
 
 MEDIA_OVERRIDE = tempfile.mkdtemp(prefix='documents-version-tests-')
@@ -144,3 +147,39 @@ class DocumentVersionTests(TestCase):
             reverse('documents:document_detail', args=[self.document.pk])
         )
         self.assertNotContains(document_tab, 'Файл и комментарий')
+
+
+@override_settings(MEDIA_ROOT=MEDIA_OVERRIDE)
+class DocumentStorageConsistencyTests(TestCase):
+    """Storage is not transactional; the service keeps it in step anyway."""
+
+    def setUp(self):
+        self.admin = _make_user('storage_admin', UserProfile.Role.ADMIN)
+        self.folder = get_corporate_root()
+
+    def _stored_files(self):
+        found = []
+        for root, _dirs, files in os.walk(MEDIA_OVERRIDE):
+            found.extend(os.path.join(root, name) for name in files)
+        return set(found)
+
+    def test_a_failed_upload_leaves_no_orphan_file(self):
+        before = self._stored_files()
+        with mock.patch.object(DocumentVersion, 'save', side_effect=DatabaseError('boom')):
+            with self.assertRaises(DatabaseError):
+                upload_document(self.folder, _pdf('Сбой.pdf'), self.admin)
+
+        self.assertEqual(self._stored_files(), before)
+        self.assertFalse(Document.objects.filter(name='Сбой.pdf').exists())
+
+    def test_deleting_a_document_removes_its_file_only_after_commit(self):
+        document = upload_document(self.folder, _pdf('Удаляемый.pdf'), self.admin)
+        stored = document.current_version.file.path
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            delete_document(document, self.admin)
+
+        self.assertTrue(os.path.exists(stored), 'the file outlives the transaction')
+        for callback in callbacks:
+            callback()
+        self.assertFalse(os.path.exists(stored))

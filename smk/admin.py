@@ -1,4 +1,15 @@
+"""The СМК records, read in Django Admin.
+
+Read-only, like every other business record: a record, its findings, its
+measures and their исполнители are written only by `smk/services.py`, which
+creates, cancels and reissues the real tasks, notifies and writes the history
+in the same transaction. An Admin edit would change a measure without touching
+the task somebody is holding, and a delete would take the history with it.
+"""
+
 from django.contrib import admin
+
+from ecosystem.admin import ReadOnlyAdminMixin
 
 from .models import (
     SmkActionAssignee,
@@ -9,30 +20,30 @@ from .models import (
 )
 
 
-class SmkNonConformityInline(admin.TabularInline):
+class SmkNonConformityInline(ReadOnlyAdminMixin, admin.TabularInline):
     model = SmkNonConformity
     extra = 0
 
 
-class SmkCorrectiveActionInline(admin.TabularInline):
+class SmkCorrectiveActionInline(ReadOnlyAdminMixin, admin.TabularInline):
     model = SmkCorrectiveAction
     extra = 0
 
 
 @admin.register(SmkSource)
-class SmkSourceAdmin(admin.ModelAdmin):
+class SmkSourceAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('pk', 'origin', 'status', 'created_by', 'created_at')
     list_filter = ('origin', 'status')
     inlines = (SmkNonConformityInline, SmkCorrectiveActionInline)
 
 
-class SmkActionAssigneeInline(admin.TabularInline):
+class SmkActionAssigneeInline(ReadOnlyAdminMixin, admin.TabularInline):
     model = SmkActionAssignee
     extra = 0
 
 
 @admin.register(SmkCorrectiveAction)
-class SmkCorrectiveActionAdmin(admin.ModelAdmin):
+class SmkCorrectiveActionAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('pk', 'source', 'department', 'due_date')
     list_filter = ('department',)
     inlines = (SmkActionAssigneeInline,)
