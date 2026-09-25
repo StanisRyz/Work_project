@@ -472,10 +472,12 @@ tasks never live inside `acts`.
   `smk.permissions.can_create_smk_task()` — the СМК role, руководитель or
   администратор — re-checked inside the service, not only in the view;
   completion rights are `tasks.permissions.can_complete_task()`, unchanged.
-  `SmkCorrectiveAction.requires_attachment` («Требуется вложение») is copied
-  onto every task the measure produces — the shared one, or each split one —
-  exactly as the protocol and act variants copy theirs, and is enforced only by
-  `complete_task()`: СМК adds no attachment rule of its own.
+  An СМК task **always** requires an attachment: there is no per-measure
+  «Требуется вложение» any more (`smk.0011` dropped the column), and
+  `create_smk_action_task()` writes `Task.requires_attachment=True` onto every
+  task the measure produces — the shared one, or each split one. It is enforced
+  only by `complete_task()`: СМК adds no attachment rule of its own, and tasks
+  issued while the answer was still optional keep the snapshot they got.
   Every assignee is told through `notifications.services.notify_smk_task_assigned()`
   (`SMK_TASK_ASSIGNED`, `TASK`-sourced, keyed on the task, `exclude_actor=False`),
   called inside the same transaction *after* the task and its assignees exist —
@@ -784,15 +786,16 @@ tasks never live inside `acts`.
   clamp it to a narrow strip with a sideways scrollbar; `left: 0; right: 0`
   with `overflow-x: hidden` and a capped `max-height` is the whole rule.
 - **`requires_attachment` is a source-domain answer that `Task` snapshots.**
-  `ProtocolAction.requires_attachment`, `ActCorrectiveAction.requires_attachment`
-  and `SmkCorrectiveAction.requires_attachment` (all `BooleanField(default=False)`)
-  are the author's/ТО's choice, stored on the draft row so it survives a
+  `ProtocolAction.requires_attachment` and `ActCorrectiveAction.requires_attachment`
+  (both `BooleanField(default=False)`) are the author's/ТО's choice — СМК has no
+  such choice, its tasks always require a file (see above) — stored on the draft row so it survives a
   protocol returned for revision and a ТО analysis returned from ОТК, and
   editable right up until the real task exists. Unlike `split_for_assignees` it
   is stored exactly as answered — a required file means the same for one
   исполнитель as for five, so nothing normalizes it. When the task is created,
-  `create_protocol_action_task()`, `create_act_action_task()` and
-  `create_smk_action_task()` copy it once into `Task.requires_attachment`; that copy is authoritative and is never read
+  `create_protocol_action_task()` and `create_act_action_task()` copy it once
+  into `Task.requires_attachment` (`create_smk_action_task()` writes `True`);
+  that copy is authoritative and is never read
   back through the relation, so editing the source row afterwards cannot change
   a live or completed task. Shared execution gives the one task the
   requirement, satisfied by any single attachment on it; split execution gives
@@ -1812,7 +1815,16 @@ tasks never live inside `acts`.
   controller; realtime never renders the table or carries journal values.
 - A live refresh never replaces a form holding unsaved input: only read-only
   blocks are swapped, and a dirty form gets the conflict banner with the typed
-  text intact. The protocol page follows the act page exactly: `protocols.js`
+  text intact — **but only when the block really changed.** A guarded block
+  (`[data-live-act-work]`, `[data-live-protocol-content]`) carries
+  `realtime.fragments.content_revision()` on the page and in its fragment, and
+  the client leaves an unchanged one alone: a reconnect, a recovery sync or a
+  global token moving is not a conflict. Dirtiness counts only gestures inside
+  the guarded block, a page re-rendered from a bound form starts dirty, and
+  workflow buttons are disabled only when the status moved. Long forms carry
+  `[data-unsaved-guard]` (`static/js/unsaved_guard.js`), the browser's own
+  leave-page prompt — the one browser dialog the application modal cannot
+  replace, since nothing else can hold a navigation back. The protocol page follows the act page exactly: `protocols.js`
   guards the content block, and `protocol_editor.js` is a repeatable
   initialiser registered with `qualityFragments` so replaced markup re-binds
   through the same code — no business rule moved into the browser. Recovery has one owner per authenticated session — every periodic request is gated

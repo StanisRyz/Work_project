@@ -189,10 +189,37 @@ const initialiseActDefectFormset = (root) => {
         totalForms.value = blocks.length;
     };
 
+    const defectWord = (count) => {
+        const lastTwo = count % 100;
+        const last = count % 10;
+        if (lastTwo >= 11 && lastTwo <= 14) {
+            return 'дефектов';
+        }
+        if (last === 1) {
+            return 'дефект';
+        }
+        return last >= 2 && last <= 4 ? 'дефекта' : 'дефектов';
+    };
+
+    // A block marked for deletion stays in the form only to post its DELETE
+    // flag. Its fields must leave constraint validation: a `required` field
+    // the user can no longer see makes the browser refuse the submission
+    // without a word — «Сохранить» simply did nothing after a newly added
+    // defect was removed. Disabled fields are not validated and not posted,
+    // and Django skips the validation of a deleted form anyway.
+    const retireBlock = (block) => {
+        block.hidden = true;
+        block.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach((field) => {
+            if (!field.name.endsWith('-DELETE')) {
+                field.disabled = true;
+            }
+        });
+    };
+
     const syncDefectUi = () => {
         const visibleBlocks = [...list.querySelectorAll('.defect-form-block')]
             .filter((block) => !block.hidden);
-        const suffix = visibleBlocks.length === 1 ? 'дефект' : visibleBlocks.length < 5 ? 'дефекта' : 'дефектов';
+        const suffix = defectWord(visibleBlocks.length);
         const count = formset.querySelector('[data-defect-count]');
         if (count) {
             count.textContent = `${visibleBlocks.length} ${suffix}`;
@@ -264,7 +291,7 @@ const initialiseActDefectFormset = (root) => {
         const deleteField = block.querySelector('input[name$="-DELETE"]');
         if (deleteField) {
             deleteField.checked = true;
-            block.hidden = true;
+            retireBlock(block);
             syncDefectUi();
             return;
         }
@@ -274,6 +301,13 @@ const initialiseActDefectFormset = (root) => {
         syncDefectUi();
     });
 
+    // A page re-rendered after a rejected edit keeps the defects the user had
+    // already removed marked for deletion: keep them out of sight too.
+    list.querySelectorAll('input[name$="-DELETE"]').forEach((field) => {
+        if (field.checked) {
+            retireBlock(field.closest('.defect-form-block'));
+        }
+    });
     syncDefectUi();
     syncAllWorkshopVisibility();
 };
