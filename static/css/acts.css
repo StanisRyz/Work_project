@@ -83,7 +83,7 @@
    left and the spare width stays spare. */
 .act-filter-panel {
     margin: 0;
-    grid-template-columns: minmax(220px, 420px) repeat(3, minmax(150px, 240px)) repeat(2, auto);
+    grid-template-columns: minmax(220px, 420px) repeat(3, minmax(150px, 240px)) repeat(3, auto);
     justify-content: start;
 }
 
@@ -686,7 +686,7 @@
 }
 
 .task-filter-panel {
-    grid-template-columns: repeat(2, minmax(180px, 300px)) repeat(2, minmax(150px, 240px)) auto auto;
+    grid-template-columns: repeat(2, minmax(180px, 300px)) repeat(2, minmax(150px, 240px)) repeat(3, auto);
 }
 
 .task-sort-link {

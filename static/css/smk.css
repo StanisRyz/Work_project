@@ -511,4 +511,4 @@
 .smk-progress__bar { display: block; height: 4px; overflow: hidden; border-radius: 999px; background: var(--color-bg); }
 .smk-progress__bar > span { display: block; height: 100%; background: #16a34a; }
 
-.smk-filter-panel { grid-template-columns: repeat(3, minmax(160px, 240px)) auto auto; }
+.smk-filter-panel { grid-template-columns: repeat(3, minmax(160px, 240px)) repeat(3, auto); }

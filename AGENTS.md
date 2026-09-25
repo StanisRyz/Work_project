@@ -18,8 +18,8 @@ model without explicit approval.
 
 | App | Owns |
 | --- | --- |
-| `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware, working-day arithmetic (`workdays.py`). No models |
-| `dashboard` | the landing page at `/`: the «Быстрый доступ» grid declared in `dashboard/sections.py` (each card carries the owning section's existing permission rule) and the shortened «Мои задачи» block in `dashboard/selectors.py` (the task registry's own queryset and `tasks.presentation.describe_task()`). Read-only. No models, no migrations, no services |
+| `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware, working-day arithmetic (`workdays.py`), the registry template tags (`templatetags/registry.py`: sortable headers, the query-string rewrite, the deadline in words) and the dependency-free `.xlsx` writer for registry exports (`xlsx.py`). No models |
+| `dashboard` | the landing page at `/`: the «Быстрый доступ» grid declared in `dashboard/sections.py` (each card carries the owning section's existing permission rule), the shortened «Мои задачи» block in `dashboard/selectors.py` (the task registry's own queryset and `tasks.presentation.describe_task()`), the «Что ждёт меня» counts in `dashboard/summary.py` (the menu badges and the «Сегодня» strip) and the topbar quick search at `/search/` in `dashboard/search.py`. Read-only. No models, no migrations, no services |
 | `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`). No user-facing pages beyond login/logout — user/department management is Django Admin only |
 | `references` | operations, defect types, act/task statuses, priorities; `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
@@ -179,6 +179,42 @@ tasks never live inside `acts`.
   with capped columns (`.act-filter-panel`, `.task-filter-panel`), and a pair of
   person selects stops at 760px (`.protocol-participant-card`). The printed
   documents are not screens and keep their own size (`.print-page` is 16px).
+- **Registry conveniences are one set of tools, and none of them is a rule.**
+  Every registry (акты, задачи, протоколы, СМК) shows the unfiltered — or, for
+  СМК, the filtered — size of each tab beside its name, applies its filters by
+  itself (`form[data-registry-filter]`, `static/js/registry_tools.js`: a list
+  box on `change`, the search half a second after typing) and remembers the
+  last tab, filters and order per user in this browser
+  (`[data-registry-memory]`, `localStorage`; a URL with a query always wins,
+  so «Сбросить» resets it). «Excel» (`?export=xlsx`) is the same state builder
+  as the page, written by `ecosystem.xlsx` — what is exported is exactly what
+  is shown. Sorting is a whitelist (`acts.selectors.SORTS`); an unknown `sort`
+  is ignored, never passed to `order_by()`. The act KPI strip is a set of
+  links, each setting exactly one of status/deadline, and it is counted
+  *before* those two filters so a number is always the length of the list its
+  click opens. A deadline is rendered only through `includes/due_date.html`
+  (date + «через N дней»/«просрочен на N дней», uncoloured once the work is
+  over). Changing any of this never touches visibility: rows still come from
+  each module's permission-checked queryset.
+- **Cross-section reads live in `dashboard`, and each one delegates.** The quick
+  search (`dashboard/search.py`) and «Что ждёт меня» (`dashboard/summary.py`)
+  draw every group from the owning module's own readable queryset —
+  `acts.permissions`, `protocols.selectors`, `tasks.permissions` — and restate
+  no visibility rule; «ждут вашей подписи» is `PENDING` approval rows of the
+  *current* revision only. The menu counts come from a context processor that
+  is lazy (`SimpleLazyObject`), so a live fragment rendered with a
+  `RequestContext` never pays for them.
+- **Small keyboard and form helpers are delegated from `document` and opt-in.**
+  `keyboard.js`: «/» focuses `[data-registry-search]` or the topbar
+  `[data-quick-search]`, never while typing; Ctrl+Enter submits only a
+  `form[data-hotkey-submit]` — a form with one thing to send (comments,
+  «Выполнение»), never one with several buttons or a confirmation step.
+  `autogrow.js` grows every textarea with its text (never below its drawn
+  height, at most 60 % of the window; `data-autogrow="off"` opts out).
+  `field_memory.js` restores a `form[data-field-memory]` (calculators only —
+  never a document form, which has `form_drafts.js`) through the form's own
+  `input`/`change` listeners. `title_badge.js` mirrors the bell's counter into
+  the tab title. None of them posts anything.
 - One text system: `static/css/text.css`, loaded **last** in `base.html` (after
   `{% block extra_head %}`) and in both print templates. It is the floor under
   every other stylesheet — never add a one-off `overflow-wrap`, `word-break` or
@@ -775,6 +811,14 @@ tasks never live inside `acts`.
   now open. No notification: nobody is being *given* work that was not already
   theirs. The permission is asked by the view for the button and re-asked in
   the service under `select_for_update()`.
+- **«Завершить задачу» opens the next task, not the archive.**
+  `tasks.views._redirect_to_next_task()` asks `build_task_list_state()` for
+  the «Мои задачи» tab and opens its first row other than the task just done
+  — the registry's own order, so never a task the user could not open — or
+  that tab itself when nothing is left, with a message naming what was done.
+  The task page puts the wording first on the full width (facts above it,
+  status once, in the heading), «Выполнение» left and «Вложения» +
+  «Исполнители» right; the file input is the act/protocol `.attachment-picker`.
 - **A `TaskAttachment` is optional, and never a precondition of finishing.**
   Uploading is its own endpoint (`tasks:add_attachment`) and its own form, so
   the completion form carries no file field and a task is still completed with
@@ -1392,6 +1436,14 @@ tasks never live inside `acts`.
   printing are identical, and every page reads `protocol.protocol_type.name`.
   The `*_PROTOCOL_TYPE_CODE` constants in `protocols/models.py` are stable
   identifiers for tests and fixtures, not switches — do not add a branch on one.
+- **«На основе» is `create_protocol()` plus two copies, nothing more.**
+  `protocols.services.create_protocol_based_on()` creates a draft of the same
+  (still active) type for the requesting user and copies the participants —
+  each with a *fresh* snapshot and their «требует согласования», usable
+  accounts only — and the повестка. «Слушали», decisions, approvals, comments
+  and files describe what happened at the old meeting and are never copied.
+  POST-only (`protocols:create_based_on`), confirmed through the shared modal;
+  the `CREATED` event names the source.
 - **Protocol numbers are per type and reusable.** Each `ProtocolType` owns its
   own series, so «Качество №1» and «Web-система №1» coexist. Deleting a
   draft frees its number, and the next protocol of that type takes the
