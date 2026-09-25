@@ -961,7 +961,7 @@ def _get_act_detail_context(
         )
     )
     related_tasks = get_related_tasks(act, user)
-    return {
+    context = {
         'active_page': 'acts',
         'header_title': '',
         'act': act,
@@ -988,4 +988,20 @@ def _get_act_detail_context(
         'attachment_form': attachment_form or ActAttachmentForm(),
         'related_tasks': related_tasks,
         'route_steps': build_route_steps(act),
+    }
+    if context['detail_tab'] == 'attachments':
+        context.update(_document_link_context(user, act=act))
+    return context
+
+
+def _document_link_context(user, *, act):
+    """«Нормативные документы»: read from Documentation, which owns the links."""
+    from documents.permissions import can_link_document_to_act
+    from documents.selectors import build_document_links_for, build_linkable_documents
+
+    can_link = can_link_document_to_act(act, user)
+    return {
+        'document_links': build_document_links_for(user, act=act),
+        'can_link_documents': can_link,
+        'linkable_documents': build_linkable_documents(user) if can_link else [],
     }

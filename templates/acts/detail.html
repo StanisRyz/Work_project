@@ -60,6 +60,7 @@ and act.status_changed.
         {% include 'acts/includes/attachments.html' %}
         {% include 'acts/includes/comments.html' %}
     </div>
+    {% include 'documents/includes/linked_documents.html' with link_target_field='act' link_target_id=act.pk link_target_label='акт' %}
 {% else %}
     <section class="detail-section related-activities" data-live-act-activities>
         {% include 'acts/includes/activities_content.html' %}

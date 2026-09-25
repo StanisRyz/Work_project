@@ -53,7 +53,7 @@ class DocumentViewTests(TestCase):
         )
         self.first = self.document.versions.get(number=1)
         self.second = add_document_version(
-            self.document, _pdf('Инструкция-2.pdf', b'%PDF-1.4 v2'), self.admin
+            self.document, _pdf('Инструкция-2.pdf', b'%PDF-1.4 v2'), self.admin, comment='Раздел 3.'
         )
         self.detail_url = reverse('documents:document_detail', args=[self.document.pk])
         self.client.force_login(self.user)
@@ -70,15 +70,20 @@ class DocumentViewTests(TestCase):
             'documents:document_version_preview', args=[self.document.pk, self.second.pk]
         )
         self.assertContains(response, f'src="{preview_url}"')
-        # The version table belongs to the «История» tab, not to this one.
-        self.assertNotContains(response, 'Файл и комментарий')
+        # One «Скачать» in the header, for the current version — never two.
+        self.assertContains(
+            response, f'href="{reverse("documents:document_download", args=[self.document.pk])}"', count=1,
+        )
 
-        # The viewer streams the file itself, inline and sandboxed.
+        # The viewer streams the file itself, inline and sandboxed — and may be
+        # framed by this site, which the project-wide `DENY` forbade: that is
+        # what used to leave the viewer empty.
         preview = self.client.get(preview_url)
         self.assertEqual(preview['Content-Type'], 'application/pdf')
         self.assertIn('inline', preview['Content-Disposition'])
         self.assertEqual(preview['X-Content-Type-Options'], 'nosniff')
-        self.assertEqual(preview['Content-Security-Policy'], 'sandbox')
+        self.assertEqual(preview['X-Frame-Options'], 'SAMEORIGIN')
+        self.assertEqual(preview['Content-Security-Policy'], "sandbox; frame-ancestors 'self'")
         self.assertEqual(b''.join(preview.streaming_content), b'%PDF-1.4 v2')
         preview.close()
 

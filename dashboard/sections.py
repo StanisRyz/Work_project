@@ -6,9 +6,10 @@ invents no rights of its own. A card is drawn only when its rule says yes, and
 hiding it is a convenience: the view behind it re-checks the same rule and
 refuses a URL typed by hand, exactly as it did before this page existed.
 
-Today only «Документация» is restricted (`documents.permissions`); the other
-five sections are open to every authenticated user, which is what
-`_always()` states rather than leaving the key out.
+«Документация» asks its own rule (`documents.permissions.can_view_documents`,
+today «every signed-in employee»; which folders they then see is the library's
+business); the other five sections are open to every authenticated user,
+which is what `_always()` states rather than leaving the key out.
 """
 
 from django.urls import reverse

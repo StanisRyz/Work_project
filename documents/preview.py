@@ -65,3 +65,16 @@ def describe_preview(version):
     if entry is None:
         return {'kind': KIND_NONE, 'message': UNAVAILABLE_MESSAGE}
     return {'kind': entry[1], 'message': ''}
+
+
+def preview_csp(extension):
+    """The Content-Security-Policy an inline preview is served with.
+
+    The strictest sandbox there is — no scripts, no forms, no same-origin
+    privileges — for every type, a PDF included: Chromium's viewer runs in its
+    own isolated process and renders under it (checked in the browser). What
+    kept the viewer empty was `X-Frame-Options: DENY`, which the preview views
+    relax to `SAMEORIGIN`; `frame-ancestors 'self'` says the same in CSP terms,
+    so no other site can frame a corporate document.
+    """
+    return "sandbox; frame-ancestors 'self'"

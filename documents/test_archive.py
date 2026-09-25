@@ -20,8 +20,9 @@ from .permissions import can_delete_folder, can_rename_folder
 from .services import (
     DocumentError,
     create_folder,
-    delete_document,
     delete_folder,
+    purge_document,
+    trash_document,
     get_corporate_root,
     upload_document,
 )
@@ -75,7 +76,7 @@ class ArchiveTests(TestCase):
         # for the first user's row.
         self.client.force_login(self.other)
         other_root = self.client.get(reverse('documents:browse'))
-        self.assertNotContains(other_root, 'Избранное')
+        self.assertContains(other_root, 'Отметьте документ звёздочкой')
         self.client.post(toggle)
         self.assertEqual(DocumentFavorite.objects.filter(document=self.document).count(), 2)
 
@@ -118,8 +119,14 @@ class ArchiveTests(TestCase):
         self.assertTrue(can_delete_folder(shipped, self.admin))
         self.assertFalse(can_delete_folder(self.corporate, self.admin))
 
-        # An empty one goes.
-        delete_document(child.documents.get(), self.admin)
+        # A trashed document still belongs to its folder, so the folder is not
+        # empty until the trash lets it go; then the empty folder goes.
+        document = child.documents.get()
+        trash_document(document, self.admin)
+        with self.assertRaises(DocumentError):
+            delete_folder(child, self.admin)
+        document.refresh_from_db()
+        purge_document(document, self.admin)
         delete_folder(child, self.admin)
         self.client.post(reverse('documents:folder_delete', args=[folder.pk]))
         self.assertFalse(DocumentFolder.objects.filter(pk=folder.pk).exists())
@@ -150,10 +157,10 @@ class ArchiveTests(TestCase):
         detail_url = reverse('documents:document_detail', args=[self.document.pk])
         root = self.client.get(reverse('documents:browse'))
         # Both personal blocks render the same card, pointing at the same page.
-        self.assertContains(root, 'Недавние документы')
+        self.assertContains(root, 'Недавно обновлённые')
         self.assertContains(root, f'href="{detail_url}"')
 
         detail = self.client.get(detail_url)
         self.assertEqual(detail.status_code, 200)
         self.assertContains(detail, 'ОТК инструкция')
-        self.assertContains(detail, '★ В избранном')
+        self.assertContains(detail, 'aria-pressed="true"')

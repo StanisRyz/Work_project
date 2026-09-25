@@ -1,111 +1,83 @@
-{% extends 'base.html' %}
-{% load static %}
+{% extends 'documents/layout.html' %}
 
-{% block title %}Вложения · Документация{% endblock %}
-
-{% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260925-3">
-{% endblock %}
-
-{% block content %}
+{% block doc_main %}
 {% comment %}
-The «Вложения» branch. Deliberately a separate template from
-`documents/browse.html`: nothing on this page is editable, so it renders no
-form, no upload field and no delete button at all — the read-only rule is
-visible in the markup and not only in an `{% if %}`.
+«Вложения»: files that belong to acts, protocols and tasks, shown read-only.
+Deliberately no form that writes, no upload field and no delete button — the
+read-only rule is visible in the markup and not only in an `{% if %}`.
 
-Three levels share it: the module list, one module's records, and one
-record's files. Whichever is non-empty is what renders.
+The root is one flat table with filters; a module's record list and one
+record's files remain as deeper levels for links that point at them.
 {% endcomment %}
-
-{% include 'documents/includes/breadcrumbs.html' %}
-
-<div class="doc-toolbar">
-    <div class="doc-toolbar__nav">
-        {% if parent_url %}
-            <a class="link-button link-button--secondary link-button--compact" href="{{ parent_url }}">← Наверх</a>
-        {% endif %}
-        <h1 class="doc-toolbar__title">{{ page_title }}</h1>
-        <span class="doc-system-badge" title="Файлы принадлежат исходным документам">🔒 Только чтение</span>
+<header class="doc-head">
+    <div class="doc-head__titles">
+        {% include 'documents/includes/breadcrumbs.html' %}
+        <h1 class="doc-head__title">{{ page_title }} <span class="doc-chip" title="Файлы принадлежат исходным документам и изменяются там, где были загружены">🔒 только чтение</span></h1>
     </div>
-    <div class="doc-toolbar__side">
-        {% include 'documents/includes/search_form.html' %}
-        {% if record_url %}
-            <a class="link-button link-button--secondary link-button--compact" href="{{ record_url }}">Открыть {{ record_label }}</a>
-        {% endif %}
+    {% if record_url %}
+    <div class="doc-head__actions">
+        <a class="link-button link-button--secondary link-button--compact" href="{{ record_url }}">Открыть {{ record_label }}</a>
     </div>
-</div>
+    {% endif %}
+</header>
 
-<p class="doc-system-note">
-    Здесь показаны файлы, загруженные в акты, протоколы и задачи. Документация
-    только отображает их — файл остаётся в своём документе, и изменить,
-    переименовать или удалить его можно лишь там, где он был загружен.
-</p>
-
-{% if source_folders %}
-<section class="table-card doc-card">
-    <table class="data-table doc-table">
-        <thead><tr><th>Раздел</th></tr></thead>
-        <tbody>
-        {% for entry in source_folders %}
-            <tr>
-                <td>
-                    <a class="table-link doc-entry" href="{{ entry.url }}">
-                        <span class="doc-entry__icon" aria-hidden="true">🔒</span>{{ entry.name }}
-                    </a>
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-</section>
-
-{% elif groups %}
-<section class="table-card doc-card">
-    <table class="data-table doc-table">
-        <thead><tr><th>Документ</th><th>Файлов</th><th>Последний файл</th></tr></thead>
-        <tbody>
-        {% for group in groups %}
-            <tr>
-                <td>
-                    <a class="table-link doc-entry" href="{{ group.url }}">
-                        <span class="doc-entry__icon" aria-hidden="true">🔒</span>{{ group.object_label }}
-                    </a>
-                </td>
-                <td class="doc-table__muted">{{ group.count }}</td>
-                <td class="doc-table__muted">{{ group.updated_at|date:'d.m.Y H:i' }}</td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-</section>
-
-{% elif references %}
-<section class="table-card doc-card">
-    <table class="data-table doc-table">
-        <thead><tr><th>Файл</th><th>Размер</th><th>Загружен</th><th class="doc-table__actions-head">Действия</th></tr></thead>
-        <tbody>
-        {% for reference in references %}
-            <tr>
-                <td>
-                    <a class="table-link doc-entry" href="{{ reference.download_url }}">
-                        <span class="doc-entry__icon" aria-hidden="true">🔒</span>{{ reference.name }}
-                    </a>
-                    {# What the file actually belongs to — the difference from a corporate document. #}
-                    <span class="doc-entry__source">Источник: <a href="{{ reference.object_url }}">{{ reference.object_label }}</a></span>
-                </td>
-                <td class="doc-table__muted">{{ reference.size|filesizeformat }}</td>
-                <td class="doc-table__muted">{{ reference.created_at|date:'d.m.Y H:i' }}</td>
-                <td class="doc-table__actions"><div class="doc-actions">
-                    <a class="link-button link-button--secondary link-button--compact" href="{{ reference.download_url }}">Скачать</a>
-                </div></td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-</section>
-
-{% else %}
-    {% include 'acts/includes/empty_state.html' with title='Вложений нет' message='В этом разделе пока нет прикреплённых файлов.' %}
+{% if is_flat %}
+<form class="doc-filters" method="get" data-registry-filter>
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="Имя файла, номер акта, протокол" aria-label="Найти вложение" data-registry-search>
+    <select name="source" aria-label="Раздел">
+        <option value="">Все разделы</option>
+        {% for value, label in source_choices %}<option value="{{ value }}"{% if filters.source == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <select name="type" aria-label="Тип файла">
+        <option value="">Все типы</option>
+        {% for value, label in type_choices %}<option value="{{ value }}"{% if filters.type == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <label class="doc-filters__date">с <input type="date" name="date_from" value="{{ filters.date_from }}"></label>
+    <label class="doc-filters__date">по <input type="date" name="date_to" value="{{ filters.date_to }}"></label>
+    <noscript><button class="link-button link-button--secondary link-button--compact" type="submit">Применить</button></noscript>
+    {% if is_filtered %}<a class="doc-filters__reset" href="{{ request.path }}">Сбросить</a>{% endif %}
+    <span class="doc-filters__count">{{ references|length }}{% if is_truncated %}+{% endif %} файл.</span>
+</form>
 {% endif %}
+
+<div class="doc-main__body">
+{% if groups %}
+    <div class="table-card doc-table-card">
+        <table class="data-table doc-table">
+            <thead><tr><th>Документ</th><th>Файлов</th><th>Последний файл</th></tr></thead>
+            <tbody>
+            {% for group in groups %}
+                <tr data-row-url="{{ group.url }}">
+                    <td class="doc-table__name"><a class="doc-entry" href="{{ group.url }}"><span class="doc-entry__icon" aria-hidden="true">🔒</span><span class="doc-entry__text">{{ group.object_label }}</span></a></td>
+                    <td class="doc-muted">{{ group.count }}</td>
+                    <td class="doc-muted">{{ group.updated_at|date:'d.m.Y H:i' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% elif references %}
+    <div class="table-card doc-table-card">
+        <table class="data-table doc-table doc-attachments">
+            <thead><tr><th class="doc-attachments__thumb-col"><span class="doc-visually-hidden">Миниатюра</span></th><th>Файл</th><th>Источник</th><th>Размер</th><th>Загружен</th><th><span class="doc-visually-hidden">Скачать</span></th></tr></thead>
+            <tbody>
+            {% for reference in references %}
+                <tr>
+                    <td class="doc-attachments__thumb">{% if reference.preview_url %}<a href="{{ reference.preview_url }}" target="_blank" rel="noopener"><img src="{{ reference.preview_url }}" alt="" loading="lazy"></a>{% else %}<span aria-hidden="true">📎</span>{% endif %}</td>
+                    <td class="doc-table__name"><a class="doc-entry" href="{{ reference.download_url }}" title="{{ reference.name }}"><span class="doc-entry__text user-text text-ellipsis">{{ reference.name }}</span></a></td>
+                    <td class="doc-muted"><span class="doc-attachments__source">{{ reference.source_label }}</span> <a href="{{ reference.object_url }}">{{ reference.object_label }}</a></td>
+                    <td class="doc-muted">{{ reference.size|filesizeformat }}</td>
+                    <td class="doc-muted">{{ reference.created_at|date:'d.m.Y H:i' }}</td>
+                    <td class="doc-table__menu"><a class="doc-icon-button" href="{{ reference.download_url }}" title="Скачать" aria-label="Скачать {{ reference.name }}">⤓</a></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% elif is_flat and is_filtered %}
+    {% include 'acts/includes/empty_state.html' with title='Ничего не найдено' message='Измените условия отбора или сбросьте фильтры.' %}
+{% else %}
+    {% include 'acts/includes/empty_state.html' with title='Вложений нет' message='Здесь появятся файлы, загруженные в акты, протоколы и задачи.' %}
+{% endif %}
+</div>
 {% endblock %}

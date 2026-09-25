@@ -44,6 +44,8 @@ NOTIFICATION_SOURCE_SELECT_RELATED = (
     'related_task__protocol__protocol_type',
     'related_task__smk_source',
     'related_bug_report',
+    'related_document',
+    'related_task__document_version__document',
 )
 
 # Where each source type lives on the row, which route opens it, and how the
@@ -54,6 +56,7 @@ SOURCE_FIELDS = {
     Notification.SourceType.PROTOCOL: 'related_protocol',
     Notification.SourceType.TASK: 'related_task',
     Notification.SourceType.BUG: 'related_bug_report',
+    Notification.SourceType.DOCUMENT: 'related_document',
 }
 
 SOURCE_ROUTES = {
@@ -61,6 +64,7 @@ SOURCE_ROUTES = {
     Notification.SourceType.PROTOCOL: ('protocols:detail', 'Открыть протокол'),
     Notification.SourceType.TASK: ('tasks:detail', 'Открыть задачу'),
     Notification.SourceType.BUG: ('bugs:detail', 'Открыть сообщение об ошибке'),
+    Notification.SourceType.DOCUMENT: ('documents:document_detail', 'Открыть документ'),
 }
 
 # Which events also leave the application by email. The list is deliberately
@@ -92,6 +96,14 @@ EMAIL_ELIGIBLE_EVENTS = {
     # to look at it, and the people who must are often not in the application
     # when it arrives.
     Notification.EventType.BUG_REPORTED,
+    # «Документация»: somebody has to read, approve or review a document, or
+    # the uploader must answer a return. A subscriber's «вышла новая версия»
+    # stays in the bell only — it is information the reader asked for, not a
+    # duty, and a busy folder would otherwise flood the mailbox.
+    Notification.EventType.DOCUMENT_ACK_REQUIRED,
+    Notification.EventType.DOCUMENT_APPROVAL_REQUIRED,
+    Notification.EventType.DOCUMENT_REVIEW_DUE,
+    Notification.EventType.DOCUMENT_VERSION_RETURNED,
 }
 
 
@@ -290,7 +302,60 @@ def notify_bug_reported(report, actor, recipients):
     )
 
 
-def _resolve_source(act, protocol, task, bug_report):
+def notify_document_task(task, actor):
+    """Tell the one person a document task names that it is theirs.
+
+    Document-sourced rather than task-sourced: the thing to open is the
+    document — that is where «Ознакомлен» and «Согласовать» are pressed — and
+    the task is only its queue entry. Keyed on the task, so a repeated request
+    for the same person and version never notifies twice. One notification per
+    task and no separate «задача назначена» — the same one-fact rule the
+    protocol approval follows.
+    """
+    from tasks.models import Task
+
+    event_type = {
+        Task.SourceType.DOCUMENT_ACK: Notification.EventType.DOCUMENT_ACK_REQUIRED,
+        Task.SourceType.DOCUMENT_APPROVAL: Notification.EventType.DOCUMENT_APPROVAL_REQUIRED,
+        Task.SourceType.DOCUMENT_REVIEW: Notification.EventType.DOCUMENT_REVIEW_DUE,
+    }.get(task.source_type)
+    if event_type is None:
+        raise ValueError('Уведомление о документе создаётся только для задачи по документу.')
+    return create_notifications(
+        event_type=event_type,
+        document=task.document_version.document,
+        actor=actor,
+        recipients=[task.individual_assignee],
+        source_key=f'task:{task.pk}',
+        exclude_actor=False,
+    )
+
+
+def notify_document_version_returned(version, actor):
+    """Tell the uploader their version came back from approval."""
+    if version.uploaded_by is None:
+        return []
+    return create_notifications(
+        event_type=Notification.EventType.DOCUMENT_VERSION_RETURNED,
+        document=version.document,
+        actor=actor,
+        recipients=[version.uploaded_by],
+        source_key=f'version:{version.pk}',
+    )
+
+
+def notify_document_updated(version, actor, recipients):
+    """Tell subscribers that a new version of a document is in force."""
+    return create_notifications(
+        event_type=Notification.EventType.DOCUMENT_UPDATED,
+        document=version.document,
+        actor=actor,
+        recipients=recipients,
+        source_key=f'version:{version.pk}',
+    )
+
+
+def _resolve_source(act, protocol, task, bug_report, document=None):
     """Exactly one source object, and the source type it implies.
 
     Resolving the type from the object it was given is what keeps
@@ -304,27 +369,28 @@ def _resolve_source(act, protocol, task, bug_report):
             (Notification.SourceType.PROTOCOL, protocol),
             (Notification.SourceType.TASK, task),
             (Notification.SourceType.BUG, bug_report),
+            (Notification.SourceType.DOCUMENT, document),
         )
         if source is not None
     ]
     if len(given) != 1:
         raise ValueError(
             'Уведомление должно иметь ровно один источник: акт, протокол, '
-            'задачу или сообщение об ошибке.'
+            'задачу, сообщение об ошибке или документ.'
         )
     return given[0]
 
 
 def create_notifications(
     *, event_type, actor, recipients, source_key,
-    act=None, protocol=None, task=None, bug_report=None, exclude_actor=True,
+    act=None, protocol=None, task=None, bug_report=None, document=None, exclude_actor=True,
 ):
     """Create deduplicated in-app notifications and their independent email deliveries.
 
-    Exactly one of `act`, `protocol`, `task` or `bug_report` names what the
-    notification is about; `source_type` follows from it.
+    Exactly one of `act`, `protocol`, `task`, `bug_report` or `document` names
+    what the notification is about; `source_type` follows from it.
     """
-    source_type, source = _resolve_source(act, protocol, task, bug_report)
+    source_type, source = _resolve_source(act, protocol, task, bug_report, document)
     actor_id = getattr(actor, 'pk', None)
     recipient_ids = {
         recipient.pk
@@ -445,7 +511,9 @@ def get_notification_url(notification, *, absolute=False):
     """
     route, _label = SOURCE_ROUTES[notification.source_type]
     source_id = getattr(notification, f'{SOURCE_FIELDS[notification.source_type]}_id')
-    path = reverse(route, kwargs={'pk': source_id})
+    # Positional: every source route takes exactly one integer, whatever the
+    # owning app calls it (`pk`, `document_id`).
+    path = reverse(route, args=[source_id])
     if not absolute:
         return path
     return urljoin(f"{settings.APP_BASE_URL.rstrip('/')}/", path.lstrip('/'))
@@ -478,6 +546,13 @@ def describe_notification_source(notification):
             # The page the reporter was on — the one fact that makes a report
             # actionable, and the reason it is carried into the email too.
             'context': source.page_url,
+            'due_date': None,
+            'requires_attachment': False,
+        }
+    if notification.source_type == Notification.SourceType.DOCUMENT:
+        return {
+            'label': f'Документ {source.title}',
+            'context': source.folder.full_path if source.folder_id else '',
             'due_date': None,
             'requires_attachment': False,
         }
@@ -516,6 +591,8 @@ def _task_source_context(task):
         return f'Брак по акту {task.act.number}'
     if task.smk_source_id:
         return task.smk_source.label
+    if task.document_version_id:
+        return f'Документ {task.document_version.document.title}'
     if task.protocol_id:
         return f'Протокол {_protocol_label(task.protocol)}'
     if task.act_id:
@@ -692,7 +769,40 @@ def _event_text(event_type, source_type, source):
         return _task_event_text(event_type, source)
     if source_type == Notification.SourceType.BUG:
         return _bug_event_text(event_type, source)
+    if source_type == Notification.SourceType.DOCUMENT:
+        return _document_event_text(event_type, source)
     return _act_event_text(event_type, source)
+
+
+def _document_event_text(event_type, document):
+    title = document.title
+    return {
+        Notification.EventType.DOCUMENT_ACK_REQUIRED: NotificationText(
+            f'Ознакомьтесь с документом «{title}»',
+            f'Вас просят ознакомиться с документом «{title}».',
+            'Откройте документ, прочитайте его и нажмите «Ознакомлен».',
+        ),
+        Notification.EventType.DOCUMENT_APPROVAL_REQUIRED: NotificationText(
+            f'Требуется согласование документа «{title}»',
+            f'Новая версия документа «{title}» ожидает вашего согласования.',
+            'Откройте документ и согласуйте версию или верните её с комментарием.',
+        ),
+        Notification.EventType.DOCUMENT_REVIEW_DUE: NotificationText(
+            f'Подходит срок пересмотра документа «{title}»',
+            f'Документ «{title}» нужно пересмотреть: подходит дата пересмотра.',
+            'Проверьте актуальность документа, загрузите новую версию или перенесите дату пересмотра.',
+        ),
+        Notification.EventType.DOCUMENT_VERSION_RETURNED: NotificationText(
+            f'Версия документа «{title}» возвращена',
+            f'Загруженная вами версия документа «{title}» возвращена согласующим.',
+            'Ознакомьтесь с причиной возврата на странице документа.',
+        ),
+        Notification.EventType.DOCUMENT_UPDATED: NotificationText(
+            f'Новая версия документа «{title}»',
+            f'Вступила в силу новая версия документа «{title}».',
+            'Откройте документ, чтобы посмотреть изменения.',
+        ),
+    }[event_type]
 
 
 def _bug_event_text(event_type, report):

@@ -47,6 +47,13 @@ from tasks.permissions import can_download_task_attachment, get_readable_tasks_q
 
 SYSTEM_AREA_LABEL = 'Вложения'
 
+IMAGE_EXTENSIONS = frozenset({'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'})
+
+
+def _is_image(name):
+    parts = (name or '').rsplit('.', 1)
+    return len(parts) == 2 and parts[1].lower() in IMAGE_EXTENSIONS
+
 
 @dataclass(frozen=True)
 class DocumentReference:
@@ -68,6 +75,10 @@ class DocumentReference:
     size: int
     created_at: datetime | None
     download_url: str
+    # Set for an image only: the small inline preview «Вложения» shows as a
+    # thumbnail, served by `documents:system_preview` under the same rules as
+    # the download.
+    preview_url: str = ''
 
     # Always true, and stated as data rather than inferred in a template: a
     # reference is read-only wherever it is rendered.
@@ -184,6 +195,11 @@ class AttachmentSource:
             download_url=reverse(
                 'documents:system_download', args=[self.slug, attachment.pk]
             ),
+            preview_url=(
+                reverse('documents:system_preview', args=[self.slug, attachment.pk])
+                if _is_image(attachment.original_name)
+                else ''
+            ),
         )
 
     def references(self, user, record):
@@ -222,6 +238,32 @@ class AttachmentSource:
         )
         if limit is not None:
             attachments = attachments[:limit]
+        return [
+            self.build_reference(getattr(attachment, self.record_field), attachment)
+            for attachment in attachments
+        ]
+
+    def listing(self, user, *, query='', date_from=None, date_to=None, limit=300):
+        """The flat «Вложения» table: every readable attachment, newest first,
+        narrowed by an optional term and period."""
+        readable = self._record_filter(user)
+        attachments = self.attachment_model.objects.filter(**{f'{self.record_field}__in': readable})
+        if query:
+            matching_records = (
+                self.record_model.objects.filter(pk__in=readable)
+                .filter(self.record_search_filter(query))
+                .values('pk')
+            )
+            attachments = attachments.filter(
+                Q(original_name__icontains=query) | Q(**{f'{self.record_field}__in': matching_records})
+            )
+        if date_from:
+            attachments = attachments.filter(**{f'{self.timestamp_field}__date__gte': date_from})
+        if date_to:
+            attachments = attachments.filter(**{f'{self.timestamp_field}__date__lte': date_to})
+        attachments = attachments.select_related(self.record_field).order_by(
+            f'-{self.timestamp_field}', '-pk'
+        )[:limit]
         return [
             self.build_reference(getattr(attachment, self.record_field), attachment)
             for attachment in attachments

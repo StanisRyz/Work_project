@@ -30,6 +30,9 @@ class Notification(models.Model):
         PROTOCOL = 'PROTOCOL', 'Протокол'
         TASK = 'TASK', 'Задача'
         BUG = 'BUG', 'Сообщение об ошибке'
+        # A document of «Документация» — the subject of «новая версия» for the
+        # people subscribed to it, and of a returned version for its uploader.
+        DOCUMENT = 'DOCUMENT', 'Документ'
 
     class EventType(models.TextChoices):
         ACT_SENT_TO_KO = 'ACT_SENT_TO_KO', 'Акт передан в КО'
@@ -52,6 +55,11 @@ class Notification(models.Model):
         ACT_REJECTION_ASSIGNED = 'ACT_REJECTION_ASSIGNED', 'Назначена задача ПДО по браку'
         SMK_TASK_ASSIGNED = 'SMK_TASK_ASSIGNED', 'Назначена задача СМК'
         BUG_REPORTED = 'BUG_REPORTED', 'Сообщение об ошибке в системе'
+        DOCUMENT_ACK_REQUIRED = 'DOCUMENT_ACK_REQUIRED', 'Требуется ознакомление с документом'
+        DOCUMENT_APPROVAL_REQUIRED = 'DOCUMENT_APPROVAL_REQUIRED', 'Требуется согласование документа'
+        DOCUMENT_REVIEW_DUE = 'DOCUMENT_REVIEW_DUE', 'Подходит срок пересмотра документа'
+        DOCUMENT_VERSION_RETURNED = 'DOCUMENT_VERSION_RETURNED', 'Версия документа возвращена'
+        DOCUMENT_UPDATED = 'DOCUMENT_UPDATED', 'Новая версия документа'
 
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -119,6 +127,14 @@ class Notification(models.Model):
         blank=True,
         null=True,
     )
+    related_document = models.ForeignKey(
+        'documents.Document',
+        on_delete=models.CASCADE,
+        related_name='notifications',
+        verbose_name='Связанный документ',
+        blank=True,
+        null=True,
+    )
     deduplication_key = models.CharField('Ключ дедупликации', max_length=180)
     created_at = models.DateTimeField('Создано', auto_now_add=True)
     is_read = models.BooleanField('Прочитано', default=False)
@@ -150,6 +166,7 @@ class Notification(models.Model):
                 condition=(
                     models.Q(
                         source_type='ACT',
+                        related_document__isnull=True,
                         related_act__isnull=False,
                         related_protocol__isnull=True,
                         related_task__isnull=True,
@@ -157,6 +174,7 @@ class Notification(models.Model):
                     )
                     | models.Q(
                         source_type='PROTOCOL',
+                        related_document__isnull=True,
                         related_act__isnull=True,
                         related_protocol__isnull=False,
                         related_task__isnull=True,
@@ -164,6 +182,7 @@ class Notification(models.Model):
                     )
                     | models.Q(
                         source_type='TASK',
+                        related_document__isnull=True,
                         related_act__isnull=True,
                         related_protocol__isnull=True,
                         related_task__isnull=False,
@@ -171,10 +190,19 @@ class Notification(models.Model):
                     )
                     | models.Q(
                         source_type='BUG',
+                        related_document__isnull=True,
                         related_act__isnull=True,
                         related_protocol__isnull=True,
                         related_task__isnull=True,
                         related_bug_report__isnull=False,
+                    )
+                    | models.Q(
+                        source_type='DOCUMENT',
+                        related_document__isnull=False,
+                        related_act__isnull=True,
+                        related_protocol__isnull=True,
+                        related_task__isnull=True,
+                        related_bug_report__isnull=True,
                     )
                 ),
                 name='notification_source_relations_match_source_type',
@@ -195,19 +223,23 @@ class Notification(models.Model):
         required, forbidden = {
             self.SourceType.ACT: (
                 'related_act',
-                ('related_protocol', 'related_task', 'related_bug_report'),
+                ('related_protocol', 'related_task', 'related_bug_report', 'related_document'),
             ),
             self.SourceType.PROTOCOL: (
                 'related_protocol',
-                ('related_act', 'related_task', 'related_bug_report'),
+                ('related_act', 'related_task', 'related_bug_report', 'related_document'),
             ),
             self.SourceType.TASK: (
                 'related_task',
-                ('related_act', 'related_protocol', 'related_bug_report'),
+                ('related_act', 'related_protocol', 'related_bug_report', 'related_document'),
             ),
             self.SourceType.BUG: (
                 'related_bug_report',
-                ('related_act', 'related_protocol', 'related_task'),
+                ('related_act', 'related_protocol', 'related_task', 'related_document'),
+            ),
+            self.SourceType.DOCUMENT: (
+                'related_document',
+                ('related_act', 'related_protocol', 'related_task', 'related_bug_report'),
             ),
         }.get(self.source_type, (None, ()))
         if required is None:

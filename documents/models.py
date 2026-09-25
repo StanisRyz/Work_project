@@ -38,6 +38,10 @@ MAX_FOLDER_DEPTH = 10
 # What the breadcrumb shows before the first real folder.
 ROOT_FOLDER_LABEL = 'Документация'
 
+# How long a document stays in «Корзина» before `purge_document_trash` removes
+# it for good.
+TRASH_RETENTION_DAYS = 30
+
 # The two branches directly under that root. «Корпоративные документы» is a
 # real (system) folder and holds everything users upload; «Вложения» is not a
 # row at all — it is generated from the act, protocol and task attachment
@@ -72,6 +76,13 @@ class DocumentFolder(models.Model):
     # System folders are the initial structure: they may receive content but
     # are not renamed or deleted from the page.
     is_system = models.BooleanField('Системная папка', default=False)
+    # Who may see this folder and everything under it, as `UserProfile.Role`
+    # codes. Empty — the default — is «every employee»: the library is open for
+    # reading, and a folder is closed only when somebody decides so. A
+    # restriction inherits downwards (`documents.permissions.can_view_folder()`
+    # walks the ancestors), and document managers always see everything, so a
+    # folder can never be closed to the people who keep it.
+    allowed_roles = models.JSONField('Доступ только для ролей', default=list, blank=True)
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -179,6 +190,14 @@ def document_version_upload_to(instance, filename):
 CURRENT_VERSION_ATTR = 'prefetched_current_versions'
 
 
+class LiveDocumentManager(models.Manager):
+    """Documents that are not in «Корзина». The default: nothing lists, finds
+    or counts a trashed document unless it asks `Document.all_objects`."""
+
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class Document(models.Model):
     """One *logical* corporate document. The files are its versions.
 
@@ -213,14 +232,95 @@ class Document(models.Model):
     # it reflects the newest revision and not just a rename.
     updated_at = models.DateTimeField('Обновлен', auto_now=True)
 
+    # ------------------------------------------------------------------
+    # The document card — what makes a file a *controlled* document
+    # (ISO 9001 7.5): what it is called officially, whether it is in force,
+    # since when, who owns it and when it must be looked at again. All
+    # optional, because documents uploaded before the card existed have none
+    # of it and nothing may be invented for them.
+    # ------------------------------------------------------------------
+
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Проект'
+        ACTIVE = 'ACTIVE', 'Действующий'
+        # Withdrawn, never deleted: a controlled document that stops applying
+        # is marked so and kept, with the reason, because acts and protocols
+        # decided under it still refer to it.
+        CANCELLED = 'CANCELLED', 'Отменён'
+
+    designation = models.CharField('Обозначение', max_length=80, blank=True)
+    status = models.CharField('Статус', max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    effective_date = models.DateField('Дата введения', blank=True, null=True)
+    # When the document must be looked at again. `document_review_reminders`
+    # turns an approaching date into a «Пересмотреть документ» task for
+    # `responsible`.
+    review_date = models.DateField('Дата пересмотра', blank=True, null=True)
+    owner_department = models.ForeignKey(
+        'accounts.Department',
+        on_delete=models.SET_NULL,
+        related_name='owned_documents',
+        verbose_name='Подразделение-владелец',
+        blank=True,
+        null=True,
+    )
+    responsible = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='responsible_documents',
+        verbose_name='Ответственный',
+        blank=True,
+        null=True,
+    )
+    cancelled_at = models.DateTimeField('Отменён', blank=True, null=True)
+    cancelled_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='cancelled_documents',
+        verbose_name='Отменил',
+        blank=True,
+        null=True,
+    )
+    cancellation_reason = models.TextField('Причина отмены', blank=True)
+    # «Корзина»: set by `trash_document()`, cleared by `restore_document()`.
+    # A trashed document is invisible everywhere but the trash page, and
+    # `purge_document_trash` removes it for good after `TRASH_RETENTION_DAYS`.
+    deleted_at = models.DateTimeField('В корзине с', blank=True, null=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name='trashed_documents',
+        verbose_name='Отправил в корзину',
+        blank=True,
+        null=True,
+    )
+
+    # The first manager is the default one, and it hides «Корзина». Relations
+    # from a version or a task use the base manager, so they still reach a
+    # trashed document.
+    objects = LiveDocumentManager()
+    all_objects = models.Manager()
+
     class Meta:
         ordering = ['name', 'pk']
         verbose_name = 'Документ'
         verbose_name_plural = 'Документы'
         indexes = [models.Index(fields=['folder', 'name'])]
+        base_manager_name = 'all_objects'
 
     def __str__(self):
+        return self.title
+
+    @property
+    def title(self):
+        """«ДП-СМК 07.04 Управление несоответствующей продукцией» — the
+        designation first when there is one, as the plant writes it."""
+        if self.designation and not self.name.startswith(self.designation):
+            return f'{self.designation} {self.name}'
         return self.name
+
+    @property
+    def is_trashed(self):
+        return self.deleted_at is not None
 
     @property
     def current_version(self):
@@ -298,6 +398,38 @@ class DocumentVersion(models.Model):
         null=True,
     )
     uploaded_at = models.DateTimeField('Загружена', auto_now_add=True)
+    # «изм. 2» — how the document itself numbers its amendments. Free text and
+    # optional: `number` is the library's own counter and is never shown as the
+    # official revision.
+    revision_label = models.CharField('Изменение', max_length=40, blank=True)
+    # The text of the file, extracted once at upload by
+    # `documents/text_extraction.py`, for «поиск по тексту». Empty for a type
+    # nothing can be read from (a scan, an image) — the search then simply
+    # does not find it by content.
+    text_content = models.TextField('Текст документа', blank=True)
+
+    class Approval(models.TextChoices):
+        # Uploaded without a round: current at once, as every version was
+        # before approval existed.
+        NONE = '', 'Без согласования'
+        PENDING = 'PENDING', 'На согласовании'
+        APPROVED = 'APPROVED', 'Согласована'
+        RETURNED = 'RETURNED', 'Возвращена'
+
+    # Where the version stands in its own approval round. A `PENDING` version
+    # is stored but not current; the last approval makes it current in the
+    # same transaction (`documents/services.approve_version()`), a return
+    # leaves it a readable, non-current row with `approval_comment`.
+    approval_status = models.CharField(
+        'Согласование', max_length=16, choices=Approval.choices, blank=True, default='',
+    )
+    approval_comment = models.TextField('Причина возврата', blank=True)
+    # Who must acknowledge this version once it is in force, as the uploader
+    # chose them: role codes and department ids. Kept on the version because a
+    # version on approval is not current yet — the acknowledgement tasks are
+    # issued the moment it becomes current, not at upload.
+    ack_roles = models.JSONField('Ознакомить роли', default=list, blank=True)
+    ack_department_ids = models.JSONField('Ознакомить подразделения', default=list, blank=True)
 
     class Meta:
         ordering = ['-number', '-pk']
@@ -321,6 +453,11 @@ class DocumentVersion(models.Model):
     @property
     def label(self):
         return f'v{self.number}'
+
+    @property
+    def full_label(self):
+        """«v3 · изм. 2» when the document numbers its amendments, else «v3»."""
+        return f'{self.label} · {self.revision_label}' if self.revision_label else self.label
 
     @property
     def extension(self):
@@ -408,6 +545,17 @@ class DocumentHistoryEvent(models.Model):
         VERSION_ADDED = 'VERSION_ADDED', 'Загружена версия'
         VERSION_RESTORED = 'VERSION_RESTORED', 'Версия восстановлена'
         DOCUMENT_DELETED = 'DOCUMENT_DELETED', 'Документ удалён'
+        CARD_UPDATED = 'CARD_UPDATED', 'Изменена карточка'
+        MOVED = 'MOVED', 'Перенесён'
+        TRASHED = 'TRASHED', 'Отправлен в корзину'
+        RESTORED = 'RESTORED', 'Восстановлен из корзины'
+        STATUS_CHANGED = 'STATUS_CHANGED', 'Изменён статус'
+        VERSION_SUBMITTED = 'VERSION_SUBMITTED', 'Версия отправлена на согласование'
+        VERSION_APPROVED = 'VERSION_APPROVED', 'Версия согласована'
+        VERSION_RETURNED = 'VERSION_RETURNED', 'Версия возвращена'
+        ACK_REQUESTED = 'ACK_REQUESTED', 'Разослан на ознакомление'
+        LINKED = 'LINKED', 'Связан с документом системы'
+        UNLINKED = 'UNLINKED', 'Связь удалена'
 
     document = models.ForeignKey(
         Document,
@@ -450,3 +598,134 @@ class DocumentHistoryEvent(models.Model):
 
     def __str__(self):
         return f'{self.document_name}: {self.get_action_display()}'
+
+
+class DocumentVersionApproval(models.Model):
+    """One approver's decision on one version — the protocol approval's shape.
+
+    A row per `(version, user)`, created when the version is uploaded with a
+    round. `task` is the approver's «Согласовать документ» queue entry, closed
+    by the decision itself; nothing here is completed from «Задачи».
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Ожидает'
+        APPROVED = 'APPROVED', 'Согласовано'
+        RETURNED = 'RETURNED', 'Возвращено'
+        CANCELLED = 'CANCELLED', 'Отменено'
+
+    version = models.ForeignKey(
+        DocumentVersion, on_delete=models.CASCADE, related_name='approvals', verbose_name='Версия',
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.PROTECT, related_name='document_approvals', verbose_name='Согласующий',
+    )
+    status = models.CharField('Решение', max_length=16, choices=Status.choices, default=Status.PENDING)
+    comment = models.TextField('Комментарий', blank=True)
+    decided_at = models.DateTimeField('Решение принято', blank=True, null=True)
+    task = models.OneToOneField(
+        'tasks.Task', on_delete=models.SET_NULL, related_name='document_approval',
+        blank=True, null=True, verbose_name='Задача согласования',
+    )
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+
+    class Meta:
+        ordering = ['pk']
+        verbose_name = 'Согласование версии'
+        verbose_name_plural = 'Согласования версий'
+        constraints = [
+            models.UniqueConstraint(fields=['version', 'user'], name='documents_approval_unique_per_user'),
+        ]
+
+    def __str__(self):
+        return f'{self.version}: {self.user}'
+
+
+class DocumentLink(models.Model):
+    """«Где используется»: a document cited by an act or a protocol.
+
+    Exactly one of `act` and `protocol` is set — the check constraint says so —
+    and a pair is linked at most once. The link belongs to Documentation; the
+    act and the protocol only show it.
+    """
+
+    document = models.ForeignKey(
+        Document, on_delete=models.CASCADE, related_name='links', verbose_name='Документ',
+    )
+    act = models.ForeignKey(
+        'acts.Act', on_delete=models.CASCADE, related_name='document_links',
+        blank=True, null=True, verbose_name='Акт',
+    )
+    protocol = models.ForeignKey(
+        'protocols.Protocol', on_delete=models.CASCADE, related_name='document_links',
+        blank=True, null=True, verbose_name='Протокол',
+    )
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, related_name='+', blank=True, null=True, verbose_name='Добавил',
+    )
+    created_at = models.DateTimeField('Добавлена', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-pk']
+        verbose_name = 'Ссылка на документ'
+        verbose_name_plural = 'Ссылки на документы'
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(act__isnull=False, protocol__isnull=True)
+                    | Q(act__isnull=True, protocol__isnull=False)
+                ),
+                name='documents_link_exactly_one_target',
+            ),
+            models.UniqueConstraint(
+                fields=['document', 'act'], condition=Q(act__isnull=False),
+                name='documents_link_unique_act',
+            ),
+            models.UniqueConstraint(
+                fields=['document', 'protocol'], condition=Q(protocol__isnull=False),
+                name='documents_link_unique_protocol',
+            ),
+        ]
+
+
+class DocumentSubscription(models.Model):
+    """«Подписаться»: tell me when a new version comes into force.
+
+    On one document or on a whole folder (its documents at any depth). Private
+    to the user, like a favourite; exactly one target per row.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='document_subscriptions', verbose_name='Пользователь',
+    )
+    document = models.ForeignKey(
+        Document, on_delete=models.CASCADE, related_name='subscriptions',
+        blank=True, null=True, verbose_name='Документ',
+    )
+    folder = models.ForeignKey(
+        DocumentFolder, on_delete=models.CASCADE, related_name='subscriptions',
+        blank=True, null=True, verbose_name='Папка',
+    )
+    created_at = models.DateTimeField('Создана', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Подписка на документы'
+        verbose_name_plural = 'Подписки на документы'
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(document__isnull=False, folder__isnull=True)
+                    | Q(document__isnull=True, folder__isnull=False)
+                ),
+                name='documents_subscription_exactly_one_target',
+            ),
+            models.UniqueConstraint(
+                fields=['user', 'document'], condition=Q(document__isnull=False),
+                name='documents_subscription_unique_document',
+            ),
+            models.UniqueConstraint(
+                fields=['user', 'folder'], condition=Q(folder__isnull=False),
+                name='documents_subscription_unique_folder',
+            ),
+        ]
+

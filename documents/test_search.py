@@ -80,8 +80,8 @@ class DocumentSearchTests(TestCase):
         self.assertContains(response, 'Навивка. Инструкция.pdf')
         self.assertContains(response, 'Навивка — дефект.jpg')
         # The system hit names the act it belongs to and is marked read-only.
-        self.assertContains(response, 'Акт АОК-2026-00123')
-        self.assertContains(response, 'Только чтение')
+        self.assertContains(response, 'Вложения / Акты / Акт АОК-2026-00123')
+        self.assertContains(response, 'class="doc-list__tag">Акты<')
 
         # A filter narrows the list without changing what was matched.
         corporate_only = self.client.get(
@@ -98,7 +98,7 @@ class DocumentSearchTests(TestCase):
         # The same two files reach «Недавние документы» on the root page,
         # through the same card.
         root = self.client.get(reverse('documents:browse'))
-        self.assertContains(root, 'Недавние документы')
+        self.assertContains(root, 'Недавно обновлённые')
         self.assertContains(root, 'Навивка. Инструкция.pdf')
         self.assertContains(root, 'Навивка — дефект.jpg')
 

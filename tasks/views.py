@@ -179,6 +179,9 @@ def task_detail(request, pk):
         return redirect('protocols:detail', pk=task.protocol_id)
     if task.source_type == Task.SourceType.ACT_WORKFLOW and task.act_id:
         return redirect('acts:detail', pk=task.act_id)
+    # «Ознакомиться» and «Согласовать документ» are answered on the document.
+    if task.is_routing_task and task.is_document_task and task.document_version_id:
+        return redirect('documents:document_detail', task.document_version.document_id)
     context = _task_detail_context(
         task, request.user, request.GET.urlencode(),
         # The parked upload draft first, then whatever the task already holds.

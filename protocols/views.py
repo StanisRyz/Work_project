@@ -781,6 +781,14 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
         context['attachment_form'] = attachment_form or ProtocolAttachmentForm()
         context['comments'] = get_protocol_comments(protocol)
         context['attachments'] = get_protocol_attachments(protocol, request.user)
+        # «Нормативные документы»: read from Documentation, which owns the links.
+        from documents.permissions import can_link_document_to_protocol
+        from documents.selectors import build_document_links_for, build_linkable_documents
+
+        can_link = can_link_document_to_protocol(protocol, request.user)
+        context['document_links'] = build_document_links_for(request.user, protocol=protocol)
+        context['can_link_documents'] = can_link
+        context['linkable_documents'] = build_linkable_documents(request.user) if can_link else []
     elif detail_tab == 'activities':
         context['related_tasks'] = get_related_protocol_tasks(protocol, request.user)
     if can_edit:

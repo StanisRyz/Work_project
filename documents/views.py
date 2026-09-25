@@ -22,6 +22,9 @@ Two things every endpoint below does deliberately:
 """
 
 import logging
+import tempfile
+import zipfile
+from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -29,46 +32,99 @@ from django.core.exceptions import PermissionDenied
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 
+from accounts.models import UserProfile
 from ecosystem.logging_utils import log_event
 
 from .cards import file_icon
-from .forms import DocumentUploadForm, DocumentVersionForm, FolderForm
-from .models import ROOT_FOLDER_LABEL, Document, DocumentFolder, DocumentVersion
+from .forms import (
+    AcknowledgementForm,
+    DocumentCardForm,
+    DocumentUploadWithAckForm,
+    DocumentVersionForm,
+    FolderAccessForm,
+    FolderForm,
+)
+from .models import (
+    ROOT_FOLDER_LABEL,
+    TRASH_RETENTION_DAYS,
+    Document,
+    DocumentFolder,
+    DocumentLink,
+    DocumentVersion,
+)
 from .permissions import (
     can_add_document_version,
+    can_decide_version,
     can_delete_document,
+    can_delete_folder,
     can_download_document,
     can_download_document_version,
+    can_edit_document,
     can_favorite_document,
     can_manage_documents,
     can_modify_system_attachments,
+    can_rename_folder,
+    can_request_acknowledgement,
     can_restore_document_version,
-    can_view_document_history,
+    can_set_folder_access,
+    can_upload_document,
+    can_view_document,
     can_view_documents,
+    can_view_folder,
     can_view_system_attachments,
+    open_acknowledgement_task,
 )
-from .preview import describe_preview, inline_content_type
+from .preview import describe_preview, inline_content_type, preview_csp
 from .references import SOURCES, SYSTEM_AREA_LABEL, get_source
 from .search import build_search_state
 from .selectors import (
+    STATUS_VARIANTS,
+    TYPE_FILTERS,
+    ack_target_labels,
+    build_ack_rows,
+    build_approval_rows,
     build_breadcrumbs,
     build_document_breadcrumbs,
-    build_document_cards,
-    build_folder_rows,
     build_favorite_documents,
+    build_folder_listing,
+    build_folder_tree,
+    build_link_rows,
+    build_move_targets,
+    build_my_acknowledgements,
+    build_my_approvals,
     build_recent_documents,
+    build_review_soon,
+    build_storage_summary,
+    build_trash_rows,
     build_version_rows,
+    is_subscribed,
+    type_key,
 )
 from .services import (
     DocumentError,
+    acknowledge_document,
     add_document_version,
+    approve_version,
     create_folder,
-    delete_document,
     delete_folder,
+    link_document,
+    move_documents,
+    purge_document,
     rename_folder,
+    request_acknowledgement,
+    restore_document,
     restore_document_version,
+    return_version,
+    set_folder_access,
     toggle_document_favorite,
+    toggle_subscription,
+    trash_document,
+    trash_documents,
+    unlink_document,
+    update_document_card,
     upload_documents,
 )
 
@@ -81,6 +137,10 @@ def _browse_url(folder):
     if folder is None:
         return reverse('documents:browse')
     return reverse('documents:folder', args=[folder.pk])
+
+
+def _detail_url(document):
+    return reverse('documents:document_detail', args=[document.pk])
 
 
 def _require_manage(user):
@@ -96,93 +156,132 @@ def _require_manage(user):
         raise PermissionDenied('Недостаточно прав для изменения документации.')
 
 
-@login_required
-def browse(request, folder_id=None):
-    """The folder listing: breadcrumbs, subfolders, documents, and the tools."""
-    if not can_view_documents(request.user):
+def _require_view(user):
+    if not can_view_documents(user):
         raise PermissionDenied('Недостаточно прав для просмотра документации.')
 
-    folder = None
-    if folder_id is not None:
-        folder = get_object_or_404(DocumentFolder.objects.select_related('parent'), pk=folder_id)
 
-    subfolders = build_folder_rows(
-        DocumentFolder.objects.filter(parent=folder).order_by('name', 'pk'), request.user
-    )
-    # The root is a label, not a row, so nothing can be stored directly in it:
-    # every document belongs to a real folder.
-    document_cards = []
-    if folder is not None:
-        document_cards = build_document_cards(
-            Document.objects.filter(folder=folder)
-            .select_related('uploaded_by')
-            .prefetch_related(Document.current_version_prefetch())
-            .order_by('name', 'pk'),
-            request.user,
-            # Every document in a folder shares its location, so the path is
-            # built once rather than per card.
-            path=' / '.join([ROOT_FOLDER_LABEL, *(entry.name for entry in folder.breadcrumbs())]),
-        )
+def _visible_folder_or_404(folder_id, user):
+    """A folder closed to this user is absent, not forbidden — the same answer
+    a document of another module gives."""
+    folder = get_object_or_404(DocumentFolder.objects.select_related('parent'), pk=folder_id)
+    if not can_view_folder(folder, user):
+        raise Http404('No folder matches the given query.')
+    return folder
 
-    can_manage = can_manage_documents(request.user)
-    context = {
-        'active_page': 'documents',
-        'page_title': folder.name if folder else ROOT_FOLDER_LABEL,
-        'header_title': ROOT_FOLDER_LABEL,
-        'folder': folder,
-        'parent_url': _browse_url(folder.parent) if folder is not None else None,
-        'breadcrumbs': build_breadcrumbs(folder),
-        'subfolders': subfolders,
-        'documents': document_cards,
-        'can_manage': can_manage,
-        # A folder is renamed and deleted from the «Действия» column of the
-        # listing it appears in, never from its own page: one place for the
-        # action, and the row it belongs to is right next to it.
-        # The root holds the two system branches and nothing else, so neither
-        # a new folder nor a file is created directly in it.
-        'can_create_here': can_manage and folder is not None,
-        'can_upload_here': can_manage and folder is not None,
-        # Shown at the root only: the generated «Вложения» branch, which has no
-        # folder row and therefore can never appear in `subfolders`.
-        'system_entry': (
-            {
-                'name': SYSTEM_AREA_LABEL,
-                'url': reverse('documents:system_root'),
-                'description': 'Файлы актов, протоколов и задач — только для чтения',
-            }
-            if folder is None and can_view_system_attachments(request.user)
-            else None
+
+def _visible_document_or_404(document_id, user, *, manager=None):
+    """A live document this user may read — or, for a manager, a trashed one."""
+    document = get_object_or_404(
+        Document.all_objects.select_related(
+            'folder', 'folder__parent', 'uploaded_by', 'owner_department', 'responsible',
+            'cancelled_by', 'deleted_by',
         ),
-        # Personal shortcuts, root page only: deeper levels already show the
-        # folder's own listing. Favourites are this user's and nobody else's.
-        'favorite_documents': build_favorite_documents(request.user) if folder is None else [],
-        'recent_documents': build_recent_documents(request.user) if folder is None else [],
-        'folder_form': FolderForm(),
-        'upload_form': DocumentUploadForm(),
+        pk=document_id,
+    )
+    if not can_view_document(document, user):
+        raise Http404('No Document matches the given query.')
+    return document
+
+
+def _explorer_context(request, *, folder=None, page_title, active_section=''):
+    """What every page of the library shares: the tree on the left and the
+    manager flag."""
+    return {
+        'active_page': 'documents',
+        'page_title': page_title,
+        'header_title': ROOT_FOLDER_LABEL,
+        'folder_tree': build_folder_tree(request.user, folder),
+        'active_section': active_section,
+        'today': timezone.localdate(),
+        'can_manage': can_manage_documents(request.user),
+        'can_view_system': can_view_system_attachments(request.user),
+        'trash_count': (
+            Document.all_objects.filter(deleted_at__isnull=False).count()
+            if can_manage_documents(request.user) else 0
+        ),
     }
-    return render(request, 'documents/browse.html', context)
+
+
+@login_required
+def browse(request, folder_id=None):
+    """The library home (no folder) or one folder's table."""
+    _require_view(request.user)
+    if folder_id is None:
+        return _library_home(request)
+
+    folder = _visible_folder_or_404(folder_id, request.user)
+    context = _explorer_context(request, folder=folder, page_title=folder.name)
+    listing = build_folder_listing(folder, request.user, request.GET)
+    can_manage = context['can_manage']
+    context.update(listing)
+    context.update({
+        'folder': folder,
+        'breadcrumbs': build_breadcrumbs(folder),
+        'parent_url': _browse_url(folder.parent) if folder.parent_id else reverse('documents:browse'),
+        'can_create_here': can_manage,
+        'can_upload_here': can_upload_document(folder, request.user),
+        'can_rename_here': can_rename_folder(folder, request.user),
+        'can_delete_here': can_delete_folder(folder, request.user),
+        'can_set_access': can_set_folder_access(folder, request.user),
+        'access_form': FolderAccessForm(initial={'roles': folder.allowed_roles}),
+        'access_labels': _role_labels(folder.allowed_roles),
+        'is_subscribed': is_subscribed(request.user, folder=folder),
+        'upload_form': DocumentUploadWithAckForm(),
+        'move_targets': build_move_targets(request.user),
+    })
+    return render(request, 'documents/folder.html', context)
+
+
+def _role_labels(roles):
+    names = dict(UserProfile.Role.choices)
+    return [names.get(role, role) for role in roles or []]
+
+
+def _library_home(request):
+    user = request.user
+    context = _explorer_context(request, page_title=ROOT_FOLDER_LABEL, active_section='home')
+    context.update({
+        'breadcrumbs': build_breadcrumbs(None),
+        'my_acknowledgements': build_my_acknowledgements(user),
+        'my_approvals': build_my_approvals(user),
+        'review_soon': build_review_soon(user),
+        'favorite_documents': build_favorite_documents(user),
+        'recent_documents': build_recent_documents(user),
+        'storage': build_storage_summary(user),
+    })
+    return render(request, 'documents/home.html', context)
 
 
 @login_required
 def search(request):
-    """One result list over corporate documents and system attachments.
-
-    The view parses nothing and matches nothing: `build_search_state()` reads
-    the two GET parameters, runs `documents/search/` once and returns the
-    chips, their counts and the narrowed list. Visibility comes from the same
-    rules the browser uses, so a hit is always something this user could have
-    reached by clicking.
-    """
-    if not can_view_documents(request.user):
-        raise PermissionDenied('Недостаточно прав для просмотра документации.')
-
-    context = {
-        'active_page': 'documents',
-        'page_title': 'Поиск по документации',
-        'header_title': ROOT_FOLDER_LABEL,
-    }
+    """One result list over corporate documents and system attachments, with
+    the words found inside the files."""
+    _require_view(request.user)
+    context = _explorer_context(request, page_title='Поиск по документации', active_section='search')
     context.update(build_search_state(request.user, request.GET))
     return render(request, 'documents/search.html', context)
+
+
+@login_required
+def trash(request):
+    """«Корзина»: what was deleted, when it goes for good, and the way back."""
+    _require_manage(request.user)
+    context = _explorer_context(request, page_title='Корзина', active_section='trash')
+    context.update({
+        'breadcrumbs': [
+            {'name': ROOT_FOLDER_LABEL, 'url': reverse('documents:browse'), 'is_current': False},
+            {'name': 'Корзина', 'url': reverse('documents:trash'), 'is_current': True},
+        ],
+        'rows': build_trash_rows(),
+        'retention_days': TRASH_RETENTION_DAYS,
+    })
+    return render(request, 'documents/trash.html', context)
+
+
+# ---------------------------------------------------------------------------
+# Folders
+# ---------------------------------------------------------------------------
 
 
 @login_required
@@ -229,12 +328,12 @@ def folder_rename(request, folder_id):
         messages.error(request, str(exc))
     else:
         messages.success(request, 'Папка переименована.')
-    return redirect(_browse_url(folder))
+    return redirect(_safe_next(request, _browse_url(folder)))
 
 
 @login_required
 def folder_delete(request, folder_id):
-    """Delete a folder with its subfolders and files, then open its parent."""
+    """Delete an empty folder, then open its parent."""
     folder = get_object_or_404(DocumentFolder.objects.select_related('parent'), pk=folder_id)
     _require_manage(request.user)
     if request.method != 'POST':
@@ -250,20 +349,69 @@ def folder_delete(request, folder_id):
 
 
 @login_required
+def folder_access(request, folder_id):
+    """Close a folder to all but some roles, or open it again."""
+    folder = get_object_or_404(DocumentFolder.objects.select_related('parent'), pk=folder_id)
+    _require_manage(request.user)
+    if request.method != 'POST':
+        return redirect(_browse_url(folder))
+    form = FolderAccessForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Выберите роли из списка.')
+        return redirect(_browse_url(folder))
+    try:
+        set_folder_access(folder, form.cleaned_data['roles'], request.user)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            'Папка закрыта: доступ только для выбранных ролей.' if folder.allowed_roles
+            else 'Папка открыта для всех сотрудников.',
+        )
+    return redirect(_browse_url(folder))
+
+
+@login_required
+def folder_subscribe(request, folder_id):
+    folder = _visible_folder_or_404(folder_id, request.user)
+    if request.method != 'POST':
+        return redirect(_browse_url(folder))
+    try:
+        subscribed = toggle_subscription(request.user, folder=folder)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            'Вы подписаны на папку: придёт уведомление о новых документах и версиях.' if subscribed
+            else 'Подписка на папку отменена.',
+        )
+    return redirect(_browse_url(folder))
+
+
+# ---------------------------------------------------------------------------
+# Uploading and the bulk actions of a folder table
+# ---------------------------------------------------------------------------
+
+
+@login_required
 def document_upload(request, folder_id):
     folder = get_object_or_404(DocumentFolder, pk=folder_id)
     _require_manage(request.user)
     if request.method != 'POST':
         return redirect(_browse_url(folder))
 
-    form = DocumentUploadForm(request.POST, request.FILES)
+    form = DocumentUploadWithAckForm(request.POST, request.FILES)
     if not form.is_valid():
         first_error = next(iter(form.errors.values()))[0]
         messages.error(request, first_error)
         return redirect(_browse_url(folder))
     try:
         created, errors = upload_documents(
-            folder, form.cleaned_data['file'], request.user
+            folder, form.cleaned_data['file'], request.user,
+            ack_roles=form.cleaned_data['ack_roles'],
+            ack_department_ids=form.cleaned_data['ack_departments'],
         )
     except DocumentError as exc:
         messages.error(request, str(exc))
@@ -280,9 +428,99 @@ def document_upload(request, folder_id):
     return redirect(_browse_url(folder))
 
 
+BULK_ACTIONS = ('move', 'trash', 'zip')
+
+
+@login_required
+def documents_bulk(request):
+    """The folder table's selection: move, send to «Корзина», or download as ZIP.
+
+    ZIP is reading and open to everybody who may read the files; move and
+    trash are management. The selection is re-read from the database, never
+    trusted: an id this user may not read is dropped, not reported.
+    """
+    _require_view(request.user)
+    fallback = reverse('documents:browse')
+    if request.method != 'POST':
+        return redirect(fallback)
+    action = request.POST.get('action')
+    if action not in BULK_ACTIONS:
+        return redirect(_safe_next(request, fallback))
+    if action != 'zip':
+        _require_manage(request.user)
+    ids = [int(value) for value in request.POST.getlist('ids') if value.isdigit()]
+    documents = [
+        document
+        for document in Document.objects.filter(pk__in=ids).select_related('folder').order_by('name', 'pk')
+        if can_view_document(document, request.user)
+    ]
+    back = _safe_next(request, fallback)
+    if not documents:
+        messages.error(request, 'Не выбрано ни одного документа.')
+        return redirect(back)
+
+    if action == 'zip':
+        return _zip_response(request, documents)
+    try:
+        if action == 'move':
+            target_id = request.POST.get('target') or ''
+            target = DocumentFolder.objects.filter(pk=int(target_id)).first() if target_id.isdigit() else None
+            if target is None:
+                raise DocumentError('Выберите папку, в которую перенести документы.')
+            moved = move_documents(documents, target, request.user)
+            messages.success(request, f'Перенесено в «{target.name}»: {moved}.')
+        else:
+            trashed = trash_documents(documents, request.user)
+            messages.success(request, f'Отправлено в корзину: {trashed}. Восстановить можно в течение {TRASH_RETENTION_DAYS} дней.')
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    return redirect(back)
+
+
+def _zip_response(request, documents):
+    """The current version of every selected document, in one archive.
+
+    Built in a temporary file rather than in memory: twenty scanned PDFs are
+    easily a few hundred megabytes. Two documents whose files share a name get
+    «(2)» rather than overwriting each other inside the archive.
+    """
+    archive_file = tempfile.TemporaryFile()
+    used = set()
+    with zipfile.ZipFile(archive_file, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        for document in documents:
+            version = document.current_version
+            if version is None or not version.file:
+                continue
+            name = version.original_name or f'{document.name}.{version.extension}'
+            stem, dot, extension = name.rpartition('.')
+            candidate, counter = name, 2
+            while candidate.lower() in used:
+                candidate = f'{stem or name} ({counter}){dot}{extension if stem else ""}'
+                counter += 1
+            used.add(candidate.lower())
+            try:
+                with version.file.open('rb') as handle:
+                    archive.writestr(candidate, handle.read())
+            except OSError:
+                continue
+    archive_file.seek(0)
+    log_event(
+        logger, 'INFO', 'documents.zip_downloaded',
+        document_count=len(documents), user_id=getattr(request.user, 'pk', None), outcome='ok',
+    )
+    stamp = timezone.localdate().strftime('%Y-%m-%d')
+    return FileResponse(archive_file, as_attachment=True, filename=f'Документы_{stamp}.zip',
+                        content_type='application/zip')
+
+
+# ---------------------------------------------------------------------------
+# One document
+# ---------------------------------------------------------------------------
+
+
 @login_required
 def document_download(request, document_id):
-    """Stream one corporate document after re-checking who may read the library.
+    """Stream the current version after re-checking who may read it.
 
     A refusal and a missing file are the same 404 to the client; the
     difference goes to the log, as identifiers only.
@@ -308,12 +546,7 @@ def document_download(request, document_id):
 
 
 def _stream_version(request, version, operation):
-    """Open one version's stored file and hand it to the browser.
-
-    Shared by the document download — which resolves the current version — and
-    by the per-version download, so both answer identically for a row whose
-    file has gone missing.
-    """
+    """Open one version's stored file and hand it to the browser."""
     if not version.file:
         raise Http404('Document file is missing.')
     try:
@@ -352,53 +585,41 @@ def _stream_version(request, version, operation):
     )
 
 
-DOCUMENT_TABS = ('document', 'history')
-
-
 @login_required
 def document_detail(request, document_id):
-    """One document: its header, the file itself, and — on its own tab — history.
+    """One document: the file on the left, everything about it on the right.
 
-    Two tabs, the same `?tab=` pattern acts and protocols use: «Документ» is
-    the information block plus the viewer, «История» is every version and every
-    recorded event. The version table is deliberately absent from the first
-    tab — a reader wants the file, not the audit trail.
-
-    `?version=` chooses which revision is on screen. It is a plain query
-    parameter and not session state, so the address bar always says which
-    revision is being read and a link to it can be pasted to somebody else.
+    `?version=` chooses which revision is on screen — a query parameter, never
+    session state, so a link to an old revision can be pasted to somebody. An
+    unknown or foreign value falls back to the current version.
     """
-    document = get_object_or_404(
-        Document.objects.select_related('folder', 'folder__parent', 'uploaded_by'),
-        pk=document_id,
-    )
-    if not can_view_documents(request.user):
-        raise PermissionDenied('Недостаточно прав для просмотра документации.')
-
-    requested_tab = request.GET.get('tab')
-    detail_tab = requested_tab if requested_tab in DOCUMENT_TABS else 'document'
+    _require_view(request.user)
+    document = _visible_document_or_404(document_id, request.user)
+    user = request.user
 
     versions = list(document.versions.select_related('uploaded_by').order_by('-number', '-pk'))
     current = next((version for version in versions if version.is_current), None)
-    # An unknown or foreign `?version=` falls back to the current one rather
-    # than 404ing: the parameter selects a view, it does not address a file.
     selected = current
     requested_version = request.GET.get('version')
     if requested_version and requested_version.isdigit():
         selected = next(
             (version for version in versions if version.pk == int(requested_version)), current
         )
+    pending = next(
+        (version for version in versions if version.approval_status == DocumentVersion.Approval.PENDING), None,
+    )
+    ack_task = open_acknowledgement_task(document, user)
+    can_edit = can_edit_document(document, user)
+    ack_rows = build_ack_rows(current)
 
-    context = {
-        'active_page': 'documents',
-        'page_title': document.name,
-        'header_title': ROOT_FOLDER_LABEL,
-        'detail_tab': detail_tab,
+    context = _explorer_context(request, folder=document.folder, page_title=document.title)
+    context.update({
         'document': document,
         'folder': document.folder,
         'parent_url': _browse_url(document.folder),
         'breadcrumbs': build_document_breadcrumbs(document),
         'icon': file_icon(current.original_name if current else document.name),
+        'status_variant': STATUS_VARIANTS.get(document.status, ''),
         'current_version': current,
         'selected_version': selected,
         'version_rows': build_version_rows(document, versions, selected),
@@ -406,30 +627,39 @@ def document_detail(request, document_id):
         'preview': describe_preview(selected),
         'preview_url': (
             reverse('documents:document_version_preview', args=[document.pk, selected.pk])
-            if selected is not None
-            else ''
+            if selected is not None else ''
         ),
-        'can_manage': can_add_document_version(document, request.user),
-        'can_favorite': can_favorite_document(document, request.user),
-        'is_favorite': (
-            document.favorites.filter(user=request.user).exists()
-            if request.user.is_authenticated
-            else False
-        ),
-        'can_restore': can_restore_document_version(document, request.user),
-        'can_delete': can_delete_document(document, request.user),
-        'version_form': DocumentVersionForm(),
-    }
-    if detail_tab == 'history':
-        context['history'] = (
-            list(document.history.select_related('user').order_by('-created_at', '-pk')[:50])
-            if can_view_document_history(document, request.user)
-            else []
-        )
+        'pending_version': pending,
+        'approval_rows': build_approval_rows(pending or selected),
+        'can_decide': pending is not None and can_decide_version(pending, user),
+        'ack_task': ack_task,
+        'ack_rows': ack_rows,
+        'ack_done': sum(1 for row in ack_rows if row['variant'] == 'completed'),
+        'ack_targets': ack_target_labels(current),
+        'link_rows': build_link_rows(document, user),
+        'history': list(document.history.select_related('user').order_by('-created_at', '-pk')[:30]),
+        'can_edit': can_edit,
+        'can_add_version': can_add_document_version(document, user) and pending is None,
+        'can_favorite': can_favorite_document(document, user),
+        'is_favorite': document.favorites.filter(user=user).exists(),
+        'is_subscribed': is_subscribed(user, document=document),
+        'can_restore': can_restore_document_version(document, user),
+        'can_delete': can_delete_document(document, user) and not document.is_trashed,
+        'can_request_ack': can_request_acknowledgement(document, user) and current is not None,
+        'is_trashed': document.is_trashed,
+        'card_form': DocumentCardForm(document=document) if can_edit else None,
+        # Two forms carry the same «Ознакомить» fields; their own id prefixes
+        # keep every checkbox's label pointing at the right box.
+        'version_form': DocumentVersionForm(auto_id='version_%s'),
+        'ack_form': AcknowledgementForm(auto_id='ack_%s'),
+        'move_targets': build_move_targets(user) if can_edit else [],
+        'absolute_url': request.build_absolute_uri(_detail_url(document)),
+    })
     return render(request, 'documents/document.html', context)
 
 
 @login_required
+@xframe_options_sameorigin
 def document_version_preview(request, document_id, version_id):
     """Serve one version inline, for the viewer on the document page.
 
@@ -441,11 +671,15 @@ def document_version_preview(request, document_id, version_id):
       that value came from the browser and may claim anything;
     * an extension with no entry is a 404, so nothing outside the safe set is
       ever sent inline;
-    * `nosniff` and a sandbox CSP travel with the response, so a crafted file
-      cannot be re-interpreted as script running on this origin.
+    * `nosniff` and a CSP travel with the response, so a crafted file cannot
+      be re-interpreted as script running on this origin.
+
+    `X-Frame-Options` is relaxed to `SAMEORIGIN` for this view alone — the
+    project default `DENY` is exactly what kept the viewer empty — and
+    `frame-ancestors 'self'` says the same in CSP terms.
     """
     version = get_object_or_404(
-        DocumentVersion.objects.select_related('document'),
+        DocumentVersion.objects.select_related('document', 'document__folder'),
         pk=version_id,
         document_id=document_id,
     )
@@ -466,25 +700,18 @@ def document_version_preview(request, document_id, version_id):
         content_type=content_type,
     )
     response['X-Content-Type-Options'] = 'nosniff'
-    # The strictest sandbox the file still renders under: no scripts, no forms,
-    # no navigation, no same-origin privileges.
-    response['Content-Security-Policy'] = 'sandbox'
+    response['Content-Security-Policy'] = preview_csp(version.extension)
     return response
 
 
 @login_required
 def favorite_toggle(request, document_id):
-    """Star or unstar one document, for the user who asked.
-
-    Personal state: the row is keyed on `request.user`, so nothing here can
-    change what anybody else sees. Only corporate documents have this — a
-    system attachment has no `Document` row to point at.
-    """
+    """Star or unstar one document, for the user who asked."""
     document = get_object_or_404(Document.objects.select_related('folder'), pk=document_id)
     if not can_favorite_document(document, request.user):
         raise PermissionDenied('Недостаточно прав для работы с избранным.')
 
-    fallback = reverse('documents:document_detail', args=[document.pk])
+    fallback = _detail_url(document)
     if request.method != 'POST':
         return redirect(fallback)
     try:
@@ -497,19 +724,11 @@ def favorite_toggle(request, document_id):
         request,
         'Документ добавлен в избранное.' if is_favorite else 'Документ убран из избранного.',
     )
-    # Back to the page the star was clicked on, when it is one of ours: a
-    # favourite is toggled from the folder listing and from the root just as
-    # often as from the document page.
     return redirect(_safe_next(request, fallback))
 
 
 def _safe_next(request, fallback):
-    """The posted `next`, but only when it is a path inside this site.
-
-    An absolute or scheme-relative value is discarded: a redirect target that
-    came from a form is user input, and following it off-site would turn this
-    endpoint into an open redirect.
-    """
+    """The posted `next`, but only when it is a path inside this site."""
     target = (request.POST.get('next') or '').strip()
     if target.startswith('/') and not target.startswith('//'):
         return target
@@ -517,11 +736,57 @@ def _safe_next(request, fallback):
 
 
 @login_required
+def document_subscribe(request, document_id):
+    document = _visible_document_or_404(document_id, request.user)
+    if request.method != 'POST':
+        return redirect(_detail_url(document))
+    try:
+        subscribed = toggle_subscription(request.user, document=document)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            'Вы подписаны: придёт уведомление, когда выйдет новая версия.' if subscribed
+            else 'Подписка отменена.',
+        )
+    return redirect(_detail_url(document))
+
+
+@login_required
+def document_card(request, document_id):
+    """Save the document card: name, designation, status, dates, owner."""
+    document = _visible_document_or_404(document_id, request.user)
+    _require_manage(request.user)
+    if request.method != 'POST':
+        return redirect(_detail_url(document))
+    form = DocumentCardForm(request.POST, document=document)
+    if not form.is_valid():
+        for errors in form.errors.values():
+            messages.error(request, errors[0])
+        return redirect(_detail_url(document))
+    data = form.cleaned_data
+    try:
+        update_document_card(
+            document, request.user,
+            status=data['status'], cancellation_reason=data['cancellation_reason'],
+            name=data['name'], designation=data['designation'],
+            effective_date=data['effective_date'], review_date=data['review_date'],
+            owner_department=data['owner_department'], responsible=data['responsible'],
+        )
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Карточка документа сохранена.')
+    return redirect(_detail_url(document))
+
+
+@login_required
 def document_version_add(request, document_id):
-    """Upload a new current version. Never overwrites the previous one."""
+    """Upload a new version — current at once, or on approval."""
     document = get_object_or_404(Document.objects.select_related('folder'), pk=document_id)
     _require_manage(request.user)
-    detail_url = reverse('documents:document_detail', args=[document.pk])
+    detail_url = _detail_url(document)
     if request.method != 'POST':
         return redirect(detail_url)
 
@@ -530,27 +795,31 @@ def document_version_add(request, document_id):
         first_error = next(iter(form.errors.values()))[0]
         messages.error(request, first_error)
         return redirect(detail_url)
+    data = form.cleaned_data
     try:
         version = add_document_version(
             document,
-            form.cleaned_data['file'],
+            data['file'],
             request.user,
-            comment=form.cleaned_data.get('comment', ''),
+            comment=data['comment'],
+            revision_label=data['revision_label'],
+            approver_ids=data['approvers'],
+            ack_roles=data['ack_roles'],
+            ack_department_ids=data['ack_departments'],
         )
     except DocumentError as exc:
         messages.error(request, str(exc))
         return redirect(detail_url)
-    messages.success(request, f'Загружена версия {version.label}.')
+    if version.approval_status == DocumentVersion.Approval.PENDING:
+        messages.success(request, f'Версия {version.label} загружена и отправлена на согласование.')
+    else:
+        messages.success(request, f'Загружена версия {version.label}.')
     return redirect(detail_url)
 
 
 @login_required
 def document_version_download(request, document_id, version_id):
-    """Download any version of a document — the current one or an earlier one.
-
-    Scoped to the document in the path, so a version id cannot be used to
-    reach a file under a document the URL does not name.
-    """
+    """Download any version of a document — the current one or an earlier one."""
     version = get_object_or_404(
         DocumentVersion.objects.select_related('document', 'document__folder'),
         pk=version_id,
@@ -591,8 +860,96 @@ def document_version_restore(request, document_id, version_id):
     return redirect(detail_url)
 
 
+def _version_for_decision(request, document_id, version_id):
+    version = get_object_or_404(
+        DocumentVersion.objects.select_related('document', 'document__folder'),
+        pk=version_id, document_id=document_id,
+    )
+    if not can_view_document(version.document, request.user):
+        raise Http404('No Document matches the given query.')
+    return version
+
+
+@login_required
+def document_version_approve(request, document_id, version_id):
+    version = _version_for_decision(request, document_id, version_id)
+    detail_url = reverse('documents:document_detail', args=[document_id])
+    if request.method != 'POST':
+        return redirect(detail_url)
+    try:
+        finished = approve_version(version, request.user)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            f'Версия {version.label} согласована всеми и стала текущей.' if finished
+            else 'Ваше согласование учтено.',
+        )
+    return redirect(detail_url)
+
+
+@login_required
+def document_version_return(request, document_id, version_id):
+    version = _version_for_decision(request, document_id, version_id)
+    detail_url = reverse('documents:document_detail', args=[document_id])
+    if request.method != 'POST':
+        return redirect(detail_url)
+    try:
+        return_version(version, request.user, request.POST.get('comment', ''))
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f'Версия {version.label} возвращена загрузившему.')
+    return redirect(detail_url)
+
+
+@login_required
+def document_acknowledge(request, document_id):
+    """«Ознакомлен»."""
+    document = _visible_document_or_404(document_id, request.user)
+    if request.method != 'POST':
+        return redirect(_detail_url(document))
+    try:
+        acknowledge_document(document, request.user)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Ознакомление отмечено.')
+    return redirect(_detail_url(document))
+
+
+@login_required
+def document_ack_request(request, document_id):
+    """«Разослать на ознакомление» for the version in force."""
+    document = _visible_document_or_404(document_id, request.user)
+    _require_manage(request.user)
+    if request.method != 'POST':
+        return redirect(_detail_url(document))
+    form = AcknowledgementForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Выберите роли или подразделения из списка.')
+        return redirect(_detail_url(document))
+    try:
+        count = request_acknowledgement(
+            document, request.user,
+            roles=form.cleaned_data['ack_roles'], department_ids=form.cleaned_data['ack_departments'],
+        )
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            f'Разослано на ознакомление: {count} чел.' if count
+            else 'Новых получателей нет — все выбранные уже получили запрос.',
+        )
+    return redirect(_detail_url(document))
+
+
 @login_required
 def document_delete(request, document_id):
+    """«Удалить» sends the document to «Корзина» — nothing is lost for
+    `TRASH_RETENTION_DAYS`."""
     document = get_object_or_404(Document.objects.select_related('folder'), pk=document_id)
     _require_manage(request.user)
     folder = document.folder
@@ -602,12 +959,99 @@ def document_delete(request, document_id):
     if not can_delete_document(document, request.user):
         raise PermissionDenied('Недостаточно прав для удаления документа.')
     try:
-        delete_document(document, request.user)
+        trash_document(document, request.user)
     except DocumentError as exc:
         messages.error(request, str(exc))
     else:
-        messages.success(request, 'Документ удалён.')
-    return redirect(_browse_url(folder))
+        messages.success(
+            request,
+            f'Документ отправлен в корзину. Восстановить его можно в течение {TRASH_RETENTION_DAYS} дней.',
+        )
+    return redirect(_safe_next(request, _browse_url(folder)))
+
+
+@login_required
+def document_restore(request, document_id):
+    document = get_object_or_404(Document.all_objects.select_related('folder'), pk=document_id)
+    _require_manage(request.user)
+    if request.method != 'POST':
+        return redirect(reverse('documents:trash'))
+    try:
+        restore_document(document, request.user)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f'Документ «{document.title}» восстановлен в папку «{document.folder.name}».')
+    return redirect(_safe_next(request, reverse('documents:trash')))
+
+
+@login_required
+def document_purge(request, document_id):
+    document = get_object_or_404(Document.all_objects.select_related('folder'), pk=document_id)
+    _require_manage(request.user)
+    if request.method != 'POST':
+        return redirect(reverse('documents:trash'))
+    try:
+        purge_document(document, request.user)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Документ удалён навсегда.')
+    return redirect(reverse('documents:trash'))
+
+
+# ---------------------------------------------------------------------------
+# «Где используется»: citing a document from an act or a protocol
+# ---------------------------------------------------------------------------
+
+
+@login_required
+def link_create(request):
+    """Posted from an act or a protocol page: «Добавить документ»."""
+    _require_view(request.user)
+    fallback = reverse('documents:browse')
+    if request.method != 'POST':
+        return redirect(fallback)
+    back = _safe_next(request, fallback)
+    document_id = request.POST.get('document') or ''
+    document = Document.objects.select_related('folder').filter(pk=int(document_id)).first() if document_id.isdigit() else None
+    if document is None:
+        messages.error(request, 'Выберите документ.')
+        return redirect(back)
+    act = protocol = None
+    act_id, protocol_id = request.POST.get('act') or '', request.POST.get('protocol') or ''
+    if act_id.isdigit():
+        from acts.models import Act
+
+        act = get_object_or_404(Act, pk=int(act_id))
+    elif protocol_id.isdigit():
+        from protocols.models import Protocol
+
+        protocol = get_object_or_404(Protocol.objects.select_related('protocol_type'), pk=int(protocol_id))
+    try:
+        link_document(document, request.user, act=act, protocol=protocol)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f'Документ «{document.title}» добавлен.')
+    return redirect(back)
+
+
+@login_required
+def link_delete(request, link_id):
+    link = get_object_or_404(
+        DocumentLink.objects.select_related('document', 'act', 'protocol__protocol_type'), pk=link_id,
+    )
+    fallback = reverse('documents:browse')
+    if request.method != 'POST':
+        return redirect(fallback)
+    try:
+        unlink_document(link, request.user)
+    except DocumentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, 'Связь с документом убрана.')
+    return redirect(_safe_next(request, fallback))
 
 
 # ---------------------------------------------------------------------------
@@ -668,19 +1112,54 @@ def _system_context(**extra):
     return context
 
 
+def _parse_date(raw):
+    try:
+        return date.fromisoformat((raw or '').strip())
+    except ValueError:
+        return None
+
+
 @login_required
 def system_root(request):
-    """«Вложения»: one generated folder per integrated module."""
+    """«Вложения»: every act, protocol and task file this user may read, in
+    one table, filtered by раздел, period, type and a term."""
     _require_system_view(request.user)
-    context = _system_context(
+    params = request.GET
+    source_slug = params.get('source') or ''
+    file_type = params.get('type') or ''
+    if file_type not in {key for key, _label, _ext in TYPE_FILTERS}:
+        file_type = ''
+    query = (params.get('q') or '').strip()
+    date_from, date_to = _parse_date(params.get('date_from')), _parse_date(params.get('date_to'))
+    sources = [SOURCES[source_slug]] if source_slug in SOURCES else list(SOURCES.values())
+    references = []
+    for source in sources:
+        references.extend(source.listing(request.user, query=query, date_from=date_from, date_to=date_to))
+    if file_type:
+        references = [
+            reference for reference in references
+            if type_key(reference.name.rsplit('.', 1)[1] if '.' in reference.name else '') == file_type
+        ]
+    references.sort(key=lambda item: (item.created_at is not None, item.created_at), reverse=True)
+    context = _explorer_context(request, page_title=SYSTEM_AREA_LABEL, active_section='system')
+    context.update(_system_context(
         page_title=SYSTEM_AREA_LABEL,
         breadcrumbs=_system_breadcrumbs(),
         parent_url=reverse('documents:browse'),
-        source_folders=[
-            {'name': source.label, 'url': reverse('documents:system_source', args=[source.slug])}
-            for source in SOURCES.values()
-        ],
-    )
+        references=references[:500],
+        is_truncated=len(references) > 500,
+        source_choices=[(slug, source.label) for slug, source in SOURCES.items()],
+        type_choices=[(key, label) for key, label, _ext in TYPE_FILTERS],
+        filters={
+            'source': source_slug if source_slug in SOURCES else '',
+            'type': file_type,
+            'q': query,
+            'date_from': date_from.isoformat() if date_from else '',
+            'date_to': date_to.isoformat() if date_to else '',
+        },
+        is_filtered=bool(source_slug in SOURCES or file_type or query or date_from or date_to),
+        is_flat=True,
+    ))
     return render(request, 'documents/system.html', context)
 
 
@@ -691,12 +1170,13 @@ def system_source(request, source):
     adapter = get_source(source)
     if adapter is None:
         raise Http404('Unknown attachment source.')
-    context = _system_context(
+    context = _explorer_context(request, page_title=adapter.label, active_section='system')
+    context.update(_system_context(
         page_title=adapter.label,
         breadcrumbs=_system_breadcrumbs(adapter),
         parent_url=reverse('documents:system_root'),
         groups=adapter.groups(request.user),
-    )
+    ))
     return render(request, 'documents/system.html', context)
 
 
@@ -714,14 +1194,15 @@ def system_record(request, source, object_id):
         raise Http404('No source record matches the given query.')
 
     label = adapter.record_label(record)
-    context = _system_context(
+    context = _explorer_context(request, page_title=label, active_section='system')
+    context.update(_system_context(
         page_title=label,
         breadcrumbs=_system_breadcrumbs(adapter, label, record.pk),
         parent_url=reverse('documents:system_source', args=[adapter.slug]),
         record_url=adapter.record_url(record),
         record_label=label,
         references=adapter.references(request.user, record),
-    )
+    ))
     return render(request, 'documents/system.html', context)
 
 
@@ -786,6 +1267,33 @@ def system_download(request, source, attachment_id):
         filename=attachment.original_name,
         content_type=attachment.content_type or 'application/octet-stream',
     )
+
+
+@login_required
+@xframe_options_sameorigin
+def system_preview(request, source, attachment_id):
+    """An image attachment shown inline — the thumbnail of the «Вложения»
+    table. The same two checks as the download, and images only."""
+    _require_system_view(request.user)
+    adapter = get_source(source)
+    if adapter is None:
+        raise Http404('Unknown attachment source.')
+    attachment = adapter.resolve_attachment(request.user, attachment_id)
+    if attachment is None or not attachment.file:
+        raise Http404('No attachment matches the given query.')
+    extension = attachment.original_name.rsplit('.', 1)[-1].lower() if '.' in attachment.original_name else ''
+    content_type = inline_content_type(extension)
+    if content_type is None or not content_type.startswith('image/'):
+        raise Http404('Preview is not available for this file.')
+    try:
+        handle = attachment.file.open('rb')
+    except OSError as exc:
+        raise Http404('Attachment file is missing.') from exc
+    response = FileResponse(handle, as_attachment=False, filename=attachment.original_name,
+                            content_type=content_type)
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Content-Security-Policy'] = preview_csp(extension)
+    return response
 
 
 @login_required

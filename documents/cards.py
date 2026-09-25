@@ -3,7 +3,7 @@
 A folder listing, a search result, the favourites block and «Недавние
 документы» all show the same thing — a file, where it lives, how fresh it is
 and what can be done with it — so they share one dataclass and one template
-(`templates/documents/includes/document_card.html`) instead of four near-copies
+(`templates/documents/includes/doc_list.html`) instead of four near-copies
 that drift.
 
 `DocumentCard` is a frozen value object built per request. It is not a table,
@@ -109,8 +109,16 @@ class DocumentCard:
     is_favorite: bool = False
     favorite_url: str = ''
 
+    # The document card's own facts, for a corporate document only.
+    designation: str = ''
+    status_label: str = ''
+    status_code: str = ''
+    # A fragment of the file's text around the match, already escaped and with
+    # the matched words in `<mark>` — set by the search only.
+    snippet: str = ''
 
-def corporate_card(document, path, is_favorite=False):
+
+def corporate_card(document, path, is_favorite=False, snippet=''):
     """A `Document` and its current version, as a card.
 
     `path` is passed in rather than derived: a folder listing already knows
@@ -127,15 +135,15 @@ def corporate_card(document, path, is_favorite=False):
         document_type=DOCUMENT_TYPE_LABELS[KIND_CORPORATE],
         source_label='Корпоративные документы',
         icon=file_icon(version.original_name if version is not None else document.name),
-        title=document.name,
+        title=document.title,
         path=path,
         size=version.file_size if version is not None else 0,
         # When the *current version* was uploaded, not when the document row
         # was created: a card says how fresh the file is.
         created_at=version.uploaded_at if version is not None else document.uploaded_at,
-        version_label=version.label if version is not None else '',
+        version_label=version.full_label if version is not None else '',
         open_url=reverse('documents:document_detail', args=[document.pk]),
-        open_label=document.name,
+        open_label=document.title,
         open_action_label='Открыть документ',
         download_url=(
             reverse('documents:document_download', args=[document.pk])
@@ -146,6 +154,10 @@ def corporate_card(document, path, is_favorite=False):
         is_readonly=False,
         is_favorite=is_favorite,
         favorite_url=reverse('documents:favorite_toggle', args=[document.pk]),
+        designation=document.designation,
+        status_label=document.get_status_display(),
+        status_code=document.status,
+        snippet=snippet,
     )
 
 

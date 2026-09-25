@@ -20,7 +20,7 @@ from django.urls import reverse
 from accounts.models import UserProfile
 
 from .models import Document, DocumentHistoryEvent, DocumentVersion
-from .services import delete_document, get_corporate_root, upload_document
+from .services import get_corporate_root, purge_document, trash_document, upload_document
 
 
 MEDIA_OVERRIDE = tempfile.mkdtemp(prefix='documents-version-tests-')
@@ -123,7 +123,7 @@ class DocumentVersionTests(TestCase):
         self.client.force_login(self.admin)
         self.client.post(
             reverse('documents:document_version_add', args=[self.document.pk]),
-            {'file': _pdf('Инструкция-2.pdf', b'%PDF-1.4 v2')},
+            {'file': _pdf('Инструкция-2.pdf', b'%PDF-1.4 v2'), 'comment': 'Новый раздел 5.'},
         )
         events = list(
             DocumentHistoryEvent.objects.filter(document=self.document).order_by('pk')
@@ -138,15 +138,17 @@ class DocumentVersionTests(TestCase):
         )
         self.assertEqual([event.version_number for event in events], [None, 1, 2])
         self.assertEqual({event.user for event in events}, {self.admin})
-        # And the «История» tab shows it — the main tab deliberately does not.
-        history = self.client.get(
-            reverse('documents:document_detail', args=[self.document.pk]), {'tab': 'history'}
+        # The side panel's «История» shows it, with what changed.
+        page = self.client.get(reverse('documents:document_detail', args=[self.document.pk]))
+        self.assertContains(page, 'Загружена версия v2: Новый раздел 5.')
+
+    def test_a_new_version_needs_to_say_what_changed(self):
+        self.client.force_login(self.admin)
+        self.client.post(
+            reverse('documents:document_version_add', args=[self.document.pk]),
+            {'file': _pdf('Инструкция-2.pdf', b'%PDF-1.4 v2'), 'comment': '   '},
         )
-        self.assertContains(history, 'Загружена версия')
-        document_tab = self.client.get(
-            reverse('documents:document_detail', args=[self.document.pk])
-        )
-        self.assertNotContains(document_tab, 'Файл и комментарий')
+        self.assertEqual(self.document.versions.count(), 1)
 
 
 @override_settings(MEDIA_ROOT=MEDIA_OVERRIDE)
@@ -172,12 +174,16 @@ class DocumentStorageConsistencyTests(TestCase):
         self.assertEqual(self._stored_files(), before)
         self.assertFalse(Document.objects.filter(name='Сбой.pdf').exists())
 
-    def test_deleting_a_document_removes_its_file_only_after_commit(self):
+    def test_purging_a_document_removes_its_file_only_after_commit(self):
         document = upload_document(self.folder, _pdf('Удаляемый.pdf'), self.admin)
         stored = document.current_version.file.path
+        trash_document(document, self.admin)
+        # Trashing keeps the file: it is recoverable for the retention period.
+        self.assertTrue(os.path.exists(stored))
+        document.refresh_from_db()
 
         with self.captureOnCommitCallbacks(execute=False) as callbacks:
-            delete_document(document, self.admin)
+            purge_document(document, self.admin)
 
         self.assertTrue(os.path.exists(stored), 'the file outlives the transaction')
         for callback in callbacks:

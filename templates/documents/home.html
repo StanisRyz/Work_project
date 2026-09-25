@@ -1,0 +1,95 @@
+{% extends 'documents/layout.html' %}
+{% load people %}
+
+{% block doc_main %}
+{% comment %}
+The library home: what is waiting for this person first, then their shortcuts.
+Every block is this user's own — favourites, their acknowledgements and
+approvals, the reviews they answer for — and a block with nothing in it is not
+drawn at all.
+{% endcomment %}
+<header class="doc-head">
+    <div class="doc-head__titles">
+        <h1 class="doc-head__title">Документация</h1>
+        {% if storage %}
+        <p class="doc-head__sub">{{ storage.documents }} док. · {{ storage.versions }} верс. · {{ storage.bytes|filesizeformat }}{% if storage.trash %} · в корзине {{ storage.trash }}{% endif %}</p>
+        {% endif %}
+    </div>
+</header>
+
+<div class="doc-main__body doc-home">
+    {% if my_approvals %}
+    <section class="doc-block doc-block--accent" aria-labelledby="doc-approvals">
+        <h2 class="doc-block__title" id="doc-approvals">Ждут моего согласования <span class="doc-block__count">{{ my_approvals|length }}</span></h2>
+        <ul class="doc-list">
+            {% for row in my_approvals %}
+            <li class="doc-list__row">
+                <span class="doc-list__icon" aria-hidden="true">✍️</span>
+                <div class="doc-list__main">
+                    <a class="doc-list__title user-text" href="{{ row.url }}">{{ row.document.title }}</a>
+                    <span class="doc-list__path">Версия {{ row.version.full_label }}{% if row.version.uploaded_by %} · загрузил {{ row.version.uploaded_by|person_name }}{% endif %}</span>
+                </div>
+                {% if row.due_date %}<span class="doc-list__meta">до {{ row.due_date|date:'d.m.Y' }}</span>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    {% if my_acknowledgements %}
+    <section class="doc-block doc-block--accent" aria-labelledby="doc-acks">
+        <h2 class="doc-block__title" id="doc-acks">Ждут моего ознакомления <span class="doc-block__count">{{ my_acknowledgements|length }}</span></h2>
+        <ul class="doc-list">
+            {% for row in my_acknowledgements %}
+            <li class="doc-list__row">
+                <span class="doc-list__icon" aria-hidden="true">👁</span>
+                <div class="doc-list__main">
+                    <a class="doc-list__title user-text" href="{{ row.url }}">{{ row.document.title }}</a>
+                    <span class="doc-list__path">Версия {{ row.version.full_label }}</span>
+                </div>
+                <span class="doc-list__meta">до {{ row.due_date|date:'d.m.Y' }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    {% if review_soon %}
+    <section class="doc-block" aria-labelledby="doc-review">
+        <h2 class="doc-block__title" id="doc-review">Скоро пересмотр <span class="doc-block__count">{{ review_soon|length }}</span></h2>
+        <ul class="doc-list">
+            {% for row in review_soon %}
+            <li class="doc-list__row">
+                <span class="doc-list__icon" aria-hidden="true">⏰</span>
+                <div class="doc-list__main">
+                    <a class="doc-list__title user-text" href="{{ row.url }}">{{ row.document.title }}</a>
+                    {% if row.document.responsible %}<span class="doc-list__path">Ответственный: {{ row.document.responsible|person_name }}</span>{% endif %}
+                </div>
+                <span class="doc-list__meta doc-due doc-due--{% if row.document.review_date < today %}overdue{% else %}soon{% endif %}">{{ row.document.review_date|date:'d.m.Y' }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    <div class="doc-home__columns">
+        <section class="doc-block" aria-labelledby="doc-favorites">
+            <h2 class="doc-block__title" id="doc-favorites">⭐ Избранное</h2>
+            {% if favorite_documents %}
+                {% include 'documents/includes/doc_list.html' with cards=favorite_documents %}
+            {% else %}
+                <p class="doc-block__empty">Отметьте документ звёздочкой — он появится здесь.</p>
+            {% endif %}
+        </section>
+
+        <section class="doc-block" aria-labelledby="doc-recent">
+            <h2 class="doc-block__title" id="doc-recent">Недавно обновлённые</h2>
+            {% if recent_documents %}
+                {% include 'documents/includes/doc_list.html' with cards=recent_documents %}
+            {% else %}
+                <p class="doc-block__empty">Документов пока нет.</p>
+            {% endif %}
+        </section>
+    </div>
+</div>
+{% endblock %}

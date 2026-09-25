@@ -1,0 +1,54 @@
+{% extends 'documents/layout.html' %}
+{% load people %}
+
+{% block doc_main %}
+{% comment %}
+«Корзина»: deleted documents wait here {{ retention_days }} days, then
+`purge_document_trash` removes them. A document tasks were issued on is a
+record and is never removed for good — it says so instead of offering it.
+{% endcomment %}
+<header class="doc-head">
+    <div class="doc-head__titles">
+        {% include 'documents/includes/breadcrumbs.html' %}
+        <h1 class="doc-head__title">Корзина</h1>
+        <p class="doc-head__sub">Удалённые документы хранятся {{ retention_days }} дней, затем удаляются автоматически.</p>
+    </div>
+</header>
+
+<div class="doc-main__body">
+{% if rows %}
+    <div class="table-card doc-table-card">
+        <table class="data-table doc-table">
+            <thead><tr><th>Документ</th><th>Была в папке</th><th>Удалён</th><th>Осталось</th><th><span class="doc-visually-hidden">Действия</span></th></tr></thead>
+            <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td class="doc-table__name">
+                        <a class="doc-entry" href="{% url 'documents:document_detail' row.document.pk %}"><span class="doc-entry__icon" aria-hidden="true">{{ row.icon }}</span><span class="doc-entry__text user-text text-ellipsis">{{ row.document.title }}</span></a>
+                    </td>
+                    <td class="doc-muted user-text">{{ row.folder_path }}</td>
+                    <td class="doc-muted">{{ row.document.deleted_at|date:'d.m.Y' }}{% if row.document.deleted_by %} · {{ row.document.deleted_by|person_name }}{% endif %}</td>
+                    <td class="doc-muted">{% if row.is_record %}хранится как запись{% else %}{{ row.days_left }} дн.{% endif %}</td>
+                    <td class="doc-table__actions"><div class="doc-actions">
+                        <form method="post" action="{% url 'documents:document_restore' row.document.pk %}">
+                            {% csrf_token %}
+                            <button class="link-button link-button--secondary link-button--compact" type="submit">Восстановить</button>
+                        </form>
+                        {% if not row.is_record %}
+                        <button class="link-button link-button--warning link-button--compact" type="button"
+                                data-confirm data-confirm-url="{% url 'documents:document_purge' row.document.pk %}"
+                                data-confirm-title="Удалить навсегда"
+                                data-confirm-text="Документ «{{ row.document.title }}» и все его версии будут удалены без возможности восстановления."
+                                data-confirm-label="Удалить навсегда" data-confirm-variant="warning">Удалить навсегда</button>
+                        {% endif %}
+                    </div></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    {% include 'acts/includes/empty_state.html' with title='Корзина пуста' message='Удалённые документы появятся здесь и будут храниться 30 дней.' %}
+{% endif %}
+</div>
+{% endblock %}

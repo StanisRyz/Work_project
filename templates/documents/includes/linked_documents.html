@@ -1,0 +1,47 @@
+{% comment %}
+«Нормативные документы» on an act or a protocol: the library documents it
+cites. The link belongs to Documentation (`documents.DocumentLink`); adding and
+removing one is contributing to this act or protocol, and both endpoints ask
+that rule again. Only documents this person may open are listed.
+{% endcomment %}
+<section class="detail-section doc-linked" aria-labelledby="doc-linked-title">
+    <div class="act-collaboration-section__header">
+        <h2 id="doc-linked-title">Нормативные документы</h2>
+        <span class="act-collaboration-section__hint">Инструкции, стандарты и другие документы из «Документации», на которые опирается {{ link_target_label }}</span>
+    </div>
+    {% if document_links %}
+    <ul class="doc-linked__list">
+        {% for row in document_links %}
+        <li class="doc-linked__row">
+            <a class="user-text" href="{{ row.url }}">{{ row.document.title }}</a>
+            {% if row.document.status == 'CANCELLED' %}<span class="status-badge status-badge--archived">Отменён</span>{% endif %}
+            {% if can_link_documents %}
+            <form method="post" action="{% url 'documents:link_delete' row.link.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button class="doc-linked__remove" type="submit" title="Убрать ссылку" aria-label="Убрать ссылку на «{{ row.document.title }}»">×</button>
+            </form>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="doc-linked__empty">Документы не указаны.</p>
+    {% endif %}
+    {% if can_link_documents and linkable_documents %}
+    <form class="doc-linked__form" method="post" action="{% url 'documents:link_create' %}">
+        {% csrf_token %}
+        <input type="hidden" name="{{ link_target_field }}" value="{{ link_target_id }}">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <select name="document" aria-label="Документ" required>
+            <option value="">Выберите документ…</option>
+            {% for folder_name, documents in linkable_documents %}
+            <optgroup label="{{ folder_name }}">
+                {% for document in documents %}<option value="{{ document.pk }}">{{ document.title }}</option>{% endfor %}
+            </optgroup>
+            {% endfor %}
+        </select>
+        <button class="link-button link-button--secondary link-button--compact" type="submit">Добавить</button>
+    </form>
+    {% endif %}
+</section>

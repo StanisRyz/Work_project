@@ -1,0 +1,21 @@
+{% comment %}
+A compact list of document cards — «Избранное», «Недавние» and the search
+results. One row per file: icon, title (and the words found inside it, for a
+search), where it lives, when it changed. `card.is_readonly` is the only branch.
+{% endcomment %}
+<ul class="doc-list">
+    {% for card in cards %}
+    <li class="doc-list__row">
+        <span class="doc-list__icon" aria-hidden="true">{{ card.icon }}</span>
+        <div class="doc-list__main">
+            <a class="doc-list__title user-text" href="{{ card.open_url }}" title="{{ card.title }}">{{ card.title }}</a>
+            {% if card.status_code and card.status_code != 'ACTIVE' %}<span class="doc-status doc-status--{{ card.status_code|lower }}">{{ card.status_label }}</span>{% endif %}
+            {% if card.is_readonly %}<span class="doc-list__tag">{{ card.source_label }}</span>{% endif %}
+            {% if card.snippet %}<p class="doc-list__snippet user-text">{{ card.snippet }}</p>{% endif %}
+            <span class="doc-list__path user-text text-ellipsis" title="{{ card.path }}">{{ card.path }}</span>
+        </div>
+        <span class="doc-list__meta">{% if card.version_label %}{{ card.version_label }} · {% endif %}{{ card.created_at|date:'d.m.Y' }}</span>
+        {% if card.can_download %}<a class="doc-icon-button" href="{{ card.download_url }}" title="Скачать" aria-label="Скачать «{{ card.title }}»">⤓</a>{% endif %}
+    </li>
+    {% endfor %}
+</ul>

@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ page_title }} · Документация{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260925-10">
+{% endblock %}
+
+{% block content_class %}page-container--fill{% endblock %}
+
+{% block content %}
+{% comment %}
+The explorer every Documentation page shares: the folder tree on the left, the
+page itself on the right. The tree lists only folders this user may open
+(`selectors.build_folder_tree()` → `visible_folder_ids()`), keeps the path to
+the current folder open, and is a drop target for documents dragged out of a
+folder table (`static/js/documents.js`).
+{% endcomment %}
+<div class="doc-shell">
+    <nav class="doc-nav" aria-label="Документация">
+        <form class="doc-nav__search" action="{% url 'documents:search' %}" method="get" role="search">
+            <input type="search" name="q" value="{{ query|default:'' }}" placeholder="Поиск по названию и тексту"
+                   aria-label="Поиск по документации" autocomplete="off">
+        </form>
+        <a class="doc-nav__item{% if active_section == 'home' %} is-active{% endif %}" href="{% url 'documents:browse' %}">
+            <span class="doc-nav__icon" aria-hidden="true">🏠</span>Главная
+        </a>
+        <div class="doc-tree" role="tree" aria-label="Папки">
+            {% for node in folder_tree %}{% include 'documents/includes/tree_node.html' %}{% endfor %}
+        </div>
+        {% if can_view_system %}
+        <a class="doc-nav__item{% if active_section == 'system' %} is-active{% endif %}" href="{% url 'documents:system_root' %}"
+           title="Файлы актов, протоколов и задач — только для чтения">
+            <span class="doc-nav__icon" aria-hidden="true">🔒</span>Вложения
+        </a>
+        {% endif %}
+        {% if can_manage %}
+        <a class="doc-nav__item{% if active_section == 'trash' %} is-active{% endif %}" href="{% url 'documents:trash' %}">
+            <span class="doc-nav__icon" aria-hidden="true">🗑</span>Корзина
+            {% if trash_count %}<span class="doc-nav__count">{{ trash_count }}</span>{% endif %}
+        </a>
+        {% endif %}
+    </nav>
+
+    <section class="doc-main" aria-label="{{ page_title }}">
+        {% block doc_main %}{% endblock %}
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/documents.js' %}?v=20260925-10" defer></script>
+{% endblock %}

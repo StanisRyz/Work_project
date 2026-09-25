@@ -1,41 +1,35 @@
-"""Who may read the documentation library and who may change it.
+"""Who may read the documentation library, which folders, and who may change it.
 
-Two levels in this stage, and one helper that decides both:
+Three answers, one module:
 
-* an *administrative* user browses folders and downloads files;
-* a *document manager* also creates, renames and deletes folders, uploads
-  documents and deletes them.
+* **Reading is open.** Every signed-in employee reads the library — the
+  plant's instructions, norms and templates are working material, not an
+  administrative archive.
+* **A folder may be closed** to everyone but some roles
+  (`DocumentFolder.allowed_roles`). The restriction inherits downwards — a
+  subfolder of a closed folder is closed too — and a document is readable
+  exactly when its folder is.
+* **Managing** — uploading, editing the card, moving, trashing, requesting
+  approval and acknowledgement, closing folders — belongs to the administrator,
+  a genuine superuser, and the people flagged «Ответственный за документацию»
+  in Django Admin (`UserProfile.is_document_responsible`). A manager sees every
+  folder, so a folder can never be closed to the people who keep it.
 
-The manager set is a single frozen set of roles, `DOCUMENT_MANAGER_ROLES`,
-rather than a superuser check scattered through the views. Granting the future
-«Руководство» the same rights over corporate documents is then one line here —
-add `UserProfile.Role.MANAGER` to the set — and nothing in `views.py`,
-`services.py` or the templates changes. That is the only reason this module
-exists as something more than two `if user.is_superuser` lines.
-
-Every rule below is enforced server-side in `documents/views.py`; the template
-uses the same helpers only to decide which buttons to draw.
+Every rule below is enforced server-side in `documents/views.py` and
+re-asked by `documents/services.py`; the templates use the same helpers only to
+decide what to draw. Roles are read through `accounts.roles`, so a role lent by
+a substitution opens a closed folder exactly as the profile's own would.
 """
 
 from accounts.models import UserProfile
-from accounts.roles import has_any_role
+from accounts.roles import get_user_roles, has_any_role
 
-from .models import CORPORATE_FOLDER_CODE
+from .models import CORPORATE_FOLDER_CODE, MAX_FOLDER_DEPTH, DocumentFolder
 
 
-# The application roles that manage corporate documents. Django's genuine
-# superuser is handled separately in `can_manage_documents()` and is not a
-# role. To hand the same rights to leadership later, add
-# `UserProfile.Role.MANAGER` here — deliberately the whole change.
+# The application role that manages documents beside the individually flagged
+# people. A genuine superuser is handled separately and is not a role.
 DOCUMENT_MANAGER_ROLES = frozenset({UserProfile.Role.ADMIN})
-
-# Who may *open* the library at all. Administrative roles only: «Документация»
-# is not part of an ordinary employee's working day, and the section is hidden
-# from the navigation for everyone outside this set. It is a superset of
-# `DOCUMENT_MANAGER_ROLES` by construction — a role that may change documents
-# must be able to read them — so it is built from that set rather than
-# repeating its members.
-DOCUMENT_VIEWER_ROLES = DOCUMENT_MANAGER_ROLES | frozenset({UserProfile.Role.MANAGER})
 
 
 def get_user_profile(user):
@@ -58,43 +52,92 @@ def get_user_profile(user):
 
 
 def can_view_documents(user):
-    """The single read rule: an administrative role, or a genuine superuser.
+    """The library opens for every signed-in employee.
 
-    Every other rule in this module — folders, downloads, versions, history,
-    favourites and the «Вложения» branch — is expressed in terms of this one,
-    so restricting it here closes the whole library at once, for direct URLs
-    as much as for the navigation link that `documents.context_processors`
-    hides.
+    What they then see inside it is `can_view_folder()`'s answer, folder by
+    folder; this is only «may enter at all», and it is also what draws the
+    «Документация» entry in the navigation.
     """
-    if not getattr(user, 'is_authenticated', False):
-        return False
-    if getattr(user, 'is_superuser', False):
-        return True
-    # The profile's role or one lent by a substitution in force today.
-    return get_user_profile(user) is not None and has_any_role(user, DOCUMENT_VIEWER_ROLES)
+    return bool(getattr(user, 'is_authenticated', False) and getattr(user, 'is_active', True))
 
 
 def can_manage_documents(user):
-    """The single write rule: a managing role, or a genuine superuser."""
+    """Administrator, genuine superuser, or «Ответственный за документацию»."""
     if not getattr(user, 'is_authenticated', False):
         return False
     if getattr(user, 'is_superuser', False):
         return True
-    return get_user_profile(user) is not None and has_any_role(user, DOCUMENT_MANAGER_ROLES)
+    profile = get_user_profile(user)
+    if profile is None:
+        return False
+    return bool(profile.is_document_responsible) or has_any_role(user, DOCUMENT_MANAGER_ROLES)
 
 
 # ---------------------------------------------------------------------------
-# The named rules the views and the template ask for.
-#
-# All of them currently delegate to the two helpers above. They are spelled out
-# separately anyway: each one is a place a later stage can become more specific
-# — a folder whose owner may also upload, an attachments branch nobody edits by
-# hand — without every call site having to be found again.
+# Folders: open by default, closed to all but some roles when so marked.
 # ---------------------------------------------------------------------------
+
+
+def _folder_open_to(folder, roles):
+    """Whether this one folder's own restriction admits someone with `roles`."""
+    allowed = folder.allowed_roles or []
+    return not allowed or bool(set(allowed) & set(roles))
 
 
 def can_view_folder(folder, user):
-    return can_view_documents(user)
+    """The folder and every ancestor admit this user — or they manage documents."""
+    if not can_view_documents(user):
+        return False
+    if can_manage_documents(user):
+        return True
+    roles = get_user_roles(user)
+    chain = [folder, *folder.ancestors()]
+    return all(_folder_open_to(entry, roles) for entry in chain)
+
+
+def visible_folder_ids(user):
+    """Every folder id this user may open, in two queries whatever the tree.
+
+    The listing-side twin of `can_view_folder()`: search, «Недавние»,
+    favourites and the tree all filter by this set, so a closed folder's
+    documents never surface through a side door. The folder table is small by
+    nature (a plant's document tree), so reading it whole is cheaper and
+    simpler than a recursive query.
+    """
+    if not can_view_documents(user):
+        return frozenset()
+    folders = list(DocumentFolder.objects.values('pk', 'parent_id', 'allowed_roles'))
+    if can_manage_documents(user):
+        return frozenset(row['pk'] for row in folders)
+    roles = set(get_user_roles(user))
+    by_id = {row['pk']: row for row in folders}
+    visible = set()
+    for row in folders:
+        current, depth, admitted = row, 0, True
+        while current is not None and depth <= MAX_FOLDER_DEPTH:
+            allowed = current['allowed_roles'] or []
+            if allowed and not (set(allowed) & roles):
+                admitted = False
+                break
+            current = by_id.get(current['parent_id'])
+            depth += 1
+        if admitted:
+            visible.add(row['pk'])
+    return frozenset(visible)
+
+
+def can_view_document(document, user):
+    """A document is read exactly when its folder is, and never from the trash —
+    except by a manager, who is the one who restores it."""
+    if document.deleted_at is not None:
+        return can_manage_documents(user)
+    return can_view_folder(document.folder, user)
+
+
+def can_set_folder_access(folder, user):
+    """Closing or opening a folder is a management action — never on the
+    structural root, which must stay readable for the tree to be browsable."""
+    return can_manage_documents(user) and not is_structural_folder(folder)
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +157,7 @@ def can_view_folder(folder, user):
 
 
 def can_view_system_attachments(user):
-    """Browsing «Вложения» follows browsing the library: an administrative role.
+    """Browsing «Вложения» follows browsing the library.
 
     *Which* attachments are then listed is not decided here — every source
     adapter asks the owning app for the records that user may read, so an act
@@ -134,7 +177,7 @@ def can_modify_system_attachments(user):
 
 
 def can_download_document(document, user):
-    return can_view_documents(user)
+    return can_view_document(document, user)
 
 
 def can_create_folder(parent, user):
@@ -181,27 +224,28 @@ def can_upload_document(folder, user):
     return can_manage_documents(user)
 
 
+def can_edit_document(document, user):
+    """The card, the name, the folder, the status: a manager's, on a live row."""
+    return can_manage_documents(user) and document.deleted_at is None
+
+
 def can_delete_document(document, user):
+    """Sending to «Корзина», restoring from it and purging it."""
     return can_manage_documents(user)
 
 
 # ---------------------------------------------------------------------------
 # Versions
 #
-# Corporate documents only. The rules are the two that already existed,
-# applied to the new object: reading a version is reading the library, and
-# adding or restoring one is managing it. Nothing here widens or narrows what
-# a role could already do.
-#
-# System attachments have no counterpart to any of this. They carry no
-# versions, and `can_modify_system_attachments()` refuses every write to them
-# for every role — administrators and superusers included.
+# Corporate documents only. Reading a version is reading its document; adding,
+# restoring, and sending one for approval or acknowledgement is managing it.
+# System attachments have no counterpart to any of this.
 # ---------------------------------------------------------------------------
 
 
 def can_view_document_history(document, user):
     """Reading the history follows reading the document."""
-    return can_view_documents(user)
+    return can_view_document(document, user)
 
 
 def can_download_document_version(version, user):
@@ -210,23 +254,20 @@ def can_download_document_version(version, user):
     Deliberately not manager-only: keeping an old revision readable is the
     point of versioning, and hiding it would make «current» unverifiable.
     """
-    return can_view_documents(user)
+    return can_view_document(version.document, user)
 
 
 def can_add_document_version(document, user):
-    return can_manage_documents(user)
+    return can_edit_document(document, user)
 
 
 def can_favorite_document(document, user):
-    """Starring a document is a personal bookmark, not a permission.
+    """Starring is a personal bookmark on something the user may read."""
+    return can_view_document(document, user) and document.deleted_at is None
 
-    Anyone who may read the library may keep their own shortcuts to it — the
-    row is private to the user and changes nothing anybody else can see. It is
-    stated here anyway so the rule has a name and a place to become stricter.
 
-    System attachments are absent from this by construction: they have no
-    `Document` row, so there is nothing to star.
-    """
+def can_subscribe(user):
+    """«Подписаться» — a private request to be told, open to every reader."""
     return can_view_documents(user)
 
 
@@ -236,4 +277,64 @@ def can_restore_document_version(document, user):
     Restoring never edits or deletes anything: it moves `is_current`, and the
     version that was current stays in the list, downloadable, where it was.
     """
-    return can_manage_documents(user)
+    return can_edit_document(document, user)
+
+
+def can_request_acknowledgement(document, user):
+    return can_edit_document(document, user)
+
+
+# ---------------------------------------------------------------------------
+# Approval, acknowledgement, links
+# ---------------------------------------------------------------------------
+
+
+def can_decide_version(version, user):
+    """Whoever holds a `PENDING` approval on this version — nobody else.
+
+    The same shape as `protocols.permissions.can_decide_protocol_approval()`:
+    being a manager does not let one sign for somebody else.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if version.approval_status != version.Approval.PENDING or version.document.deleted_at is not None:
+        return False
+    return version.approvals.filter(user=user, status='PENDING').exists()
+
+
+def open_acknowledgement_task(document, user):
+    """This user's open «Ознакомиться» entry on the document's current version.
+
+    The acknowledgement button exists exactly when this returns a task: a
+    person nobody asked has nothing to confirm, and a version already confirmed
+    is not confirmed twice.
+    """
+    from tasks.models import Task
+
+    if not getattr(user, 'is_authenticated', False) or document.deleted_at is not None:
+        return None
+    return (
+        Task.objects.filter(
+            source_type=Task.SourceType.DOCUMENT_ACK,
+            document_version__document=document,
+            document_version__is_current=True,
+            individual_assignee=user,
+            status__is_final=False,
+        )
+        .select_related('document_version')
+        .first()
+    )
+
+
+def can_link_document_to_act(act, user):
+    """Citing a document on an act is contributing to the act."""
+    from acts.permissions import can_contribute_to_act
+
+    return can_view_documents(user) and can_contribute_to_act(act, user)
+
+
+def can_link_document_to_protocol(protocol, user):
+    """Citing a document on a protocol is contributing to the protocol."""
+    from protocols.permissions import can_contribute_to_protocol
+
+    return can_view_documents(user) and can_contribute_to_protocol(protocol, user)

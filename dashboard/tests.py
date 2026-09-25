@@ -55,13 +55,12 @@ class DashboardPageTests(TestCase):
 
         for description in descriptions:
             self.assertContains(employee_page, description)
-        # «Документация» is administrative: the card follows the same
+        # «Документация» is read by every employee: the card follows the same
         # `can_view_documents()` the library itself enforces.
-        self.assertNotContains(employee_page, documentation)
+        self.assertContains(employee_page, documentation)
 
-        self.client.force_login(_create_user('admin_sections', UserProfile.Role.ADMIN))
-
-        self.assertContains(self.client.get(reverse('dashboard:home')), documentation)
+        self.client.logout()
+        self.assertNotEqual(self.client.get(reverse('dashboard:home')).status_code, 200)
 
 
 class DashboardTaskBlockTests(TestCase):

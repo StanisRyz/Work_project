@@ -140,6 +140,12 @@ class UserProfile(models.Model):
     # may be one. Set in Django Admin and nowhere else — there is no page for
     # it, exactly as there is none for roles or departments.
     is_bug_responsible = models.BooleanField('Ответственный за ошибки', default=False)
+    # Who may manage «Документация» beside the administrator: upload, edit the
+    # document card, move, trash, request approval and acknowledgement. A flag
+    # and not a role for the same reason as the one above — the people who
+    # keep the plant's documents are chosen individually and may hold any role.
+    # Read by `documents.permissions.can_manage_documents()` and nowhere else.
+    is_document_responsible = models.BooleanField('Ответственный за документацию', default=False)
     is_active = models.BooleanField('Активен', default=True)
     created_at = models.DateTimeField('Создан', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлен', auto_now=True)

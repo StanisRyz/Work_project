@@ -1,243 +1,312 @@
-{% extends 'base.html' %}
-{% load static %}
+{% extends 'documents/layout.html' %}
+{% load people %}
 
-{% block title %}{{ document.name }} · Документация{% endblock %}
-
-{% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260925-3">
-{% endblock %}
-
-{% block content %}
+{% block doc_main %}
 {% comment %}
-One corporate document, in three parts: the information block, the viewer, and
-«История» on its own tab.
+One corporate document: the file on the left, everything about it on the right
+— the card, the versions, the approval round, who has read it, where it is
+cited and what happened to it. One page, no tabs: the side panel is a column of
+`<details>` sections, so a reader who only wants the file never has to open any
+of them, and none of it needs JavaScript.
 
-The version table is deliberately not on the first tab — somebody opening a
-document wants the file, not the audit trail. The tabs are the same `?tab=`
-pattern and the same `.act-detail-tabs` component acts and protocols use, so
-the page behaves like the rest of the project rather than like itself.
-
-Every control here is drawn only for a user who may use it, and each posts to
-an endpoint that asks the same rule again. Only corporate documents have this
-page: system attachments are projections of act, protocol and task files and
-have no versions at all.
+Every control is drawn only for a user who may use it and posts to an endpoint
+that asks the same rule again.
 {% endcomment %}
-
-{% include 'documents/includes/breadcrumbs.html' %}
-
-<div class="doc-toolbar">
-    <div class="doc-toolbar__nav">
-        <a class="link-button link-button--secondary link-button--compact" href="{{ parent_url }}">← В папку</a>
-    </div>
-    <div class="doc-toolbar__side">
-        {% include 'documents/includes/search_form.html' %}
-    </div>
-</div>
-
-{% comment %}
-A) The information block: what this document is, and what can be done with it.
-{% endcomment %}
-<section class="doc-head" aria-label="Сведения о документе">
-    <span class="doc-head__icon" aria-hidden="true">{{ icon }}</span>
-    <div class="doc-head__body">
+<header class="doc-head">
+    <div class="doc-head__titles">
+        {% include 'documents/includes/breadcrumbs.html' %}
         <h1 class="doc-head__title">
-            <span class="user-text">{{ document.name }}</span>
-            {% if current_version %}<span class="doc-version-badge">{{ current_version.label }}</span>{% endif %}
+            <span class="doc-head__icon" aria-hidden="true">{{ icon }}</span>
+            <span class="user-text">{{ document.title }}</span>
+            <span class="doc-status doc-status--{{ document.status|lower }}">{{ document.get_status_display }}</span>
+            {% if current_version %}<span class="doc-chip">{{ current_version.full_label }}</span>{% endif %}
         </h1>
-        {% if selected_version %}
-        <div class="doc-head__meta">
-            <span>Загрузил: {{ selected_version.uploaded_by.get_full_name|default:selected_version.uploaded_by.username|default:'—' }}</span>
-            <span>{{ selected_version.uploaded_at|date:'d.m.Y H:i' }}</span>
-            <span>{{ selected_version.file_size|filesizeformat }}</span>
-            {% if not is_viewing_current %}
-                <span class="doc-head__notice">Открыта версия {{ selected_version.label }}, не текущая</span>
-            {% endif %}
-        </div>
-        {% endif %}
     </div>
-
     <div class="doc-head__actions">
+        {% if current_version and not is_trashed %}
+            <a class="link-button link-button--compact" href="{% url 'documents:document_download' document.pk %}">⤓ Скачать</a>
+        {% endif %}
+        <button class="link-button link-button--secondary link-button--compact" type="button" data-copy-link="{{ absolute_url }}" title="Скопировать ссылку на документ">🔗 Ссылка</button>
         {% if can_favorite %}
             <form method="post" action="{% url 'documents:favorite_toggle' document.pk %}">
                 {% csrf_token %}
                 <input type="hidden" name="next" value="{{ request.get_full_path }}">
                 <button class="link-button link-button--secondary link-button--compact" type="submit"
-                        aria-pressed="{% if is_favorite %}true{% else %}false{% endif %}">{% if is_favorite %}★ В избранном{% else %}☆ В избранное{% endif %}</button>
+                        aria-pressed="{% if is_favorite %}true{% else %}false{% endif %}"
+                        title="{% if is_favorite %}Убрать из избранного{% else %}Добавить в избранное{% endif %}">{% if is_favorite %}★{% else %}☆{% endif %}</button>
             </form>
         {% endif %}
-
-        {% if version_rows|length > 1 %}
-            {% comment %}
-            «Версия» opens a revision in the viewer; «Скачать» saves one. Two
-            menus because they are two different acts — reading an old revision
-            and taking a copy of it — and one control would have to guess which
-            was meant. Both are `<details>`, like the topbar menus, so neither
-            needs JavaScript.
-            {% endcomment %}
-            <details class="doc-menu">
-                <summary class="link-button link-button--secondary link-button--compact">Версия {{ selected_version.label }} ▾</summary>
-                <div class="doc-menu__popup" role="menu">
-                    {% for row in version_rows %}
-                        <a class="doc-menu__item{% if row.is_selected %} doc-menu__item--active{% endif %}"
-                           href="{{ row.view_url }}" role="menuitem">{{ row.label }}{% if row.is_current %} · текущая{% endif %}</a>
-                    {% endfor %}
-                </div>
-            </details>
-
-            <details class="doc-menu">
-                <summary class="link-button link-button--secondary link-button--compact">Скачать ▾</summary>
-                <div class="doc-menu__popup" role="menu">
-                    {% for row in version_rows %}
-                        <a class="doc-menu__item" href="{{ row.download_url }}" role="menuitem">Скачать {{ row.label }}{% if row.is_current %} (текущая){% endif %}</a>
-                    {% endfor %}
-                </div>
-            </details>
-        {% elif current_version %}
-            <a class="link-button link-button--secondary link-button--compact"
-               href="{% url 'documents:document_download' document.pk %}">Скачать</a>
+        {% if not is_trashed %}
+            <form method="post" action="{% url 'documents:document_subscribe' document.pk %}">
+                {% csrf_token %}
+                <button class="link-button link-button--secondary link-button--compact" type="submit"
+                        aria-pressed="{% if is_subscribed %}true{% else %}false{% endif %}"
+                        title="{% if is_subscribed %}Отписаться{% else %}Сообщать о новых версиях{% endif %}">{% if is_subscribed %}🔔{% else %}🔕{% endif %}</button>
+            </form>
         {% endif %}
-
-        {% if current_version %}
-            {# Whatever the menus have selected, this one is always the current version. #}
-            <a class="link-button link-button--compact"
-               href="{% url 'documents:document_download' document.pk %}">Скачать текущую версию</a>
-        {% endif %}
-        {% if can_delete %}
-            <button class="link-button link-button--warning link-button--compact" type="button"
-                    data-confirm
-                    data-confirm-url="{% url 'documents:document_delete' document.pk %}"
-                    data-confirm-title="Удалить документ"
-                    data-confirm-text="Документ «{{ document.name }}» будет удалён вместе со всеми версиями."
-                    data-confirm-label="Удалить"
-                    data-confirm-variant="warning">Удалить</button>
+        {% if can_edit or can_delete %}
+        <details class="doc-menu">
+            <summary class="link-button link-button--secondary link-button--compact" aria-label="Действия с документом">⋯</summary>
+            <div class="doc-menu__popup doc-menu__popup--right" role="menu">
+                {% if can_edit %}
+                <button class="doc-menu__item" type="button" role="menuitem" data-panel-open="doc-card-panel">Изменить карточку</button>
+                <button class="doc-menu__item" type="button" role="menuitem" data-panel-open="doc-move-panel">Перенести в папку…</button>
+                {% endif %}
+                {% if can_delete %}
+                <button class="doc-menu__item doc-menu__item--danger" type="button" role="menuitem"
+                        data-confirm data-confirm-url="{% url 'documents:document_delete' document.pk %}"
+                        data-confirm-title="В корзину"
+                        data-confirm-text="Документ «{{ document.title }}» будет перемещён в корзину. Восстановить его можно в течение 30 дней."
+                        data-confirm-label="В корзину" data-confirm-variant="warning">В корзину</button>
+                {% endif %}
+            </div>
+        </details>
         {% endif %}
     </div>
-</section>
+</header>
 
-<nav class="act-detail-tabs" aria-label="Разделы документа">
-    <a class="act-detail-tabs__link{% if detail_tab == 'document' %} act-detail-tabs__link--active{% endif %}"
-       href="?tab=document{% if not is_viewing_current and selected_version %}&version={{ selected_version.pk }}{% endif %}">
-        <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Документ
-    </a>
-    <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history">
-        <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.7M4 5v4h4"/></svg>История
-    </a>
-</nav>
-
-{% if detail_tab == 'history' %}
-{% comment %}
-C) История: every version and every recorded event — and the one place a new
-version is uploaded, because that is a change to the document's history and
-this is where its result is visible.
-{% endcomment %}
-
-{% if can_manage %}
-<section class="doc-tools" aria-label="Загрузка новой версии">
-    <form class="doc-tools__form" method="post" enctype="multipart/form-data"
-          action="{% url 'documents:document_version_add' document.pk %}">
+{% if is_trashed %}
+<div class="doc-banner doc-banner--muted" role="status">
+    <span>🗑 Документ в корзине с {{ document.deleted_at|date:'d.m.Y' }}{% if document.deleted_by %} ({{ document.deleted_by|person_name }}){% endif %}.</span>
+    <form method="post" action="{% url 'documents:document_restore' document.pk %}">
         {% csrf_token %}
-        <label class="doc-tools__field">
-            <span class="doc-visually-hidden">Файл новой версии</span>
-            {{ version_form.file }}
-        </label>
-        <label class="doc-tools__field">
-            <span class="doc-visually-hidden">Что изменилось</span>
-            {{ version_form.comment }}
-        </label>
-        <button class="link-button link-button--compact" type="submit">Загрузить версию</button>
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button class="link-button link-button--compact" type="submit">Восстановить</button>
     </form>
-    <p class="doc-tools__hint">Предыдущие версии остаются доступными — новая не заменяет их.</p>
-</section>
+</div>
 {% endif %}
-
-<h2 class="doc-section-title">Версии</h2>
-{% if version_rows %}
-<section class="table-card doc-card">
-    <table class="data-table doc-table">
-        <thead>
-            <tr><th>Версия</th><th>Файл и комментарий</th><th>Загружена</th><th>Автор</th><th class="doc-table__actions-head">Действия</th></tr>
-        </thead>
-        <tbody>
-        {% for row in version_rows %}
-            <tr>
-                <td>
-                    <strong>{{ row.label }}</strong>
-                    {% if row.is_current %}<span class="doc-version-badge doc-version-badge--current">Текущая</span>{% endif %}
-                </td>
-                <td>
-                    <span class="user-text">{{ row.version.original_name }}</span>
-                    {% if row.version.comment %}<span class="doc-entry__source user-text">{{ row.version.comment }}</span>{% endif %}
-                </td>
-                <td class="doc-table__muted">{{ row.version.uploaded_at|date:'d.m.Y H:i' }}</td>
-                <td class="doc-table__muted user-text">{{ row.version.uploaded_by.get_full_name|default:row.version.uploaded_by.username|default:'—' }}</td>
-                <td class="doc-table__actions"><div class="doc-actions">
-                    <a class="link-button link-button--secondary link-button--compact" href="{{ row.view_url }}">Открыть</a>
-                    <a class="link-button link-button--secondary link-button--compact" href="{{ row.download_url }}">Скачать</a>
-                    {% if can_restore and not row.is_current %}
-                        <button class="link-button link-button--secondary link-button--compact" type="button"
-                                data-confirm
-                                data-confirm-url="{% url 'documents:document_version_restore' document.pk row.version.pk %}"
-                                data-confirm-title="Сделать версию текущей"
-                                data-confirm-text="Версия {{ row.label }} снова станет текущей. Остальные версии останутся доступными."
-                                data-confirm-label="Сделать текущей">Сделать текущей</button>
-                    {% endif %}
-                </div></td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-</section>
-{% else %}
-    {% include 'acts/includes/empty_state.html' with title='Версий нет' message='У этого документа не осталось ни одного файла.' %}
+{% if document.status == 'CANCELLED' %}
+<div class="doc-banner doc-banner--muted" role="status">
+    <span>Документ отменён{% if document.cancelled_at %} {{ document.cancelled_at|date:'d.m.Y' }}{% endif %}{% if document.cancellation_reason %}: <span class="user-text">{{ document.cancellation_reason }}</span>{% endif %}. Он сохранён для истории и ссылок.</span>
+</div>
 {% endif %}
-
-<h2 class="doc-section-title">События</h2>
-{% if history %}
-<ol class="doc-history">
-    {% for event in history %}
-    <li class="doc-history__item">
-        <span class="doc-history__when">{{ event.created_at|date:'d.m.Y H:i' }}</span>
-        <span class="doc-history__action">{{ event.get_action_display }}{% if event.version_number %} · v{{ event.version_number }}{% endif %}</span>
-        <span class="doc-history__who">{{ event.user.get_full_name|default:event.user.username|default:'Система' }}</span>
-        {% if event.description %}<span class="doc-history__text user-text">{{ event.description }}</span>{% endif %}
-    </li>
-    {% endfor %}
-</ol>
-{% else %}
-    <p class="doc-tools__hint">История пуста.</p>
+{% if ack_task %}
+<div class="doc-banner doc-banner--action" role="status">
+    <span>👁 Вас просят ознакомиться с этим документом (версия {{ current_version.full_label }}) до {{ ack_task.due_date|date:'d.m.Y' }}.</span>
+    <form method="post" action="{% url 'documents:document_acknowledge' document.pk %}">
+        {% csrf_token %}
+        <button class="link-button link-button--success link-button--compact" type="submit">Ознакомлен</button>
+    </form>
+</div>
 {% endif %}
-
-{% else %}
-{% comment %}
-B) The viewer. A PDF goes into an `<iframe>` and an image into an `<img>`, both
-served from this project's own origin by
-`documents:document_version_preview` — no external viewer and no JavaScript
-library. Anything else says so plainly and offers the download.
-{% endcomment %}
-<section class="doc-viewer" aria-label="Просмотр документа">
-    {% if preview.kind == 'pdf' or preview.kind == 'text' %}
-        <iframe class="doc-viewer__frame" src="{{ preview_url }}"
-                title="{{ document.name }} — {{ selected_version.label }}"></iframe>
-    {% elif preview.kind == 'image' %}
-        <div class="doc-viewer__image-wrap">
-            <img class="doc-viewer__image" src="{{ preview_url }}" alt="{{ document.name }}">
-        </div>
-    {% else %}
-        <div class="doc-viewer__empty">
-            <p>{{ preview.message }}</p>
-            {% if selected_version %}
-                <a class="link-button link-button--compact"
-                   href="{% url 'documents:document_version_download' document.pk selected_version.pk %}">Скачать {{ selected_version.label }}</a>
-            {% endif %}
-        </div>
+{% if pending_version %}
+<div class="doc-banner{% if can_decide %} doc-banner--action{% endif %}" role="status">
+    <span>✍️ Версия {{ pending_version.full_label }} на согласовании{% if pending_version.comment %}: <span class="user-text">{{ pending_version.comment }}</span>{% endif %}.
+        {% if not selected_version or selected_version.pk != pending_version.pk %}<a href="?version={{ pending_version.pk }}">Открыть её</a>{% endif %}</span>
+    {% if can_decide %}
+    <div class="doc-banner__actions">
+        <form method="post" action="{% url 'documents:document_version_approve' document.pk pending_version.pk %}">
+            {% csrf_token %}
+            <button class="link-button link-button--success link-button--compact" type="submit">Согласовать</button>
+        </form>
+        <button class="link-button link-button--warning link-button--compact" type="button"
+                data-confirm data-confirm-url="{% url 'documents:document_version_return' document.pk pending_version.pk %}"
+                data-confirm-title="Вернуть версию"
+                data-confirm-text="Версия {{ pending_version.full_label }} вернётся загрузившему. Остальные согласования этого круга будут отменены."
+                data-confirm-label="Вернуть" data-confirm-variant="warning"
+                data-confirm-comment="required" data-confirm-comment-label="Причина возврата"
+                data-confirm-comment-error="Укажите причину возврата.">Вернуть</button>
+    </div>
     {% endif %}
-</section>
+</div>
+{% endif %}
+{% if selected_version and not is_viewing_current and selected_version.pk != pending_version.pk %}
+<div class="doc-banner doc-banner--muted" role="status">
+    <span>Открыта версия {{ selected_version.full_label }}{% if selected_version.approval_status == 'RETURNED' %} — возвращена при согласовании{% endif %}, не текущая.</span>
+    {% if current_version %}<a class="link-button link-button--secondary link-button--compact" href="{{ request.path }}">К текущей версии</a>{% endif %}
+</div>
+{% endif %}
 
-{% if current_version %}
-<p class="doc-viewer__footer">
-    Текущая версия: {{ current_version.label }} от {{ current_version.uploaded_at|date:'d.m.Y H:i' }}
-    · <a href="?tab=history">Посмотреть историю версий</a>
-</p>
+{% if can_edit %}
+<details class="doc-panel" id="doc-card-panel">
+    <summary class="doc-visually-hidden">Карточка документа</summary>
+    <form class="doc-card-form" method="post" action="{% url 'documents:document_card' document.pk %}">
+        {% csrf_token %}
+        <label class="doc-field doc-field--wide"><span>Название</span>{{ card_form.name }}</label>
+        <label class="doc-field"><span>Обозначение</span>{{ card_form.designation }}</label>
+        <label class="doc-field"><span>Статус</span>{{ card_form.status }}</label>
+        <label class="doc-field"><span>Дата введения</span>{{ card_form.effective_date }}</label>
+        <label class="doc-field"><span>Дата пересмотра</span>{{ card_form.review_date }}</label>
+        <label class="doc-field"><span>Подразделение-владелец</span>{{ card_form.owner_department }}</label>
+        <label class="doc-field"><span>Ответственный</span>{{ card_form.responsible }}</label>
+        <label class="doc-field doc-field--wide" data-cancel-reason><span>Причина отмены (для статуса «Отменён»)</span>{{ card_form.cancellation_reason }}</label>
+        <div class="doc-panel__actions doc-field--wide">
+            <button class="link-button link-button--compact" type="submit">Сохранить карточку</button>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-panel-close>Отмена</button>
+        </div>
+    </form>
+</details>
+
+<details class="doc-panel" id="doc-move-panel">
+    <summary class="doc-visually-hidden">Перенести в папку</summary>
+    <form class="doc-inline-form" method="post" action="{% url 'documents:bulk' %}">
+        {% csrf_token %}
+        <input type="hidden" name="ids" value="{{ document.pk }}">
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <select name="target" aria-label="Папка" required>
+            <option value="">Выберите папку…</option>
+            {% for target in move_targets %}<option value="{{ target.pk }}"{% if target.pk == document.folder_id %} disabled{% endif %}>{{ target.path }}</option>{% endfor %}
+        </select>
+        <button class="link-button link-button--compact" type="submit" name="action" value="move">Перенести</button>
+        <button class="link-button link-button--secondary link-button--compact" type="button" data-panel-close>Отмена</button>
+    </form>
+</details>
 {% endif %}
-{% endif %}
+
+<div class="doc-main__body doc-view">
+    <section class="doc-view__preview" aria-label="Просмотр">
+        {% if preview.kind == 'pdf' %}
+            <iframe class="doc-viewer" src="{{ preview_url }}" title="{{ document.title }}"></iframe>
+        {% elif preview.kind == 'image' %}
+            <div class="doc-viewer doc-viewer--image"><img src="{{ preview_url }}" alt="{{ document.title }}"></div>
+        {% elif preview.kind == 'text' %}
+            <iframe class="doc-viewer doc-viewer--text" src="{{ preview_url }}" title="{{ document.title }}" sandbox></iframe>
+        {% else %}
+            <div class="doc-viewer doc-viewer--empty">
+                <span class="doc-viewer__icon" aria-hidden="true">{{ icon }}</span>
+                <p>{{ preview.message }}</p>
+                {% if selected_version %}<a class="link-button link-button--compact" href="{% url 'documents:document_version_download' document.pk selected_version.pk %}">⤓ Скачать {{ selected_version.original_name }}</a>{% endif %}
+            </div>
+        {% endif %}
+    </section>
+
+    <aside class="doc-view__side" aria-label="Сведения о документе">
+        <details class="doc-side" open>
+            <summary class="doc-side__title">Карточка</summary>
+            <dl class="doc-facts">
+                <dt>Обозначение</dt><dd>{{ document.designation|default:'—' }}</dd>
+                <dt>Статус</dt><dd>{{ document.get_status_display }}</dd>
+                <dt>Версия</dt><dd>{% if current_version %}{{ current_version.full_label }} от {{ current_version.uploaded_at|date:'d.m.Y' }}{% else %}—{% endif %}</dd>
+                <dt>Введён</dt><dd>{{ document.effective_date|date:'d.m.Y'|default:'—' }}</dd>
+                <dt>Пересмотр</dt><dd>{% if document.review_date %}<span class="{% if document.review_date < today %}doc-due doc-due--overdue{% endif %}">{{ document.review_date|date:'d.m.Y' }}</span>{% else %}—{% endif %}</dd>
+                <dt>Владелец</dt><dd class="user-text">{{ document.owner_department.name|default:'—' }}</dd>
+                <dt>Ответственный</dt><dd>{% if document.responsible %}{{ document.responsible|person_name }}{% else %}—{% endif %}</dd>
+                <dt>Папка</dt><dd class="user-text"><a href="{{ parent_url }}">{{ document.folder.name }}</a></dd>
+                <dt>Файл</dt><dd class="user-text">{% if selected_version %}{{ selected_version.original_name }} · {{ selected_version.file_size|filesizeformat }}{% else %}—{% endif %}</dd>
+            </dl>
+            {% if can_edit %}<button class="doc-link-button" type="button" data-panel-open="doc-card-panel">Изменить карточку</button>{% endif %}
+        </details>
+
+        <details class="doc-side" open>
+            <summary class="doc-side__title">Версии <span class="doc-block__count">{{ version_rows|length }}</span></summary>
+            <ol class="doc-versions">
+                {% for row in version_rows %}
+                <li class="doc-versions__row{% if row.is_selected %} is-selected{% endif %}">
+                    <div class="doc-versions__head">
+                        <a class="doc-versions__label" href="{{ row.view_url }}">{{ row.label }}</a>
+                        {% if row.is_current %}<span class="doc-status doc-status--active">текущая</span>{% endif %}
+                        {% if row.version.approval_status == 'PENDING' %}<span class="doc-status doc-status--draft">на согласовании</span>{% elif row.version.approval_status == 'RETURNED' %}<span class="doc-status doc-status--cancelled">возвращена</span>{% endif %}
+                        <span class="doc-versions__date">{{ row.version.uploaded_at|date:'d.m.Y' }}</span>
+                        <a class="doc-icon-button" href="{{ row.download_url }}" title="Скачать {{ row.label }}" aria-label="Скачать {{ row.label }}">⤓</a>
+                        {% if can_restore and row.can_restore %}
+                        <button class="doc-icon-button" type="button" title="Сделать текущей" aria-label="Сделать {{ row.label }} текущей"
+                                data-confirm data-confirm-url="{% url 'documents:document_version_restore' document.pk row.version.pk %}"
+                                data-confirm-title="Сделать версию текущей"
+                                data-confirm-text="Версия {{ row.label }} снова станет текущей. Ни одна версия не удаляется."
+                                data-confirm-label="Сделать текущей">↺</button>
+                        {% endif %}
+                    </div>
+                    {% if row.version.comment %}<p class="doc-versions__comment user-text text-clamp-2" title="{{ row.version.comment }}">{{ row.version.comment }}</p>{% endif %}
+                    {% if row.version.approval_comment %}<p class="doc-versions__comment doc-versions__comment--returned user-text">Возврат: {{ row.version.approval_comment }}</p>{% endif %}
+                    <span class="doc-versions__by">{% if row.version.uploaded_by %}{{ row.version.uploaded_by|person_name }}{% endif %}</span>
+                </li>
+                {% endfor %}
+            </ol>
+            {% if can_add_version %}
+            <details class="doc-subpanel">
+                <summary class="doc-link-button">⤒ Загрузить новую версию</summary>
+                <form class="doc-version-form" method="post" enctype="multipart/form-data" action="{% url 'documents:document_version_add' document.pk %}">
+                    {% csrf_token %}
+                    <label class="doc-dropzone doc-dropzone--small" data-dropzone>
+                        <span class="doc-dropzone__text" data-dropzone-text>Выберите или перетащите файл</span>
+                        {{ version_form.file }}
+                    </label>
+                    <label class="doc-field"><span>Что изменилось *</span>{{ version_form.comment }}</label>
+                    <label class="doc-field"><span>Изменение (изм.)</span>{{ version_form.revision_label }}</label>
+                    <label class="doc-field"><span>Согласующие <span class="doc-muted">— без них версия станет текущей сразу</span></span>{{ version_form.approvers }}</label>
+                    <details class="doc-ack-picker">
+                        <summary>Ознакомить после ввода в действие</summary>
+                        {% include 'documents/includes/ack_fields.html' with form=version_form %}
+                    </details>
+                    <button class="link-button link-button--compact" type="submit">Загрузить версию</button>
+                </form>
+            </details>
+            {% elif can_edit and pending_version %}
+            <p class="doc-muted doc-side__note">Новую версию можно загрузить после решения по версии на согласовании.</p>
+            {% endif %}
+        </details>
+
+        {% if approval_rows %}
+        <details class="doc-side" open>
+            <summary class="doc-side__title">Согласование</summary>
+            <ul class="doc-people">
+                {% for approval in approval_rows %}
+                <li class="doc-people__row">
+                    <span class="doc-people__name">{{ approval.user|person_name }}</span>
+                    <span class="doc-status doc-status--approval-{{ approval.status|lower }}">{{ approval.get_status_display }}</span>
+                    <span class="doc-people__date">{{ approval.decided_at|date:'d.m.Y'|default:'' }}</span>
+                    {% if approval.comment %}<p class="doc-people__note user-text">{{ approval.comment }}</p>{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </details>
+        {% endif %}
+
+        <details class="doc-side"{% if ack_rows %} open{% endif %}>
+            <summary class="doc-side__title">Ознакомление
+                {% if ack_rows %}<span class="doc-block__count">{{ ack_done }}/{{ ack_rows|length }}</span>{% endif %}
+            </summary>
+            {% if ack_targets %}<p class="doc-muted doc-side__note">Разослано: {{ ack_targets|join:', ' }}</p>{% endif %}
+            {% if ack_rows %}
+            <ul class="doc-people">
+                {% for row in ack_rows %}
+                <li class="doc-people__row">
+                    <span class="doc-people__name">{{ row.user|person_name }}{% if row.department %} <span class="doc-muted">· {{ row.department }}</span>{% endif %}</span>
+                    <span class="doc-status doc-status--ack-{{ row.variant }}{% if row.is_overdue %} doc-status--overdue{% endif %}">{{ row.label }}</span>
+                    <span class="doc-people__date">{{ row.at|date:'d.m.Y'|default:'' }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="doc-muted doc-side__note">Текущую версию никому не рассылали.</p>
+            {% endif %}
+            {% if can_request_ack %}
+            <details class="doc-subpanel">
+                <summary class="doc-link-button">👁 Разослать на ознакомление</summary>
+                <form method="post" action="{% url 'documents:document_ack_request' document.pk %}">
+                    {% csrf_token %}
+                    {% include 'documents/includes/ack_fields.html' with form=ack_form %}
+                    <button class="link-button link-button--compact" type="submit">Разослать</button>
+                </form>
+            </details>
+            {% endif %}
+        </details>
+
+        <details class="doc-side"{% if link_rows %} open{% endif %}>
+            <summary class="doc-side__title">Где используется <span class="doc-block__count">{{ link_rows|length }}</span></summary>
+            {% if link_rows %}
+            <ul class="doc-people">
+                {% for row in link_rows %}<li class="doc-people__row"><a href="{{ row.url }}">{{ row.label }}</a></li>{% endfor %}
+            </ul>
+            {% else %}
+            <p class="doc-muted doc-side__note">Документ пока не указан ни в одном акте или протоколе. Добавить его можно на странице акта или протокола.</p>
+            {% endif %}
+        </details>
+
+        <details class="doc-side">
+            <summary class="doc-side__title">История</summary>
+            <ol class="doc-history">
+                {% for event in history %}
+                <li class="doc-history__row">
+                    <span class="doc-history__when">{{ event.created_at|date:'d.m.Y H:i' }}</span>
+                    <span class="doc-history__what user-text">{{ event.description|default:event.get_action_display }}</span>
+                    {% if event.user %}<span class="doc-history__who">{{ event.user|person_name }}</span>{% endif %}
+                </li>
+                {% empty %}
+                <li class="doc-muted">Событий пока нет.</li>
+                {% endfor %}
+            </ol>
+        </details>
+    </aside>
+</div>
 {% endblock %}

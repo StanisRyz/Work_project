@@ -61,6 +61,14 @@ class Task(models.Model):
         # but it belongs to the people flagged `is_bug_responsible` rather than
         # to a department, so it is the one work item with no `department`.
         BUG = 'BUG', 'Ошибка в системе'
+        # «Документация». Two routing entries — acknowledging a version and
+        # approving one are both done on the document page, which closes the
+        # task — and one real work item: reviewing a document whose review
+        # date is near, completed like any task. All three hang on the version
+        # they are about.
+        DOCUMENT_ACK = 'DOCUMENT_ACK', 'Ознакомление с документом'
+        DOCUMENT_APPROVAL = 'DOCUMENT_APPROVAL', 'Согласование документа'
+        DOCUMENT_REVIEW = 'DOCUMENT_REVIEW', 'Пересмотр документа'
 
     class WorkflowStage(models.TextChoices):
         """Which act stage an `ACT_WORKFLOW` task represents.
@@ -161,6 +169,18 @@ class Task(models.Model):
         blank=True,
         verbose_name='Сообщение об ошибке',
     )
+    # The document version a `DOCUMENT_*` task is about: the version to read,
+    # to approve, or — for a review — the one in force when the review fell
+    # due. `PROTECT`, so a document with task history is never purged from the
+    # trash out from under it.
+    document_version = models.ForeignKey(
+        'documents.DocumentVersion',
+        on_delete=models.PROTECT,
+        related_name='tasks',
+        null=True,
+        blank=True,
+        verbose_name='Версия документа',
+    )
     # Which single assignee this task was split off for — of `source_action`
     # for an act task, of `protocol_action` for a protocol one — and NULL for a
     # shared task. The one field that tells the two modes apart, and the same
@@ -254,6 +274,7 @@ class Task(models.Model):
                     # nothing for the source types that already require one.
                     Q(
                         source_type='ACT',
+                        document_version__isnull=True,
                         bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
@@ -267,6 +288,7 @@ class Task(models.Model):
                     )
                     | Q(
                         source_type='PROTOCOL_APPROVAL',
+                        document_version__isnull=True,
                         bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
@@ -281,6 +303,7 @@ class Task(models.Model):
                     )
                     | Q(
                         source_type='PROTOCOL_ACTION',
+                        document_version__isnull=True,
                         bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
@@ -298,6 +321,7 @@ class Task(models.Model):
                     # stage, and nobody to split it between.
                     | Q(
                         source_type='ACT_REJECTION',
+                        document_version__isnull=True,
                         bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
@@ -316,6 +340,7 @@ class Task(models.Model):
                     | (
                         Q(
                             source_type='ACT_WORKFLOW',
+                            document_version__isnull=True,
                         bug_report__isnull=True,
                             smk_source__isnull=True,
                             smk_action__isnull=True,
@@ -339,6 +364,7 @@ class Task(models.Model):
                     # the two is exactly what that column says.
                     | Q(
                         source_type='SMK',
+                        document_version__isnull=True,
                         bug_report__isnull=True,
                         act__isnull=True,
                         root_analysis__isnull=True,
@@ -359,6 +385,7 @@ class Task(models.Model):
                     # inventing a fact.
                     | Q(
                         source_type='BUG',
+                        document_version__isnull=True,
                         act__isnull=True,
                         root_analysis__isnull=True,
                         source_action__isnull=True,
@@ -369,6 +396,26 @@ class Task(models.Model):
                         bug_report__isnull=False,
                         individual_assignee__isnull=True,
                         department__isnull=True,
+                        workflow_stage='',
+                    )
+                    # «Документация»: the version and the one person it is for.
+                    # Acknowledging and approving are personal — one task per
+                    # person, never shared, never split — and the review goes
+                    # to the document's responsible. No quality record of any
+                    # other kind; `department` is the owning подразделение
+                    # when the document names one, so it is left free.
+                    | Q(
+                        source_type__in=['DOCUMENT_ACK', 'DOCUMENT_APPROVAL', 'DOCUMENT_REVIEW'],
+                        document_version__isnull=False,
+                        individual_assignee__isnull=False,
+                        act__isnull=True,
+                        root_analysis__isnull=True,
+                        source_action__isnull=True,
+                        protocol__isnull=True,
+                        protocol_action__isnull=True,
+                        smk_source__isnull=True,
+                        smk_action__isnull=True,
+                        bug_report__isnull=True,
                         workflow_stage='',
                     )
                 ),
@@ -438,6 +485,25 @@ class Task(models.Model):
                 condition=Q(source_type='ACT_REJECTION'),
                 name='unique_act_rejection_task',
             ),
+            # A person is asked to read or to approve a version once; a
+            # repeated request or upload cannot hand them a second copy.
+            models.UniqueConstraint(
+                fields=['document_version', 'individual_assignee'],
+                condition=Q(source_type='DOCUMENT_ACK'),
+                name='unique_document_ack_task',
+            ),
+            models.UniqueConstraint(
+                fields=['document_version', 'individual_assignee'],
+                condition=Q(source_type='DOCUMENT_APPROVAL'),
+                name='unique_document_approval_task',
+            ),
+            # One review task per review date of a version: the reminder
+            # command may run every day and still raises it once.
+            models.UniqueConstraint(
+                fields=['document_version', 'due_date'],
+                condition=Q(source_type='DOCUMENT_REVIEW'),
+                name='unique_document_review_task',
+            ),
         ]
 
     def __str__(self):
@@ -468,6 +534,14 @@ class Task(models.Model):
         return self.source_type == self.SourceType.BUG
 
     @property
+    def is_document_task(self):
+        return self.source_type in {
+            self.SourceType.DOCUMENT_ACK,
+            self.SourceType.DOCUMENT_APPROVAL,
+            self.SourceType.DOCUMENT_REVIEW,
+        }
+
+    @property
     def is_cancelled(self):
         """Read off the stored status, never off `cancelled_at`.
 
@@ -488,6 +562,9 @@ class Task(models.Model):
         return self.source_type in {
             self.SourceType.PROTOCOL_APPROVAL,
             self.SourceType.ACT_WORKFLOW,
+            # Read or approved on the document page, which closes the task.
+            self.SourceType.DOCUMENT_ACK,
+            self.SourceType.DOCUMENT_APPROVAL,
         }
 
     def clean(self):
@@ -540,6 +617,17 @@ class Task(models.Model):
                 ('act', 'root_analysis', 'source_action', 'protocol',
                  'protocol_action', 'individual_assignee', 'department'),
             ),
+            **{
+                source: (
+                    ('document_version', 'individual_assignee'),
+                    ('act', 'root_analysis', 'source_action', 'protocol', 'protocol_action'),
+                )
+                for source in (
+                    self.SourceType.DOCUMENT_ACK,
+                    self.SourceType.DOCUMENT_APPROVAL,
+                    self.SourceType.DOCUMENT_REVIEW,
+                )
+            },
         }.get(self.source_type, ((), ()))
         if not required:
             raise ValidationError({'source_type': 'Неизвестный тип источника задачи.'})
@@ -556,6 +644,8 @@ class Task(models.Model):
         # restated in six `forbidden` tuples.
         if self.source_type != self.SourceType.BUG:
             forbidden = (*forbidden, 'bug_report')
+        if not self.is_document_task:
+            forbidden = (*forbidden, 'document_version')
         for name in required:
             if getattr(self, f'{name}_id') is None:
                 errors[name] = f'Обязательно для источника «{source_name}».'
@@ -626,6 +716,7 @@ class Task(models.Model):
             if (
                 required
                 and self.source_type != self.SourceType.BUG
+                and not self.is_document_task
                 and self.department_id is None
             ):
                 errors['department'] = f'Обязательно для источника «{source_name}».'

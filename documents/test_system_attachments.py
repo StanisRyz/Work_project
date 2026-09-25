@@ -112,7 +112,22 @@ class SystemAttachmentTests(TestCase):
         area = self.client.get(reverse('documents:system_root'))
         self.assertEqual(area.status_code, 200)
         for label in ('Акты', 'Протоколы', 'Задачи'):
-            self.assertContains(area, label)
+            self.assertContains(area, f'>{label}</option>')
+        # An image carries a thumbnail served inline by its own view; the
+        # thumbnail obeys the same read rule as the download.
+        thumb = reverse('documents:system_preview', args=['acts', self.act_attachment.pk])
+        self.assertContains(area, f'src="{thumb}"')
+        preview = self.client.get(thumb)
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview['Content-Type'], 'image/jpeg')
+        preview.close()
+        self.assertEqual(
+            self.client.get(reverse('documents:system_preview', args=['protocols', self.protocol_attachment.pk])).status_code,
+            404,
+        )
+        filtered = self.client.get(reverse('documents:system_root'), {'type': 'image'})
+        self.assertContains(filtered, 'Фото дефекта.jpg')
+        self.assertNotContains(filtered, 'Презентация.pdf')
 
         cases = (
             ('acts', self.act.pk, 'Акт АОК-2026-00123', self.act_attachment.pk, 'Фото дефекта.jpg'),
@@ -130,7 +145,12 @@ class SystemAttachmentTests(TestCase):
                 self.assertContains(files, file_name)
                 # The source is named on the row: this is what tells a system
                 # attachment apart from a corporate document.
-                self.assertContains(files, 'Источник:')
+                self.assertContains(files, 'doc-attachments__source')
+                # And the flat «Вложения» table lists it too, filtered by раздел.
+                self.assertContains(self.client.get(reverse('documents:system_root')), file_name)
+                self.assertContains(
+                    self.client.get(reverse('documents:system_root'), {'source': source}), file_name,
+                )
 
                 download = self.client.get(
                     reverse('documents:system_download', args=[source, attachment_id])

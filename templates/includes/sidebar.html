@@ -36,10 +36,10 @@ owning module's own queryset.
         library is a single page and has no submenu, so «Документация» opens
         the file browser directly.
 
-        Administrative roles only. `can_view_documentation` comes from
-        `documents.context_processors` and is the same
-        `can_view_documents()` every documentation view enforces, so the
-        entry is absent for exactly the people a typed URL would refuse.
+        Every signed-in employee reads the library (closed folders aside).
+        `can_view_documentation` comes from `documents.context_processors` and
+        is the same `can_view_documents()` every documentation view enforces,
+        so the entry and a typed URL can never disagree.
         {% endcomment %}
         {% if can_view_documentation %}
             <div class="sidebar__group">

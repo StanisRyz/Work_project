@@ -45,8 +45,8 @@ class DocumentAccessTests(TestCase):
         cls.addClassCleanup(shutil.rmtree, MEDIA_OVERRIDE, True)
 
     def setUp(self):
-        # A viewing role that is not a managing one, and an ordinary employee
-        # who is outside «Документация» altogether.
+        # Two readers who manage nothing: «Руководство» and an ordinary ОТК
+        # employee.
         self.user = _make_user('chief', UserProfile.Role.MANAGER)
         self.outsider = _make_user('inspector', UserProfile.Role.OTK)
         self.folder = DocumentFolder.objects.create(
@@ -75,31 +75,39 @@ class DocumentAccessTests(TestCase):
         self.assertEqual(download.status_code, 200)
         download.close()
 
-    def test_regular_user_cannot_open_documentation(self):
-        """Every read URL answers 403 for a role outside the library.
-
-        The navigation hides «Документация» for these users; this is the half
-        that matters — a URL typed by hand is refused just as firmly, on the
-        browse root, a folder, a document page, a download and the generated
-        «Вложения» branch alike.
-
-        The file endpoint answers 404 rather than 403 by its own long-standing
-        rule: a refusal and a missing file look identical to the client, and
-        only the log tells them apart. The expected status is therefore listed
-        per URL instead of assumed to be the same everywhere.
-        """
+    def test_every_employee_reads_the_library(self):
+        """Reading is open: an ordinary ОТК employee browses, opens and downloads."""
         self.client.force_login(self.outsider)
-        forbidden = (
-            (reverse('documents:browse'), 403),
-            (reverse('documents:folder', args=[self.folder.pk]), 403),
-            (reverse('documents:document_detail', args=[self.document.pk]), 403),
-            (reverse('documents:search'), 403),
-            (reverse('documents:system_root'), 403),
-            (reverse('documents:document_download', args=[self.document.pk]), 404),
-        )
-        for url, expected in forbidden:
+        for url in (
+            reverse('documents:browse'),
+            reverse('documents:folder', args=[self.folder.pk]),
+            reverse('documents:document_detail', args=[self.document.pk]),
+            reverse('documents:search'),
+            reverse('documents:system_root'),
+        ):
             with self.subTest(url=url):
-                self.assertEqual(self.client.get(url).status_code, expected)
+                self.assertEqual(self.client.get(url).status_code, 200)
+        download = self.client.get(reverse('documents:document_download', args=[self.document.pk]))
+        self.assertEqual(download.status_code, 200)
+        download.close()
+
+    def test_a_closed_folder_is_absent_for_other_roles(self):
+        """A folder closed to «Руководство» is a 404 for ОТК — the folder, its
+        documents and their files — and stays open to the role it names."""
+        self.folder.allowed_roles = [UserProfile.Role.MANAGER]
+        self.folder.save(update_fields=['allowed_roles'])
+        self.client.force_login(self.outsider)
+        for url in (
+            reverse('documents:folder', args=[self.folder.pk]),
+            reverse('documents:document_detail', args=[self.document.pk]),
+            reverse('documents:document_download', args=[self.document.pk]),
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertNotContains(self.client.get(reverse('documents:browse')), 'Инструкции ОТК')
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse('documents:folder', args=[self.folder.pk])).status_code, 200)
 
     def test_user_cannot_create_upload_or_delete(self):
         """Every management URL answers 403 and changes nothing.
@@ -129,7 +137,7 @@ class DocumentAccessTests(TestCase):
 
 @override_settings(MEDIA_ROOT=MEDIA_OVERRIDE)
 class DocumentAdminOperationTests(TestCase):
-    """An administrator creates a folder, uploads a document and deletes it."""
+    """An administrator creates a folder, uploads a document and trashes it."""
 
     @classmethod
     def setUpClass(cls):
@@ -158,8 +166,23 @@ class DocumentAdminOperationTests(TestCase):
         self.assertEqual(document.name, 'Инструкция.pdf')
         self.assertEqual(document.uploaded_by, self.admin)
 
+        # «Удалить» is «В корзину»: the row stays, hidden from every listing.
         self.client.post(reverse('documents:document_delete', args=[document.pk]))
         self.assertFalse(Document.objects.filter(pk=document.pk).exists())
+        self.assertTrue(Document.all_objects.filter(pk=document.pk, deleted_at__isnull=False).exists())
+
+    def test_the_responsible_flag_grants_management(self):
+        """«Ответственный за документацию» manages the library whatever the role."""
+        keeper = _make_user('keeper', UserProfile.Role.OTK)
+        folder = DocumentFolder.objects.create(name='Обмен', parent=get_corporate_root())
+        self.client.force_login(keeper)
+        self.assertEqual(
+            self.client.post(reverse('documents:subfolder_create', args=[folder.pk]), {'name': 'А'}).status_code,
+            403,
+        )
+        UserProfile.objects.filter(user=keeper).update(is_document_responsible=True)
+        self.client.post(reverse('documents:subfolder_create', args=[folder.pk]), {'name': 'А'})
+        self.assertTrue(DocumentFolder.objects.filter(parent=folder, name='А').exists())
 
     def test_executable_upload_is_refused(self):
         folder = DocumentFolder.objects.create(name='Обмен', parent=get_corporate_root())

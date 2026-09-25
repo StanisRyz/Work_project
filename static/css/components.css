@@ -1099,3 +1099,17 @@ tr[data-row-url]:hover { background: #f7f9ff; }
         max-width: none;
     }
 }
+
+/* «Нормативные документы» on an act or a protocol — the documents it cites
+   (`templates/documents/includes/linked_documents.html`). Here and not in
+   `documents.css`, which only the library pages load. */
+.doc-linked { margin-top: 14px; }
+.doc-linked__list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.doc-linked__row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--color-border); }
+.doc-linked__row:first-child { border-top: 0; }
+.doc-linked__row form { margin: 0 0 0 auto; }
+.doc-linked__remove { border: 0; background: none; color: var(--color-muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.doc-linked__remove:hover { color: #b91c1c; }
+.doc-linked__empty { margin: 0; color: var(--color-muted); font-size: 13px; }
+.doc-linked__form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.doc-linked__form select { flex: 1 1 320px; max-width: 640px; }

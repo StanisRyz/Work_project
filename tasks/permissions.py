@@ -18,6 +18,9 @@ _SOURCE_AWARE_SELECT_RELATED = (
     'smk_source',
     # The same for a `BUG` task: the report is what «Источник» names and links.
     'bug_report',
+    # And for the three «Документация» sources: the document the version
+    # belongs to is what «Источник» names.
+    'document_version__document',
 )
 
 

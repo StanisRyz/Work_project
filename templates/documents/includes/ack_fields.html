@@ -1,0 +1,11 @@
+{% comment %}«Ознакомить»: roles and departments, both optional. Whoever holds a ticked role or works in a ticked department gets one «Ознакомиться» task.{% endcomment %}
+<div class="doc-ack-fields">
+    <fieldset class="doc-fieldset">
+        <legend>Роли</legend>
+        <div class="doc-checks">{% for choice in form.ack_roles %}{{ choice.tag }}<label for="{{ choice.id_for_label }}">{{ choice.choice_label }}</label>{% endfor %}</div>
+    </fieldset>
+    <fieldset class="doc-fieldset">
+        <legend>Подразделения</legend>
+        <div class="doc-checks">{% for choice in form.ack_departments %}{{ choice.tag }}<label for="{{ choice.id_for_label }}">{{ choice.choice_label }}</label>{% endfor %}</div>
+    </fieldset>
+</div>

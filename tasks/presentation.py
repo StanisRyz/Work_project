@@ -45,6 +45,14 @@ def describe_task_source(task):
             'label': task.bug_report.label,
             'url': reverse('bugs:detail', args=[task.bug_report_id]),
         }
+    if task.is_document_task:
+        if task.document_version_id is None:
+            return {'label': '', 'url': ''}
+        document = task.document_version.document
+        return {
+            'label': document.title,
+            'url': reverse('documents:document_detail', args=[document.pk]),
+        }
     if task.protocol_id is None:
         return {'label': '', 'url': ''}
     return {

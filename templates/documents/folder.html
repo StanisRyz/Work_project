@@ -1,0 +1,261 @@
+{% extends 'documents/layout.html' %}
+{% load registry %}
+
+{% block doc_main %}
+{% comment %}
+One folder: its header and tools, the filter row, and one table of subfolders
+and documents. Filters and sorting are GET parameters, so a filtered view is a
+link. Every management control is drawn only for a user who may use it and
+posts to an endpoint that asks the same rule again.
+{% endcomment %}
+<header class="doc-head">
+    <div class="doc-head__titles">
+        {% include 'documents/includes/breadcrumbs.html' %}
+        <h1 class="doc-head__title user-text">
+            {{ folder.name }}
+            {% if folder.allowed_roles %}<span class="doc-chip doc-chip--lock" title="Папка видна только ролям: {{ access_labels|join:', ' }}">🔐 {{ access_labels|join:', ' }}</span>{% endif %}
+        </h1>
+    </div>
+    <div class="doc-head__actions">
+        {% if can_upload_here %}
+            <button class="link-button link-button--compact" type="button" data-upload-open aria-controls="doc-upload-panel">⤒ Загрузить файлы</button>
+        {% endif %}
+        {% if can_create_here %}
+            <button class="link-button link-button--secondary link-button--compact" type="button"
+                    data-confirm
+                    data-confirm-url="{% url 'documents:subfolder_create' folder.pk %}"
+                    data-confirm-title="Новая папка"
+                    data-confirm-text="Папка появится внутри «{{ folder.name }}»."
+                    data-confirm-label="Создать"
+                    data-confirm-comment="required"
+                    data-confirm-comment-name="name"
+                    data-confirm-comment-label="Название папки"
+                    data-confirm-comment-error="Укажите название папки.">＋ Новая папка</button>
+        {% endif %}
+        <form method="post" action="{% url 'documents:folder_subscribe' folder.pk %}">
+            {% csrf_token %}
+            <button class="link-button link-button--secondary link-button--compact" type="submit"
+                    title="{% if is_subscribed %}Отписаться от уведомлений о новых документах{% else %}Получать уведомления о новых документах и версиях в этой папке{% endif %}"
+                    aria-pressed="{% if is_subscribed %}true{% else %}false{% endif %}">{% if is_subscribed %}🔔 Вы подписаны{% else %}🔕 Подписаться{% endif %}</button>
+        </form>
+        {% if can_set_access or can_rename_here or can_delete_here %}
+        <details class="doc-menu">
+            <summary class="link-button link-button--secondary link-button--compact" aria-label="Действия с папкой">⋯</summary>
+            <div class="doc-menu__popup doc-menu__popup--right" role="menu">
+                {% if can_rename_here %}
+                <button class="doc-menu__item" type="button" role="menuitem"
+                        data-confirm
+                        data-confirm-url="{% url 'documents:folder_rename' folder.pk %}"
+                        data-confirm-title="Переименовать папку"
+                        data-confirm-text="Новое название папки «{{ folder.name }}»."
+                        data-confirm-label="Переименовать"
+                        data-confirm-comment="required"
+                        data-confirm-comment-name="name"
+                        data-confirm-comment-label="Название папки"
+                        data-confirm-comment-error="Укажите название папки.">Переименовать</button>
+                {% endif %}
+                {% if can_set_access %}
+                <button class="doc-menu__item" type="button" role="menuitem" data-panel-open="doc-access-panel">Доступ к папке…</button>
+                {% endif %}
+                {% if can_delete_here %}
+                <button class="doc-menu__item doc-menu__item--danger" type="button" role="menuitem"
+                        data-confirm
+                        data-confirm-url="{% url 'documents:folder_delete' folder.pk %}"
+                        data-confirm-title="Удалить папку"
+                        data-confirm-text="Удалить папку «{{ folder.name }}»? Удаляется только пустая папка."
+                        data-confirm-label="Удалить"
+                        data-confirm-variant="warning">Удалить папку</button>
+                {% endif %}
+            </div>
+        </details>
+        {% endif %}
+    </div>
+</header>
+
+{% if can_upload_here %}
+{% comment %}
+Uploading: a panel, not a dialog, so it works without JavaScript. Picking or
+dropping files fills the one input; «Ознакомить» is optional and issues an
+«Ознакомиться» task to everybody it names once the files are stored.
+{% endcomment %}
+<details class="doc-panel" id="doc-upload-panel" data-upload-panel>
+    <summary class="doc-visually-hidden">Загрузка файлов</summary>
+    <form class="doc-upload-form" method="post" enctype="multipart/form-data"
+          action="{% url 'documents:document_upload' folder.pk %}" data-document-upload>
+        {% csrf_token %}
+        <label class="doc-dropzone" data-dropzone>
+            <span class="doc-dropzone__text" data-dropzone-text>Перетащите файлы сюда или <u>выберите на компьютере</u></span>
+            {{ upload_form.file }}
+        </label>
+        <details class="doc-ack-picker">
+            <summary>Ознакомить сотрудников <span class="doc-muted">(необязательно)</span></summary>
+            {% include 'documents/includes/ack_fields.html' with form=upload_form %}
+        </details>
+        <div class="doc-panel__actions">
+            <button class="link-button link-button--compact" type="submit">Загрузить</button>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-panel-close>Отмена</button>
+        </div>
+    </form>
+</details>
+{% endif %}
+
+{% if can_set_access %}
+<details class="doc-panel" id="doc-access-panel">
+    <summary class="doc-visually-hidden">Доступ к папке</summary>
+    <form method="post" action="{% url 'documents:folder_access' folder.pk %}">
+        {% csrf_token %}
+        <p class="doc-panel__hint">Отметьте роли, которым видна папка «{{ folder.name }}» и всё, что в ней. Ничего не отмечено — папка открыта всем сотрудникам. Ответственные за документацию видят все папки.</p>
+        <div class="doc-checks">{% for choice in access_form.roles %}{{ choice.tag }}<label for="{{ choice.id_for_label }}">{{ choice.choice_label }}</label>{% endfor %}</div>
+        <div class="doc-panel__actions">
+            <button class="link-button link-button--compact" type="submit">Сохранить доступ</button>
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-panel-close>Отмена</button>
+        </div>
+    </form>
+</details>
+{% endif %}
+
+<form class="doc-filters" method="get" data-registry-filter>
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="Название или обозначение" aria-label="Найти в папке" data-registry-search>
+    <select name="status" aria-label="Статус">
+        <option value="">Все статусы</option>
+        {% for value, label in status_filters %}<option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <select name="type" aria-label="Тип файла">
+        <option value="">Все типы</option>
+        {% for value, label in type_filters %}<option value="{{ value }}"{% if filters.type == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <input type="hidden" name="sort" value="{{ filters.sort }}">
+    <noscript><button class="link-button link-button--secondary link-button--compact" type="submit">Применить</button></noscript>
+    {% if is_filtered %}<a class="doc-filters__reset" href="{{ request.path }}">Сбросить</a>{% endif %}
+    <span class="doc-filters__count">{{ document_rows|length }} {% if document_rows|length == 1 %}документ{% else %}док.{% endif %}</span>
+</form>
+
+{% if can_manage %}
+{% comment %}
+The selection bar. Checkboxes in the table belong to this form through
+`form="doc-bulk-form"`, so the table needs no form of its own; the bar is shown
+by the script once something is ticked, and without JavaScript it simply stays
+visible.
+{% endcomment %}
+<form class="doc-bulk" id="doc-bulk-form" method="post" action="{% url 'documents:bulk' %}" data-doc-bulk>
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <span class="doc-bulk__count" data-doc-bulk-count>Отметьте документы</span>
+    <select name="target" aria-label="Папка для переноса">
+        <option value="">Перенести в…</option>
+        {% for target in move_targets %}<option value="{{ target.pk }}"{% if target.pk == folder.pk %} disabled{% endif %}>{{ target.path }}</option>{% endfor %}
+    </select>
+    <button class="link-button link-button--secondary link-button--compact" type="submit" name="action" value="move">Перенести</button>
+    <button class="link-button link-button--secondary link-button--compact" type="submit" name="action" value="zip">Скачать ZIP</button>
+    <button class="link-button link-button--warning link-button--compact" type="submit" name="action" value="trash">В корзину</button>
+</form>
+{% endif %}
+
+<div class="doc-main__body">
+    {% if folder_rows or document_rows %}
+    <div class="table-card doc-table-card">
+        <table class="data-table doc-table">
+            <colgroup>
+                {% if can_manage %}<col class="doc-table__check-col">{% endif %}
+                <col>
+                <col class="doc-table__designation-col">
+                <col class="doc-table__status-col">
+                <col class="doc-table__version-col">
+                <col class="doc-table__date-col">
+                <col class="doc-table__owner-col">
+                <col class="doc-table__menu-col">
+            </colgroup>
+            <thead>
+                <tr>
+                    {% if can_manage %}<th class="doc-table__check"><input type="checkbox" aria-label="Отметить все документы" data-doc-check-all></th>{% endif %}
+                    {% sortable_th 'Название' 'name' filters.sort %}
+                    {% sortable_th 'Обозначение' 'designation' filters.sort %}
+                    {% sortable_th 'Статус' 'status' filters.sort %}
+                    <th>Версия</th>
+                    {% sortable_th 'Изменён' 'date' filters.sort %}
+                    {% sortable_th 'Владелец' 'owner' filters.sort %}
+                    <th><span class="doc-visually-hidden">Действия</span></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in folder_rows %}
+                <tr class="doc-table__folder" data-row-url="{{ row.url }}" data-drop-folder="{{ row.folder.pk }}">
+                    {% if can_manage %}<td></td>{% endif %}
+                    <td class="doc-table__name">
+                        <a class="doc-entry" href="{{ row.url }}"><span class="doc-entry__icon" aria-hidden="true">📁</span><span class="doc-entry__text user-text">{{ row.folder.name }}</span></a>
+                        {% if row.is_restricted %}<span class="doc-chip doc-chip--lock" title="Доступ ограничен">🔐</span>{% endif %}
+                    </td>
+                    <td class="doc-muted" colspan="4">{{ row.count }} {% if row.count == 1 %}документ{% else %}док.{% endif %}</td>
+                    <td></td>
+                    <td class="doc-table__menu">
+                        {% if row.can_rename or row.can_delete %}
+                        <details class="doc-menu">
+                            <summary class="doc-icon-button" aria-label="Действия с папкой «{{ row.folder.name }}»">⋯</summary>
+                            <div class="doc-menu__popup doc-menu__popup--right" role="menu">
+                                {% if row.can_rename %}
+                                <button class="doc-menu__item" type="button" role="menuitem"
+                                        data-confirm data-confirm-url="{% url 'documents:folder_rename' row.folder.pk %}"
+                                        data-confirm-title="Переименовать папку"
+                                        data-confirm-text="Новое название папки «{{ row.folder.name }}»."
+                                        data-confirm-label="Переименовать" data-confirm-comment="required"
+                                        data-confirm-comment-name="name" data-confirm-comment-label="Название папки"
+                                        data-confirm-comment-error="Укажите название папки.">Переименовать</button>
+                                {% endif %}
+                                {% if row.can_delete %}
+                                <button class="doc-menu__item doc-menu__item--danger" type="button" role="menuitem"
+                                        data-confirm data-confirm-url="{% url 'documents:folder_delete' row.folder.pk %}"
+                                        data-confirm-title="Удалить папку"
+                                        data-confirm-text="Удалить папку «{{ row.folder.name }}»? Удаляется только пустая папка."
+                                        data-confirm-label="Удалить" data-confirm-variant="warning">Удалить</button>
+                                {% endif %}
+                            </div>
+                        </details>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            {% for row in document_rows %}
+                <tr data-row-url="{{ row.url }}"{% if row.can_edit %} draggable="true" data-doc-id="{{ row.document.pk }}"{% endif %}
+                    class="{% if row.document.status == 'CANCELLED' %}doc-table__row--cancelled{% endif %}">
+                    {% if can_manage %}<td class="doc-table__check"><input type="checkbox" name="ids" value="{{ row.document.pk }}" form="doc-bulk-form" aria-label="Отметить «{{ row.document.title }}»" data-doc-check></td>{% endif %}
+                    <td class="doc-table__name">
+                        <a class="doc-entry" href="{{ row.url }}" title="{{ row.document.name }}">
+                            <span class="doc-entry__icon" aria-hidden="true">{{ row.icon }}</span>
+                            <span class="doc-entry__text user-text text-ellipsis">{{ row.document.name }}</span>
+                        </a>
+                        {% if row.is_favorite %}<span class="doc-star" title="В избранном">★</span>{% endif %}
+                    </td>
+                    <td class="doc-muted text-ellipsis" title="{{ row.document.designation }}">{{ row.document.designation|default:'—' }}</td>
+                    <td><span class="doc-status doc-status--{{ row.document.status|lower }}">{{ row.document.get_status_display }}</span></td>
+                    <td class="doc-muted">{% if row.version %}{{ row.version.full_label }}{% else %}—{% endif %}</td>
+                    <td class="doc-muted">{{ row.document.updated_at|date:'d.m.Y' }}</td>
+                    <td class="doc-muted text-ellipsis" title="{{ row.document.owner_department.name|default:'' }}">{{ row.document.owner_department.name|default:'—' }}</td>
+                    <td class="doc-table__menu">
+                        <details class="doc-menu">
+                            <summary class="doc-icon-button" aria-label="Действия с «{{ row.document.title }}»">⋯</summary>
+                            <div class="doc-menu__popup doc-menu__popup--right" role="menu">
+                                <a class="doc-menu__item" href="{{ row.url }}" role="menuitem">Открыть</a>
+                                {% if row.download_url %}<a class="doc-menu__item" href="{{ row.download_url }}" role="menuitem">Скачать</a>{% endif %}
+                                <button class="doc-menu__item" type="button" role="menuitem" data-copy-link="{{ request.scheme }}://{{ request.get_host }}{{ row.url }}">Копировать ссылку</button>
+                                {% if row.can_edit %}
+                                <button class="doc-menu__item doc-menu__item--danger" type="button" role="menuitem"
+                                        data-confirm data-confirm-url="{% url 'documents:document_delete' row.document.pk %}"
+                                        data-confirm-title="В корзину"
+                                        data-confirm-text="Документ «{{ row.document.title }}» будет перемещён в корзину. Восстановить его можно в течение 30 дней."
+                                        data-confirm-label="В корзину" data-confirm-variant="warning">В корзину</button>
+                                {% endif %}
+                            </div>
+                        </details>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% elif is_filtered %}
+        {% include 'acts/includes/empty_state.html' with title='Ничего не найдено' message='Измените условия отбора или сбросьте фильтры.' %}
+    {% else %}
+        {% include 'acts/includes/empty_state.html' with title='Папка пуста' message='Здесь пока нет ни папок, ни документов.' %}
+    {% endif %}
+</div>
+{% endblock %}

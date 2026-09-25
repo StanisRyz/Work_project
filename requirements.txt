@@ -10,3 +10,8 @@ uvicorn==0.52.1
 # installable on one of them. Cyrillic needs a TrueType font — see
 # PROTOCOL_PDF_FONT_PATH.
 reportlab==5.0.1
+# Documentation full-text search: the text of a PDF version is extracted once,
+# at upload, and stored beside it. Pure Python like ReportLab, for the same
+# Windows-and-Linux reason; Word/Excel/PowerPoint need no library (their text
+# is XML inside a zip).
+pypdf==5.1.0

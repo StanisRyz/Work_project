@@ -1,690 +1,171 @@
-/*
- * Документация — the file browser.
- *
- * Layout only. Every surface, button and table here is a project component
- * (`.table-card`, `.data-table`, `.link-button`, `.empty-state`); this file
- * places them and adds the two things a file list needs that no other page
- * has — a breadcrumb path and a row that reads as a folder or a file. No new
- * colours, no new typography, no second design system.
- */
+/* Документация — the explorer.
 
-.doc-breadcrumbs {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 12px;
-    color: var(--color-muted);
-    font-size: 14px;
-}
+   One layout for every page of the library: the folder tree on the left, the
+   page on the right, both inside the one-screen chain (`page-container--fill`)
+   so the page itself never scrolls — the tree and the main column scroll on
+   their own. Sized for the plant's 1920×1080 screens with the project's
+   density tokens: controls are `--control-height`, cells `--cell-padding`,
+   text `--font-size-base`. No fixed heights: the columns take whatever the
+   topbar has left. */
 
-.doc-breadcrumbs__link {
-    color: var(--color-primary-dark);
-    font-weight: 600;
-}
-
-.doc-breadcrumbs__link:hover {
-    text-decoration: underline;
-}
-
-.doc-breadcrumbs__separator {
-    color: var(--color-border);
-}
-
-/* The last item is a link too — it just reads as the end of the path. */
-.doc-breadcrumbs__link--current {
-    color: var(--color-text);
-    font-weight: 700;
-}
-
-.doc-breadcrumbs__link--current:hover {
-    color: var(--color-primary-dark);
-}
-
-.doc-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 16px;
-}
-
-.doc-toolbar__nav {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px;
-}
-
-.doc-toolbar__title {
-    margin: 0;
-    font-size: 22px;
-}
-
-.doc-toolbar__actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-/* Search box plus whatever the page's right-hand actions are. */
-.doc-toolbar__side {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-}
-
-/* The management strip: shown only to a user who may change the library. */
-.doc-tools {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 18px;
-    margin-bottom: 16px;
-    padding: 16px 18px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-}
-
-.doc-tools__form {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    margin: 0;
-}
-
-.doc-tools__field {
+.doc-shell {
     display: grid;
-    gap: 6px;
-    color: var(--color-muted);
-    font-size: 14px;
+    flex: 1 1 auto;
+    grid-template-columns: 236px minmax(0, 1fr);
+    gap: 14px;
+    min-height: 0;
 }
 
-.doc-tools__field input {
-    padding: var(--control-padding);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    color: var(--color-text);
-    font: inherit;
-    font-size: var(--control-font-size);
-}
+/* ------------------------------------------------------------------ tree */
 
-.doc-tools__field-optional {
-    font-style: italic;
-}
-
-.doc-tools__hint {
-    margin: 0;
-    color: var(--color-muted);
-    font-size: 14px;
-}
-
-/* A file list is narrow: the registry's 980px minimum would scroll for
-   nothing, so the documents table sets its own. */
-.doc-table {
-    min-width: 620px;
-}
-
-.doc-table__muted {
-    color: var(--color-muted);
-    white-space: nowrap;
-}
-
-.doc-table__actions-head,
-.doc-table__actions {
-    text-align: right;
-    white-space: nowrap;
-}
-
-/* The flex row lives in a wrapper, never on the cell itself: `display: flex`
-   on a <td> takes it out of the table layout, which is what pulled the
-   «Действия» column away from its rows. */
-.doc-actions {
+.doc-nav {
     display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-}
-
-.doc-entry {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.doc-entry__icon {
-    font-size: 16px;
-    line-height: 1;
-}
-
-@media (max-width: 760px) {
-    .doc-tools {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .doc-tools__form {
-        flex-direction: column;
-        align-items: stretch;
-    }
-}
-
-/*
- * System attachments.
- *
- * The same table, told apart by two additions and nothing else: the 🔒 icon
- * in the name cell (in the markup, not here) and the source line under it.
- * No second palette and no separate card style — a system file must read as
- * part of the same browser, only clearly not editable.
- */
-
-.doc-system-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: #f1f5f9;
-    color: var(--color-muted);
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.doc-system-note {
-    margin: 0 0 16px;
-    padding: 12px 14px;
-    border: 1px solid var(--color-border);
-    border-left: 3px solid var(--color-muted);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-    color: var(--color-muted);
-    font-size: 14px;
-}
-
-/* «Источник: Акт №123» — what the file actually belongs to. */
-.doc-entry__source {
-    display: block;
-    margin-top: 4px;
-    color: var(--color-muted);
-    font-size: 13px;
-}
-
-.doc-entry__source a {
-    color: var(--color-primary-dark);
-    font-weight: 600;
-}
-
-.doc-entry__source a:hover {
-    text-decoration: underline;
-}
-
-/* Search ------------------------------------------------------------------
- *
- * The box lives in the toolbar of every Documentation page; the results page
- * adds the filter chips and the cards. Same surfaces, borders and buttons as
- * the folder browser — a result is the same file, seen from a different page.
- */
-
-.doc-visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-}
-
-.doc-search {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.doc-search__field input {
-    width: min(320px, 60vw);
-    padding: var(--control-padding);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    color: var(--color-text);
-    font: inherit;
-    font-size: var(--control-font-size);
-}
-
-.doc-search__summary {
-    margin: 0 0 12px;
-    color: var(--color-muted);
-    font-size: 14px;
-}
-
-.doc-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 16px;
-}
-
-.doc-filter {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 12px;
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    background: var(--color-surface);
-    color: var(--color-muted);
-    font-size: 14px;
-    font-weight: 600;
-}
-
-.doc-filter:hover {
-    color: var(--color-primary-dark);
-}
-
-.doc-filter--active {
-    border-color: var(--color-primary);
-    background: #edf3ff;
-    color: var(--color-primary-dark);
-}
-
-.doc-filter__count {
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: #eef2f7;
-    font-size: 12px;
-}
-
-.doc-filter--active .doc-filter__count {
-    background: #dbe7ff;
-}
-
-/* Result cards ------------------------------------------------------------
- *
- * One card for both kinds. A system attachment is told apart by its icon, its
- * «Только чтение» marker and the muted left edge — never by a second layout.
- */
-
-.doc-results {
-    display: grid;
-    gap: 12px;
-}
-
-.doc-result {
-    display: grid;
-    gap: 8px;
-    padding: 16px 18px;
-    border: 1px solid var(--color-border);
-    border-left: 3px solid var(--color-primary);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-}
-
-.doc-result--system {
-    border-left-color: var(--color-muted);
-}
-
-.doc-result__head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-}
-
-.doc-result__name {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--color-primary-dark);
-    font-size: 16px;
-    font-weight: 700;
-}
-
-.doc-result__name:hover {
-    text-decoration: underline;
-}
-
-.doc-result__tag {
-    padding: 3px 10px;
-    border-radius: 999px;
-    background: #eef2f7;
-    color: var(--color-muted);
-    font-size: 12px;
-    font-weight: 700;
-}
-
-.doc-result__path {
-    margin: 0;
-    color: var(--color-muted);
-    font-size: 13px;
-}
-
-.doc-result__meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 16px;
-    color: var(--color-muted);
-    font-size: 13px;
-}
-
-.doc-result__meta a {
-    color: var(--color-primary-dark);
-    font-weight: 600;
-}
-
-.doc-result__meta a:hover {
-    text-decoration: underline;
-}
-
-.doc-result__readonly {
-    font-weight: 700;
-}
-
-.doc-result__actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-@media (max-width: 760px) {
-    .doc-search,
-    .doc-toolbar__side {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .doc-search__field input {
-        width: 100%;
-    }
-}
-
-/* «Недавние документы» — the same result cards, under a heading. */
-
-.doc-recent {
-    margin-bottom: 20px;
-}
-
-.doc-recent__title {
-    margin: 0 0 10px;
-    font-size: 16px;
-}
-
-/* Versions and history ---------------------------------------------------
- *
- * The document page. Same card, table and button components as the browser;
- * what is new is the version badge, the summary strip and the history list.
- */
-
-.doc-version-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 3px 10px;
-    border-radius: 999px;
-    background: #eef2f7;
-    color: var(--color-muted);
-    font-size: 12px;
-    font-weight: 700;
-}
-
-.doc-version-badge--current {
-    margin-left: 8px;
-    background: #edf3ff;
-    color: var(--color-primary-dark);
-}
-
-.doc-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 28px;
-    margin-bottom: 16px;
-    padding: 16px 18px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-}
-
-.doc-summary > div {
-    display: grid;
+    flex-direction: column;
     gap: 2px;
-}
-
-.doc-summary__label {
-    color: var(--color-muted);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.doc-section-title {
-    margin: 22px 0 10px;
-    font-size: 16px;
-}
-
-.doc-history {
-    display: grid;
-    gap: 8px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.doc-history__item {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 14px;
-    padding: 10px 14px;
+    min-height: 0;
+    padding: 10px 8px;
+    overflow: auto;
     border: 1px solid var(--color-border);
-    border-left: 3px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    font-size: 14px;
 }
 
-.doc-history__when {
-    color: var(--color-muted);
-    white-space: nowrap;
+.doc-nav__search {
+    margin: 0 2px 8px;
 }
 
-.doc-history__action {
-    font-weight: 700;
+.doc-nav__search input {
+    width: 100%;
 }
 
-.doc-history__who,
-.doc-history__text {
-    color: var(--color-muted);
-}
-
-/* Favourites, statistics and the card marks --------------------------------
- *
- * The star is a one-button form so it posts with CSRF like every other
- * mutation in the project; it is styled as a plain glyph, not a link-button,
- * so a row of cards does not read as a row of toolbars.
- */
-
-.doc-result__marks {
+.doc-nav__item,
+.doc-tree__row {
     display: flex;
     align-items: center;
-    gap: 8px;
-}
-
-.doc-favorite {
-    display: inline-flex;
-    margin: 0;
-}
-
-.doc-favorite__button {
-    padding: 2px 6px;
-    border: 0;
+    gap: 6px;
+    min-height: 30px;
+    padding: 3px 8px;
     border-radius: 6px;
-    background: transparent;
-    color: var(--color-muted);
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
+    color: var(--color-text);
+    font-size: 13px;
+    text-decoration: none;
 }
 
-.doc-favorite__button:hover {
-    background: #f4f7fc;
+.doc-nav__item:hover,
+.doc-tree__row:hover {
+    background: var(--color-bg);
+}
+
+.doc-nav__item.is-active,
+.doc-tree__row.is-current {
+    background: #eef4ff;
     color: var(--color-primary-dark);
+    font-weight: 700;
 }
 
-.doc-favorite__button--on {
-    color: #d97706;
+.doc-nav__icon {
+    width: 18px;
+    text-align: center;
 }
 
-.doc-stats {
+.doc-nav__count,
+.doc-tree__count {
+    margin-left: auto;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.doc-tree {
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px 28px;
-    margin-bottom: 20px;
-    padding: 14px 18px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
+    flex-direction: column;
+    gap: 1px;
+    margin: 4px 0;
+    padding: 4px 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
 }
 
-.doc-stats > div {
-    display: grid;
-    gap: 2px;
+.doc-tree__children {
+    padding-left: 14px;
 }
 
-/* One control height -------------------------------------------------------
- *
- * Text inputs, file pickers and buttons sit in the same rows, so they are all
- * given the same box height. `.link-button` is inline-flex and centres its own
- * label, so a min-height is enough — no padding is overridden and no other
- * page's buttons are touched.
- */
-
-.doc-tools .doc-tools__field input,
-.doc-tools .link-button,
-.doc-tools button,
-.doc-upload,
-.doc-search__field input,
-.doc-search .link-button {
-    box-sizing: border-box;
-    min-height: var(--control-height);
-}
-
-.doc-tools__field {
-    margin: 0;
-}
-
-/* The «+» upload control.
- *
- * A label wrapping a visually hidden `<input type="file" multiple>`: clicking
- * the green square opens the picker, and choosing files starts the upload —
- * `static/js/documents.js` only inserts the confirmation step.
- */
-.doc-upload {
-    display: inline-flex;
-    position: relative;
-    align-items: center;
-    justify-content: center;
-    min-width: 44px;
-    padding: 0 14px;
-    border-radius: var(--radius);
-    background: #16a34a;
-    color: #fff;
+.doc-tree__branch > summary {
+    list-style: none;
     cursor: pointer;
 }
 
-.doc-upload:hover {
-    background: #15803d;
-}
-
-.doc-upload:focus-within {
-    outline: 2px solid #166534;
-    outline-offset: 2px;
-}
-
-.doc-upload__glyph {
-    font-size: 22px;
-    font-weight: 700;
-    line-height: 1;
-}
-
-/* Hidden but still focusable and still a real form control — never
-   `display: none`, which would take it out of form validation. */
-.doc-upload input[type='file'] {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    pointer-events: none;
-}
-
-/* Clicked by the script, never by a person. */
-.doc-upload__confirm {
+.doc-tree__branch > summary::-webkit-details-marker {
     display: none;
 }
 
-/* The document table ------------------------------------------------------
- *
- * Four columns of deliberately unequal width. `table-layout: fixed` is what
- * lets the name column take the remaining space and clip its text — an `auto`
- * table would widen instead, and `text-overflow` would never trigger.
- */
-
-.doc-file-table {
-    min-width: 520px;
-    table-layout: fixed;
+.doc-tree__chevron {
+    flex: 0 0 auto;
+    width: 12px;
+    color: var(--color-muted);
 }
 
-.doc-file-table__size { width: 100px; }
-.doc-file-table__date { width: 140px; }
-.doc-file-table__version { width: 84px; }
-
-.doc-file-name {
-    overflow: hidden;
+.doc-tree__chevron::before {
+    content: '▸';
+    display: inline-block;
+    transition: transform .12s ease;
 }
 
-/* `min-width: 0` on both the flex row and its text: without it a flex item
-   refuses to shrink below its content and the ellipsis never appears. */
-.doc-file-name .doc-entry {
-    display: flex;
-    min-width: 0;
-    max-width: 100%;
+.doc-tree__branch[open] > summary .doc-tree__chevron::before {
+    transform: rotate(90deg);
 }
 
-.doc-file-name__text {
+.doc-tree__row--leaf {
+    padding-left: 26px;
+}
+
+.doc-tree__link {
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
+    color: inherit;
+    text-decoration: none;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* The document page -------------------------------------------------------
- *
- * Three areas: the information block, the viewer, and «История» behind the
- * shared `.act-detail-tabs` component. Surfaces, borders and buttons are the
- * project's own; what is new here is the header strip, the two dropdowns and
- * the viewer frame.
- */
+.doc-tree__lock {
+    margin-right: 3px;
+    font-size: 11px;
+}
+
+/* A folder a dragged document hovers over. */
+.is-drop-target {
+    outline: 2px dashed var(--color-primary);
+    outline-offset: -2px;
+    background: #eef4ff !important;
+}
+
+/* ------------------------------------------------------------ main column */
+
+.doc-main {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.doc-main__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
 
 .doc-head {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 14px;
-    padding: 16px 18px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px 16px;
 }
 
-.doc-head__icon {
-    font-size: 34px;
-    line-height: 1;
-}
-
-.doc-head__body {
-    flex: 1 1 320px;
+.doc-head__titles {
     min-width: 0;
 }
 
@@ -692,47 +173,171 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
-    margin: 0;
-    min-width: 0;
+    gap: 8px;
+    margin: 2px 0 0;
+    font-size: 20px;
+    line-height: 1.3;
+}
+
+.doc-head__icon {
     font-size: 20px;
 }
 
-.doc-head__meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 18px;
-    margin-top: 6px;
+.doc-head__sub {
+    margin: 2px 0 0;
     color: var(--color-muted);
     font-size: 13px;
-}
-
-/* Shown only while an older revision is on screen, so «Скачать текущую
-   версию» can never be mistaken for «скачать то, что я вижу». */
-.doc-head__notice {
-    color: #b45309;
-    font-weight: 700;
 }
 
 .doc-head__actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
 .doc-head__actions form {
     margin: 0;
 }
 
-/* Version and download menus. Plain `<details>`, like the topbar menus: the
-   browser opens and closes them, and no script is loaded for a list of links. */
+.doc-breadcrumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.doc-breadcrumbs__link {
+    color: var(--color-muted);
+    text-decoration: none;
+}
+
+.doc-breadcrumbs__link:hover {
+    color: var(--color-primary);
+    text-decoration: underline;
+}
+
+.doc-breadcrumbs__link--current {
+    color: var(--color-text);
+}
+
+/* ------------------------------------------------------ chips and badges */
+
+.doc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.doc-chip--lock {
+    border-color: #f5d7a3;
+    background: #fff7ed;
+    color: #92400e;
+}
+
+.doc-status {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.doc-status--active,
+.doc-status--approval-approved,
+.doc-status--ack-completed { background: #ecfdf5; color: #15803d; }
+.doc-status--draft,
+.doc-status--approval-pending,
+.doc-status--ack-in_progress { background: #eef4ff; color: var(--color-primary-dark); }
+.doc-status--cancelled,
+.doc-status--approval-returned { background: #fef2f2; color: #b91c1c; }
+.doc-status--approval-cancelled,
+.doc-status--ack-archived { background: var(--color-bg); color: var(--color-muted); }
+.doc-status--overdue { background: #fef2f2; color: #b91c1c; }
+
+.doc-muted {
+    color: var(--color-muted);
+}
+
+.doc-due--overdue { color: #b91c1c; font-weight: 700; }
+.doc-due--soon { color: #b45309; font-weight: 700; }
+
+.doc-star {
+    margin-left: 4px;
+    color: #eab308;
+}
+
+/* --------------------------------------------------------------- buttons */
+
+.doc-icon-button {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+    list-style: none;
+}
+
+.doc-icon-button::-webkit-details-marker {
+    display: none;
+}
+
+.doc-icon-button:hover {
+    border-color: var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text);
+}
+
+.doc-link-button {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-primary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+}
+
+.doc-link-button::-webkit-details-marker {
+    display: none;
+}
+
+.doc-link-button:hover {
+    text-decoration: underline;
+}
+
+/* ------------------------------------------------------------ «⋯» menus */
+
 .doc-menu {
     position: relative;
 }
 
 .doc-menu > summary {
-    cursor: pointer;
     list-style: none;
 }
 
@@ -741,115 +346,928 @@
 }
 
 .doc-menu__popup {
-    display: grid;
     position: absolute;
-    z-index: 20;
+    z-index: 30;
     top: calc(100% + 4px);
-    right: 0;
-    min-width: 220px;
-    padding: 6px;
+    left: 0;
+    display: grid;
+    min-width: 200px;
+    padding: 4px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: 0 12px 28px rgb(15 23 42 / 14%);
+    box-shadow: 0 10px 28px rgb(15 23 42 / 14%);
+}
+
+.doc-menu__popup--right {
+    right: 0;
+    left: auto;
 }
 
 .doc-menu__item {
-    padding: 8px 10px;
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    border: 0;
     border-radius: 6px;
+    background: none;
     color: var(--color-text);
-    font-size: 14px;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    text-decoration: none;
     white-space: nowrap;
+    cursor: pointer;
 }
 
 .doc-menu__item:hover {
-    background: #f4f7fc;
+    background: var(--color-bg);
 }
 
-.doc-menu__item--active {
-    background: #edf3ff;
+.doc-menu__item--danger {
+    color: #b91c1c;
+}
+
+/* ------------------------------------------------------ panels and forms */
+
+/* A panel opened by a header button. `<details>` so it works without
+   JavaScript; the summary is visually hidden because the button above is the
+   visible control. */
+.doc-panel:not([open]) {
+    display: none;
+}
+
+.doc-panel[open] {
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.doc-panel__hint {
+    margin: 0 0 8px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.doc-panel__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.doc-dropzone {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 72px;
+    padding: 10px;
+    border: 2px dashed var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-size: 13px;
+    text-align: center;
+    cursor: pointer;
+}
+
+.doc-dropzone--small {
+    min-height: 48px;
+}
+
+.doc-dropzone:hover,
+.doc-dropzone.is-dragging,
+.doc-dropping .doc-dropzone {
+    border-color: var(--color-primary);
+    color: var(--color-primary-dark);
+}
+
+.doc-dropzone input[type='file'] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.doc-dropzone.has-files {
+    border-style: solid;
+    border-color: #86efac;
+    background: #f0fdf4;
+    color: #15803d;
+}
+
+.doc-ack-picker {
+    margin-top: 8px;
+}
+
+.doc-ack-picker > summary {
+    color: var(--color-primary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.doc-ack-fields {
+    display: grid;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.doc-fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.doc-fieldset legend {
+    margin-bottom: 4px;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.doc-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    max-height: 132px;
+    overflow: auto;
+}
+
+.doc-checks input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.doc-checks label {
+    padding: 2px 9px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-surface);
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.doc-checks input:checked + label {
+    border-color: var(--color-primary);
+    background: #eef4ff;
     color: var(--color-primary-dark);
     font-weight: 700;
 }
 
-/* The viewer. A tall frame rather than a fixed pixel height: a document is
-   the point of the page, and the browser's own PDF controls live inside it. */
-.doc-viewer {
-    margin-top: 16px;
+.doc-checks input:focus-visible + label {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+}
+
+.doc-field {
+    display: grid;
+    gap: 3px;
+    font-size: 13px;
+}
+
+.doc-field > span {
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.doc-field input,
+.doc-field select,
+.doc-field textarea {
+    width: 100%;
+    padding: var(--control-padding);
+    font: inherit;
+}
+
+.doc-field select[multiple] {
+    height: auto;
+}
+
+.doc-card-form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px 12px;
+    max-width: 980px;
+}
+
+.doc-field--wide {
+    grid-column: 1 / -1;
+}
+
+.doc-inline-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.doc-inline-form select {
+    min-width: 280px;
+    max-width: 520px;
+}
+
+/* ------------------------------------------------------------ filter row */
+
+.doc-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+}
+
+.doc-filters input[type='search'] {
+    width: 260px;
+}
+
+.doc-filters__query {
+    width: 380px !important;
+}
+
+.doc-filters select {
+    max-width: 240px;
+}
+
+.doc-filters__date {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.doc-filters__reset {
+    font-size: 13px;
+}
+
+.doc-filters__count {
+    margin-left: auto;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.doc-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.doc-chips__chip {
+    padding: 3px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.doc-chips__chip.is-active {
+    border-color: var(--color-primary);
+    background: #eef4ff;
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+.doc-chips__count {
+    color: var(--color-muted);
+    font-weight: 400;
+}
+
+.doc-search__summary {
+    margin: 0 0 6px;
+    font-size: 13px;
+}
+
+/* ------------------------------------------------------- selection bar */
+
+.doc-bulk {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid #bfd3fb;
+    border-radius: var(--radius);
+    background: #f5f8ff;
+}
+
+.doc-bulk[hidden] {
+    display: none;
+}
+
+.doc-bulk__count {
+    margin-right: 6px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.doc-bulk select {
+    max-width: 360px;
+}
+
+/* ---------------------------------------------------------------- table */
+
+.doc-table-card {
+    padding: 0;
+    overflow: visible;
+}
+
+.doc-table {
+    table-layout: fixed;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.doc-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--color-surface);
+}
+
+.doc-table td {
+    vertical-align: middle;
+}
+
+.doc-table__check-col { width: 36px; }
+.doc-table__designation-col { width: 160px; }
+.doc-table__status-col { width: 116px; }
+.doc-table__version-col { width: 92px; }
+.doc-table__date-col { width: 96px; }
+.doc-table__owner-col { width: 170px; }
+.doc-table__menu-col { width: 44px; }
+
+.doc-table__check {
+    text-align: center;
+}
+
+.doc-table__check input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+}
+
+/* The cell stays a table cell — a flex `<td>` leaves the table layout — and
+   the link inside it carries the row. */
+.doc-table__name {
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.doc-table__name .doc-entry {
+    max-width: calc(100% - 22px);
+    vertical-align: middle;
+}
+
+.doc-table__menu {
+    text-align: right;
+}
+
+.doc-table__row--cancelled .doc-entry__text {
+    color: var(--color-muted);
+    text-decoration: line-through;
+}
+
+.doc-table__folder .doc-entry__text {
+    font-weight: 700;
+}
+
+.doc-table tr[draggable='true'] {
+    cursor: grab;
+}
+
+.doc-table tr.is-dragging {
+    opacity: .5;
+}
+
+.doc-entry {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    color: var(--color-text);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.doc-entry:hover .doc-entry__text {
+    color: var(--color-primary);
+    text-decoration: underline;
+}
+
+.doc-entry__icon {
+    flex: 0 0 auto;
+    font-size: 16px;
+}
+
+.doc-entry__text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.doc-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.doc-actions form {
+    margin: 0;
+}
+
+/* «Вложения»: a thumbnail for pictures, a clip for everything else. */
+.doc-attachments__thumb-col { width: 60px; }
+.doc-attachments td:nth-child(3) { width: auto; }
+
+.doc-attachments__thumb {
+    text-align: center;
+}
+
+.doc-attachments__thumb img {
+    display: block;
+    width: 44px;
+    height: 32px;
+    margin: 0 auto;
+    object-fit: cover;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg);
+}
+
+.doc-attachments__source {
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--color-bg);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* ------------------------------------------------------------ home blocks */
+
+.doc-home {
+    display: grid;
+    align-content: start;
+    gap: 12px;
+}
+
+.doc-home__columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.doc-block {
+    padding: 10px 14px 12px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
+}
+
+.doc-block--accent {
+    border-left: 3px solid var(--color-primary);
+}
+
+.doc-block__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 6px;
+    font-size: 15px;
+}
+
+.doc-block__count {
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.doc-block__empty {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.doc-list {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.doc-list__row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 2px;
+    border-top: 1px solid var(--color-border);
+}
+
+.doc-list__row:first-child {
+    border-top: 0;
+}
+
+.doc-list__icon {
+    flex: 0 0 auto;
+    width: 22px;
+    font-size: 16px;
+    text-align: center;
+}
+
+.doc-list__main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+    min-width: 0;
+}
+
+.doc-list__title {
+    color: var(--color-text);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.doc-list__title:hover {
+    color: var(--color-primary);
+    text-decoration: underline;
+}
+
+.doc-list__tag {
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.doc-list__path {
+    flex-basis: 100%;
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.doc-list__snippet {
+    flex-basis: 100%;
+    margin: 2px 0;
+    color: var(--color-text);
+    font-size: 13px;
+}
+
+.doc-list__snippet mark {
+    padding: 0 1px;
+    border-radius: 2px;
+    background: #fef08a;
+}
+
+.doc-list__meta {
+    flex: 0 0 auto;
+    color: var(--color-muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* ------------------------------------------------------- document page */
+
+.doc-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    padding: 7px 12px;
+    border: 1px solid #bfd3fb;
+    border-radius: var(--radius);
+    background: #f5f8ff;
+    font-size: 13px;
+}
+
+.doc-banner form {
+    margin: 0;
+}
+
+.doc-banner--action {
+    border-color: #86efac;
+    background: #f0fdf4;
+}
+
+.doc-banner--muted {
+    border-color: var(--color-border);
+    background: var(--color-bg);
+}
+
+.doc-banner__actions {
+    display: flex;
+    gap: 6px;
+}
+
+.doc-view {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 12px;
     overflow: hidden;
 }
 
-.doc-viewer__frame {
-    display: block;
-    width: 100%;
-    height: min(72vh, 900px);
-    border: 0;
-}
-
-.doc-viewer__image-wrap {
+.doc-view__preview {
     display: flex;
-    justify-content: center;
-    padding: 18px;
-    background: #f4f7fc;
+    min-height: 0;
 }
 
-.doc-viewer__image {
+.doc-viewer {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 420px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.doc-viewer--image {
+    display: grid;
+    place-items: center;
+    padding: 12px;
+    overflow: auto;
+}
+
+.doc-viewer--image img {
     max-width: 100%;
-    max-height: min(72vh, 900px);
+    max-height: 100%;
     object-fit: contain;
 }
 
-.doc-viewer__empty {
+.doc-viewer--empty {
     display: grid;
+    align-content: center;
     justify-items: center;
-    gap: 14px;
-    padding: 48px 18px;
+    gap: 10px;
+    padding: 24px;
     color: var(--color-muted);
     text-align: center;
 }
 
-.doc-viewer__empty p {
-    max-width: 52ch;
+.doc-viewer--empty p {
+    max-width: 440px;
     margin: 0;
 }
 
-.doc-viewer__footer {
-    margin: 12px 0 0;
-    color: var(--color-muted);
+.doc-viewer__icon {
+    font-size: 44px;
+}
+
+.doc-view__side {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    overflow: auto;
+}
+
+.doc-side {
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.doc-side__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
 }
 
-.doc-viewer__footer a {
-    color: var(--color-primary-dark);
-    font-weight: 600;
+.doc-side[open] > .doc-side__title {
+    margin-bottom: 6px;
 }
 
-.doc-viewer__footer a:hover {
-    text-decoration: underline;
+.doc-side__note {
+    margin: 4px 0;
+    font-size: 12px;
+}
+
+/* A two-column list of facts, not `.detail-section dl` — that rule lays out
+   every `dl` as 130px + 1fr and would win on specificity inside a section. */
+.doc-facts {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 3px 8px;
+    margin: 0;
+    font-size: 13px;
+}
+
+.doc-facts dt {
+    color: var(--color-muted);
+}
+
+.doc-facts dd {
+    margin: 0;
+    min-width: 0;
+}
+
+.doc-versions,
+.doc-people,
+.doc-history {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.doc-versions__row {
+    padding: 5px 6px;
+    border-top: 1px solid var(--color-border);
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.doc-versions__row:first-child {
+    border-top: 0;
+}
+
+.doc-versions__row.is-selected {
+    background: #f5f8ff;
+}
+
+.doc-versions__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+}
+
+.doc-versions__label {
+    font-weight: 700;
+}
+
+.doc-versions__date {
+    margin-left: auto;
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.doc-versions__comment {
+    margin: 2px 0 0;
+    font-size: 12px;
+}
+
+.doc-versions__comment--returned {
+    color: #b91c1c;
+}
+
+.doc-versions__by {
+    color: var(--color-muted);
+    font-size: 11px;
+}
+
+.doc-subpanel > summary {
+    list-style: none;
+}
+
+.doc-subpanel[open] > summary {
+    margin-bottom: 6px;
+}
+
+.doc-version-form {
+    display: grid;
+    gap: 8px;
+}
+
+.doc-people__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 8px;
+    padding: 4px 0;
+    border-top: 1px solid var(--color-border);
+    font-size: 13px;
+}
+
+.doc-people__row:first-child {
+    border-top: 0;
+}
+
+.doc-people__name {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.doc-people__date {
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.doc-people__note {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.doc-history__row {
+    display: grid;
+    gap: 1px;
+    padding: 4px 0;
+    border-top: 1px solid var(--color-border);
+    font-size: 12px;
+}
+
+.doc-history__row:first-child {
+    border-top: 0;
+}
+
+.doc-history__when,
+.doc-history__who {
+    color: var(--color-muted);
+    font-size: 11px;
+}
+
+/* ------------------------------------------------------------------ misc */
+
+.doc-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.doc-toast {
+    position: fixed;
+    z-index: 60;
+    right: 20px;
+    bottom: 20px;
+    padding: 8px 14px;
+    border-radius: var(--radius);
+    background: var(--color-text);
+    color: #ffffff;
+    font-size: 13px;
+    box-shadow: 0 10px 28px rgb(15 23 42 / 20%);
+}
+
+/* ------------------------------------------------------------ narrower */
+
+@media (max-width: 1240px) {
+    .doc-view {
+        grid-template-columns: minmax(0, 1fr) 300px;
+    }
+
+    .doc-table__owner-col { width: 120px; }
+    .doc-table__designation-col { width: 120px; }
+}
+
+@media (max-width: 980px) {
+    .doc-shell {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .doc-nav {
+        max-height: 220px;
+    }
+
+    .doc-view,
+    .doc-home__columns,
+    .doc-card-form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .doc-view {
+        overflow: visible;
+    }
 }
 
 @media (max-width: 760px) {
-    .doc-viewer__frame { height: 60vh; }
-    .doc-menu__popup { right: auto; left: 0; }
-}
+    .doc-shell,
+    .doc-main,
+    .doc-main__body {
+        display: block;
+        overflow: visible;
+    }
 
-/* Files dragged over a folder page (`documents.js`): the whole page says where
-   they will land. `pointer-events: none` keeps the drop target the page. */
-body.doc-dropping::after {
-    content: 'Отпустите файлы, чтобы загрузить их в эту папку';
-    position: fixed;
-    inset: 12px;
-    z-index: 100;
-    display: grid;
-    place-items: center;
-    border: 3px dashed var(--color-primary);
-    border-radius: var(--radius);
-    background: rgb(37 99 235 / 8%);
-    color: var(--color-primary-dark);
-    font-size: 20px;
-    font-weight: 700;
-    pointer-events: none;
+    .doc-main > * + * {
+        margin-top: 10px;
+    }
+
+    .doc-table__designation-col,
+    .doc-table__owner-col {
+        width: 0;
+    }
 }
+.doc-field[hidden] { display: none; }

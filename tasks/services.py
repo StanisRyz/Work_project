@@ -632,6 +632,112 @@ def cancel_protocol_approval_task(task, decided_at):
 
 
 # --------------------------------------------------------------------------
+# Documentation task lifecycle
+#
+# Written only through the functions below, called only from
+# `documents/services.py` inside the transaction that stores the version, the
+# decision or the acknowledgement. Every document task is personal — one
+# version, one person, `individual_assignee` naming them — so the uniqueness
+# constraints on `Task` are what make a repeated request harmless.
+#
+# `DOCUMENT_ACK` and `DOCUMENT_APPROVAL` are routing entries, closed by what
+# the person does on the document page («Ознакомлен», «Согласовать»,
+# «Вернуть»); `DOCUMENT_REVIEW` is ordinary work, completed through
+# `complete_task()` with the usual execution comment.
+# --------------------------------------------------------------------------
+
+
+DOCUMENT_TASK_SOURCES = frozenset({
+    Task.SourceType.DOCUMENT_ACK,
+    Task.SourceType.DOCUMENT_APPROVAL,
+    Task.SourceType.DOCUMENT_REVIEW,
+})
+
+
+def create_document_task(source_type, version, assignee, *, created_by, due_date, task_text, department=None):
+    """One personal task about one document version."""
+    if source_type not in DOCUMENT_TASK_SOURCES:
+        raise TaskWorkflowError('Неизвестный тип задачи по документу.')
+    task = Task(
+        source_type=source_type,
+        document_version=version,
+        individual_assignee=assignee,
+        task_text=task_text,
+        department=department,
+        due_date=due_date,
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    return _save_new_task(task, [assignee.pk], actor=created_by)
+
+
+def complete_document_routing_task(task, *, user, closed_at):
+    """Close an acknowledgement or approval entry because its answer was given.
+
+    The answer itself — «Ознакомлен», «Согласовано» — is recorded by
+    `documents/services.py` on the document side; this only takes the entry off
+    the person's queue, naming them, exactly as
+    `complete_protocol_approval_task()` does. Already-final tasks are left
+    alone, so a repeated click changes nothing.
+    """
+    if task is None or task.status.is_final:
+        return None
+    if task.source_type not in {Task.SourceType.DOCUMENT_ACK, Task.SourceType.DOCUMENT_APPROVAL}:
+        raise TaskWorkflowError('Так закрывается только задача ознакомления или согласования документа.')
+    task.status = _active_status('COMPLETED', 'Выполнено')
+    task.completed_by = user
+    task.completed_at = closed_at
+    task.save(update_fields=['status', 'completed_by', 'completed_at', 'updated_at'])
+    emit_task_completed(task)
+    log_event(
+        logger,
+        'INFO',
+        'task.document_task_completed',
+        task_id=task.pk,
+        source_type=task.source_type,
+        actor_user_id=_pk_of(user),
+        next_status='COMPLETED',
+        outcome='ok',
+    )
+    return task
+
+
+def cancel_document_tasks(tasks, *, actor, reason):
+    """Withdraw open document tasks nobody needs to finish any more.
+
+    The rest of an approval round after a return, the acknowledgements of a
+    version replaced before they were read, everything open on a document sent
+    to «Корзина» or cancelled. Nobody is named as having done the work —
+    `completed_by` stays empty, as it does for every cancelled task — and tasks
+    already final are left exactly as they are. Returns the tasks it closed.
+    """
+    cancelled_status = _active_status('CANCELLED', 'Отменена')
+    cancelled_at = timezone.now()
+    closed = []
+    for task in tasks:
+        if task.status.is_final or task.source_type not in DOCUMENT_TASK_SOURCES:
+            continue
+        task.status = cancelled_status
+        task.cancelled_at = cancelled_at
+        task.cancelled_by = actor
+        task.cancellation_reason = reason
+        task.save(update_fields=['status', 'cancelled_at', 'cancelled_by', 'cancellation_reason', 'updated_at'])
+        emit_task_updated(task, changed_fields=('status',))
+        log_event(
+            logger,
+            'INFO',
+            'task.cancelled',
+            task_id=task.pk,
+            source_type=task.source_type,
+            actor_user_id=_pk_of(actor),
+            next_status=cancelled_status.code,
+            outcome='ok',
+        )
+        closed.append(task)
+    return closed
+
+
+# --------------------------------------------------------------------------
 # Act workflow task lifecycle
 #
 # The act's route made visible in «Задачи». One active routing task per act at

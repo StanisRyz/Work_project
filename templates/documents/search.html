@@ -1,58 +1,59 @@
-{% extends 'base.html' %}
-{% load static %}
+{% extends 'documents/layout.html' %}
 
-{% block title %}Поиск по документации{% endblock %}
-
-{% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260925-3">
-{% endblock %}
-
-{% block content %}
+{% block doc_main %}
 {% comment %}
-Search results, corporate documents and system attachments in one list.
-
-The two kinds share a card and differ only where they genuinely differ: a
-corporate document names the folder it sits in, a system attachment names the
-act, protocol or task that owns it and is marked read-only. Neither card
-carries a management control — searching is not editing, and a file is changed
-where it lives.
+Search results, corporate documents and system attachments in one list, with
+the words found inside a file shown under its name. The filters narrow the
+corporate half (папка, статус) and both halves (тип, период); the chips keep
+their counts for the current term.
 {% endcomment %}
-
-{% include 'documents/includes/breadcrumbs.html' %}
-
-<div class="doc-toolbar">
-    <div class="doc-toolbar__nav">
-        <a class="link-button link-button--secondary link-button--compact" href="{% url 'documents:browse' %}">← К документации</a>
-        <h1 class="doc-toolbar__title">Поиск</h1>
+<header class="doc-head">
+    <div class="doc-head__titles">
+        {% include 'documents/includes/breadcrumbs.html' %}
+        <h1 class="doc-head__title">Поиск</h1>
     </div>
-    {% include 'documents/includes/search_form.html' %}
-</div>
+</header>
 
+<form class="doc-filters doc-filters--search" method="get" action="{% url 'documents:search' %}">
+    <input class="doc-filters__query" type="search" name="q" value="{{ query }}" placeholder="Название, обозначение, номер акта или слова из текста" aria-label="Что искать" autofocus>
+    <select name="folder" aria-label="Папка">
+        <option value="">Все папки</option>
+        {% for pk, path in folder_choices %}<option value="{{ pk }}"{% if filters.folder == pk %} selected{% endif %}>{{ path }}</option>{% endfor %}
+    </select>
+    <select name="status" aria-label="Статус">
+        <option value="">Все статусы</option>
+        {% for value, label in status_choices %}<option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <select name="type" aria-label="Тип файла">
+        <option value="">Все типы</option>
+        {% for value, label in type_choices %}<option value="{{ value }}"{% if filters.type == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <label class="doc-filters__date">с <input type="date" name="date_from" value="{{ filter_values.date_from }}"></label>
+    <label class="doc-filters__date">по <input type="date" name="date_to" value="{{ filter_values.date_to }}"></label>
+    <input type="hidden" name="scope" value="{{ scope }}">
+    <button class="link-button link-button--compact" type="submit">Найти</button>
+    {% if has_filters %}<a class="doc-filters__reset" href="?q={{ query|urlencode }}">Сбросить фильтры</a>{% endif %}
+</form>
+
+<div class="doc-main__body">
 {% if has_query %}
-    {% comment %} The filter chips. Each keeps the current term and carries its own count. {% endcomment %}
-    <nav class="doc-filters" aria-label="Фильтр результатов поиска">
+    <nav class="doc-chips" aria-label="Где искать">
         {% for entry in scopes %}
-            <a class="doc-filter{% if entry.is_active %} doc-filter--active{% endif %}"
-               href="?q={{ query|urlencode }}&scope={{ entry.value }}"
-               {% if entry.is_active %}aria-current="true"{% endif %}>{{ entry.label }}<span class="doc-filter__count">{{ entry.count }}</span></a>
+            <a class="doc-chips__chip{% if entry.is_active %} is-active{% endif %}"
+               href="?{% if request.GET.urlencode %}{{ request.GET.urlencode }}&{% endif %}scope={{ entry.value }}"
+               {% if entry.is_active %}aria-current="true"{% endif %}>{{ entry.label }} <span class="doc-chips__count">{{ entry.count }}</span></a>
         {% endfor %}
     </nav>
-
     {% if results %}
-        <p class="doc-search__summary">Найдено: {{ results|length }} из {{ total_count }} по запросу «{{ query }}».</p>
-        <section class="doc-results" aria-label="Результаты поиска">
-            {% for card in results %}{% include 'documents/includes/document_card.html' %}{% endfor %}
-        </section>
+        <p class="doc-muted doc-search__summary">Найдено: {{ results|length }}{% if results|length != total_count %} из {{ total_count }}{% endif %} по запросу «{{ query }}».</p>
+        {% include 'documents/includes/doc_list.html' with cards=results %}
     {% else %}
         {% include 'acts/includes/empty_state.html' with title='Ничего не найдено' message='Попробуйте другой запрос или снимите фильтр.' %}
     {% endif %}
-
 {% elif query_too_short %}
-    <section class="empty-state">
-        <h2>Слишком короткий запрос</h2>
-        <p>Введите не менее {{ min_query_length }} символов.</p>
-    </section>
+    {% include 'acts/includes/empty_state.html' with title='Слишком короткий запрос' message='Введите не менее двух символов.' %}
 {% else %}
-    {% include 'acts/includes/empty_state.html' with title='Поиск по документации' message='Введите название файла, папки, номер акта или протокола.' %}
+    {% include 'acts/includes/empty_state.html' with title='Поиск по документации' message='Название, обозначение, номер акта или протокола — или слова из текста документа (PDF, Word, Excel).' %}
 {% endif %}
+</div>
 {% endblock %}

@@ -13,6 +13,12 @@ urlpatterns = [
 
     # One search over both branches. GET only, and it never leaves the module.
     path('search/', views.search, name='search'),
+    path('trash/', views.trash, name='trash'),
+    # The folder table's selection: move, send to the trash, download as ZIP.
+    path('bulk/', views.documents_bulk, name='bulk'),
+    # «Где используется», posted from an act or a protocol page.
+    path('links/add/', views.link_create, name='link_create'),
+    path('links/<int:link_id>/delete/', views.link_delete, name='link_delete'),
 
     # Management: POST only, and each one checks the permission before the
     # method, so a forbidden URL answers 403 rather than 405.
@@ -21,6 +27,8 @@ urlpatterns = [
     path('folders/<int:folder_id>/rename/', views.folder_rename, name='folder_rename'),
     path('folders/<int:folder_id>/delete/', views.folder_delete, name='folder_delete'),
     path('folders/<int:folder_id>/upload/', views.document_upload, name='document_upload'),
+    path('folders/<int:folder_id>/access/', views.folder_access, name='folder_access'),
+    path('folders/<int:folder_id>/subscribe/', views.folder_subscribe, name='folder_subscribe'),
 
     # One corporate document: its current version, its versions and its
     # history. Files are served only through these views, never from a media
@@ -28,7 +36,14 @@ urlpatterns = [
     # resolves to the current version.
     path('files/<int:document_id>/', views.document_detail, name='document_detail'),
     path('files/<int:document_id>/download/', views.document_download, name='document_download'),
+    # «Удалить» sends to «Корзина»; restore and purge work from there.
     path('files/<int:document_id>/delete/', views.document_delete, name='document_delete'),
+    path('files/<int:document_id>/restore/', views.document_restore, name='document_restore'),
+    path('files/<int:document_id>/purge/', views.document_purge, name='document_purge'),
+    path('files/<int:document_id>/card/', views.document_card, name='document_card'),
+    path('files/<int:document_id>/subscribe/', views.document_subscribe, name='document_subscribe'),
+    path('files/<int:document_id>/acknowledge/', views.document_acknowledge, name='document_acknowledge'),
+    path('files/<int:document_id>/acknowledgement/', views.document_ack_request, name='document_ack_request'),
     # A personal shortcut, private to whoever posts it.
     path(
         'files/<int:document_id>/favorite/',
@@ -53,6 +68,16 @@ urlpatterns = [
         name='document_version_preview',
     ),
     path(
+        'files/<int:document_id>/versions/<int:version_id>/approve/',
+        views.document_version_approve,
+        name='document_version_approve',
+    ),
+    path(
+        'files/<int:document_id>/versions/<int:version_id>/return/',
+        views.document_version_return,
+        name='document_version_return',
+    ),
+    path(
         'files/<int:document_id>/versions/<int:version_id>/restore/',
         views.document_version_restore,
         name='document_version_restore',
@@ -75,6 +100,11 @@ urlpatterns = [
         'system/<slug:source>/files/<int:attachment_id>/download/',
         views.system_download,
         name='system_download',
+    ),
+    path(
+        'system/<slug:source>/files/<int:attachment_id>/preview/',
+        views.system_preview,
+        name='system_preview',
     ),
     path(
         'system/<slug:source>/<int:object_id>/upload/',

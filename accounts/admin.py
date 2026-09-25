@@ -53,16 +53,20 @@ class UserProfileAdmin(admin.ModelAdmin):
     form = UserProfileAdminForm
     list_display = (
         'user', 'role', 'department', 'position', 'is_active', 'is_bug_responsible',
+        'is_document_responsible',
     )
-    list_editable = ('is_bug_responsible',)
+    list_editable = ('is_bug_responsible', 'is_document_responsible')
     search_fields = (
         'user__username',
         'user__first_name',
         'user__last_name',
         'department__name',
     )
-    list_filter = ('role', 'department', 'is_active', 'is_bug_responsible')
-    actions = ('mark_bug_responsible', 'unmark_bug_responsible')
+    list_filter = ('role', 'department', 'is_active', 'is_bug_responsible', 'is_document_responsible')
+    actions = (
+        'mark_bug_responsible', 'unmark_bug_responsible',
+        'mark_document_responsible', 'unmark_document_responsible',
+    )
 
     @admin.action(description='Назначить ответственными за ошибки')
     def mark_bug_responsible(self, request, queryset):
@@ -73,6 +77,18 @@ class UserProfileAdmin(admin.ModelAdmin):
     def unmark_bug_responsible(self, request, queryset):
         updated = queryset.update(is_bug_responsible=False)
         self.message_user(request, f'Снята ответственность за ошибки: {updated}.')
+
+    # «Ответственный за документацию»: who manages «Документация» beside the
+    # administrator (`documents.permissions.can_manage_documents()`).
+    @admin.action(description='Назначить ответственными за документацию')
+    def mark_document_responsible(self, request, queryset):
+        updated = queryset.update(is_document_responsible=True)
+        self.message_user(request, f'Назначено ответственных за документацию: {updated}.')
+
+    @admin.action(description='Снять ответственность за документацию')
+    def unmark_document_responsible(self, request, queryset):
+        updated = queryset.update(is_document_responsible=False)
+        self.message_user(request, f'Снята ответственность за документацию: {updated}.')
 
 
 class ActiveSubstitutionFilter(admin.SimpleListFilter):

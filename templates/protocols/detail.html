@@ -70,6 +70,7 @@ server render and is therefore already current.
     <div class="act-collaboration-layout">
         {% include 'protocols/includes/detail_collaboration.html' %}
     </div>
+    {% include 'documents/includes/linked_documents.html' with link_target_field='protocol' link_target_id=protocol.pk link_target_label='протокол' %}
 {% elif detail_tab == 'activities' %}
     <section class="detail-section related-activities" data-live-protocol-activities>
         {% include 'protocols/includes/activities_content.html' %}
