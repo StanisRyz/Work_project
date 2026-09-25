@@ -30,7 +30,7 @@ def describe_task_source(task):
     }:
         if task.act_id is None:
             return {'label': '', 'url': ''}
-        return {'label': task.act.number, 'url': reverse('acts:detail', args=[task.act_id])}
+        return {'label': task.act.number or 'Акт б/н', 'url': reverse('acts:detail', args=[task.act_id])}
     if task.source_type == Task.SourceType.SMK:
         if task.smk_source_id is None:
             return {'label': '', 'url': ''}
@@ -89,7 +89,9 @@ def describe_task_type(task):
     """
     label = task.get_source_type_display()
     if task.source_type == Task.SourceType.ACT_WORKFLOW and task.workflow_stage:
-        return f'{label}: {task.get_workflow_stage_display().lower()}'
+        stage = task.get_workflow_stage_display()
+        # Only the first letter: «рассмотрение КО», never «рассмотрение ко».
+        return f'{label}: {stage[:1].lower()}{stage[1:]}'
     return label
 
 

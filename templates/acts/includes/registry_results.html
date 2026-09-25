@@ -1,3 +1,4 @@
+{% load registry %}
 {% comment %}
 Registry results only: the table with its rows, or the matching empty state.
 The scope tabs and the filter form stay outside, so a live refresh never
@@ -12,19 +13,20 @@ replaces a control the user may be typing into.
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Номер</th>
-                    <th>{% if scope == 'archive' %}Дата архивации{% else %}Дата создания{% endif %}</th>
+                    {% comment %}Sort links rewrite only `sort`: scope, filters and search stay in the query string.{% endcomment %}
+                    {% sortable_th 'Номер' 'number' sort %}
+                    {% if scope == 'archive' %}{% sortable_th 'Дата архивации' 'date' sort %}{% else %}{% sortable_th 'Дата создания' 'date' sort %}{% endif %}
                     <th>Тип</th>
-                    <th>Заказчик</th>
-                    <th>Статус</th>
-                    <th>Срок</th>
+                    {% sortable_th 'Заказчик' 'customer' sort %}
+                    {% sortable_th 'Статус' 'status' sort %}
+                    {% sortable_th 'Срок' 'due' sort %}
                 </tr>
             </thead>
             <tbody>
                 {% for act in acts %}
                     {# Whole-row navigation: `static/js/clickable_rows.js`. #}
                     <tr data-act-row="{{ act.pk }}" data-row-url="{% url 'acts:detail' act.pk %}">
-                        <td><a class="table-link" href="{% url 'acts:detail' act.pk %}">{{ act.number }}</a></td>
+                        <td><a class="table-link" href="{% url 'acts:detail' act.pk %}">{{ act.number|default:'б/н' }}</a></td>
                         <td>
                             {% if scope == 'archive' %}
                                 {{ act.approved_at|date:'d.m.Y' }}
@@ -38,9 +40,7 @@ replaces a control the user may be typing into.
                         <td>{% include 'acts/includes/status_badge.html' with status=act.status %}</td>
                         <td>
                             {% if act.due_date %}
-                                <span class="{% if act.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">
-                                    {{ act.due_date|date:'d.m.Y' }}
-                                </span>
+                                {% include 'includes/due_date.html' with date=act.due_date done=act.status.is_final %}
                             {% else %}
                                 —
                             {% endif %}

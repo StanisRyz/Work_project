@@ -1,0 +1,7 @@
+{% load registry %}{% comment %}
+One deadline, the same everywhere: the date pill plus how far it is in words
+(«через 2 дня», «просрочен на 3 дня»). `date` is the deadline; `done` is true
+for work that is already over — its date is history, so it is neither
+coloured nor counted down. Presentation only: which rows are overdue is still
+the owning module's filter.
+{% endcomment %}{% with tone=date|due_tone %}<span class="due-date-cell"><span class="due-date{% if tone and not done %} due-date--{{ tone }}{% endif %}">{{ date|date:'d.m.Y' }}</span>{% if not done %}<small class="due-date__hint{% if tone == 'overdue' %} due-date__hint--overdue{% endif %}">{{ date|due_hint }}</small>{% endif %}</span>{% endwith %}

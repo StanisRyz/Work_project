@@ -79,6 +79,12 @@
     {% endcomment %}
     <script src="{% static 'js/form_drafts.js' %}?v=20260925-1"></script>
     {% comment %}
+    Every registry: filters that apply themselves, the last tab/filters/order
+    remembered per user in this browser. Presentation only — the list is the
+    server's answer to the query string.
+    {% endcomment %}
+    <script src="{% static 'js/registry_tools.js' %}?v=20260925-1"></script>
+    {% comment %}
     «Сменить пароль» in the profile menu: a real link to the full form page,
     opened as the topbar dialog where `<dialog>` works. Loaded for every
     authenticated page because the menu is in every one of them.

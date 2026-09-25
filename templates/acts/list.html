@@ -9,11 +9,16 @@
 The registry opens on its tabs, like Задачи and Калькулятор. «Создать АКТ»
 shares that top row instead of owning a heading block of its own.
 {% endcomment %}
-<div class="act-registry-toolbar">
+{% comment %}
+`data-registry-memory` lets `registry_tools.js` reopen this registry on the
+tab, filters and order the user last left it with — per user, in this
+browser only. The counts beside the tabs are the unfiltered size of each tab.
+{% endcomment %}
+<div class="act-registry-toolbar" data-registry-memory="acts:{{ request.user.pk }}">
     <nav class="act-registry-tabs" aria-label="Область списка актов">
-        <a class="act-registry-tabs__link{% if scope == 'my' %} act-registry-tabs__link--active{% endif %}" href="?scope=my">Мои акты</a>
-        <a class="act-registry-tabs__link{% if scope == 'all' %} act-registry-tabs__link--active{% endif %}" href="?scope=all">Все акты</a>
-        <a class="act-registry-tabs__link{% if scope == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?scope=archive">Архив</a>
+        <a class="act-registry-tabs__link{% if scope == 'my' %} act-registry-tabs__link--active{% endif %}" href="?scope=my">Мои акты <span class="tab-count">{{ tab_counts.my }}</span></a>
+        <a class="act-registry-tabs__link{% if scope == 'all' %} act-registry-tabs__link--active{% endif %}" href="?scope=all">Все акты <span class="tab-count">{{ tab_counts.all }}</span></a>
+        <a class="act-registry-tabs__link{% if scope == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?scope=archive">Архив <span class="tab-count">{{ tab_counts.archive }}</span></a>
     </nav>
     {% if can_create %}
         <a class="link-button" href="{% url 'acts:create' %}">Создать АКТ</a>
@@ -36,11 +41,12 @@ filters and search survive.
     </form>
 {% endif %}
 
-<form class="filter-form act-filter-panel" method="get">
+<form class="filter-form act-filter-panel" method="get" data-registry-filter>
     <input type="hidden" name="scope" value="{{ scope }}">
+    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
     <label>
         <span>Поиск</span>
-        <input type="search" name="search" value="{{ selected.search }}" placeholder="Номер, ЗНП, партия, номенклатура">
+        <input type="search" name="search" value="{{ selected.search }}" placeholder="Номер, заказчик, ЗНП, партия, номенклатура" data-registry-search>
     </label>
     <label>
         <span>Статус</span>

@@ -23,6 +23,38 @@ from .services import get_visible_acts_for_user
 SCOPES = ('my', 'all', 'archive')
 DUE_CHOICES = ('', 'overdue', 'not_overdue')
 
+# `?sort=` → ORDER BY. A key outside this map is ignored, so the parameter can
+# never name a column the registry does not show. `pk` breaks every tie, so
+# two acts created in the same second keep a stable order between refreshes.
+# «date» is the column the tab shows: creation, or approval in «Архив».
+SORTS = {
+    'number': ('number',),
+    'date': ('created_at',),
+    'customer': ('customer',),
+    'status': ('status__sort_order',),
+    'due': ('due_date',),
+}
+ARCHIVE_DATE_SORT = ('approved_at',)
+
+# The KPI strip is also a set of shortcuts: each counter applies exactly the
+# filter it counts. Status counters name a status *code*, resolved to the id
+# the status filter speaks.
+KPI_STATUS_CODES = {
+    'created_otk': 'CREATED_OTK',
+    'ko_review': 'KO_REVIEW',
+    'to_analysis': 'TO_ANALYSIS',
+}
+
+
+def _ordering(sort, scope):
+    """(accepted sort, ORDER BY fields) for a raw `?sort=` value."""
+    field = sort.lstrip('-')
+    if field not in SORTS:
+        return '', None
+    columns = ARCHIVE_DATE_SORT if field == 'date' and scope == 'archive' else SORTS[field]
+    prefix = '-' if sort.startswith('-') else ''
+    return sort, [f'{prefix}{column}' for column in columns] + [f'{prefix}pk']
+
 # The route the act travels, and which step each status sits on.
 ROUTE_STEPS = (
     ('Создан ОТК', 'CREATED_OTK'),
@@ -65,6 +97,8 @@ def build_act_list_state(user, query_params):
     today = timezone.localdate()
 
     status = query_params.get('status')
+    if status and not str(status).isdigit():
+        status = ''
     act_type = query_params.get('act_type', '')
     due = query_params.get('due', '')
     search = query_params.get('search', '').strip()
@@ -74,31 +108,48 @@ def build_act_list_state(user, query_params):
         act_type = ''
 
     acts = visible_acts
-    if status:
-        acts = acts.filter(status_id=status)
     if act_type:
         acts = acts.filter(act_type=act_type)
+    if search:
+        # Canonical ownership: the number, the nomenclature and the customer
+        # belong to the act, ЗНП and the party number to its defects. Every
+        # defect matches, not just the first one, so `distinct()` collapses
+        # the join.
+        acts = acts.filter(
+            Q(number__icontains=search)
+            | Q(nomenclature__icontains=search)
+            | Q(customer__icontains=search)
+            | Q(defects__znp_number__icontains=search)
+            | Q(defects__party_number__icontains=search)
+        ).distinct()
+    # The KPI strip counts this set — search and type applied, status and
+    # deadline not — because each counter is a link that sets exactly one of
+    # those two filters. Counted after them, a number would describe a list
+    # the click does not open.
+    kpi_base = acts
+    if status:
+        acts = acts.filter(status_id=status)
     if due == 'overdue':
         acts = acts.filter(due_date__lt=today)
     elif due == 'not_overdue':
         acts = acts.filter(due_date__gte=today)
-    if search:
-        # Canonical ownership: the number and the nomenclature belong to the
-        # act, ЗНП and the party number to its defects. Every defect matches,
-        # not just the first one, so `distinct()` collapses the join.
-        acts = acts.filter(
-            Q(number__icontains=search)
-            | Q(nomenclature__icontains=search)
-            | Q(defects__znp_number__icontains=search)
-            | Q(defects__party_number__icontains=search)
-        ).distinct()
     has_filters = bool(status or act_type or due or search)
+    sort, ordering = _ordering(query_params.get('sort', ''), scope)
+    if ordering:
+        acts = acts.order_by(*ordering)
     kpis = {
-        'total': acts.count(),
-        'overdue': acts.filter(due_date__lt=today).count(),
-        'created_otk': acts.filter(status__code='CREATED_OTK').count(),
-        'ko_review': acts.filter(status__code='KO_REVIEW').count(),
-        'to_analysis': acts.filter(status__code='TO_ANALYSIS').count(),
+        'total': kpi_base.count(),
+        'overdue': kpi_base.filter(due_date__lt=today).count(),
+        'created_otk': kpi_base.filter(status__code='CREATED_OTK').count(),
+        'ko_review': kpi_base.filter(status__code='KO_REVIEW').count(),
+        'to_analysis': kpi_base.filter(status__code='TO_ANALYSIS').count(),
+    }
+
+    status_ids = dict(
+        ActStatus.objects.filter(code__in=KPI_STATUS_CODES.values()).values_list('code', 'pk')
+    )
+    kpi_filters = {
+        key: str(status_ids.get(code, '')) for key, code in KPI_STATUS_CODES.items()
     }
 
     return {
@@ -106,6 +157,13 @@ def build_act_list_state(user, query_params):
         # otherwise multiply the count.
         'acts': acts.annotate(defects_total=Count('defects', distinct=True)),
         'kpis': kpis,
+        'kpi_filters': kpi_filters,
+        'sort': sort,
+        'tab_counts': {
+            'my': active_acts.exclude(status__code='ARCHIVED').count(),
+            'all': get_all_visible_acts_queryset(user).exclude(status__code='ARCHIVED').count(),
+            'archive': get_archived_acts_queryset(user).count(),
+        },
         'today': today,
         'has_visible_acts': has_visible_acts,
         'has_filters': has_filters,
@@ -119,6 +177,7 @@ def build_act_list_state(user, query_params):
             'act_type': act_type,
             'due': due,
             'search': search,
+            'sort': sort,
         },
         'can_create': can_create_act(user),
         'can_clear_all_acts': can_clear_all_acts(user),

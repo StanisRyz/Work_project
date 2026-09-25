@@ -1,21 +1,28 @@
-{% comment %}Registry KPI cards. Replaced wholesale by a live refresh.{% endcomment %}
-<article class="act-kpi-card">
+{% load registry %}
+{% comment %}
+Registry KPI strip. Replaced wholesale by a live refresh. Every counter is
+also a shortcut to the filter it counts — the same GET parameters the filter
+panel sends, one of status/deadline at a time — and the counts are taken
+before those two filters (`build_act_list_state`), so a click always opens a
+list exactly as long as its number.
+{% endcomment %}
+<a class="act-kpi-card{% if not selected.status and not selected.due %} act-kpi-card--active{% endif %}" href="{% query_with status=None due=None scope=scope %}">
     <span>Всего на проработке</span>
     <strong>{{ kpis.total }}</strong>
-</article>
-<article class="act-kpi-card act-kpi-card--warning">
+</a>
+<a class="act-kpi-card act-kpi-card--warning{% if selected.due == 'overdue' %} act-kpi-card--active{% endif %}" href="{% query_with due='overdue' status=None scope=scope %}">
     <span>Просрочено</span>
     <strong>{{ kpis.overdue }}</strong>
-</article>
-<article class="act-kpi-card">
+</a>
+<a class="act-kpi-card{% if kpi_filters.created_otk and selected.status == kpi_filters.created_otk %} act-kpi-card--active{% endif %}" href="{% query_with status=kpi_filters.created_otk due=None scope=scope %}">
     <span>На этапе ОТК</span>
     <strong>{{ kpis.created_otk }}</strong>
-</article>
-<article class="act-kpi-card">
+</a>
+<a class="act-kpi-card{% if kpi_filters.ko_review and selected.status == kpi_filters.ko_review %} act-kpi-card--active{% endif %}" href="{% query_with status=kpi_filters.ko_review due=None scope=scope %}">
     <span>На этапе КО</span>
     <strong>{{ kpis.ko_review }}</strong>
-</article>
-<article class="act-kpi-card">
+</a>
+<a class="act-kpi-card{% if kpi_filters.to_analysis and selected.status == kpi_filters.to_analysis %} act-kpi-card--active{% endif %}" href="{% query_with status=kpi_filters.to_analysis due=None scope=scope %}">
     <span>На этапе ТО</span>
     <strong>{{ kpis.to_analysis }}</strong>
-</article>
+</a>

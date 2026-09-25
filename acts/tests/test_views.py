@@ -456,8 +456,10 @@ class ActViewTests(TestCase):
 
         response = self.client.get(reverse('acts:list'))
 
-        for header in ('Номер', 'Дата создания', 'Тип', 'Заказчик', 'Статус', 'Срок'):
-            self.assertContains(response, f'<th>{header}</th>', html=False)
+        # Sortable headers are links (`registry.sortable_th`); «Тип» is plain.
+        for header in ('Номер', 'Дата создания', 'Заказчик', 'Статус', 'Срок'):
+            self.assertContains(response, f'>{header}<span aria-hidden="true">', html=False)
+        self.assertContains(response, '<th>Тип</th>', html=False)
         for removed_header in ('Партия', 'Номенклатура', 'Операция', 'Вид дефекта', 'Приоритет', 'Создал'):
             self.assertNotContains(response, f'<th>{removed_header}</th>', html=False)
 
@@ -786,9 +788,9 @@ class ActViewTests(TestCase):
 
         response = self.client.get(reverse('acts:list') + '?scope=archive')
 
-        self.assertContains(response, '<th>Дата архивации</th>', html=False)
+        self.assertContains(response, '>Дата архивации<span aria-hidden="true">', html=False)
         self.assertContains(response, timezone.localtime(archived_at).strftime('%d.%m.%Y'))
-        self.assertNotContains(response, '<th>Дата создания</th>', html=False)
+        self.assertNotContains(response, '>Дата создания<span', html=False)
 
     def test_legacy_to_analysis_values_remain_visible_without_structured_records(self):
         act = self._create_act(self.status_actions)

@@ -25,8 +25,12 @@
 
 /* A strip, not a row of tiles: number and label on one line, so the five
    counters cost one control height and the list below keeps the screen. The
-   markup keeps label-then-number; `row-reverse` only puts the figure first. */
+   markup keeps label-then-number; `row-reverse` only puts the figure first.
+   Each card is a link to the filter it counts (`registry_kpis.html`). */
 .act-kpi-card {
+    color: inherit;
+    text-decoration: none;
+    transition: border-color .15s ease, background .15s ease;
     display: flex;
     flex-direction: row-reverse;
     align-items: baseline;
@@ -49,6 +53,16 @@
     color: var(--color-primary-dark);
     font-size: 22px;
     line-height: 1.1;
+}
+
+.act-kpi-card:hover {
+    border-color: #9db8ed;
+}
+
+.act-kpi-card--active {
+    border-color: var(--color-primary);
+    background: #f4f8ff;
+    box-shadow: inset 0 0 0 1px var(--color-primary);
 }
 
 .act-kpi-card--warning strong {
@@ -154,6 +168,29 @@
 
 .due-date--overdue {
     background: #fef2f2;
+    color: #991b1b;
+}
+
+.due-date--soon {
+    background: #fff7ed;
+    color: #9a3412;
+}
+
+/* `includes/due_date.html`: the pill and, beside it, the same date in words. */
+.due-date-cell {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+}
+
+.due-date__hint {
+    color: var(--color-muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.due-date__hint--overdue {
     color: #991b1b;
 }
 

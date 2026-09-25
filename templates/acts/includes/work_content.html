@@ -11,10 +11,10 @@ user has no unsaved input; a dirty form is never touched.
         <h2>Данные акта</h2>
         <dl class="act-party-data">
             <dt>Номер акта</dt><dd class="user-text">{{ act.number|default:'—' }}</dd>
-            <dt>Заказчик</dt><dd class="user-text">{{ act.customer|default:'Не указан' }}</dd>
-            <dt>Заказ покупателя</dt><dd class="user-text">{{ act.order_number|default:'Не указан' }}</dd>
-            <dt>Наименование продукции</dt><dd class="user-text">{{ act.nomenclature|default:'Не указано' }}</dd>
-            <dt>Обозначение по КД</dt><dd class="user-text">{{ act.kd_designation|default:'Не указано' }}</dd>
+            <dt>Заказчик</dt><dd class="user-text">{{ act.customer|default:'—' }}</dd>
+            <dt>Заказ покупателя</dt><dd class="user-text">{{ act.order_number|default:'—' }}</dd>
+            <dt>Наименование продукции</dt><dd class="user-text">{{ act.nomenclature|default:'—' }}</dd>
+            <dt>Обозначение по КД</dt><dd class="user-text">{{ act.kd_designation|default:'—' }}</dd>
         </dl>
     </article>
 
