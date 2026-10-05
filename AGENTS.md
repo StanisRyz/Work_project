@@ -1736,6 +1736,43 @@ tasks never live inside `acts`.
   inside the card's transaction after the task and its исполнители exist. One
   notification per assignment, email-eligible, its link `tasks:detail` (→ the
   card); the source reads «Доска «<name>»», never the `BOARD` code.
+- **Cards are dragged by `static/js/board_dnd.js`, and the browser decides
+  nothing.** Loaded on the board page only; Pointer Events (mouse, finger,
+  pen — not HTML5 drag and drop, which a touchscreen does not have), every
+  listener delegated from `document`, so columns replaced wholesale keep
+  working. A mouse drag starts after ~5px (less is the ordinary click on the
+  tile's link, and the click that ends a drag is swallowed — only a trusted
+  one, so the script's own click on a trigger still gets through); a finger
+  needs a ~300 ms press, otherwise the gesture scrolls, and once a card is up
+  a non-passive `touchmove` stops the page scrolling under it. The ghost, the
+  placeholder, the lit column, edge auto-scroll and Esc are presentation. What
+  may move where is the markup the server drew: `[data-card-movable]` with
+  `data-card-move-url` on the tile's `<li>` (`can_work` and an open task),
+  `[data-column-move]` on a working column, `[data-column-complete]` on
+  «Готово», and a hidden `[data-card-complete-trigger]` only when
+  `can_complete_task()` says yes — asked for the whole board in one query by
+  `tasks.permissions.completable_task_ids()`, the same rule as a filter. A drop
+  in a working column moves the tile at once and posts `stage` and
+  `before_card_id` (the next movable card, or empty for the end); a refusal or
+  a network error puts it back where it was and shows the error in
+  `[data-board-message]` (`aria-live`); a drop where it came from posts
+  nothing. A drop on «Готово» clicks the tile's trigger exactly as
+  `attachment_upload.js` clicks its hidden one: the shared modal asks for the
+  result (`data-confirm-comment="required"`,
+  `data-confirm-comment-name="execution_comment"`) and posts an ordinary form to
+  `boards:card_complete`; the dialog's `close` event — fired only by «Отмена»
+  or Escape, since a confirm navigates away — puts the tile back. A moved card
+  that the panel is showing reloads the page with the same `?card=`, unless
+  `qualityUnsavedGuard.isDirty`, when the message asks the user to reload.
+- **`boards:card_move` answers a drag in JSON.** A request carrying
+  `X-Requested-With: fetch` — the one header the script sends; `Accept` would
+  not do, a browser form POST already accepts `*/*` — gets `200 {"ok": true,
+  "stage", "counts": {column code: number}}` (`selectors.column_counts()`),
+  `400 {"ok": false, "error"}` when `MoveCardForm` or `move_card()` refuses,
+  and `403 {"ok": false, "error"}` without the right, still asked before the
+  method. Identifiers, codes, counts and the service's sentence only — never
+  markup, card text or rights. Without the header the route behaves exactly as
+  before; `MoveCardForm.before_card_id` is optional and empty means the end.
 - **The board pages work without JavaScript.** `boards/views.py` asks the right
   *before* the HTTP method (a typed-in URL without it is a 403), every mutating
   route is POST only and answers a GET by redirecting to the board, and a

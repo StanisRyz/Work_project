@@ -107,6 +107,11 @@ class MoveCardForm(forms.Form):
         label='Переместить в',
         choices=[(value, label) for value, label in BoardCard.Stage.choices if value in WORK_STAGES],
     )
+    # Where in the column: before this card, or — empty — at the end. Only
+    # dragging sends it; the panel's «Переместить в…» always means the end.
+    # Whether the card really is on this board and in that column is
+    # `move_card()`'s question, not the form's.
+    before_card_id = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
 
 
 class AddMembersForm(forms.Form):

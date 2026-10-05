@@ -74,7 +74,7 @@ repeated here — the pill in the heading is the one answer.
     unnamed source falling through to «Решение протокола» would label an СМК
     measure and a bug report as something they are not.
     {% endcomment %}
-    <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% elif task.is_act_rejection_task %}Решение КО{% elif task.is_smk_task %}Мероприятие СМК{% elif task.is_bug_task %}Сообщение об ошибке{% elif task.is_board_task %}Карточка доски{% else %}Решение протокола{% endif %}</span>
+    <span class="task-detail-eyebrow">{% if task.is_act_task %}Корректирующее мероприятие{% elif task.is_act_rejection_task %}Решение КО{% elif task.is_smk_task %}Мероприятие СМК{% elif task.is_bug_task %}Сообщение об ошибке{% else %}Решение протокола{% endif %}</span>
     <div class="task-detail-statement__text user-text">{{ task.task_text|linebreaksbr }}</div>
     {% comment %}
     Корневая причина is context, not the work: folded under the statement and

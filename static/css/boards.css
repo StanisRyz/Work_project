@@ -386,6 +386,84 @@
     text-align: right;
 }
 
+/* ---- Dragging (`board_dnd.js`) ---- */
+
+.board-message {
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.board-message[hidden] {
+    display: none;
+}
+
+/* A movable tile: the finger's long press and the mouse's drag belong to the
+   script, while a short swipe still scrolls the column and the row. */
+[data-card-movable] {
+    cursor: grab;
+    touch-action: pan-x pan-y;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+[data-card-movable] .board-tile {
+    -webkit-user-drag: none;
+}
+
+.board-is-dragging,
+.board-is-dragging * {
+    cursor: grabbing !important;
+}
+
+.board-column__item--dragging {
+    display: none;
+}
+
+.board-column__item--pending .board-tile {
+    opacity: 0.6;
+}
+
+.board-ghost {
+    position: fixed;
+    z-index: 1000;
+    top: 0;
+    left: 0;
+    list-style: none;
+    pointer-events: none;
+    box-shadow: 0 8px 24px var(--color-border);
+    border-radius: var(--radius);
+    transform-origin: top left;
+}
+
+.board-ghost .board-tile {
+    border-color: var(--color-primary);
+}
+
+.board-placeholder {
+    border: 2px dashed var(--color-primary);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    list-style: none;
+}
+
+.board-column--drop {
+    border-color: var(--color-primary);
+    box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.board-column__cards:has(> .board-column__item, > .board-placeholder) > .board-column__empty {
+    display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .board-column {
+        transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    }
+}
+
 /* The panel above the columns once the screen is too narrow for both. */
 @media (max-width: 1240px) {
     .board-layout--with-panel {

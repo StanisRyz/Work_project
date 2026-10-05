@@ -11,7 +11,7 @@ from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
 
 from .columns import COLUMNS, DONE, card_column
-from .models import Board, BoardMember
+from .models import Board, BoardCard, BoardMember
 from .permissions import can_manage_board, can_work_on_board
 
 
@@ -98,15 +98,27 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None):
     on none of them.
 
     `card` is the card `card_id` names (see `_panel_card()`), else `None`.
+
+    Each open card also says what this user may do with it by dragging —
+    markup only, the routes ask again: `is_movable` (may work on the board)
+    and `can_complete` (`tasks.permissions.can_complete_task()`, asked for the
+    whole board in one query through `completable_task_ids()`).
     """
+    from tasks.permissions import completable_task_ids
+
+    can_work = can_work_on_board(user, board)
     tasks = _board_tasks(board)
-    open_tasks = tasks.filter(status__is_final=False)
+    open_tasks = list(tasks.filter(status__is_final=False))
     done_tasks = tasks.filter(status__code='COMPLETED')
+    completable = completable_task_ids([task.pk for task in open_tasks], user)
     cards_by_column = {column.code: [] for column in COLUMNS}
     for task in open_tasks:
         code = card_column(task.board_card, task)
         if code is not None:
-            cards_by_column[code].append(_item(task))
+            item = _item(task)
+            item['is_movable'] = can_work
+            item['can_complete'] = task.pk in completable
+            cards_by_column[code].append(item)
     for cards in cards_by_column.values():
         cards.sort(key=lambda item: (item['card'].position, item['card'].pk))
     cards_by_column[DONE] = [
@@ -131,9 +143,35 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None):
         'columns': columns,
         'member_count': BoardMember.objects.filter(board=board).count(),
         'card': _panel_card(board, card_id, user) if card_id not in (None, '') else None,
-        'can_work': can_work_on_board(user, board),
+        'can_work': can_work,
         'can_manage': can_manage_board(user, board),
     }
+
+
+def column_counts(board):
+    """`{column code: number of cards}` — the numbers the column headers show.
+
+    What a drag's JSON answer carries back so the headers can be corrected:
+    the open cards per stored column, and every completed one for «Готово».
+    """
+    from tasks.models import Task
+
+    counts = {column.code: 0 for column in COLUMNS}
+    open_cards = (
+        BoardCard.objects.filter(
+            board=board,
+            tasks__source_type=Task.SourceType.BOARD,
+            tasks__status__is_final=False,
+        )
+        .values('stage')
+        .annotate(n=Count('pk'))
+    )
+    for row in open_cards:
+        counts[row['stage']] = row['n']
+    counts[DONE] = Task.objects.filter(
+        source_type=Task.SourceType.BOARD, board_card__board=board, status__code='COMPLETED',
+    ).count()
+    return counts
 
 
 def boards_for_user(user):

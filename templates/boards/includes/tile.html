@@ -1,15 +1,37 @@
 {% load people %}{% comment %}
-One card on a column: a real link to `?card=<pk>`, so it opens the panel with
-or without JavaScript and «open in a new tab» keeps working. Spans only inside
-— an `<a>` holds no interactive content.
+One card on a column. The tile is a real link to `?card=<pk>`, so it opens the
+panel with or without JavaScript and «open in a new tab» keeps working; spans
+only inside it — an `<a>` holds no interactive content.
+
+The `<li>` around it is what `board_dnd.js` drags. `data-card-movable` and the
+move URL are there only while this user may work on the board and the task is
+open (`item.is_movable`); the hidden «Завершить» trigger only when
+`can_complete_task()` says yes (`item.can_complete`). Dropping on «Готово»
+clicks that trigger, so completion goes through the one confirmation modal with
+its required comment, posted as `execution_comment` to `boards:card_complete`.
 {% endcomment %}
-<a class="board-tile{% if card and card.card.pk == item.card.pk %} board-tile--open{% endif %}" href="{{ board_url }}?card={{ item.card.pk }}">
-    <span class="board-tile__title user-text text-clamp-2" title="{{ item.card.title }}">{{ item.card.title }}</span>
-    <span class="board-tile__footer">
-        <span class="board-tile__number">№{{ item.task.pk }}</span>
-        <span class="board-tile__assignees">
-            {% for user in item.assignees %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}
+<li class="board-column__item" data-card-id="{{ item.card.pk }}"{% if item.is_movable %} data-card-movable data-card-move-url="{% url 'boards:card_move' board.pk item.card.pk %}"{% endif %}>
+    <a class="board-tile{% if card and card.card.pk == item.card.pk %} board-tile--open{% endif %}" href="{{ board_url }}?card={{ item.card.pk }}" draggable="false">
+        <span class="board-tile__title user-text text-clamp-2" title="{{ item.card.title }}">{{ item.card.title }}</span>
+        <span class="board-tile__footer">
+            <span class="board-tile__number">№{{ item.task.pk }}</span>
+            <span class="board-tile__assignees">
+                {% for user in item.assignees %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}
+            </span>
+            {% include 'includes/due_date.html' with date=item.due_date done=item.is_closed %}
         </span>
-        {% include 'includes/due_date.html' with date=item.due_date done=item.is_closed %}
-    </span>
-</a>
+    </a>
+    {% if item.can_complete %}
+        <button type="button" hidden
+                data-card-complete-trigger
+                data-confirm
+                data-confirm-url="{% url 'boards:card_complete' board.pk item.card.pk %}"
+                data-confirm-title="Завершить задачу №{{ item.task.pk }}?"
+                data-confirm-text="Карточка перейдёт в «Готово». Укажите результат выполнения."
+                data-confirm-label="Завершить"
+                data-confirm-comment="required"
+                data-confirm-comment-label="Результат выполнения"
+                data-confirm-comment-name="execution_comment"
+                data-confirm-comment-error="Укажите результат выполнения задачи.">Завершить</button>
+    {% endif %}
+</li>

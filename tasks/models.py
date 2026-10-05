@@ -612,13 +612,7 @@ class Task(models.Model):
         card all ask: a routing task has no execution form, is never completed
         with a comment and carries no attachments.
         """
-        return self.source_type in {
-            self.SourceType.PROTOCOL_APPROVAL,
-            self.SourceType.ACT_WORKFLOW,
-            # Read or approved on the document page, which closes the task.
-            self.SourceType.DOCUMENT_ACK,
-            self.SourceType.DOCUMENT_APPROVAL,
-        }
+        return self.source_type in ROUTING_SOURCE_TYPES
 
     def clean(self):
         """Readable source validation, including the rules SQL cannot express.
@@ -783,6 +777,18 @@ class Task(models.Model):
                 errors['department'] = f'Обязательно для источника «{source_name}».'
         if errors:
             raise ValidationError(errors)
+
+
+# The queue entries whose real action happens on the source document —
+# `Task.is_routing_task`, and the same set written as a filter by
+# `tasks.permissions.completable_task_ids()`.
+ROUTING_SOURCE_TYPES = frozenset({
+    Task.SourceType.PROTOCOL_APPROVAL,
+    Task.SourceType.ACT_WORKFLOW,
+    # Read or approved on the document page, which closes the task.
+    Task.SourceType.DOCUMENT_ACK,
+    Task.SourceType.DOCUMENT_APPROVAL,
+})
 
 
 class TaskAssignee(models.Model):

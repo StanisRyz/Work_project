@@ -33,21 +33,33 @@ the panel with no control at all.
     </div>
 </section>
 
+{% comment %}
+Dragging (`static/js/board_dnd.js`) reads only what this markup says: a
+tile with `data-card-movable` may be dragged, a column with
+`data-column-move` takes a moved card, `data-column-complete` («Готово») takes
+only a tile carrying a completion trigger, and `data-current-card` is the card
+the panel shows. The server decided every one of those; the routes ask again.
+Without JavaScript none of it matters — «Переместить в…» and «Завершить» in the
+panel do the same work.
+{% endcomment %}
+<div class="board-message" data-board-message role="status" aria-live="polite" hidden></div>
+
 <div class="fill-region">
     <div class="board-layout{% if panel %} board-layout--with-panel{% endif %}">
-        <div class="board-columns" aria-label="Колонки доски">
+        <div class="board-columns" aria-label="Колонки доски" data-board-columns data-current-card="{{ card.card.pk|default:'' }}">
             {% for column in columns %}
-                <section class="board-column board-column--{{ column.code|lower }}" aria-labelledby="board-column-{{ column.code }}">
+                <section class="board-column board-column--{{ column.code|lower }}" aria-labelledby="board-column-{{ column.code }}"
+                         data-column="{{ column.code }}"{% if can_work and column.is_stored %} data-column-move{% endif %}{% if not column.is_stored %} data-column-complete{% endif %}>
                     <header class="board-column__header">
                         <h2 id="board-column-{{ column.code }}">{{ column.label }}</h2>
-                        <span class="tab-count">{{ column.count }}</span>
+                        <span class="tab-count" data-column-count>{{ column.count }}</span>
                         {% if can_work and column.is_stored %}
                             <a class="board-column__add" href="{{ board_url }}?new={{ column.code }}" title="Новая карточка в колонке «{{ column.label }}»" aria-label="Новая карточка в колонке «{{ column.label }}»">+</a>
                         {% endif %}
                     </header>
-                    <ol class="board-column__cards">
+                    <ol class="board-column__cards" data-column-list>
                         {% for item in column.cards %}
-                            <li>{% include 'boards/includes/tile.html' %}</li>
+                            {% include 'boards/includes/tile.html' %}
                         {% empty %}
                             <li class="board-column__empty">Карточек нет</li>
                         {% endfor %}
@@ -61,4 +73,9 @@ the panel with no control at all.
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{# Dragging cards. The board works without it: the panel holds the same actions. #}
+<script src="{% static 'js/board_dnd.js' %}?v=20261005-1" defer></script>
 {% endblock %}

@@ -1,6 +1,6 @@
 from acts.permissions import has_full_act_access, is_act_admin
 
-from .models import Task
+from .models import ROUTING_SOURCE_TYPES, Task
 
 
 # The source relations are nullable, so every one of them is LEFT JOINed here:
@@ -63,6 +63,24 @@ def can_complete_task(task, user):
     return task.status.code == 'IN_PROGRESS' and (
         is_act_admin(user) or task.assignees.filter(user=user).exists()
     )
+
+
+def completable_task_ids(task_ids, user):
+    """The ids among `task_ids` that `can_complete_task()` answers True for.
+
+    The same rule, written as one query for a whole list — a board asks it for
+    every open card at once instead of once per tile. Keep the two in step:
+    not a routing entry, `IN_PROGRESS`, and an assignee or the administrative
+    fallback.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return set()
+    tasks = Task.objects.filter(pk__in=list(task_ids), status__code='IN_PROGRESS').exclude(
+        source_type__in=ROUTING_SOURCE_TYPES,
+    )
+    if not is_act_admin(user):
+        tasks = tasks.filter(assignees__user=user)
+    return set(tasks.values_list('pk', flat=True))
 
 
 def can_reopen_task(task, user):

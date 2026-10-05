@@ -16,6 +16,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
@@ -30,7 +31,12 @@ from .permissions import (
     can_view_board,
     can_work_on_board,
 )
-from .selectors import build_board_list_state, build_board_state, resolve_new_stage
+from .selectors import (
+    build_board_list_state,
+    build_board_state,
+    column_counts,
+    resolve_new_stage,
+)
 from .services import (
     BoardError,
     add_board_members,
@@ -231,26 +237,63 @@ def card_update(request, pk, card_pk):
     return _render_board(request, board, card_id=card.pk, panel='edit', form=form)
 
 
+# A request from `static/js/board_dnd.js`: it asks for JSON by this header and
+# nothing else — `Accept` would not do, a browser's ordinary form POST already
+# accepts `*/*`.
+FETCH_HEADER_VALUE = 'fetch'
+
+
+def _is_fetch(request):
+    return request.headers.get('X-Requested-With') == FETCH_HEADER_VALUE
+
+
 @login_required
 def card_move(request, pk, card_pk):
+    """Put a card in a working column: «Переместить в…», or a drag on the board.
+
+    An ordinary POST behaves as it always has — redirect to the card, or the
+    board re-rendered with the refusal. A drag (`X-Requested-With: fetch`) gets
+    JSON instead: `{"ok": true, "stage", "counts"}` on success, `400
+    {"ok": false, "error"}` when the form or `move_card()` refuses, `403` when
+    the right is missing — still asked before the method. The answer carries
+    identifiers, column codes and counts only: no markup, no card text, no
+    rights. The browser decides nothing; it only undoes its optimistic move.
+    """
     board = _board_or_404(pk)
-    _require(can_work_on_board(request.user, board))
+    fetch = _is_fetch(request)
+    if not can_work_on_board(request.user, board):
+        if fetch:
+            return JsonResponse(
+                {'ok': False, 'error': 'Работа с карточками этой доски недоступна.'}, status=403,
+            )
+        _require(False)
     card = get_object_or_404(BoardCard, pk=card_pk, board=board)
     if request.method != 'POST':
         return redirect(_card_url(board, card))
     form = MoveCardForm(request.POST)
-    if form.is_valid():
-        try:
-            move_card(card, actor=request.user, stage=form.cleaned_data['stage'])
-        except BoardError as exc:
-            return _render_board(
-                request, board, card_id=card.pk, panel='view', move_form=form, error=str(exc),
-            )
-        return redirect(_card_url(board, card))
-    return _render_board(
-        request, board, card_id=card.pk, panel='view', move_form=form,
-        error='Выберите колонку.',
-    )
+    if not form.is_valid():
+        if fetch:
+            return JsonResponse({'ok': False, 'error': 'Неверная колонка или позиция.'}, status=400)
+        return _render_board(
+            request, board, card_id=card.pk, panel='view', move_form=form,
+            error='Выберите колонку.',
+        )
+    try:
+        card = move_card(
+            card,
+            actor=request.user,
+            stage=form.cleaned_data['stage'],
+            before_card_id=form.cleaned_data['before_card_id'],
+        )
+    except BoardError as exc:
+        if fetch:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return _render_board(
+            request, board, card_id=card.pk, panel='view', move_form=form, error=str(exc),
+        )
+    if fetch:
+        return JsonResponse({'ok': True, 'stage': card.stage, 'counts': column_counts(board)})
+    return redirect(_card_url(board, card))
 
 
 @login_required
