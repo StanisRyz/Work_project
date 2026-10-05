@@ -51,7 +51,10 @@
 
 ## Состояние
 
-| Этап | Задание | Ветка исполнителя | Статус |
+Работа идёт прямо в `main` (см. `../README.md`).
+
+| Этап | Задание | Где | Статус |
 | --- | --- | --- | --- |
-| 1 | `tasks/stage-01.md` | `claude/agile-boards-stage-1-qulr2i` | принят (`reviews/stage-01.md`) |
-| 2 | `tasks/stage-02.md` | — | выдан |
+| 1 | `tasks/stage-01.md` | `main` (ветка `claude/agile-boards-stage-1-qulr2i`) | принят (`reviews/stage-01.md`) |
+| 2 | `tasks/stage-02.md` | `main` (ветка `claude/agile-boards-stage-2-qulr2i`) | принят (`reviews/stage-02.md`) |
+| 3 | `tasks/stage-03.md` | `main` | выдан |
