@@ -624,6 +624,71 @@ def update_board_card_task(task, *, task_text, due_date, actor):
     return task
 
 
+def cancel_board_card_task(task, *, actor, reason):
+    """Withdraw one board card's work, without pretending it was done.
+
+    The board's own counterpart of `cancel_smk_action_tasks()`, called only by
+    `boards.services.cancel_card()` inside its transaction, under the task's row
+    lock. Only a `BOARD` task still `IN_PROGRESS`: a completed one really
+    happened, and a cancelled one is already withdrawn. The reason is required
+    — it is what a person reads on the card instead of a result.
+    `completed_by` and `execution_comment` are left exactly as they are, and
+    nobody is notified: the task simply leaves «Мои задачи».
+    """
+    reason = (reason or '').strip()
+
+    def _rejected(why):
+        log_event(
+            logger,
+            'INFO',
+            'task.operation_rejected',
+            operation='cancel_board_card_task',
+            task_id=_pk_of(task),
+            actor_user_id=_pk_of(actor),
+            reason=why,
+            outcome='rejected',
+        )
+
+    if not reason:
+        _rejected('empty_reason')
+        raise TaskWorkflowError('Укажите причину отмены.')
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(pk=task.pk)
+        if task.source_type != Task.SourceType.BOARD:
+            _rejected('not_board_task')
+            raise TaskWorkflowError('Задача не относится к доске.')
+        if task.status.code != 'IN_PROGRESS':
+            _rejected('not_in_progress')
+            raise TaskWorkflowError('Отменить можно только задачу в работе.')
+        previous_status = task.status.code
+        cancelled_status = _active_status('CANCELLED', 'Отменена')
+        task.status = cancelled_status
+        task.cancelled_at = timezone.now()
+        task.cancelled_by = actor
+        task.cancellation_reason = reason
+        # `updated_at` listed explicitly, as in `cancel_smk_action_tasks()`:
+        # the real-time revision tokens are derived from it.
+        task.save(
+            update_fields=[
+                'status', 'cancelled_at', 'cancelled_by', 'cancellation_reason',
+                'updated_at',
+            ]
+        )
+        emit_task_updated(task, changed_fields=('status',))
+    log_event(
+        logger,
+        'INFO',
+        'task.cancelled',
+        task_id=task.pk,
+        source_type=task.source_type,
+        actor_user_id=_pk_of(actor),
+        previous_status=previous_status,
+        next_status=cancelled_status.code,
+        outcome='ok',
+    )
+    return task
+
+
 def cancel_smk_action_tasks(actions, *, actor, reason):
     """Close the live tasks of the given СМК мероприятия, without completing one.
 

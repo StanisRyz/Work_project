@@ -29,10 +29,14 @@ import logging
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Max
+from django.utils import timezone
 
 from ecosystem.logging_utils import log_event
 from realtime.emitters import emit_board_updated
 from realtime.events import (
+    BOARD_CHANGE_BOARD_ARCHIVED,
+    BOARD_CHANGE_BOARD_RESTORED,
+    BOARD_CHANGE_CARD_CANCELLED,
     BOARD_CHANGE_CARD_COMPLETED,
     BOARD_CHANGE_CARD_CREATED,
     BOARD_CHANGE_CARD_MOVED,
@@ -44,8 +48,10 @@ from .columns import WORK_STAGES
 from .models import Board, BoardCard, BoardMember
 from .permissions import (
     active_employee_q,
+    can_cancel_card,
     can_create_board,
     can_manage_board,
+    can_restore_board,
     can_work_on_board,
 )
 
@@ -61,8 +67,15 @@ MAX_POSITION = 2_147_483_647
 TITLE_MAX_LENGTH = 200
 
 
+ARCHIVED_MESSAGE = 'Доска в архиве — изменить её нельзя.'
+
+
 class BoardError(Exception):
     """A refused board operation; the message is meant for the user."""
+
+
+class StaleCardError(BoardError):
+    """The card was edited by somebody else after this edit form was drawn."""
 
 
 def _rejected(operation, reason, *, actor, board_id=None, card_id=None):
@@ -77,6 +90,17 @@ def _rejected(operation, reason, *, actor, board_id=None, card_id=None):
         reason=reason,
         outcome='rejected',
     )
+
+
+def _refuse_archived(operation, board, *, actor, card_id=None):
+    """Every write to an archived board stops here, before the right is asked.
+
+    `boards.permissions` already refuses it; this only gives the refusal its
+    own sentence instead of «недоступна».
+    """
+    if board.is_archived:
+        _rejected(operation, 'board_archived', actor=actor, board_id=board.pk, card_id=card_id)
+        raise BoardError(ARCHIVED_MESSAGE)
 
 
 def _lock_board(board_id):
@@ -205,6 +229,7 @@ def add_board_members(board, user_ids, *, actor):
     """
     with transaction.atomic():
         board = _lock_board(board.pk)
+        _refuse_archived('add_members', board, actor=actor)
         if not can_manage_board(actor, board):
             _rejected('add_members', 'not_permitted', actor=actor, board_id=board.pk)
             raise BoardError('Управление участниками доски недоступно.')
@@ -249,6 +274,7 @@ def remove_board_member(board, user, *, actor):
 
     with transaction.atomic():
         board = _lock_board(board.pk)
+        _refuse_archived('remove_member', board, actor=actor)
         if not can_manage_board(actor, board):
             _rejected('remove_member', 'not_permitted', actor=actor, board_id=board.pk)
             raise BoardError('Управление участниками доски недоступно.')
@@ -330,6 +356,7 @@ def create_card(
 
     with transaction.atomic():
         board = _lock_board(board.pk)
+        _refuse_archived('create_card', board, actor=actor)
         if not can_work_on_board(actor, board):
             _rejected('create_card', 'not_permitted', actor=actor, board_id=board.pk)
             raise BoardError('Работа с карточками этой доски недоступна.')
@@ -378,8 +405,17 @@ def create_card(
     return card
 
 
-def update_card(card, *, actor, title, description, due_date, assignee_ids):
-    """Correct a live card, and its task with it."""
+def update_card(card, *, actor, title, description, due_date, assignee_ids,
+                expected_version=None):
+    """Correct a live card, and its task with it.
+
+    `expected_version` is the `BoardCard.version` the edit form was drawn with.
+    A different current version means somebody else saved in between, and the
+    edit is refused with `StaleCardError` rather than written over theirs.
+    `None` — a call that is not a form — skips the comparison. An edit that
+    stored something raises the version by one; one that changed nothing does
+    not.
+    """
     from notifications.services import notify_board_task_assigned
     from tasks.models import TaskAssignee
     from tasks.services import (
@@ -392,12 +428,19 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids):
         board = _lock_board(card.board_id)
         card = _lock_card(card, board)
         task = _lock_card_task(card)
+        _refuse_archived('update_card', board, actor=actor, card_id=card.pk)
         if not can_work_on_board(actor, board):
             _rejected('update_card', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
             raise BoardError('Работа с карточками этой доски недоступна.')
         if task.status.is_final:
             _rejected('update_card', 'task_final', actor=actor, board_id=board.pk, card_id=card.pk)
             raise BoardError('Задача карточки уже закрыта — изменить её нельзя.')
+        if expected_version is not None and int(expected_version) != card.version:
+            _rejected('update_card', 'stale_version', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise StaleCardError(
+                'Карточку изменили, пока вы её редактировали. Ваши правки не '
+                'сохранены: проверьте текущую версию и внесите их снова.'
+            )
         title = _clean_title(title)
         description = (description or '').strip()
         if due_date is None:
@@ -415,10 +458,12 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids):
         # not change; this is what tells the caller whether anything did.
         task_changed = task.task_text != task_text or task.due_date != due_date
         assignees_changed = set(ids) != current_ids
-        if changed:
+        stored = bool(changed or task_changed or assignees_changed)
+        if stored:
             card.title = title
             card.description = description
-            card.save(update_fields=[*changed, 'updated_at'])
+            card.version += 1
+            card.save(update_fields=[*changed, 'version', 'updated_at'])
         try:
             update_board_card_task(task, task_text=task_text, due_date=due_date, actor=actor)
             replace_task_assignees(task, ids, actor=actor)
@@ -429,7 +474,6 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids):
         added_ids = [user_id for user_id in ids if user_id not in current_ids]
         if added_ids:
             notify_board_task_assigned(task, actor, _users(added_ids))
-        stored = bool(changed or task_changed or assignees_changed)
         if stored:
             emit_board_updated(board.pk, BOARD_CHANGE_CARD_UPDATED, card.pk)
     log_event(
@@ -462,6 +506,7 @@ def move_card(card, *, actor, stage, before_card_id=None):
         board = _lock_board(card.board_id)
         card = _lock_card(card, board)
         task = _lock_card_task(card)
+        _refuse_archived('move_card', board, actor=actor, card_id=card.pk)
         if not can_work_on_board(actor, board):
             _rejected('move_card', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
             raise BoardError('Работа с карточками этой доски недоступна.')
@@ -559,3 +604,115 @@ def complete_card(card, *, actor, execution_comment):
         outcome='ok',
     )
     return task
+
+
+def cancel_card(card, *, actor, reason):
+    """Withdraw a card that should never have been put on the board.
+
+    Its task becomes `CANCELLED` through `tasks.services.cancel_board_card_task()`
+    — with the reason, who and when, and nothing claimed about the work — and
+    the card leaves every column (`columns.card_column()`); its panel still
+    reads the record by `?card=`. Who may do it is `can_cancel_card()`, asked
+    after the locks; nobody is notified, as when an СМК correction withdraws a
+    task.
+    """
+    from tasks.services import TaskWorkflowError, cancel_board_card_task
+
+    with transaction.atomic():
+        board = _lock_board(card.board_id)
+        card = _lock_card(card, board)
+        task = _lock_card_task(card)
+        card.board = board
+        _refuse_archived('cancel_card', board, actor=actor, card_id=card.pk)
+        if not can_cancel_card(actor, card):
+            _rejected('cancel_card', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise BoardError(
+                'Отменить карточку может её автор, владелец доски или администратор.'
+            )
+        try:
+            task = cancel_board_card_task(task, actor=actor, reason=reason)
+        except TaskWorkflowError as exc:
+            raise BoardError(str(exc)) from exc
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_CANCELLED, card.pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.card_cancelled',
+        board_id=board.pk,
+        board_card_id=card.pk,
+        task_id=task.pk,
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return task
+
+
+# --------------------------------------------------------------------------
+# The shelf
+# --------------------------------------------------------------------------
+
+
+def _open_card_count(board):
+    from tasks.models import Task
+
+    return Task.objects.filter(
+        source_type=Task.SourceType.BOARD,
+        board_card__board=board,
+        status__is_final=False,
+    ).count()
+
+
+def archive_board(board, *, actor):
+    """Put a finished board on the shelf: read-only, at the same address.
+
+    Refused while any card is still open — the shelf must never hide work in
+    progress — so every card on an archived board is done or cancelled.
+    Writes `status`, `archived_at` and `archived_by` and nothing else.
+    """
+    with transaction.atomic():
+        board = _lock_board(board.pk)
+        if not can_manage_board(actor, board):
+            reason = 'already_archived' if board.is_archived else 'not_permitted'
+            _rejected('archive_board', reason, actor=actor, board_id=board.pk)
+            raise BoardError(
+                ARCHIVED_MESSAGE if board.is_archived
+                else 'Убрать доску в архив может её владелец или администратор.'
+            )
+        open_count = _open_card_count(board)
+        if open_count:
+            _rejected('archive_board', 'open_cards', actor=actor, board_id=board.pk)
+            raise BoardError(
+                f'Сначала завершите или отмените открытые карточки: {open_count}.'
+            )
+        board.status = Board.Status.ARCHIVED
+        board.archived_at = timezone.now()
+        board.archived_by = actor
+        board.save(update_fields=['status', 'archived_at', 'archived_by', 'updated_at'])
+        emit_board_updated(board.pk, BOARD_CHANGE_BOARD_ARCHIVED)
+    log_event(
+        logger, 'INFO', 'board.archived',
+        board_id=board.pk, actor_user_id=actor.pk, outcome='ok',
+    )
+    return board
+
+
+def restore_board(board, *, actor):
+    """«Вернуть из архива»: the board is live again, exactly as it was left."""
+    with transaction.atomic():
+        board = _lock_board(board.pk)
+        if not can_restore_board(actor, board):
+            _rejected('restore_board', 'not_permitted', actor=actor, board_id=board.pk)
+            raise BoardError(
+                'Вернуть из архива можно только доску в архиве — её владельцу '
+                'или администратору.'
+            )
+        board.status = Board.Status.ACTIVE
+        board.archived_at = None
+        board.archived_by = None
+        board.save(update_fields=['status', 'archived_at', 'archived_by', 'updated_at'])
+        emit_board_updated(board.pk, BOARD_CHANGE_BOARD_RESTORED)
+    log_event(
+        logger, 'INFO', 'board.restored',
+        board_id=board.pk, actor_user_id=actor.pk, outcome='ok',
+    )
+    return board

@@ -65,7 +65,10 @@ class BoardEventContractTests(TestCase):
         self.assertEqual(RealtimeEventType.BOARD_UPDATED.value, 'board.updated')
         self.assertEqual(
             BOARD_CHANGES,
-            {'card_created', 'card_updated', 'card_moved', 'card_completed', 'members_changed'},
+            {
+                'card_created', 'card_updated', 'card_moved', 'card_completed', 'members_changed',
+                'card_cancelled', 'board_archived', 'board_restored',
+            },
         )
         event = board_updated_event(7, 'card_moved', 12)
         self.assertEqual(event.resource_type, RESOURCE_BOARD)

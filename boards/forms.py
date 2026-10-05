@@ -96,6 +96,10 @@ class CardForm(forms.Form):
         required=False,
         widget=forms.HiddenInput,
     )
+    # The `BoardCard.version` the edit form was drawn with, posted back so
+    # `update_card(expected_version=…)` can tell a save made against an older
+    # card from one made against the current one. Unused when creating.
+    version = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
 
     def __init__(self, *args, board, **kwargs):
         super().__init__(*args, **kwargs)

@@ -7,19 +7,87 @@ query through their tasks, the исполнители one prefetch each, and the
 panel shows one more.
 """
 
+from dataclasses import dataclass
+from urllib.parse import urlencode
+
 from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from .columns import COLUMNS, DONE, card_column
-from .models import Board, BoardCard, BoardMember
-from .permissions import can_manage_board, can_work_on_board
+from .models import Board, BoardMember
+from .permissions import (
+    can_cancel_card,
+    can_manage_board,
+    can_restore_board,
+    can_work_on_board,
+)
 
 
 # How many completed cards «Готово» draws. The rest are counted, not read:
 # a board in use for a year has hundreds of them and nobody scrolls that far.
 DONE_LIMIT = 50
 
-REGISTRY_TABS = ('my', 'all')
+REGISTRY_TABS = ('my', 'all', 'archive')
+
+# The longest `?q=` a board search reads; anything past it is dropped.
+SEARCH_MAX_LENGTH = 200
+
+
+@dataclass(frozen=True)
+class BoardFilters:
+    """What the board shows: `?mine=1`, `?overdue=1`, `?q=<text>`.
+
+    Parsed once by `parse_board_filters()` for the page, its fragment and the
+    drag's JSON counts alike, so the three can never filter differently.
+    """
+
+    mine: bool = False
+    overdue: bool = False
+    q: str = ''
+
+    @property
+    def is_active(self):
+        return self.mine or self.overdue or bool(self.q)
+
+    @property
+    def query(self):
+        """The filter as a query string without `?` — `''` when none is set."""
+        params = []
+        if self.mine:
+            params.append(('mine', '1'))
+        if self.overdue:
+            params.append(('overdue', '1'))
+        if self.q:
+            params.append(('q', self.q))
+        return urlencode(params)
+
+
+NO_FILTERS = BoardFilters()
+
+
+def parse_board_filters(params):
+    """`BoardFilters` from a request's GET (or any mapping of strings)."""
+    return BoardFilters(
+        mine=params.get('mine') == '1',
+        overdue=params.get('overdue') == '1',
+        q=(params.get('q') or '').strip()[:SEARCH_MAX_LENGTH],
+    )
+
+
+def _filtered(tasks, filters, user, *, open_work):
+    """`tasks` narrowed by `filters`; `overdue` only ever narrows open work.
+
+    «Мои» is «I am an исполнитель» (`TaskAssignee`, one row per person, so the
+    join adds no duplicates); `q` is a substring of the card's title.
+    """
+    if filters.mine:
+        tasks = tasks.filter(assignees__user=user)
+    if filters.q:
+        tasks = tasks.filter(board_card__title__icontains=filters.q)
+    if filters.overdue and open_work:
+        tasks = tasks.filter(due_date__lt=timezone.localdate())
+    return tasks
 
 
 def _board_tasks(board):
@@ -84,10 +152,15 @@ def _panel_card(board, card_id, user):
     item['can_complete'] = can_complete_task(task, user)
     item['can_reopen'] = can_reopen_task(task, user)
     item['can_upload_attachment'] = can_upload_task_attachment(task, user)
+    # `board` is the very board of the page: no second query for it.
+    task.board_card.board = board
+    item['can_cancel'] = (
+        task.status.code == 'IN_PROGRESS' and can_cancel_card(user, task.board_card)
+    )
     return item
 
 
-def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None):
+def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None, filters=NO_FILTERS):
     """Everything one board page renders.
 
     `columns` follows `boards.columns.COLUMNS`; each is
@@ -97,7 +170,12 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None):
     completions and `more` counts the rest. A card whose task was cancelled is
     on none of them.
 
-    `card` is the card `card_id` names (see `_panel_card()`), else `None`.
+    `card` is the card `card_id` names (see `_panel_card()`), else `None` —
+    found whatever the filters say, so the open panel never disappears.
+
+    `filters` (`BoardFilters`) narrows the columns and their counts: «Мои»
+    and the search apply to every column, «Просроченные» to the open ones
+    only — a completed card is never overdue.
 
     Each open card also says what this user may do with it by dragging —
     markup only, the routes ask again: `is_movable` (may work on the board)
@@ -108,8 +186,8 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None):
 
     can_work = can_work_on_board(user, board)
     tasks = _board_tasks(board)
-    open_tasks = list(tasks.filter(status__is_final=False))
-    done_tasks = tasks.filter(status__code='COMPLETED')
+    open_tasks = list(_filtered(tasks.filter(status__is_final=False), filters, user, open_work=True))
+    done_tasks = _filtered(tasks.filter(status__code='COMPLETED'), filters, user, open_work=False)
     completable = completable_task_ids([task.pk for task in open_tasks], user)
     cards_by_column = {column.code: [] for column in COLUMNS}
     for task in open_tasks:
@@ -145,31 +223,32 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None):
         'card': _panel_card(board, card_id, user) if card_id not in (None, '') else None,
         'can_work': can_work,
         'can_manage': can_manage_board(user, board),
+        'can_restore': can_restore_board(user, board),
+        'filters': filters,
     }
 
 
-def column_counts(board):
+def column_counts(board, user=None, filters=NO_FILTERS):
     """`{column code: number of cards}` — the numbers the column headers show.
 
     What a drag's JSON answer carries back so the headers can be corrected:
-    the open cards per stored column, and every completed one for «Готово».
+    the open cards per stored column, and every completed one for «Готово» —
+    under the same `filters` the board is drawn with.
     """
     from tasks.models import Task
 
     counts = {column.code: 0 for column in COLUMNS}
+    tasks = Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__board=board)
     open_cards = (
-        BoardCard.objects.filter(
-            board=board,
-            tasks__source_type=Task.SourceType.BOARD,
-            tasks__status__is_final=False,
-        )
-        .values('stage')
+        _filtered(tasks.filter(status__is_final=False), filters, user, open_work=True)
+        .order_by()
+        .values('board_card__stage')
         .annotate(n=Count('pk'))
     )
     for row in open_cards:
-        counts[row['stage']] = row['n']
-    counts[DONE] = Task.objects.filter(
-        source_type=Task.SourceType.BOARD, board_card__board=board, status__code='COMPLETED',
+        counts[row['board_card__stage']] = row['n']
+    counts[DONE] = _filtered(
+        tasks.filter(status__code='COMPLETED'), filters, user, open_work=False,
     ).count()
     return counts
 
@@ -215,18 +294,21 @@ def _with_counts(boards):
 
 
 def build_board_list_state(user, tab=None):
-    """The registry: «Мои» (boards I am on) and «Все».
+    """The registry: «Мои» (live boards I am on), «Все» (live) and «Архив».
 
-    With no tab asked for, «Мои» — unless the user is on no board, when «Все»
-    is the only list that says anything.
+    With no tab asked for, «Мои» — unless the user is on no live board, when
+    «Все» is the only list that says anything.
     """
-    mine = boards_for_user(user)
     everything = Board.objects.select_related('department', 'owner').order_by('name', 'pk')
-    tab_counts = {'my': mine.count(), 'all': everything.count()}
+    lists = {
+        'my': boards_for_user(user).filter(status=Board.Status.ACTIVE),
+        'all': everything.filter(status=Board.Status.ACTIVE),
+        'archive': everything.filter(status=Board.Status.ARCHIVED),
+    }
+    tab_counts = {name: queryset.count() for name, queryset in lists.items()}
     if tab not in REGISTRY_TABS:
         tab = 'my' if tab_counts['my'] else 'all'
-    boards = _with_counts(mine if tab == 'my' else everything)
-    return {'tab': tab, 'tab_counts': tab_counts, 'boards': list(boards)}
+    return {'tab': tab, 'tab_counts': tab_counts, 'boards': list(_with_counts(lists[tab]))}
 
 
 def resolve_new_stage(value):

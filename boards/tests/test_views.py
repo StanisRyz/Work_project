@@ -121,7 +121,7 @@ class RegistryTests(BoardViewMixin, TestCase):
         self.assertEqual([board.name for board in mine.context['boards']], ['Планирование'])
         everything = self.client.get(reverse('boards:list'), {'tab': 'all'})
         self.assertEqual([board.name for board in everything.context['boards']], ['Планирование', 'Чужая'])
-        self.assertEqual(everything.context['tab_counts'], {'my': 1, 'all': 2})
+        self.assertEqual(everything.context['tab_counts'], {'my': 1, 'all': 2, 'archive': 0})
         self.assertContains(everything, f'data-row-url="{reverse("boards:detail", args=[self.board.pk])}"')
 
     def test_counts(self):
@@ -204,7 +204,8 @@ class BoardPageTests(BoardViewMixin, TestCase):
             with self.subTest(params=params):
                 response = self.detail(**params)
                 content = main_of(response)
-                for marker in ('<form', '?new=', 'edit=1', 'Переместить', '+ Карточка'):
+                # The GET filter form is for everybody; nothing that posts is.
+                for marker in ('method="post"', '?new=', 'edit=1', 'Переместить', '+ Карточка'):
                     self.assertNotIn(marker, content)
 
     def _page_queries(self):

@@ -81,7 +81,8 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 `board.updated` — одно событие на доску, а не тип на каждое действие:
 `change` берётся из закрытого набора `realtime.events.BOARD_CHANGES` —
 `card_created`, `card_updated`, `card_moved`, `card_completed`,
-`members_changed`; неизвестный код фабрика отклоняет. Ни заголовка карточки,
+`card_cancelled`, `members_changed`, `board_archived`, `board_restored`;
+неизвестный код фабрика отклоняет. Ни заголовка карточки,
 ни описания, ни имён, ни прав: открытая доска перезапрашивает свой фрагмент.
 Задача карточки, изменённая вне доски (`tasks:complete`, возврат в работу
 администратором, вложения), даёт свои `task.*` и сдвигает токен `boards`, но
@@ -109,7 +110,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `add_board_members`, `remove_board_member` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `cancel_card`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.
@@ -303,8 +304,11 @@ read-only набор авторизованного пользователя, д
 (`boards/includes/columns.html`, `boards/includes/panel.html`), что и страница.
 Адрес фрагмента с параметрами панели строит сервер (`data-board-fragment-url`):
 доска, отрисованная в ответ на отклонённый POST, стоит по адресу этого POST, и
-адресная строка о панели ничего не говорит. Черновик «Выполнения» из сессии
-фрагмент не забирает — его показывает страница.
+адресная строка о панели ничего не говорит. В этот же адрес входит фильтр доски
+(`mine`, `overdue`, `q`): фрагмент разбирает его тем же
+`parse_board_filters()`, что и страница, поэтому отфильтрованная доска
+обновляется отфильтрованной. Черновик «Выполнения» из сессии фрагмент не
+забирает — его показывает страница.
 
 Клиент сравнивает токены и обновляет только те блоки, чей токен сдвинулся.
 Одинаковые токены не стоят ни одного запроса фрагмента.
@@ -388,7 +392,10 @@ polling и safety-таймер останавливаются, таймер ру
 перетаскивания делегированы с `document`, поэтому новые колонки работают сразу.
 Кнопка баннера на доске открывает адрес доски с той же панелью
 (`data-board-page-url`), а не `reload()`: страница ответа на POST отправила бы
-его снова.
+его снова. Перенос карточки, открытой в панели, при работающем клиенте
+(`QualityRealtime.boardLive.isActive`) ничего сверх обычного не делает: панель
+перерисует `board.updated` самого переноса. Без real-time (или после
+`core.stop()`) `board_dnd.js` открывает `data-board-page-url`.
 
 **Отпечаток блока.** Страница и фрагмент защищаемого блока несут отпечаток его
 разметки — `realtime.fragments.content_revision()`, хэш того же HTML, который

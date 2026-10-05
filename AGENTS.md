@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_list_state()`/`boards_for_user()` in `boards/selectors.py`; the pages under `/work/boards/` (registry, «Новая доска», the board with its card panel `?card=<pk>` / `&edit=1` / `?new=<stage>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript; the card panel is where a `BOARD` task is worked (`boards:card_complete`, the task's own attachment and reopen routes). Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns the board's two live blocks (columns, card panel) for `static/js/realtime/boards.js` |
+| `boards` | simple kanban boards: `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_list_state()`/`boards_for_user()` in `boards/selectors.py`; the pages under `/work/boards/` (registry, «Новая доска», the board with its card panel `?card=<pk>` / `&edit=1` / `?new=<stage>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript; the card panel is where a `BOARD` task is worked (`boards:card_complete`, the task's own attachment and reopen routes). Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?q`, and `BoardCard.version` refuses a stale edit. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns the board's two live blocks (columns, card panel) for `static/js/realtime/boards.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -462,8 +462,12 @@ tasks never live inside `acts`.
   somebody's queue without a second rule naming every final code. The archive
   orders by `Coalesce(completed_at, cancelled_at)`, since a cancelled task has
   no completion time. `can_complete_task()` is unchanged and already refuses
-  anything but `IN_PROGRESS`. Written **only** by
-  `tasks.services.cancel_smk_action_tasks()`, inside the caller's transaction.
+  anything but `IN_PROGRESS`. Written only by the cancel services in
+  `tasks/services.py`, one per source that may withdraw work and each inside
+  its caller's transaction: `cancel_smk_action_tasks()` (an СМК correction),
+  `cancel_document_tasks()` (a document's round, acknowledgements or review
+  withdrawn) and `cancel_board_card_task()` (`boards.services.cancel_card()`).
+  A new source gets its own writer there, never a direct status write.
 - **A task's origin is `source_type`, never a nullable relation.** Eleven values
   exist — `ACT`, `ACT_WORKFLOW`, `ACT_REJECTION`, `PROTOCOL_APPROVAL`,
   `PROTOCOL_ACTION`, `SMK`, `BUG`, `DOCUMENT_ACK`, `DOCUMENT_APPROVAL`,
@@ -1696,14 +1700,19 @@ tasks never live inside `acts`.
   `replace_task_assignees()`; `complete_card()` is `complete_task()` and does
   not touch `stage`. Every исполнитель is an active member, and a member who is
   the исполнитель of an open card, or the owner, cannot be removed.
-- **`boards/permissions.py` is the whole rule.** Reading is every signed-in
+- **`boards/permissions.py` is the whole rule.** An archived board is
+  read-only for everybody — `can_work_on_board()`, `can_manage_board()` and
+  `can_cancel_card()` answer False on it, and the one right left is
+  `can_restore_board()`. Reading is every signed-in
   employee; creating is `BOARD_CREATOR_ROLES` (ПДО, Отдел продаж, руководитель,
   администратор, through `accounts.roles`, so a lent role counts) or a genuine
   superuser; managing members is the owner while still an active employee, or
 `is_act_admin()`; working on
   cards is an active member or `is_act_admin()`. Finishing a card is
-  `can_complete_task()` and nothing of the board's. `Board.department` grants
-  nothing.
+  `can_complete_task()` and nothing of the board's; cancelling one is
+  `can_cancel_card()` — its author or the owner (each while an active
+  employee) or `is_act_admin()`, never merely an исполнитель, who *completes*.
+  `Board.department` grants nothing.
   «An active employee» — an active account with an active profile — is
   `is_active_employee()` for one user and `active_employee_q(prefix)` as a
   filter; the services filter with the latter and never restate it.
@@ -1762,11 +1771,14 @@ tasks never live inside `acts`.
   `data-confirm-comment-name="execution_comment"`) and posts an ordinary form to
   `boards:card_complete`; the dialog's `close` event — fired only by «Отмена»
   or Escape, since a confirm navigates away — puts the tile back. A moved card
-  that the panel is showing loads the board's own address with the same
-  `?card=` (`location.replace()` of `[data-board]`'s `data-board-url`, never
-  `reload()`: a board drawn in answer to a refused POST stands at that POST's
-  URL, and reloading it would post again), unless
-  `qualityUnsavedGuard.isDirty`, when the message asks the user to reload.
+  that the panel is showing is `openCardMoved()`'s: while the live client
+  runs (`QualityRealtime.boardLive.isActive`) it does nothing — the move's
+  own `board.updated` redraws the panel, or raises the conflict banner over
+  unsaved input; without it, the board's own address for that panel
+  (`location.replace()` of `data-board-page-url`, never `reload()`: a board
+  drawn in answer to a refused POST stands at that POST's URL, and reloading
+  it would post again), or, over `qualityUnsavedGuard.isDirty`, the message
+  asking the user to reload.
   While a card is in the air, a move awaits the server or the «Готово» modal
   is open, the script holds `data-board-busy` on `[data-board]` and dispatches
   `quality:board-idle` on `document` when it lets go — the live client's one
@@ -1818,6 +1830,51 @@ tasks never live inside `acts`.
   actually shown (`data-board-fragment-url`, `data-board-page-url`), never from
   the address bar. A tile carries `data-task-id` and the panel its task's id,
   so a `task.*` event refetches only a board that shows that task.
+- **A wrong card is cancelled, never deleted.** `cancel_card()` locks board →
+  card → task, asks `can_cancel_card()` after the locks and calls
+  `tasks.services.cancel_board_card_task()`: a `BOARD` task in `IN_PROGRESS`
+  only, a non-blank reason required, `CANCELLED` with
+  `cancelled_at`/`cancelled_by`/`cancellation_reason`, `completed_by` and
+  `execution_comment` untouched, `updated_at` listed, `emit_task_updated`. The
+  card leaves every column (`card_column()` already says so), its panel by
+  `?card=` reads the reason, and «Задачи» puts the task in «Архив» by
+  `is_final`. «Отменить карточку» is the shared modal with the required
+  comment posted as `cancellation_reason` to `boards:card_cancel` (the right
+  asked before the method). Nobody is notified, as with an СМК correction.
+- **`Board.status` is a shelf, like `SmkSource.status`.** `ACTIVE`/`ARCHIVED`
+  plus `archived_at`/`archived_by`; `archive_board()` (`can_manage_board()`,
+  under the board lock) refuses a board with any open card — «Сначала
+  завершите или отмените открытые карточки: N» — so the shelf never hides
+  work in progress, and `restore_board()` (`can_restore_board()`) puts it back
+  as it was. Every board write refuses an archived board before its right
+  (`_refuse_archived()`, «Доска в архиве — изменить её нельзя.»), and every
+  board route of a write answers 403 before the method; completing a task is
+  the task's own rule and is not a board write. The page stays at its address
+  with «В архиве»; the registry has «Мои» and «Все» (live boards) and
+  «Архив». «В архив» / «Вернуть из архива» are shared-modal triggers in the
+  heading, which is not live.
+- **The board filters are one parse.** `selectors.parse_board_filters()` reads
+  `mine=1` (I am an исполнитель), `overdue=1` (an open task past its срок) and
+  `q` (a substring of the title) into a `BoardFilters`, and
+  `build_board_state(filters=…)` and `column_counts(…, filters)` apply them —
+  «Готово» takes `mine` and `q`, never `overdue` — so the page, its fragment
+  and a drag's JSON counts are filtered alike and every count is the filtered
+  number. `_board_context()` parses `request.GET` on a POST too, because every
+  board URL the page draws carries `filter_query`: tile links, the panel's
+  links and form actions, the drag's move URL, the fragment URL and
+  `data-board-page-url`, so redirects after a POST land on the same filtered
+  board. The form is `form[data-registry-filter]` of `registry_tools.js` in the
+  heading, with no memory; «Сбросить» drops the filter and keeps the open
+  card. The panel card is found whatever the filter says. A drag under a
+  filter posts the next *visible* card as `before_card_id`; `move_card()`
+  places the card before it in the full column.
+- **`BoardCard.version` stops a silent overwrite.** It grows by one with every
+  `update_card()` that stored something, and only then — a move or a
+  completion does not touch it. The edit form posts it back as a hidden
+  `version`; `update_card(expected_version=…)` compares it under the locks and
+  refuses a mismatch with `StaleCardError`, and the view re-renders the edit
+  panel with what was typed, the error and «Открыть текущую версию» in a new
+  tab. `expected_version=None` (a call that is not a form) skips the check.
 
 ### Documentation library (`documents`)
 
@@ -2165,7 +2222,8 @@ tasks never live inside `acts`.
   controller; realtime never renders the table or carries journal values.
 - Boards emit one event type, `board.updated` (`board_id`, `card_id` or null,
   `change` from the closed `realtime.events.BOARD_CHANGES`: `card_created`,
-  `card_updated`, `card_moved`, `card_completed`, `members_changed`), through
+  `card_updated`, `card_moved`, `card_completed`, `card_cancelled`,
+  `members_changed`, `board_archived`, `board_restored`), through
   `emit_board_updated()` from `boards/services.py` alone — inside the write's
   `atomic()` block, once per successful write that stored something. A refusal,
   a rollback, an edit that changes nothing and a drop where the card already

@@ -3,7 +3,9 @@ The four columns of one board, in the order of `boards/columns.py`: the live
 block `[data-live-board-columns]`. The page and `boards:fragment` both render
 this file from the same `_board_context()`, and the client replaces the whole
 contents of the container with it — never while a card is being dragged.
-Nothing here holds input, so it is never guarded.
+Nothing here holds input, so it is never guarded. Counts and cards are
+what the board's filter leaves (`build_board_state(filters=…)`), and every
+link keeps that filter (`filter_query`).
 {% endcomment %}
 {% for column in columns %}
     <section class="board-column board-column--{{ column.code|lower }}" aria-labelledby="board-column-{{ column.code }}"
@@ -12,7 +14,7 @@ Nothing here holds input, so it is never guarded.
             <h2 id="board-column-{{ column.code }}">{{ column.label }}</h2>
             <span class="tab-count" data-column-count>{{ column.count }}</span>
             {% if can_work and column.is_stored %}
-                <a class="board-column__add" href="{{ board_url }}?new={{ column.code }}" title="Новая карточка в колонке «{{ column.label }}»" aria-label="Новая карточка в колонке «{{ column.label }}»">+</a>
+                <a class="board-column__add" href="{{ board_url }}?new={{ column.code }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" title="Новая карточка в колонке «{{ column.label }}»" aria-label="Новая карточка в колонке «{{ column.label }}»">+</a>
             {% endif %}
         </header>
         <ol class="board-column__cards" data-column-list>

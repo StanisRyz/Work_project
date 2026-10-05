@@ -4,14 +4,15 @@
 {% block title %}Доски · Экосистема качества{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261005-1">
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261006-1">
 {% endblock %}
 
 {% block content_class %}page-container--fill{% endblock %}
 
 {% block content %}
 {% comment %}
-The board registry: «Мои» (boards I am a member of) and «Все». Both counts
+The board registry: «Мои» (live boards I am a member of), «Все» (live) and
+«Архив». The counts
 are annotations of the one query (`build_board_list_state()`). No filters,
 no Excel and no remembered tab: there are a handful of boards.
 
@@ -22,6 +23,7 @@ it anyway.
     <nav class="act-registry-tabs" aria-label="Область списка досок">
         <a class="act-registry-tabs__link{% if tab == 'my' %} act-registry-tabs__link--active{% endif %}" href="?tab=my">Мои <span class="tab-count">{{ tab_counts.my }}</span></a>
         <a class="act-registry-tabs__link{% if tab == 'all' %} act-registry-tabs__link--active{% endif %}" href="?tab=all">Все <span class="tab-count">{{ tab_counts.all }}</span></a>
+        <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?tab=archive">Архив <span class="tab-count">{{ tab_counts.archive }}</span></a>
     </nav>
     {% if can_create %}
         <a class="link-button" href="{% url 'boards:create' %}">+ Создать доску</a>
@@ -49,6 +51,8 @@ it anyway.
 {% else %}
     {% if tab == 'my' %}
         {% include 'acts/includes/empty_state.html' with title='Вы пока не участник ни одной доски' message='Откройте вкладку «Все» или попросите владельца доски добавить вас.' %}
+    {% elif tab == 'archive' %}
+        {% include 'acts/includes/empty_state.html' with title='В архиве досок нет' message='Законченную доску убирает в архив её владелец или администратор.' %}
     {% else %}
         {% include 'acts/includes/empty_state.html' with title='Досок пока нет' message='Доску создают ПДО, Отдел продаж, руководитель или администратор.' %}
     {% endif %}

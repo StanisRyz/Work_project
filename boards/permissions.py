@@ -8,6 +8,10 @@ asked here.
 Nothing here decides who may *complete* a card. A card's work is a
 `tasks.Task`, and finishing it is `tasks.permissions.can_complete_task()`,
 unchanged: an assignee of the task, or an administrator.
+
+An archived board (`Board.Status.ARCHIVED`) is read-only for everybody:
+nobody works on it, nobody manages its members or cancels its cards, and the
+only right left on it is «Вернуть из архива» (`can_restore_board()`).
 """
 
 from django.db.models import Q
@@ -69,11 +73,8 @@ def can_create_board(user):
     return has_any_role(user, BOARD_CREATOR_ROLES)
 
 
-def can_manage_board(user, board):
-    """The owner while still an active employee, or an administrator.
-
-    A deactivated profile grants nothing, the owner's included.
-    """
+def _keeps_board(user, board):
+    """The owner while still an active employee, or an administrator."""
     if not _is_authenticated(user):
         return False
     if is_act_admin(user):
@@ -81,13 +82,45 @@ def can_manage_board(user, board):
     return user.pk == board.owner_id and is_active_employee(user)
 
 
+def can_manage_board(user, board):
+    """Members and the shelf of a live board: its owner (active) or an administrator.
+
+    A deactivated profile grants nothing, the owner's included. On an archived
+    board management is reduced to `can_restore_board()`.
+    """
+    return _keeps_board(user, board) and not board.is_archived
+
+
+def can_restore_board(user, board):
+    """«Вернуть из архива» — the same people, and only for an archived board."""
+    return _keeps_board(user, board) and board.is_archived
+
+
+def can_cancel_card(user, card):
+    """«Отменить карточку»: its author, the board's owner or an administrator.
+
+    The author and the owner only while active employees. Never merely an
+    исполнитель: the исполнитель *completes* the work, and withdrawing it is
+    the decision of whoever put it on the board. Not on an archived board.
+    Whether the task is still open is the service's question.
+    """
+    board = card.board
+    if not _is_authenticated(user) or board.is_archived:
+        return False
+    if is_act_admin(user):
+        return True
+    if not is_active_employee(user):
+        return False
+    return user.pk in (card.created_by_id, board.owner_id)
+
+
 def can_work_on_board(user, board):
     """An active member puts cards on the board, edits and moves them.
 
     An administrator may too, as everywhere else in the project. Reading the
-    board grants none of it.
+    board grants none of it, and nobody works on an archived board.
     """
-    if not _is_authenticated(user):
+    if not _is_authenticated(user) or board.is_archived:
         return False
     if is_act_admin(user):
         return True

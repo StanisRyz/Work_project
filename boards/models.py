@@ -22,6 +22,18 @@ from accounts.models import Department
 class Board(models.Model):
     """One board: a name, an owner and the people allowed to work on it."""
 
+    class Status(models.TextChoices):
+        """A shelf, not a workflow — like `smk.SmkSource.Status`.
+
+        An archived board is read at the same address and changes nothing:
+        `boards.permissions` refuses every write to it, and only «Вернуть из
+        архива» moves it back. `archive_board()` refuses a board with open
+        cards, so the shelf never hides work still in progress.
+        """
+
+        ACTIVE = 'ACTIVE', 'Активна'
+        ARCHIVED = 'ARCHIVED', 'В архиве'
+
     name = models.CharField('Название', max_length=200)
     description = models.TextField('Описание', blank=True)
     # Organisational metadata, like every `Department` reference: it says whose
@@ -39,6 +51,18 @@ class Board(models.Model):
         related_name='owned_boards',
         verbose_name='Владелец',
     )
+    status = models.CharField(
+        'Статус', max_length=16, choices=Status.choices, default=Status.ACTIVE,
+    )
+    archived_at = models.DateTimeField('В архиве с', null=True, blank=True)
+    archived_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='+',
+        verbose_name='Убрал в архив',
+    )
     created_at = models.DateTimeField('Создана', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлена', auto_now=True)
 
@@ -49,6 +73,10 @@ class Board(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def is_archived(self):
+        return self.status == self.Status.ARCHIVED
 
 
 class BoardMember(models.Model):
@@ -130,6 +158,12 @@ class BoardCard(models.Model):
     position = models.PositiveIntegerField('Позиция')
     title = models.CharField('Заголовок', max_length=200)
     description = models.TextField('Описание', blank=True)
+    # Grows by one with every edit that stored something (`update_card()`), and
+    # only then: a move or a completion does not touch the text an editor is
+    # holding. The edit form carries the number it was drawn with, and
+    # `update_card(expected_version=…)` refuses a save made against an older
+    # one — two people editing one card never silently overwrite each other.
+    version = models.PositiveIntegerField('Версия', default=1)
     created_by = models.ForeignKey(
         User,
         on_delete=models.PROTECT,

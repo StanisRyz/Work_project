@@ -10,10 +10,11 @@ open (`item.is_movable`); the hidden «Завершить» trigger only when
 clicks that trigger, so completion goes through the one confirmation modal with
 its required comment, posted as `execution_comment` to `boards:card_complete`.
 `data-task-id` lets the live client tell a `task.*` event about this card's
-task from any other.
+task from any other. Every URL here carries the board's filter, so the panel,
+the drag's counts and the redirect after completion stay filtered.
 {% endcomment %}
-<li class="board-column__item" data-card-id="{{ item.card.pk }}" data-task-id="{{ item.task.pk }}"{% if item.is_movable %} data-card-movable data-card-move-url="{% url 'boards:card_move' board.pk item.card.pk %}"{% endif %}>
-    <a class="board-tile{% if card and card.card.pk == item.card.pk %} board-tile--open{% endif %}" href="{{ board_url }}?card={{ item.card.pk }}" draggable="false">
+<li class="board-column__item" data-card-id="{{ item.card.pk }}" data-task-id="{{ item.task.pk }}"{% if item.is_movable %} data-card-movable data-card-move-url="{% url 'boards:card_move' board.pk item.card.pk %}{{ filter_suffix }}"{% endif %}>
+    <a class="board-tile{% if card and card.card.pk == item.card.pk %} board-tile--open{% endif %}" href="{{ board_url }}?card={{ item.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" draggable="false">
         <span class="board-tile__title user-text text-clamp-2" title="{{ item.card.title }}">{{ item.card.title }}</span>
         <span class="board-tile__footer">
             <span class="board-tile__number">№{{ item.task.pk }}</span>
@@ -27,7 +28,7 @@ task from any other.
         <button type="button" hidden
                 data-card-complete-trigger
                 data-confirm
-                data-confirm-url="{% url 'boards:card_complete' board.pk item.card.pk %}"
+                data-confirm-url="{% url 'boards:card_complete' board.pk item.card.pk %}{{ filter_suffix }}"
                 data-confirm-title="Завершить задачу №{{ item.task.pk }}?"
                 data-confirm-text="Карточка перейдёт в «Готово». Укажите результат выполнения."
                 data-confirm-label="Завершить"

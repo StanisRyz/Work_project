@@ -26,6 +26,9 @@ const CLIENT_DIR = path.join(__dirname, '..', '..', '..', 'static', 'js', 'realt
 // The very order base.html loads them in.
 const MODULES = ['core.js', 'tabs.js', 'sync.js', 'notifications.js', 'tasks.js', 'acts.js', 'workup.js', 'protocols.js', 'boards.js', 'start.js'];
 const SOURCES = MODULES.map((name) => [name, fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8')]);
+// Dragging is not a real-time module, but what it does after moving the open
+// card depends on whether the live board client runs.
+const BOARD_DND_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_dnd.js'), 'utf8');
 const DEFAULT_COORDINATION_EPOCH = 'test-session-epoch-000000000001';
 const coordinationChannelName = (epoch = DEFAULT_COORDINATION_EPOCH) =>
     `quality-realtime-v1:${epoch}`;
@@ -1564,6 +1567,48 @@ test('the boards sync token moving refreshes the board', async () => {
     env.clock.advance(300);
     await flush();
     assert.equal(boardCalls(env).length, afterOpen + 1);
+});
+
+function loadDnd(env) {
+    vm.runInContext(BOARD_DND_SOURCE, env.context, { filename: 'board_dnd.js' });
+    return env.context.window.qualityBoardDnd;
+}
+
+test('moving the open card leaves the panel to the live client', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment());
+    const dnd = loadDnd(env);
+
+    assert.equal(dnd.openCardMoved('9'), 'live');
+    assert.deepEqual(env.window.location.replaced, [], 'no navigation');
+    const message = env.document.querySelector('[data-board-message]');
+    assert.ok(!message || message.hidden !== false, 'no «обновите страницу»');
+});
+
+test('with the live client stopped, moving the open card loads the board address', async () => {
+    const env = load({ page: 'board' });
+    const dnd = loadDnd(env);
+    env.core.stop();
+
+    assert.equal(dnd.openCardMoved('9'), 'replace');
+    assert.deepEqual(env.window.location.replaced, ['/work/boards/4/?card=9']);
+});
+
+test('without real-time, moving the open card loads the board address', async () => {
+    const env = load({ page: 'board', realtimeEnabled: false });
+    const dnd = loadDnd(env);
+
+    assert.equal(dnd.openCardMoved('9'), 'replace');
+    assert.deepEqual(env.window.location.replaced, ['/work/boards/4/?card=9']);
+});
+
+test('without real-time, unsaved input gets the message instead of a navigation', async () => {
+    const env = load({ page: 'board', realtimeEnabled: false });
+    env.window.qualityUnsavedGuard = { isDirty: true };
+    const dnd = loadDnd(env);
+
+    assert.equal(dnd.openCardMoved('9'), 'message');
+    assert.deepEqual(env.window.location.replaced, []);
 });
 
 test('without real-time the board script does nothing', async () => {

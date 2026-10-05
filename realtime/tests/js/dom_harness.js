@@ -732,7 +732,14 @@ function createEnvironment({
             claim: () => true,
         },
         fetch: fetchStub,
-        location: { search: '', reload: () => {} },
+        location: {
+            search: '',
+            reload: () => {},
+            replaced: [],
+            replace(url) {
+                this.replaced.push(url);
+            },
+        },
         localStorage: storage,
         BroadcastChannel: broadcast ? FakeBroadcastChannel : undefined,
     };

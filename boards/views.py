@@ -37,8 +37,10 @@ from tasks.forms import TaskAttachmentForm
 from .forms import AddMembersForm, BoardForm, CardForm, MoveCardForm
 from .models import Board, BoardCard, BoardMember
 from .permissions import (
+    can_cancel_card,
     can_create_board,
     can_manage_board,
+    can_restore_board,
     can_view_board,
     can_work_on_board,
 )
@@ -46,16 +48,21 @@ from .selectors import (
     build_board_list_state,
     build_board_state,
     column_counts,
+    parse_board_filters,
     resolve_new_stage,
 )
 from .services import (
     BoardError,
+    StaleCardError,
     add_board_members,
+    archive_board,
+    cancel_card,
     complete_card,
     create_board,
     create_card,
     move_card,
     remove_board_member,
+    restore_board,
     update_card,
 )
 
@@ -64,8 +71,15 @@ def _board_or_404(pk):
     return get_object_or_404(Board.objects.select_related('department', 'owner'), pk=pk)
 
 
-def _card_url(board, card):
-    return f"{reverse('boards:detail', args=[board.pk])}?card={card.pk}"
+def _card_url(board, card, request=None):
+    """The board with `card` open — and, from a request, the filter it was under.
+
+    Every board form posts to a URL carrying the board's filter query, so the
+    redirect after it lands on the same filtered board.
+    """
+    url = f"{reverse('boards:detail', args=[board.pk])}?card={card.pk}"
+    query = parse_board_filters(request.GET).query if request is not None else ''
+    return f'{url}&{query}' if query else url
 
 
 def _require(allowed):
@@ -129,6 +143,7 @@ def _card_initial(item):
         'description': item['card'].description,
         'due_date': item['due_date'],
         'assignees': [user.pk for user in item['assignees']],
+        'version': item['card'].version,
     }
 
 
@@ -138,7 +153,7 @@ PANEL_TEMPLATE = 'boards/includes/panel.html'
 
 def _board_context(request, board, *, card_id=None, edit=False, new=None, panel=None,
                    form=None, move_form=None, error='', execution_comment=None,
-                   execution_error='', take_draft=True):
+                   execution_error='', take_draft=True, version_conflict=False):
     """Everything the board page and its live fragment render.
 
     `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from `card_id`,
@@ -152,12 +167,18 @@ def _board_context(request, board, *, card_id=None, edit=False, new=None, panel=
     written before, exactly as the task page does. The live fragment passes
     `take_draft=False`: the draft is the page's to show, once.
 
+    The filters (`?mine=1`, `?overdue=1`, `?q=`) are read from `request.GET`
+    here and nowhere else — on a POST too, whose action URL carries them — so
+    the page, its fragment and a refused form are filtered alike, and every
+    link the panel and the tiles draw keeps them (`filter_query`).
+
     Returns the context and whether the panel holds input that is not the
     stored state (a bound form, posted or parked text): such a page starts
     «dirty» for the live client, and its panel fingerprint comes from a clean
     render.
     """
-    state = build_board_state(board, request.user, card_id=card_id)
+    filters = parse_board_filters(request.GET)
+    state = build_board_state(board, request.user, card_id=card_id, filters=filters)
     item = state['card']
     can_edit_card = bool(item and state['can_work'] and not item['is_closed'])
     new_stage = None
@@ -205,14 +226,17 @@ def _board_context(request, board, *, card_id=None, edit=False, new=None, panel=
         'execution_comment': execution_comment or '',
         'execution_error': execution_error,
         'board_url': board_url,
+        'filter_query': filters.query,
+        'filter_suffix': f'?{filters.query}' if filters.query else '',
+        'version_conflict': version_conflict,
     })
-    query = _panel_query(item, panel, new_stage)
+    query = _panel_query(item, panel, new_stage, filters)
     state['fragment_url'] = reverse('boards:fragment', args=[board.pk]) + query
     state['page_url'] = board_url + query
     return state, holds_input
 
 
-def _panel_query(item, panel, new_stage):
+def _panel_query(item, panel, new_stage, filters):
     """The query string that asks for exactly the panel this page shows.
 
     It goes on the live fragment's URL and on the page's own address for a
@@ -227,7 +251,8 @@ def _panel_query(item, panel, new_stage):
             query['edit'] = '1'
     elif panel == 'new' and new_stage is not None:
         query['new'] = new_stage.code
-    return f'?{urlencode(query)}' if query else ''
+    encoded = '&'.join(part for part in (urlencode(query), filters.query) if part)
+    return f'?{encoded}' if encoded else ''
 
 
 def _board_blocks(request, context):
@@ -335,7 +360,7 @@ def card_create(request, pk):
             )
         except BoardError as exc:
             return _render_board(request, board, panel='new', form=form, error=str(exc))
-        return redirect(_card_url(board, card))
+        return redirect(_card_url(board, card, request))
     return _render_board(request, board, panel='new', form=form)
 
 
@@ -345,7 +370,7 @@ def card_update(request, pk, card_pk):
     _require(can_work_on_board(request.user, board))
     card = get_object_or_404(BoardCard, pk=card_pk, board=board)
     if request.method != 'POST':
-        return redirect(_card_url(board, card))
+        return redirect(_card_url(board, card, request))
     form = CardForm(request.POST, board=board)
     if form.is_valid():
         try:
@@ -356,12 +381,16 @@ def card_update(request, pk, card_pk):
                 description=form.cleaned_data['description'],
                 due_date=form.cleaned_data['due_date'],
                 assignee_ids=[user.pk for user in form.cleaned_data['assignees']],
+                expected_version=form.cleaned_data['version'],
             )
         except BoardError as exc:
+            # A stale version keeps the typed values in the edit panel and
+            # offers the current card in another tab, so nothing typed is lost.
             return _render_board(
                 request, board, card_id=card.pk, panel='edit', form=form, error=str(exc),
+                version_conflict=isinstance(exc, StaleCardError),
             )
-        return redirect(_card_url(board, card))
+        return redirect(_card_url(board, card, request))
     return _render_board(request, board, card_id=card.pk, panel='edit', form=form)
 
 
@@ -397,7 +426,7 @@ def card_move(request, pk, card_pk):
         _require(False)
     card = get_object_or_404(BoardCard, pk=card_pk, board=board)
     if request.method != 'POST':
-        return redirect(_card_url(board, card))
+        return redirect(_card_url(board, card, request))
     form = MoveCardForm(request.POST)
     if not form.is_valid():
         if fetch:
@@ -420,8 +449,11 @@ def card_move(request, pk, card_pk):
             request, board, card_id=card.pk, panel='view', move_form=form, error=str(exc),
         )
     if fetch:
-        return JsonResponse({'ok': True, 'stage': card.stage, 'counts': column_counts(board)})
-    return redirect(_card_url(board, card))
+        # Counted under the filter the board is drawn with: the move URL of a
+        # tile carries it, exactly as the board's forms do.
+        counts = column_counts(board, request.user, parse_board_filters(request.GET))
+        return JsonResponse({'ok': True, 'stage': card.stage, 'counts': counts})
+    return redirect(_card_url(board, card, request))
 
 
 @login_required
@@ -439,7 +471,7 @@ def card_complete(request, pk, card_pk):
     _require(can_view_board(request.user, board))
     card = get_object_or_404(BoardCard, pk=card_pk, board=board)
     if request.method != 'POST':
-        return redirect(_card_url(board, card))
+        return redirect(_card_url(board, card, request))
     execution_comment = request.POST.get('execution_comment', '')
     try:
         complete_card(card, actor=request.user, execution_comment=execution_comment)
@@ -449,7 +481,59 @@ def card_complete(request, pk, card_pk):
             execution_comment=execution_comment, execution_error=str(exc),
         )
     messages.success(request, 'Задача выполнена, карточка в колонке «Готово».')
-    return redirect(_card_url(board, card))
+    return redirect(_card_url(board, card, request))
+
+
+@login_required
+def card_cancel(request, pk, card_pk):
+    """«Отменить карточку» in the panel, confirmed with a required reason.
+
+    The right (`can_cancel_card()`: author, owner, administrator — never an
+    archived board) is asked before the method; `cancel_card()` asks it again
+    under the locks. The reason arrives as `cancellation_reason`, the name the
+    panel's confirmation trigger gives the modal's comment.
+    """
+    board = _board_or_404(pk)
+    card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
+    _require(can_cancel_card(request.user, card))
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request))
+    try:
+        cancel_card(card, actor=request.user, reason=request.POST.get('cancellation_reason', ''))
+    except BoardError as exc:
+        return _render_board(request, board, card_id=card.pk, panel='view', error=str(exc))
+    messages.success(request, 'Карточка отменена: её задача закрыта без выполнения.')
+    return redirect(_card_url(board, card, request))
+
+
+@login_required
+def board_archive(request, pk):
+    """«В архив»: `archive_board()`, refused while any card is still open."""
+    board = _board_or_404(pk)
+    _require(can_manage_board(request.user, board))
+    if request.method == 'POST':
+        try:
+            archive_board(board, actor=request.user)
+        except BoardError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, 'Доска убрана в архив.')
+    return redirect('boards:detail', pk=board.pk)
+
+
+@login_required
+def board_restore(request, pk):
+    """«Вернуть из архива»: `restore_board()`."""
+    board = _board_or_404(pk)
+    _require(can_restore_board(request.user, board))
+    if request.method == 'POST':
+        try:
+            restore_board(board, actor=request.user)
+        except BoardError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, 'Доска возвращена из архива.')
+    return redirect('boards:detail', pk=board.pk)
 
 
 # --------------------------------------------------------------------------

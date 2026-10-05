@@ -4,7 +4,7 @@
 {% block title %}{{ board.name }} · Доски{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261005-2">
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261006-1">
 {% endblock %}
 
 {% block content_class %}page-container--fill{% endblock %}
@@ -25,15 +25,46 @@ drawn — every route asks the same rule again, and a reader sees the board and
 the panel with no control at all.
 {% endcomment %}
 <section class="act-detail-heading board-heading">
-    <a class="act-back-link" href="{% url 'boards:list' %}" aria-label="К списку досок">←</a>
+    <a class="act-back-link" href="{% url 'boards:list' %}{% if board.is_archived %}?tab=archive{% endif %}" aria-label="К списку досок">←</a>
     <div class="board-heading__title">
-        <h1 class="user-text">{{ board.name }}</h1>
-        <span class="board-heading__meta"><span class="user-text">{{ board.department.name }}</span> · владелец {{ board.owner|person_name }}</span>
+        <h1 class="user-text">{{ board.name }}{% if board.is_archived %} <span class="status-badge status-badge--archived">В архиве</span>{% endif %}</h1>
+        <span class="board-heading__meta"><span class="user-text">{{ board.department.name }}</span> · владелец {{ board.owner|person_name }}{% if board.is_archived %} · в архиве с {{ board.archived_at|date:'d.m.Y' }}{% endif %}</span>
     </div>
     <div class="board-heading__actions">
         <a class="link-button link-button--secondary" href="{% url 'boards:members' board.pk %}">Участники ({{ member_count }})</a>
-        {% if can_work %}<a class="link-button" href="{{ board_url }}?new=TODO">+ Карточка</a>{% endif %}
+        {% if can_manage %}
+            <button class="link-button link-button--secondary" type="button"
+                    data-confirm
+                    data-confirm-title="Убрать доску в архив?"
+                    data-confirm-text="Доска останется по тому же адресу, но станет только для чтения. Вернуть её сможет владелец или администратор."
+                    data-confirm-label="В архив"
+                    data-confirm-url="{% url 'boards:archive' board.pk %}">В архив</button>
+        {% endif %}
+        {% if can_restore %}
+            <button class="link-button" type="button"
+                    data-confirm
+                    data-confirm-title="Вернуть доску из архива?"
+                    data-confirm-text="Участники снова смогут создавать, править и переносить карточки."
+                    data-confirm-label="Вернуть из архива"
+                    data-confirm-url="{% url 'boards:restore' board.pk %}">Вернуть из архива</button>
+        {% endif %}
+        {% if can_work %}<a class="link-button" href="{{ board_url }}?new=TODO{% if filter_query %}&amp;{{ filter_query }}{% endif %}">+ Карточка</a>{% endif %}
     </div>
+    {% comment %}
+    The board's filters: `form[data-registry-filter]` of the shared
+    `registry_tools.js` (a tick applies at once, the search after a pause),
+    «Применить» for the no-JavaScript path. Read by `parse_board_filters()` for
+    the page, its live fragment and the drag's counts alike. The open card
+    stays open; «Сбросить» drops the filter and keeps it.
+    {% endcomment %}
+    <form class="board-filters" method="get" action="{{ board_url }}" data-registry-filter>
+        {% if panel == 'view' and card %}<input type="hidden" name="card" value="{{ card.card.pk }}">{% endif %}
+        <label class="board-filters__check"><input type="checkbox" name="mine" value="1"{% if filters.mine %} checked{% endif %}> Мои</label>
+        <label class="board-filters__check"><input type="checkbox" name="overdue" value="1"{% if filters.overdue %} checked{% endif %}> Просроченные</label>
+        <input class="board-filters__search" type="search" name="q" value="{{ filters.q }}" placeholder="Поиск по названию" aria-label="Поиск карточки по названию" maxlength="200" data-registry-search>
+        <button class="link-button link-button--secondary link-button--compact" type="submit">Применить</button>
+        {% if filters.is_active %}<a class="board-filters__reset" href="{{ board_url }}{% if panel == 'view' and card %}?card={{ card.card.pk }}{% endif %}">Сбросить</a>{% endif %}
+    </form>
 </section>
 
 {% comment %}
@@ -87,5 +118,5 @@ takes `data-board-url` for the reload after the open card moved.
 
 {% block scripts %}
 {# Dragging cards. The board works without it: the panel holds the same actions. #}
-<script src="{% static 'js/board_dnd.js' %}?v=20261005-2" defer></script>
+<script src="{% static 'js/board_dnd.js' %}?v=20261006-1" defer></script>
 {% endblock %}

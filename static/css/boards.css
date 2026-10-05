@@ -33,6 +33,40 @@
     margin-left: auto;
 }
 
+/* The filter row under the title: «Мои», «Просроченные», the search. Content
+   width, left-aligned, like every registry's filter row. */
+.board-filters {
+    display: flex;
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+}
+
+.board-filters__check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text);
+}
+
+.board-filters__check input {
+    width: auto;
+}
+
+.board-filters__search {
+    width: 260px;
+    max-width: 100%;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+}
+
+.board-filters__reset {
+    color: var(--color-primary);
+}
+
 /* ---- Columns and panel ---- */
 
 .board-layout {
@@ -349,6 +383,15 @@
     margin: 0;
     color: var(--color-text);
     font-size: var(--font-size-base);
+}
+
+.board-panel__conflict {
+    margin: 0;
+}
+
+.board-panel__cancel {
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
 }
 
 .board-panel__meta {

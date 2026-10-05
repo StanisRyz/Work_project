@@ -212,6 +212,15 @@
 
     core.boardLive = {
         coordinator,
+        /**
+         * Whether this page is kept current: `board_dnd.js` asks it after
+         * moving the open card and, when it is, leaves the panel to the
+         * `board.updated` that move publishes. A lost session (`core.stop()`)
+         * or a vanished board ends it.
+         */
+        get isActive() {
+            return core.state !== core.STATES.STOPPED && !coordinator.isStopped;
+        },
         get isDirty() {
             return dirty;
         },

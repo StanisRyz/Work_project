@@ -25,6 +25,8 @@
  * `attachment_upload.js` clicks its hidden one: the modal asks for the result
  * and posts it as an ordinary form; closing the modal puts the card back.
  *
+ * After moving the card the panel shows, see `openCardMoved()`.
+ *
  * Every listener is delegated from `document`, so columns replaced wholesale by
  * a later live update keep working with nothing to re-bind. Without
  * JavaScript, «Переместить в…» and «Завершить» in the card panel do the same.
@@ -41,7 +43,6 @@
     if (window.qualityBoardDnd) {
         return;
     }
-    window.qualityBoardDnd = true;
 
     const DRAG_THRESHOLD = 5;      // px a mouse must travel before a click becomes a drag
     const TOUCH_SLOP = 10;         // px a finger may wander during the long press
@@ -350,17 +351,7 @@
                 updateCounts(answer.counts);
                 const row = document.querySelector('[data-board-columns]');
                 if (row && row.dataset.currentCard === item.dataset.cardId) {
-                    const guard = window.qualityUnsavedGuard;
-                    const root = document.querySelector('[data-board]');
-                    if (guard && guard.isDirty) {
-                        showMessage(MOVED_PANEL_STALE);
-                    } else if (root && root.dataset.boardUrl) {
-                        // The board's own address, never `reload()`: a page
-                        // drawn in answer to a refused POST would post again.
-                        window.location.replace(
-                            `${root.dataset.boardUrl}?card=${encodeURIComponent(item.dataset.cardId)}`,
-                        );
-                    }
+                    openCardMoved(item.dataset.cardId);
                 }
             })
             .catch(() => {
@@ -372,6 +363,40 @@
                 syncBusy();
             });
     };
+
+    /**
+     * The card the panel shows was just moved: its panel now names the wrong
+     * column. With the live client running (`realtime/boards.js`) nothing more
+     * is done — the move's own `board.updated` redraws a clean panel, or
+     * raises the conflict banner over unsaved input. Without it, the board's
+     * own address for this card is loaded (`data-board-page-url`, filter
+     * included — never `reload()`: a board drawn in answer to a refused POST
+     * would post it again), unless the panel holds unsaved input, when a
+     * message asks the user to reload when ready. Returns what it did.
+     */
+    const openCardMoved = (cardId) => {
+        const core = window.QualityRealtime;
+        if (core && core.boardLive && core.boardLive.isActive) {
+            return 'live';
+        }
+        const guard = window.qualityUnsavedGuard;
+        if (guard && guard.isDirty) {
+            showMessage(MOVED_PANEL_STALE);
+            return 'message';
+        }
+        const root = document.querySelector('[data-board]');
+        if (!root || !root.dataset.boardUrl) {
+            return 'none';
+        }
+        window.location.replace(
+            root.dataset.boardPageUrl
+            || `${root.dataset.boardUrl}?card=${encodeURIComponent(cardId)}`,
+        );
+        return 'replace';
+    };
+
+    // The one entry point a test (and nothing else) calls from outside.
+    window.qualityBoardDnd = { openCardMoved };
 
     const complete = (state) => {
         const trigger = state.item.querySelector('[data-card-complete-trigger]');

@@ -28,6 +28,11 @@ def main_of(response):
     return response.content.decode().split('<main', 1)[1].split('</main>', 1)[0]
 
 
+def panel_of(content):
+    """The card panel alone — the `<aside>` the live client replaces."""
+    return content.split('data-live-board-panel', 1)[1].split('</aside>', 1)[0]
+
+
 def upload(name='отчёт.pdf', content=b'%PDF-1.4 '):
     return SimpleUploadedFile(name, content, 'application/pdf')
 
@@ -189,7 +194,7 @@ class PanelWorkTests(PanelTestMixin, TestCase):
         )
         for user in (self.member, self.admin):
             with self.subTest(user=user.username):
-                content = main_of(self.panel(user))
+                content = panel_of(main_of(self.panel(user)))
                 self.assertIn('Отозвано', content)
                 for marker in ('<form', 'data-confirm', 'edit=1'):
                     self.assertNotIn(marker, content)

@@ -20,7 +20,7 @@ when its fingerprint moved and nothing typed here is unsaved.
 {% endcomment %}
 <div class="board-panel__head">
     <h2>{% if panel == 'new' %}Новая карточка{% elif panel == 'edit' %}Редактирование{% else %}Карточка №{{ card.task.pk }}{% endif %}</h2>
-    <a class="board-panel__close" href="{{ board_url }}" aria-label="Закрыть панель" title="Закрыть">×</a>
+    <a class="board-panel__close" href="{{ board_url }}{{ filter_suffix }}" aria-label="Закрыть панель" title="Закрыть">×</a>
 </div>
 {% if panel_error %}<div class="form-error">{{ panel_error }}</div>{% endif %}
 {% comment %}A refused completion by somebody with no «Выполнение» form to show it beside.{% endcomment %}
@@ -39,9 +39,9 @@ when its fingerprint moved and nothing typed here is unsaved.
     </dl>
     {% if can_edit_card %}
         <div class="form-actions">
-            <a class="link-button link-button--secondary" href="{{ board_url }}?card={{ card.card.pk }}&amp;edit=1">Редактировать</a>
+            <a class="link-button link-button--secondary" href="{{ board_url }}?card={{ card.card.pk }}&amp;edit=1{% if filter_query %}&amp;{{ filter_query }}{% endif %}">Редактировать</a>
         </div>
-        <form class="board-panel__move" method="post" action="{% url 'boards:card_move' board.pk card.card.pk %}">
+        <form class="board-panel__move" method="post" action="{% url 'boards:card_move' board.pk card.card.pk %}{{ filter_suffix }}">
             {% csrf_token %}
             <label>
                 <span>{{ move_form.stage.label }}</span>
@@ -63,7 +63,7 @@ when its fingerprint moved and nothing typed here is unsaved.
         of the shared «Вложения» include copy the unsaved text from
         `#task-execution-comment`, so picking a file does not lose it.
         {% endcomment %}
-        <form class="board-panel__section board-execution-form" method="post" action="{% url 'boards:card_complete' board.pk card.card.pk %}" data-hotkey-submit data-unsaved-guard{% if execution_error %}="dirty"{% endif %}>
+        <form class="board-panel__section board-execution-form" method="post" action="{% url 'boards:card_complete' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if execution_error %}="dirty"{% endif %}>
             {% csrf_token %}
             <h3>Выполнение</h3>
             <textarea id="task-execution-comment" name="execution_comment" rows="4" required placeholder="Опишите результат выполнения">{{ execution_comment }}</textarea>
@@ -93,15 +93,42 @@ when its fingerprint moved and nothing typed here is unsaved.
                     data-confirm-url="{% url 'tasks:reopen' card.task.pk %}">Вернуть в работу</button>
         </div>
     {% endif %}
+
+    {% comment %}
+    «Отменить карточку»: its author, the board's owner or an administrator
+    (`can_cancel_card()`), for an open card of a live board. The shared modal
+    asks for the reason and posts it as `cancellation_reason`; the card then
+    leaves the columns and this panel reads the reason, who and when.
+    {% endcomment %}
+    {% if card.can_cancel %}
+        <div class="form-actions board-panel__cancel">
+            <button class="link-button link-button--danger" type="button"
+                    data-confirm
+                    data-confirm-title="Отменить карточку «{{ card.card.title }}»?"
+                    data-confirm-text="Задача №{{ card.task.pk }} будет закрыта без выполнения и уйдёт с доски. Исполнители уведомлений не получат."
+                    data-confirm-label="Отменить карточку"
+                    data-confirm-cancel-label="Не отменять"
+                    data-confirm-variant="danger"
+                    data-confirm-comment="required"
+                    data-confirm-comment-label="Причина отмены"
+                    data-confirm-comment-name="cancellation_reason"
+                    data-confirm-url="{% url 'boards:card_cancel' board.pk card.card.pk %}{{ filter_suffix }}">Отменить карточку</button>
+        </div>
+    {% endif %}
 {% else %}
     {% if panel == 'new' %}
         <p class="board-panel__lead">Колонка «{{ new_stage.label }}»</p>
     {% endif %}
     <form class="form-card board-card-form" method="post"
-          action="{% if panel == 'new' %}{% url 'boards:card_create' board.pk %}{% else %}{% url 'boards:card_update' board.pk card.card.pk %}{% endif %}"
+          action="{% if panel == 'new' %}{% url 'boards:card_create' board.pk %}{% else %}{% url 'boards:card_update' board.pk card.card.pk %}{% endif %}{{ filter_suffix }}"
           data-unsaved-guard>
         {% csrf_token %}
         {% if panel == 'new' %}<input type="hidden" name="stage" value="{{ new_stage.code }}">{% endif %}
+        {% if panel == 'edit' %}{{ form.version }}{% endif %}
+        {% if version_conflict %}
+            {% comment %}The typed values stay below; the current card opens beside them.{% endcomment %}
+            <p class="board-panel__conflict"><a href="{{ board_url }}?card={{ card.card.pk }}" target="_blank" rel="noopener">Открыть текущую версию</a> — в новой вкладке, введённое здесь останется.</p>
+        {% endif %}
         {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors }}</div>{% endif %}
         <label>
             <span>{{ form.title.label }}</span>
@@ -125,7 +152,7 @@ when its fingerprint moved and nothing typed here is unsaved.
         </fieldset>
         <div class="form-actions">
             <button class="link-button" type="submit">{% if panel == 'new' %}Создать карточку{% else %}Сохранить{% endif %}</button>
-            <a class="link-button link-button--secondary" href="{% if panel == 'edit' %}{{ board_url }}?card={{ card.card.pk }}{% else %}{{ board_url }}{% endif %}">Отмена</a>
+            <a class="link-button link-button--secondary" href="{% if panel == 'edit' %}{{ board_url }}?card={{ card.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}{% else %}{{ board_url }}{{ filter_suffix }}{% endif %}">Отмена</a>
         </div>
     </form>
 {% endif %}
