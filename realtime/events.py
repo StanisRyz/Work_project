@@ -43,11 +43,13 @@ class RealtimeEventType(StrEnum):
     WORKUP_CREATED = 'workup.created'
     WORKUP_UPDATED = 'workup.updated'
     WORKUP_DELETED = 'workup.deleted'
+    BOARD_UPDATED = 'board.updated'
 
 
 # Resource types an event may describe. Kept small and explicit so a typo
 # cannot silently invent a new resource namespace.
 RESOURCE_ACT = 'act'
+RESOURCE_BOARD = 'board'
 RESOURCE_COMMENT = 'comment'
 RESOURCE_NOTIFICATION = 'notification'
 RESOURCE_PROTOCOL = 'protocol'
@@ -58,6 +60,7 @@ RESOURCE_WORKUP = 'workup'
 RESOURCE_TYPES = frozenset(
     {
         RESOURCE_ACT,
+        RESOURCE_BOARD,
         RESOURCE_COMMENT,
         RESOURCE_NOTIFICATION,
         RESOURCE_PROTOCOL,
@@ -71,6 +74,25 @@ RESOURCE_TYPES = frozenset(
 # metadata, not content: the client refetches the journal either way.
 WORKUP_CHANGE_CONFIRMED = 'production_confirmed'
 WORKUP_CHANGE_UNLOCKED = 'production_unlocked'
+
+# What a `board.updated` describes — a closed set, so a typo in a service
+# cannot invent a code the client has never heard of. Technical metadata, not
+# content: whatever changed, an open board refetches its own fragment.
+BOARD_CHANGE_CARD_CREATED = 'card_created'
+BOARD_CHANGE_CARD_UPDATED = 'card_updated'
+BOARD_CHANGE_CARD_MOVED = 'card_moved'
+BOARD_CHANGE_CARD_COMPLETED = 'card_completed'
+BOARD_CHANGE_MEMBERS_CHANGED = 'members_changed'
+
+BOARD_CHANGES = frozenset(
+    {
+        BOARD_CHANGE_CARD_CREATED,
+        BOARD_CHANGE_CARD_UPDATED,
+        BOARD_CHANGE_CARD_MOVED,
+        BOARD_CHANGE_CARD_COMPLETED,
+        BOARD_CHANGE_MEMBERS_CHANGED,
+    }
+)
 
 # Only these types may appear anywhere inside `data`. Everything else — model
 # instances, datetimes, sets, bytes, Decimal — is rejected, which is what keeps

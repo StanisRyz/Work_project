@@ -427,6 +427,7 @@ function createEnvironment({
     workRevision = 'work-rev-initial',
     workBound = false,
     actStatus = 'KO_REVIEW',
+    boardPanelHoldsInput = false,
     storage: storageOption = new FakeStorage(),
     broadcast = true,
     resetSources = true,
@@ -485,6 +486,46 @@ function createEnvironment({
         live.actRegistry = registry;
         live.actKpis = kpis;
         live.actResults = results;
+    }
+    if (page === 'board') {
+        // The board page as `boards/detail.html` draws it: the root with the
+        // fragment URL and the fingerprints, the columns with one tile, the
+        // card panel with «Выполнение», and the conflict banner.
+        const board = new Element('div');
+        board.setAttribute('data-board', '');
+        board.setAttribute('data-board-id', '4');
+        board.setAttribute('data-board-url', '/work/boards/4/');
+        board.setAttribute('data-board-page-url', '/work/boards/4/?card=9');
+        board.setAttribute('data-board-fragment-url', '/work/boards/4/fragment/?card=9');
+        board.setAttribute('data-columns-revision', 'columns-rev-initial');
+        board.setAttribute('data-panel-revision', 'panel-rev-initial');
+        board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
+        const columns = new Element('div');
+        columns.setAttribute('data-live-board-columns', '');
+        columns.innerHTML = '<section data-column="TODO"><ol data-column-list>'
+            + '<li data-card-id="9" data-task-id="21" data-card-movable>исходная плитка</li></ol></section>';
+        const panel = new Element('aside');
+        panel.setAttribute('data-live-board-panel', '');
+        panel.setAttribute('data-task-id', '21');
+        const execution = new Element('textarea');
+        execution.setAttribute('name', 'execution_comment');
+        execution.value = '';
+        panel.append(execution);
+        board.append(columns, panel);
+        const conflict = new Element('div');
+        conflict.setAttribute('data-board-conflict-banner', '');
+        conflict.hidden = true;
+        const modalTextarea = new Element('textarea');
+        modalTextarea.setAttribute('name', 'comment');
+        root.append(conflict, board, modalTextarea);
+        Object.assign(live, {
+            board,
+            columns,
+            panel,
+            execution,
+            conflictBanner: conflict,
+            modalTextarea,
+        });
     }
     if (page === 'act-detail') {
         const actConfig = new Element('div');

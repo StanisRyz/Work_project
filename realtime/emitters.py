@@ -16,6 +16,7 @@ from .factories import (
     act_created_event,
     act_status_changed_event,
     act_updated_event,
+    board_updated_event,
     comment_created_event,
     notification_created_event,
     notification_read_event,
@@ -36,6 +37,7 @@ from .recipients import (
     act_created_targets,
     act_status_changed_targets,
     act_targets,
+    board_targets,
     comment_targets,
     notification_read_targets,
     notification_targets,
@@ -231,4 +233,19 @@ def emit_workup_deleted(entry_id):
         return None
     event = workup_deleted_event(entry_id)
     publish_after_commit(event, workup_targets())
+    return event
+
+
+def emit_board_updated(board_id, change, card_id=None):
+    """One successful board write → one event, published after the commit.
+
+    Called by `boards/services.py` only, inside the write's own `atomic()`
+    block and only once something was really stored: a refusal raises before
+    it and a rollback discards the publication, and a write that changed
+    nothing does not reach it.
+    """
+    if not realtime_enabled():
+        return None
+    event = board_updated_event(board_id, change, card_id)
+    publish_after_commit(event, board_targets())
     return event

@@ -1,0 +1,222 @@
+/**
+ * The open board page: its columns and its card panel, kept current.
+ *
+ * Two live blocks, both fetched from `boards:fragment`, which renders the very
+ * same partials from the very same context builder as the page — no markup is
+ * built here, and nothing here is a rule:
+ *
+ *   [data-live-board-columns]  read-only; replaced wholesale whenever its
+ *                              fingerprint moved — but never under a gesture:
+ *                              while `[data-board]` carries `data-board-busy`
+ *                              (`board_dnd.js`: a card in the air, a move
+ *                              awaiting the server, the «Готово» modal open)
+ *                              the refresh waits, and runs once on
+ *                              `quality:board-idle`.
+ *   [data-live-board-panel]    holds forms, so it is guarded exactly like the
+ *                              act and protocol work blocks: an unchanged
+ *                              fingerprint does nothing, a changed one replaces
+ *                              a clean panel, and a panel with unsaved input
+ *                              keeps every typed character and raises the
+ *                              conflict banner instead.
+ *
+ * What makes it refetch: `board.updated` for this board, a `task.*` event for
+ * a task whose tile or panel is on the page, and the `boards` sync revision
+ * moving (a reconnect, a recovery sync, a task closed from its own page).
+ *
+ * Without real-time (`QualityRealtime` is null) none of this runs and the
+ * board is exactly the page the server drew; dragging does not depend on it.
+ */
+(() => {
+    'use strict';
+
+    const core = window.QualityRealtime;
+    if (!core || !core.claimModule('boards')) {
+        return;
+    }
+
+    const root = document.querySelector('[data-board]');
+    if (!root) {
+        return;
+    }
+    const boardId = Number(root.dataset.boardId);
+    const fragmentUrl = root.dataset.boardFragmentUrl;
+    if (!core.isPositiveInteger(boardId) || !fragmentUrl) {
+        return;
+    }
+
+    const columnsElement = root.querySelector('[data-live-board-columns]');
+    const panelElement = root.querySelector('[data-live-board-panel]');
+    const conflictBanner = document.querySelector('[data-board-conflict-banner]');
+    const reloadButton = document.querySelector('[data-board-conflict-reload]');
+    if (reloadButton) {
+        // The board's own address for this panel, never `reload()`: a page
+        // drawn in answer to a refused POST would post it again.
+        reloadButton.addEventListener('click', () =>
+            window.location.replace(root.dataset.boardPageUrl || root.dataset.boardUrl || window.location.pathname),
+        );
+    }
+
+    let columnsRevision = root.dataset.columnsRevision || '';
+    let panelRevision = root.dataset.panelRevision || '';
+    // A page re-rendered from a refused form, or holding a «Выполнение» draft
+    // parked by an attachment request, already shows input that is not stored.
+    let dirty = root.dataset.panelHoldsInput === 'true';
+    let deferred = false;
+
+    // -- dirty-state tracking ---------------------------------------------
+    //
+    // Only a real gesture inside the panel counts: a drag, the confirmation
+    // modal or the bug-report dialog type nothing a refresh could discard, and
+    // a programmatic replacement dispatches nothing.
+    const insidePanel = (target) =>
+        Boolean(panelElement && target && typeof panelElement.contains === 'function' && panelElement.contains(target));
+    ['input', 'change'].forEach((type) =>
+        document.addEventListener(type, (event) => {
+            if (event.isTrusted === false) {
+                return;
+            }
+            if (insidePanel(event.target)) {
+                dirty = true;
+            }
+        }),
+    );
+    // A draft restored from this browser is unsaved input as much as typing.
+    document.addEventListener('quality:form-restored', (event) => {
+        if (insidePanel(event.target)) {
+            dirty = true;
+        }
+    });
+
+    const isBusy = () => root.getAttribute('data-board-busy') !== null;
+
+    const revisionOf = (value) => (typeof value === 'string' ? value : '');
+
+    const applyColumns = (payload) => {
+        if (!columnsElement || typeof payload.columns_html !== 'string') {
+            return;
+        }
+        const revision = revisionOf(payload.columns_revision);
+        if (revision && revision === columnsRevision) {
+            return;
+        }
+        if (isBusy()) {
+            // A card is in the air or on its way to the server: the markup it
+            // was picked from must stay. Fetched again — not applied stale —
+            // once the gesture is over.
+            deferred = true;
+            return;
+        }
+        // Each column scrolls on its own; a replacement keeps where it was.
+        const scrolled = {};
+        columnsElement.querySelectorAll('[data-column]').forEach((column) => {
+            const list = column.querySelector('[data-column-list]');
+            if (list) {
+                scrolled[column.dataset.column] = list.scrollTop;
+            }
+        });
+        columnsElement.innerHTML = payload.columns_html;
+        columnsElement.querySelectorAll('[data-column]').forEach((column) => {
+            const list = column.querySelector('[data-column-list]');
+            if (list && scrolled[column.dataset.column]) {
+                list.scrollTop = scrolled[column.dataset.column];
+            }
+        });
+        columnsRevision = revision;
+        if (window.qualityFragments) {
+            window.qualityFragments.reinitialise(columnsElement);
+        }
+    };
+
+    const applyPanel = (payload) => {
+        if (!panelElement || typeof payload.panel_html !== 'string') {
+            return;
+        }
+        const revision = revisionOf(payload.panel_revision);
+        if (revision && revision === panelRevision) {
+            return;
+        }
+        if (dirty) {
+            if (conflictBanner) {
+                conflictBanner.hidden = false;
+            }
+            return;
+        }
+        panelElement.innerHTML = payload.panel_html;
+        // The panel this page asked for is no longer drawn (the right to
+        // create a card here is gone, for one): nothing is left to show.
+        panelElement.hidden = payload.panel_html === '';
+        panelRevision = revision;
+        if (window.qualityFragments) {
+            window.qualityFragments.reinitialise(panelElement);
+        }
+    };
+
+    const coordinator = core.createRefreshCoordinator({
+        url: fragmentUrl,
+        apply(payload) {
+            applyColumns(payload);
+            applyPanel(payload);
+        },
+        // A lost session stops the whole client; a board that is gone stops
+        // only this coordinator, which `createRefreshCoordinator` already did.
+        onDenied: (reason) => {
+            if (reason === 'auth') {
+                core.stop();
+            }
+        },
+    });
+
+    const refresh = () => coordinator.schedule(null);
+
+    document.addEventListener('quality:board-idle', () => {
+        if (deferred) {
+            deferred = false;
+            refresh();
+        }
+    });
+
+    core.registerAdapter({
+        name: 'board',
+        revisions: ['boards'],
+        refresh,
+        stop: () => coordinator.stop(),
+    });
+    core.onOpen(refresh);
+
+    core.subscribe(core.EVENT_TYPES.BOARD_UPDATED, (payload) => {
+        if (Number(payload.resource_id) === boardId) {
+            refresh();
+        }
+    });
+
+    // A task closed from its own page, reopened by an administrator or given
+    // another исполнитель says so on `task.*`, which reaches its исполнители;
+    // everybody else learns it from the `boards` revision.
+    const showsTask = (taskId) =>
+        core.isPositiveInteger(taskId)
+        && Boolean(
+            (columnsElement && columnsElement.querySelector(`[data-task-id="${taskId}"]`))
+            || (panelElement && Number(panelElement.dataset.taskId) === taskId),
+        );
+    [
+        core.EVENT_TYPES.TASK_CREATED,
+        core.EVENT_TYPES.TASK_UPDATED,
+        core.EVENT_TYPES.TASK_COMPLETED,
+    ].forEach((eventType) =>
+        core.subscribe(eventType, (payload) => {
+            if (showsTask(Number(payload.resource_id))) {
+                refresh();
+            }
+        }),
+    );
+
+    core.boardLive = {
+        coordinator,
+        get isDirty() {
+            return dirty;
+        },
+        get isDeferred() {
+            return deferred;
+        },
+    };
+})();

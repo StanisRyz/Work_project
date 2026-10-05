@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_list_state()`/`boards_for_user()` in `boards/selectors.py`; the pages under `/work/boards/` (registry, «Новая доска», the board with its card panel `?card=<pk>` / `&edit=1` / `?new=<stage>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript; the card panel is where a `BOARD` task is worked (`boards:card_complete`, the task's own attachment and reopen routes). Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. No realtime events of its own yet |
+| `boards` | simple kanban boards: `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_list_state()`/`boards_for_user()` in `boards/selectors.py`; the pages under `/work/boards/` (registry, «Новая доска», the board with its card panel `?card=<pk>` / `&edit=1` / `?new=<stage>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript; the card panel is where a `BOARD` task is worked (`boards:card_complete`, the task's own attachment and reopen routes). Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns the board's two live blocks (columns, card panel) for `static/js/realtime/boards.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -1762,8 +1762,15 @@ tasks never live inside `acts`.
   `data-confirm-comment-name="execution_comment"`) and posts an ordinary form to
   `boards:card_complete`; the dialog's `close` event — fired only by «Отмена»
   or Escape, since a confirm navigates away — puts the tile back. A moved card
-  that the panel is showing reloads the page with the same `?card=`, unless
+  that the panel is showing loads the board's own address with the same
+  `?card=` (`location.replace()` of `[data-board]`'s `data-board-url`, never
+  `reload()`: a board drawn in answer to a refused POST stands at that POST's
+  URL, and reloading it would post again), unless
   `qualityUnsavedGuard.isDirty`, when the message asks the user to reload.
+  While a card is in the air, a move awaits the server or the «Готово» modal
+  is open, the script holds `data-board-busy` on `[data-board]` and dispatches
+  `quality:board-idle` on `document` when it lets go — the live client's one
+  signal not to replace the columns under a gesture.
 - **`boards:card_move` answers a drag in JSON.** A request carrying
   `X-Requested-With: fetch` — the one header the script sends; `Accept` would
   not do, a browser form POST already accepts `*/*` — gets `200 {"ok": true,
@@ -1789,6 +1796,28 @@ tasks never live inside `acts`.
   every column scrolls down on its own and the row of columns sideways inside
   itself; the panel stands beside the columns above 1240px, above them below
   it, and below 760px everything is the ordinary flow.
+- **A board has two live blocks, rendered once and shared with the fragment.**
+  `_board_context()` builds the context for the page *and* for
+  `boards:fragment` (GET, JSON, no-store, `realtime_login_required`, the right
+  of `boards:detail`, the same `card`/`edit`/`new`); `_board_blocks()` renders
+  `boards/includes/columns.html` and `boards/includes/panel.html` with their
+  `content_revision()`s, and the page prints that very markup inside its own
+  containers — `[data-live-board-columns]` (the `.board-columns` row) and
+  `[data-live-board-panel]` (the `<aside>`). The columns are read-only and
+  replaced wholesale whenever their fingerprint moved, **never while
+  `[data-board]` carries `data-board-busy`**: the refresh is deferred and
+  refetched once on `quality:board-idle`, never applied stale. The panel holds
+  forms and is guarded like the act work tab: unchanged fingerprint → nothing;
+  changed and clean → replaced; changed with unsaved input → the conflict
+  banner, typed text kept. A page whose panel holds input that is not stored —
+  a bound form after a refusal, posted «Выполнение» text, a draft the session
+  returned — says `data-panel-holds-input="true"` and takes its panel
+  fingerprint from a clean render, exactly as the protocol page does; the
+  fragment never takes the session draft (`take_draft=False`). The fragment URL
+  and the banner's reload address are built by the server from the panel
+  actually shown (`data-board-fragment-url`, `data-board-page-url`), never from
+  the address bar. A tile carries `data-task-id` and the panel its task's id,
+  so a `task.*` event refetches only a board that shows that task.
 
 ### Documentation library (`documents`)
 
@@ -2134,10 +2163,27 @@ tasks never live inside `acts`.
   authenticated user may read the journal. The client refetches the rows through
   the ordinary `calculator:entry_list` GET and hands them to the calculator
   controller; realtime never renders the table or carries journal values.
+- Boards emit one event type, `board.updated` (`board_id`, `card_id` or null,
+  `change` from the closed `realtime.events.BOARD_CHANGES`: `card_created`,
+  `card_updated`, `card_moved`, `card_completed`, `members_changed`), through
+  `emit_board_updated()` from `boards/services.py` alone — inside the write's
+  `atomic()` block, once per successful write that stored something. A refusal,
+  a rollback, an edit that changes nothing and a drop where the card already
+  stood (`move_card()` detects it and writes nothing) publish nothing. A board
+  task changed elsewhere — `tasks:complete`, `reopen_task()`, attachments — is
+  its own `task.*` and never a `board.updated`. The audience is
+  `board_targets()`, i.e. `_every_reader_targets()`, because
+  `can_view_board` is every signed-in employee. `/realtime/sync/` carries a
+  `boards` revision from three unfiltered aggregates — cards (count, max
+  `updated_at`), `BOARD` tasks (count, max `updated_at`, status mix) and
+  memberships (count, max `added_at`) — which is how a reader who is no
+  исполнитель learns of a card closed from its task page. The registry and the
+  members page are not live.
 - A live refresh never replaces a form holding unsaved input: only read-only
   blocks are swapped, and a dirty form gets the conflict banner with the typed
   text intact — **but only when the block really changed.** A guarded block
-  (`[data-live-act-work]`, `[data-live-protocol-content]`) carries
+  (`[data-live-act-work]`, `[data-live-protocol-content]`,
+  `[data-live-board-panel]`) carries
   `realtime.fragments.content_revision()` on the page and in its fragment, and
   the client leaves an unchanged one alone: a reconnect, a recovery sync or a
   global token moving is not a conflict. Dirtiness counts only gestures inside

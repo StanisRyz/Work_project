@@ -161,6 +161,19 @@ def workup_targets():
     return _every_reader_targets()
 
 
+def board_targets(board=None):
+    """Everyone `boards.permissions.can_view_board` already lets in.
+
+    Reading a board is every signed-in employee — its work is `tasks.Task`,
+    which every authenticated user reads — so the audience is the same as for
+    `protocol_targets` and `workup_targets`, and the event says nothing a
+    reader could not fetch from the board page. The rule is not restated: if
+    `can_view_board` ever narrows, this is the one place that follows it, and
+    `board` is what it would need.
+    """
+    return _every_reader_targets()
+
+
 def comment_targets(comment):
     """Exactly the participants the comment-notification routing addresses."""
     from notifications.services import get_comment_participants

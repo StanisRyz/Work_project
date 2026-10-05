@@ -9,6 +9,9 @@ urlpatterns = [
     path('create/', views.board_create, name='create'),
     path('<int:pk>/', views.board_detail, name='detail'),
     path('<int:pk>/members/', views.board_members, name='members'),
+    # The live columns and card panel (JSON, GET only), for
+    # `static/js/realtime/boards.js`.
+    path('<int:pk>/fragment/', views.board_fragment, name='fragment'),
     # Every mutating route is POST only: a GET goes back to the board and
     # changes nothing. The right is asked before the method, so a typed-in
     # URL without it is a 403.

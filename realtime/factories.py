@@ -10,7 +10,9 @@ models. A client that needs content refetches it through the normal endpoints.
 """
 
 from .events import (
+    BOARD_CHANGES,
     RESOURCE_ACT,
+    RESOURCE_BOARD,
     RESOURCE_COMMENT,
     RESOURCE_NOTIFICATION,
     RESOURCE_PROTOCOL,
@@ -18,6 +20,7 @@ from .events import (
     RESOURCE_USER,
     RESOURCE_WORKUP,
     RealtimeEvent,
+    RealtimeEventError,
     RealtimeEventType,
 )
 
@@ -300,4 +303,27 @@ def workup_deleted_event(entry_id):
         event_type=RealtimeEventType.WORKUP_DELETED,
         resource_type=RESOURCE_WORKUP,
         resource_id=int(entry_id),
+    )
+
+
+def board_updated_event(board_id, change, card_id=None):
+    """Something on one board changed. Which board, which card, what kind.
+
+    Never a card title, a description, a name or a right: the board page
+    refetches its columns and its panel through `boards:fragment`, asking the
+    ordinary board rules as itself. `change` is one of `BOARD_CHANGES`, and an
+    unknown code is refused here rather than shipped to a client that would
+    not know it.
+    """
+    if change not in BOARD_CHANGES:
+        raise RealtimeEventError(f'Неизвестное изменение доски: {change!r}.')
+    return RealtimeEvent(
+        event_type=RealtimeEventType.BOARD_UPDATED,
+        resource_type=RESOURCE_BOARD,
+        resource_id=int(board_id),
+        data={
+            'board_id': int(board_id),
+            'card_id': int(card_id) if card_id is not None else None,
+            'change': str(change),
+        },
     )

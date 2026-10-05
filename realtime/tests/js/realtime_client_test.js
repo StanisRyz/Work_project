@@ -24,7 +24,7 @@ const {
 
 const CLIENT_DIR = path.join(__dirname, '..', '..', '..', 'static', 'js', 'realtime');
 // The very order base.html loads them in.
-const MODULES = ['core.js', 'tabs.js', 'sync.js', 'notifications.js', 'tasks.js', 'acts.js', 'workup.js', 'protocols.js', 'start.js'];
+const MODULES = ['core.js', 'tabs.js', 'sync.js', 'notifications.js', 'tasks.js', 'acts.js', 'workup.js', 'protocols.js', 'boards.js', 'start.js'];
 const SOURCES = MODULES.map((name) => [name, fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8')]);
 const DEFAULT_COORDINATION_EPOCH = 'test-session-epoch-000000000001';
 const coordinationChannelName = (epoch = DEFAULT_COORDINATION_EPOCH) =>
@@ -1397,6 +1397,179 @@ test('re-running the client scripts never doubles timers or listeners', async ()
         afterOpen + 1,
         'one safety-sync fired, not two',
     );
+});
+
+// -------------------------------------------------------------------- boards
+
+function boardEvent(boardId, change, eventId) {
+    return {
+        schema_version: 1,
+        event_id: eventId || `board-${boardId}-${change}`,
+        event_type: 'board.updated',
+        occurred_at: '2026-10-05T10:00:00+00:00',
+        resource_type: 'board',
+        resource_id: boardId,
+        data: { board_id: boardId, card_id: 9, change },
+    };
+}
+
+function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2' } = {}) {
+    return {
+        columns_html: `<section data-column="TODO"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
+        columns_revision: columns,
+        panel_html: `<textarea name="execution_comment" data-fresh-panel></textarea>`,
+        panel_revision: panel,
+        panel: 'view',
+    };
+}
+
+const boardCalls = (env) => env.fetchCalls.filter((call) => call.url.startsWith('/work/boards/4/fragment/'));
+
+test('board.updated for this board refreshes the columns and a clean panel', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler((call) => (call.url.startsWith('/realtime/sync/') ? snapshot() : boardFragment()));
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_moved'));
+    env.clock.advance(300);
+    await flush();
+
+    const calls = boardCalls(env);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, '/work/boards/4/fragment/?card=9', 'the server-built URL, as it is');
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'), 'columns replaced');
+    assert.ok(env.live.panel.querySelector('[data-fresh-panel]'), 'a clean panel replaced');
+    assert.equal(env.live.conflictBanner.hidden, true);
+});
+
+test('board.updated for another board fetches nothing', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment());
+
+    env.source.emitEvent('board.updated', boardEvent(5, 'card_created'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(boardCalls(env).length, 0);
+});
+
+test('the columns wait for the drag to end, then refresh once', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler((call) => (call.url.startsWith('/realtime/sync/') ? snapshot() : boardFragment()));
+
+    env.live.board.setAttribute('data-board-busy', '');
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_created', 'first'));
+    env.clock.advance(300);
+    await flush();
+    assert.equal(env.live.columns.textContent, 'исходная плитка', 'nothing replaced mid-drag');
+    assert.equal(env.core.boardLive.isDeferred, true);
+
+    env.live.board.attributes.delete('data-board-busy');
+    env.document.dispatch('quality:board-idle');
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(boardCalls(env).length, 2, 'fetched again after the drop, not applied stale');
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'));
+    assert.equal(env.core.boardLive.isDeferred, false);
+
+    env.document.dispatch('quality:board-idle');
+    env.clock.advance(300);
+    await flush();
+    assert.equal(boardCalls(env).length, 2, 'an idle with nothing deferred fetches nothing');
+});
+
+test('typing in the panel keeps the text and raises the conflict banner', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment());
+
+    env.live.execution.value = 'Сделано, акт приложен';
+    env.document.dispatch('input', { target: env.live.execution });
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_updated'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.live.panel.querySelector('[data-fresh-panel]'), null, 'the panel is kept');
+    assert.equal(env.live.execution.value, 'Сделано, акт приложен');
+    assert.equal(env.live.conflictBanner.hidden, false);
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'), 'the columns still refresh');
+});
+
+test('an unchanged panel fingerprint neither replaces nor warns', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment({ columns: 'columns-rev-initial', panel: 'panel-rev-initial' }));
+
+    env.document.dispatch('input', { target: env.live.execution });
+    env.source.emit('open');
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(boardCalls(env).length, 1);
+    assert.equal(env.live.conflictBanner.hidden, true, 'no false conflict');
+    assert.equal(env.live.columns.textContent, 'исходная плитка', 'unchanged columns stay');
+});
+
+test('a page holding a refused form starts dirty', async () => {
+    const env = load({ page: 'board', boardPanelHoldsInput: true });
+    env.setFetchHandler(() => boardFragment());
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_updated'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.equal(env.live.panel.querySelector('[data-fresh-panel]'), null);
+    assert.equal(env.live.conflictBanner.hidden, false);
+});
+
+test('typing outside the panel does not hold it back', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment());
+
+    env.document.dispatch('input', { target: env.live.modalTextarea });
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_updated'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.panel.querySelector('[data-fresh-panel]'));
+    assert.equal(env.core.boardLive.isDirty, false);
+});
+
+test('a task event refreshes the board only for a task it shows', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment());
+
+    env.source.emitEvent('task.completed', taskEvent('task.completed', 77, null, 'other'));
+    env.clock.advance(300);
+    await flush();
+    assert.equal(boardCalls(env).length, 0);
+
+    env.source.emitEvent('task.completed', taskEvent('task.completed', 21, null, 'ours'));
+    env.clock.advance(300);
+    await flush();
+    assert.equal(boardCalls(env).length, 1);
+});
+
+test('the boards sync token moving refreshes the board', async () => {
+    const env = load({ page: 'board' });
+    let token = 'b1';
+    env.setFetchHandler((call) =>
+        call.url.startsWith('/realtime/sync/') ? snapshot({ boards: token }) : boardFragment(),
+    );
+    env.source.emit('open');
+    env.clock.advance(300);
+    await flush();
+    const afterOpen = boardCalls(env).length;
+
+    token = 'b2';
+    env.core.sync.run();
+    env.clock.advance(300);
+    await flush();
+    assert.equal(boardCalls(env).length, afterOpen + 1);
+});
+
+test('without real-time the board script does nothing', async () => {
+    const env = load({ page: 'board', realtimeEnabled: false });
+    assert.equal(env.core, null);
+    assert.equal(env.fetchCalls.length, 0);
 });
 
 // --------------------------------------------------------------------------

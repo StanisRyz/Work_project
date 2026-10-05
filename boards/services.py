@@ -13,6 +13,15 @@ card, its wording and deadline change through `update_board_card_task()`, its
 assignees through `replace_task_assignees()`, and it is finished by the
 ordinary `complete_task()`. This module owns the decision to do each of
 those; `tasks.services` owns the task.
+
+Every successful write that changed something announces itself with exactly
+one `board.updated` (`realtime.emitters.emit_board_updated()`), from inside
+its own `atomic()` block, so the event is published after the commit and a
+refusal or a rollback publishes nothing. A write that stored nothing — an edit
+that changes no field, a drop where the card already stood — is not a change
+and says nothing. A board's task changed elsewhere (`tasks:complete`, a
+reopen, a file) is the task's own `task.*` event and the `boards` sync
+revision, never a `board.updated`.
 """
 
 import logging
@@ -22,6 +31,14 @@ from django.db import transaction
 from django.db.models import Max
 
 from ecosystem.logging_utils import log_event
+from realtime.emitters import emit_board_updated
+from realtime.events import (
+    BOARD_CHANGE_CARD_COMPLETED,
+    BOARD_CHANGE_CARD_CREATED,
+    BOARD_CHANGE_CARD_MOVED,
+    BOARD_CHANGE_CARD_UPDATED,
+    BOARD_CHANGE_MEMBERS_CHANGED,
+)
 
 from .columns import WORK_STAGES
 from .models import Board, BoardCard, BoardMember
@@ -208,6 +225,7 @@ def add_board_members(board, user_ids, *, actor):
         )
         if added:
             board.save(update_fields=['updated_at'])
+            emit_board_updated(board.pk, BOARD_CHANGE_MEMBERS_CHANGED)
     log_event(
         logger,
         'INFO',
@@ -254,6 +272,7 @@ def remove_board_member(board, user, *, actor):
             )
         membership.delete()
         board.save(update_fields=['updated_at'])
+        emit_board_updated(board.pk, BOARD_CHANGE_MEMBERS_CHANGED)
     log_event(
         logger,
         'INFO',
@@ -343,6 +362,7 @@ def create_card(
         # Inside the transaction and after the task and its исполнители exist,
         # so a rollback leaves no notification about a card that never was.
         notify_board_task_assigned(task, actor, _users(ids))
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_CREATED, card.pk)
     log_event(
         logger,
         'INFO',
@@ -383,24 +403,24 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids):
         if due_date is None:
             raise BoardError('Укажите срок карточки.')
         ids = _clean_assignees(board, assignee_ids)
+        task_text = compose_task_text(title, description)
+        current_ids = set(
+            TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True)
+        )
         changed = [
             name for name, value in (('title', title), ('description', description))
             if getattr(card, name) != value
         ]
+        # Each of the three writes below is itself a no-op when its part did
+        # not change; this is what tells the caller whether anything did.
+        task_changed = task.task_text != task_text or task.due_date != due_date
+        assignees_changed = set(ids) != current_ids
         if changed:
             card.title = title
             card.description = description
             card.save(update_fields=[*changed, 'updated_at'])
         try:
-            update_board_card_task(
-                task,
-                task_text=compose_task_text(title, description),
-                due_date=due_date,
-                actor=actor,
-            )
-            current_ids = set(
-                TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True)
-            )
+            update_board_card_task(task, task_text=task_text, due_date=due_date, actor=actor)
             replace_task_assignees(task, ids, actor=actor)
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
@@ -409,6 +429,9 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids):
         added_ids = [user_id for user_id in ids if user_id not in current_ids]
         if added_ids:
             notify_board_task_assigned(task, actor, _users(added_ids))
+        stored = bool(changed or task_changed or assignees_changed)
+        if stored:
+            emit_board_updated(board.pk, BOARD_CHANGE_CARD_UPDATED, card.pk)
     log_event(
         logger,
         'INFO',
@@ -417,7 +440,7 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids):
         board_card_id=card.pk,
         task_id=task.pk,
         actor_user_id=actor.pk,
-        outcome='ok',
+        outcome='ok' if stored else 'unchanged',
     )
     return card
 
@@ -431,6 +454,9 @@ def move_card(card, *, actor, stage, before_card_id=None):
 
     A card whose task is closed is refused: «Готово» is reached by completing
     the task, and left only by an administrator reopening it (`tasks:reopen`).
+
+    A move to where the card already stands — its own column, between the
+    same neighbours — writes nothing and announces nothing.
     """
     with transaction.atomic():
         board = _lock_board(card.board_id)
@@ -463,6 +489,14 @@ def move_card(card, *, actor, stage, before_card_id=None):
             if index is None:
                 _rejected('move_card', 'bad_before_card', actor=actor, board_id=board.pk, card_id=card.pk)
                 raise BoardError('Карточка, перед которой нужно встать, не найдена в этой колонке.')
+        if stage == previous_stage:
+            # Where the card stands now: after every other card of its column
+            # that sorts before it. The same index is the same place.
+            current_index = sum(
+                1 for other in column if (other.position, other.pk) < (card.position, card.pk)
+            )
+            if index == current_index:
+                return card
         lower = column[index - 1].position if index > 0 else 0
         if index < len(column):
             upper = column[index].position
@@ -479,6 +513,7 @@ def move_card(card, *, actor, stage, before_card_id=None):
         else:
             card.position = position
             card.save(update_fields=['stage', 'position', 'updated_at'])
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_MOVED, card.pk)
     log_event(
         logger,
         'INFO',
@@ -512,6 +547,7 @@ def complete_card(card, *, actor, execution_comment):
             task = complete_task(task, actor, execution_comment)
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_COMPLETED, card.pk)
     log_event(
         logger,
         'INFO',

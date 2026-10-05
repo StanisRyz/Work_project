@@ -40,6 +40,7 @@
         WORKUP_CREATED: 'workup.created',
         WORKUP_UPDATED: 'workup.updated',
         WORKUP_DELETED: 'workup.deleted',
+        BOARD_UPDATED: 'board.updated',
     };
 
     const SUBSCRIBED_EVENTS = Object.keys(EVENT_TYPES).map((key) => EVENT_TYPES[key]);

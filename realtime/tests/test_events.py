@@ -47,6 +47,7 @@ class EventTypeContractTests(SimpleTestCase):
                 'WORKUP_CREATED': 'workup.created',
                 'WORKUP_UPDATED': 'workup.updated',
                 'WORKUP_DELETED': 'workup.deleted',
+                'BOARD_UPDATED': 'board.updated',
             },
         )
 

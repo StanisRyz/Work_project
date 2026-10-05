@@ -249,9 +249,13 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
 #  11. protocols: totals, timestamps and the revision sum
 #  12. protocols: status distribution
 #  13. protocols: approval totals, pending count and decision timestamps
+#  14. boards: card total and max(updated_at)
+#  15. boards: `BOARD` task total and max(updated_at)
+#  16. boards: membership total and max(added_at)
+#  17. boards: `BOARD` task status distribution
 # Session authentication and the one cached `user.userprofile` lookup are not
 # counted here — they belong to the request, not to this service.
-FIXED_SYNC_QUERIES = 13
+FIXED_SYNC_QUERIES = 17
 
 
 class SyncEndpointTests(SyncStateMixin, TestCase):

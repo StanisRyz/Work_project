@@ -37,6 +37,7 @@ REVISION_COMMENTS = 'comments'
 REVISION_ACTIVITIES = 'activities'
 REVISION_WORKUP = 'workup'
 REVISION_PROTOCOLS = 'protocols'
+REVISION_BOARDS = 'boards'
 
 REVISION_KEYS = (
     REVISION_NOTIFICATIONS,
@@ -46,6 +47,7 @@ REVISION_KEYS = (
     REVISION_ACTIVITIES,
     REVISION_WORKUP,
     REVISION_PROTOCOLS,
+    REVISION_BOARDS,
 )
 
 TOKEN_LENGTH = 16
@@ -313,6 +315,43 @@ def _protocols_revision(user):
     )
 
 
+def _boards_revision(user):
+    """Every board and every open board page, in one token.
+
+    `boards.permissions.can_view_board` lets every signed-in employee read
+    every board, so — exactly like `_protocols_revision()` — the token takes no
+    `user` filter; the argument only keeps the shape. If that rule ever
+    narrows, the visible boards go here.
+
+    Three aggregates, no rows loaded:
+
+    * the cards — a new card moves `total`, an edit or a move `last_updated`;
+    * the `BOARD` tasks with their status mix — completing a card from its task
+      page (`tasks:complete`), reopening it and a new deadline or исполнитель
+      all touch the task, never the card, and the mix moves even when the
+      timestamps happen not to;
+    * the memberships — who may work on a board changes what its page draws,
+      and a removal leaves no timestamp behind, only a smaller count.
+    """
+    from boards.models import BoardCard, BoardMember
+    from tasks.models import Task
+
+    cards = BoardCard.objects.aggregate(total=Count('pk'), last_updated=Max('updated_at'))
+    board_tasks = Task.objects.filter(source_type=Task.SourceType.BOARD)
+    tasks = board_tasks.aggregate(total=Count('pk'), last_updated=Max('updated_at'))
+    members = BoardMember.objects.aggregate(total=Count('pk'), last_added=Max('added_at'))
+    return _token(
+        'b',
+        cards['total'],
+        cards['last_updated'],
+        tasks['total'],
+        tasks['last_updated'],
+        _status_counts(board_tasks),
+        members['total'],
+        members['last_added'],
+    )
+
+
 def build_sync_state(user):
     """Return the user's current revision snapshot.
 
@@ -333,6 +372,7 @@ def build_sync_state(user):
             REVISION_ACTIVITIES: _activities_revision(user),
             REVISION_WORKUP: _workup_revision(user),
             REVISION_PROTOCOLS: _protocols_revision(user),
+            REVISION_BOARDS: _boards_revision(user),
         },
         'unread_notifications': unread,
     }

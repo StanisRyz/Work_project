@@ -194,6 +194,12 @@
     background: var(--color-surface);
 }
 
+/* A panel the live client emptied (`realtime/boards.js`): the author
+   `display: grid` above would otherwise beat the user-agent `[hidden]`. */
+.board-panel[hidden] {
+    display: none;
+}
+
 .board-panel__head {
     display: flex;
     align-items: center;

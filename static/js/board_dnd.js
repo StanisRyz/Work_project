@@ -15,6 +15,8 @@
  *   [data-column-complete]      «Готово»: a drop there only means «complete»
  *   [data-column-list]          the column's list, [data-column-count] its count
  *   data-current-card           the card the panel is showing
+ *   [data-board] data-board-url the board's own address, for the reload after
+ *                               the open card moved
  *
  * A drop in a working column posts `stage` and `before_card_id` (the next
  * movable card in the list, or empty for the end) with `X-Requested-With:
@@ -26,6 +28,12 @@
  * Every listener is delegated from `document`, so columns replaced wholesale by
  * a later live update keep working with nothing to re-bind. Without
  * JavaScript, «Переместить в…» and «Завершить» in the card panel do the same.
+ *
+ * While a card is in the air, a move awaits the server or the «Готово» modal
+ * is open, `[data-board]` carries `data-board-busy`: the live client
+ * (`realtime/boards.js`) must not replace the columns under a gesture, and
+ * waits for `quality:board-idle`, dispatched on `document` once the attribute
+ * goes.
  */
 (() => {
     'use strict';
@@ -48,6 +56,7 @@
     let drag = null;      // the drag in progress
     let suppressClick = false;
     let awaitingCompletion = null;
+    let movesInFlight = 0;
 
     // ------------------------------------------------------------------
     // Helpers
@@ -56,6 +65,25 @@
     const csrfToken = () => {
         const match = document.cookie.match(/(?:^|; )csrftoken=([^;]*)/);
         return match ? decodeURIComponent(match[1]) : '';
+    };
+
+    // A gesture or a request in progress: the columns are this script's until
+    // it is over. Recomputed after every change of any of the three.
+    const syncBusy = () => {
+        const root = document.querySelector('[data-board]');
+        if (!root) {
+            return;
+        }
+        const busy = Boolean(drag || movesInFlight > 0 || awaitingCompletion);
+        if (busy === root.hasAttribute('data-board-busy')) {
+            return;
+        }
+        if (busy) {
+            root.setAttribute('data-board-busy', '');
+        } else {
+            root.removeAttribute('data-board-busy');
+            document.dispatchEvent(new CustomEvent('quality:board-idle'));
+        }
     };
 
     const showMessage = (text) => {
@@ -235,6 +263,7 @@
         }
         moveGhost(x, y);
         drag.frame = window.requestAnimationFrame(autoScroll);
+        syncBusy();
     };
 
     const moveGhost = (x, y) => {
@@ -278,6 +307,7 @@
         if (!commit || !target || samePlace) {
             placeholder.remove();
             item.classList.remove('board-column__item--dragging');
+            syncBusy();
             return;
         }
         placeholder.parentElement.insertBefore(item, placeholder);
@@ -288,6 +318,7 @@
         } else {
             move(state, target.column.dataset.column);
         }
+        syncBusy();
     };
 
     // ------------------------------------------------------------------
@@ -301,6 +332,7 @@
         body.append('stage', stage);
         body.append('before_card_id', next ? next.dataset.cardId : '');
         item.classList.add('board-column__item--pending');
+        movesInFlight += 1;
         fetch(item.dataset.cardMoveUrl, {
             method: 'POST',
             body,
@@ -319,16 +351,25 @@
                 const row = document.querySelector('[data-board-columns]');
                 if (row && row.dataset.currentCard === item.dataset.cardId) {
                     const guard = window.qualityUnsavedGuard;
+                    const root = document.querySelector('[data-board]');
                     if (guard && guard.isDirty) {
                         showMessage(MOVED_PANEL_STALE);
-                    } else {
-                        window.location.reload();
+                    } else if (root && root.dataset.boardUrl) {
+                        // The board's own address, never `reload()`: a page
+                        // drawn in answer to a refused POST would post again.
+                        window.location.replace(
+                            `${root.dataset.boardUrl}?card=${encodeURIComponent(item.dataset.cardId)}`,
+                        );
                     }
                 }
             })
             .catch(() => {
                 restore(state);
                 showMessage(FAILED);
+            })
+            .finally(() => {
+                movesInFlight -= 1;
+                syncBusy();
             });
     };
 
@@ -356,6 +397,7 @@
         }
         restore(awaitingCompletion);
         awaitingCompletion = null;
+        syncBusy();
     }, true);
 
     // ------------------------------------------------------------------

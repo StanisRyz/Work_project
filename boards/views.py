@@ -10,7 +10,13 @@ The card panel is part of the board page, chosen by the query string:
 that column. A refused or invalid POST renders the board again with the panel
 open, the typed values in place and the error beside the form; a successful
 one redirects to the board with the card open.
+
+Two blocks of the page are live: the columns and the panel. `boards:fragment`
+renders both through the very same context builder and the same partials as
+the page, so a refreshed block cannot disagree with a reload.
 """
+
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -18,8 +24,13 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
+from django.views.decorators.http import require_GET
 
+from realtime.auth import realtime_login_required
+from realtime.fragments import content_revision
 from tasks.drafts import take_execution_draft
 from tasks.forms import TaskAttachmentForm
 
@@ -121,27 +132,44 @@ def _card_initial(item):
     }
 
 
-def _render_board(request, board, *, card_id=None, panel=None, form=None, move_form=None,
-                  error='', execution_comment=None, execution_error='', status=200):
-    """The board page with its panel; the one renderer every board view uses.
+COLUMNS_TEMPLATE = 'boards/includes/columns.html'
+PANEL_TEMPLATE = 'boards/includes/panel.html'
 
-    `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from the query
-    string. A form passed in is shown as it is — bound, with its errors — so a
-    refused POST keeps what was typed.
+
+def _board_context(request, board, *, card_id=None, edit=False, new=None, panel=None,
+                   form=None, move_form=None, error='', execution_comment=None,
+                   execution_error='', take_draft=True):
+    """Everything the board page and its live fragment render.
+
+    `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from `card_id`,
+    `edit` and `new` — the query string's `card`, `edit=1` and `new`. A form
+    passed in is shown as it is — bound, with its errors — so a refused POST
+    keeps what was typed.
 
     «Выполнение» starts from what was just posted (a refused completion), else
     from the draft an upload or a deletion parked in the session, else from the
     task's own result — so a task an administrator reopened shows what was
-    written before, exactly as the task page does.
+    written before, exactly as the task page does. The live fragment passes
+    `take_draft=False`: the draft is the page's to show, once.
+
+    Returns the context and whether the panel holds input that is not the
+    stored state (a bound form, posted or parked text): such a page starts
+    «dirty» for the live client, and its panel fingerprint comes from a clean
+    render.
     """
     state = build_board_state(board, request.user, card_id=card_id)
     item = state['card']
     can_edit_card = bool(item and state['can_work'] and not item['is_closed'])
     new_stage = None
+    holds_input = bool(
+        (form is not None and form.is_bound)
+        or (move_form is not None and move_form.is_bound)
+        or execution_comment is not None
+    )
     if panel is None:
-        new_stage = resolve_new_stage(request.GET.get('new')) if state['can_work'] else None
+        new_stage = resolve_new_stage(new) if state['can_work'] else None
         if item is not None:
-            panel = 'edit' if request.GET.get('edit') == '1' and can_edit_card else 'view'
+            panel = 'edit' if edit and can_edit_card else 'view'
         elif new_stage is not None:
             panel = 'new'
     elif panel == 'new':
@@ -154,9 +182,10 @@ def _render_board(request, board, *, card_id=None, panel=None, form=None, move_f
     if panel == 'view' and can_edit_card and move_form is None:
         move_form = MoveCardForm(initial={'stage': item['card'].stage})
     if item is not None and panel == 'view' and item['can_complete'] and execution_comment is None:
-        execution_comment = (
-            take_execution_draft(request, item['task']) or item['task'].execution_comment
-        )
+        draft = take_execution_draft(request, item['task']) if take_draft else None
+        holds_input = holds_input or bool(draft)
+        execution_comment = draft or item['task'].execution_comment
+    board_url = reverse('boards:detail', args=[board.pk])
     state.update({
         'active_page': 'boards',
         'header_title': board.name,
@@ -175,16 +204,115 @@ def _render_board(request, board, *, card_id=None, panel=None, form=None, move_f
         'list_query': '',
         'execution_comment': execution_comment or '',
         'execution_error': execution_error,
-        'board_url': reverse('boards:detail', args=[board.pk]),
+        'board_url': board_url,
     })
-    return render(request, 'boards/detail.html', state, status=status)
+    query = _panel_query(item, panel, new_stage)
+    state['fragment_url'] = reverse('boards:fragment', args=[board.pk]) + query
+    state['page_url'] = board_url + query
+    return state, holds_input
+
+
+def _panel_query(item, panel, new_stage):
+    """The query string that asks for exactly the panel this page shows.
+
+    It goes on the live fragment's URL and on the page's own address for a
+    reload. Built by the server, not read off the address bar: a board drawn
+    in answer to a refused POST stands at the POST's URL, whose query string
+    says nothing about the panel — and reloading that URL would post again.
+    """
+    query = {}
+    if panel in ('view', 'edit') and item is not None:
+        query['card'] = item['card'].pk
+        if panel == 'edit':
+            query['edit'] = '1'
+    elif panel == 'new' and new_stage is not None:
+        query['new'] = new_stage.code
+    return f'?{urlencode(query)}' if query else ''
+
+
+def _board_blocks(request, context):
+    """The two live blocks as markup, each with its fingerprint."""
+    columns_html = render_to_string(COLUMNS_TEMPLATE, context, request=request)
+    panel_html = (
+        render_to_string(PANEL_TEMPLATE, context, request=request) if context['panel'] else ''
+    )
+    return {
+        'columns_html': columns_html,
+        'columns_revision': content_revision(columns_html),
+        'panel_html': panel_html,
+        'panel_revision': content_revision(panel_html) if panel_html else '',
+    }
+
+
+def _render_board(request, board, *, status=200, **options):
+    """The board page with its panel; the one renderer every board view uses.
+
+    The columns and the panel are rendered once, by `_board_blocks()`, and the
+    page prints that markup next to its fingerprint — the same pair the live
+    fragment returns. A panel holding a bound form or unsaved text takes its
+    fingerprint from a clean render instead (what the fragment would return),
+    so the live client compares like with like, and the page tells the client
+    it starts with unsaved input.
+    """
+    context, holds_input = _board_context(request, board, **options)
+    blocks = _board_blocks(request, context)
+    if holds_input and context['panel']:
+        clean, _ = _board_context(
+            request, board,
+            card_id=context['card']['card'].pk if context['card'] else None,
+            edit=context['panel'] == 'edit',
+            new=context['new_stage'].code if context['new_stage'] else None,
+            take_draft=False,
+        )
+        blocks['panel_revision'] = _board_blocks(request, clean)['panel_revision']
+    context.update(blocks)
+    context['panel_holds_input'] = holds_input
+    return render(request, 'boards/detail.html', context, status=status)
 
 
 @login_required
 def board_detail(request, pk):
     board = _board_or_404(pk)
     _require(can_view_board(request.user, board))
-    return _render_board(request, board, card_id=request.GET.get('card'))
+    return _render_board(
+        request, board,
+        card_id=request.GET.get('card'),
+        edit=request.GET.get('edit') == '1',
+        new=request.GET.get('new'),
+    )
+
+
+@realtime_login_required
+@require_GET
+def board_fragment(request, pk):
+    """The columns and the panel of one board, for the live client.
+
+    The same right as the page, the same query string (`card`, `edit`, `new`),
+    the same context builder and the same partials: a refreshed block is what
+    a reload would draw. JSON, never cached, nothing written — the session
+    draft of «Выполнение» stays where it is.
+    """
+    board = _board_or_404(pk)
+    if not can_view_board(request.user, board):
+        return _no_cache(JsonResponse({'error': 'forbidden'}, status=403))
+    context, _ = _board_context(
+        request, board,
+        card_id=request.GET.get('card'),
+        edit=request.GET.get('edit') == '1',
+        new=request.GET.get('new'),
+        take_draft=False,
+    )
+    return _no_cache(JsonResponse({
+        **_board_blocks(request, context),
+        'panel': context['panel'] or '',
+        'generated_at': timezone.now().isoformat(),
+    }))
+
+
+def _no_cache(response):
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+    response['Vary'] = 'Cookie'
+    return response
 
 
 @login_required
