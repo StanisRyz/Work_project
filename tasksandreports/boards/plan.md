@@ -58,4 +58,5 @@
 | 1 | `tasks/stage-01.md` | `main` (ветка `claude/agile-boards-stage-1-qulr2i`) | принят (`reviews/stage-01.md`) |
 | 2 | `tasks/stage-02.md` | `main` (ветка `claude/agile-boards-stage-2-qulr2i`) | принят (`reviews/stage-02.md`) |
 | 3 | `tasks/stage-03.md` | `main` (`f9c29dd..e78f093`) | принят (`reviews/stage-03.md`) |
-| 4 | `tasks/stage-04.md` | `main` | выдан |
+| 4 | `tasks/stage-04.md` | `main` (`e5b57be..4f75d27`) | принят (`reviews/stage-04.md`) |
+| 5 | `tasks/stage-05.md` | `main` | выдан |
