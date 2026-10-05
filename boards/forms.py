@@ -14,7 +14,7 @@ from accounts.templatetags.people import person_name
 
 from .columns import WORK_STAGES
 from .models import BoardCard
-from .permissions import active_employee_q
+from .permissions import active_employee_q, board_access_q
 
 
 def employee_label(user):
@@ -31,8 +31,10 @@ class EmployeeMultipleChoiceField(forms.ModelMultipleChoiceField):
 
 
 def active_employees():
+    """Who may be put on a board: an active employee with board access."""
     return (
-        get_user_model().objects.filter(active_employee_q())
+        get_user_model().objects.filter(active_employee_q() & board_access_q())
+        .distinct()
         .select_related('userprofile__department')
         .order_by('last_name', 'first_name', 'username')
     )

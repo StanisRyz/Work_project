@@ -174,14 +174,16 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
 
     def test_the_query_count_does_not_grow_with_the_data(self):
         act = self.make_act(self.status_created)
-        with self.assertNumQueries(FIXED_SYNC_QUERIES):
+        # Warm the per-request role cache, as the other budget tests do.
+        build_sync_state(self.otk_user)
+        with self.assertNumQueries(SYNC_QUERIES_WITHOUT_BOARDS):
             build_sync_state(self.otk_user)
 
         for index in range(5):
             self.make_notification(self.otk_user, act, f'bulk-{index}')
             self.make_task(act, self.otk_user, text=f'Мероприятие {index}')
 
-        with self.assertNumQueries(FIXED_SYNC_QUERIES):
+        with self.assertNumQueries(SYNC_QUERIES_WITHOUT_BOARDS):
             build_sync_state(self.otk_user)
 
     def test_the_query_budget_holds_for_every_role(self):
@@ -190,20 +192,27 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
         self.make_notification(self.otk_user, act, 'role-budget')
         self.make_task(act, self.to_user)
         manager = self.make_user('rt_budget_manager', UserProfile.Role.MANAGER)
+        admin = self.make_user('rt_budget_admin', UserProfile.Role.ADMIN)
 
-        for user in (self.otk_user, self.ko_user, self.to_user, manager):
+        for user, budget in (
+            (self.otk_user, SYNC_QUERIES_WITHOUT_BOARDS),
+            (self.ko_user, SYNC_QUERIES_WITHOUT_BOARDS),
+            (self.to_user, SYNC_QUERIES_WITHOUT_BOARDS),
+            (manager, SYNC_QUERIES_WITHOUT_BOARDS),
+            (admin, FIXED_SYNC_QUERIES),
+        ):
             with self.subTest(user=user.username):
                 # Warm the profile cache: `has_full_act_access` resolves
                 # `user.userprofile` once per request, which is session/auth
                 # work rather than part of the sync budget itself.
                 build_sync_state(user)
-                with self.assertNumQueries(FIXED_SYNC_QUERIES):
+                with self.assertNumQueries(budget):
                     build_sync_state(user)
 
     def test_a_much_larger_dataset_costs_exactly_the_same_number_of_queries(self):
         act = self.make_act(self.status_created)
         build_sync_state(self.otk_user)
-        with self.assertNumQueries(FIXED_SYNC_QUERIES):
+        with self.assertNumQueries(SYNC_QUERIES_WITHOUT_BOARDS):
             small = build_sync_state(self.otk_user)
 
         for index in range(25):
@@ -213,7 +222,7 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
         for index in range(10):
             self.make_act(self.status_created)
 
-        with self.assertNumQueries(FIXED_SYNC_QUERIES):
+        with self.assertNumQueries(SYNC_QUERIES_WITHOUT_BOARDS):
             large = build_sync_state(self.otk_user)
 
         # Same cost, genuinely different state.
@@ -254,9 +263,12 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
 #  16. boards: membership total and max(added_at)
 #  17. boards: «Обсуждение» message total and max(created_at)
 #  18. boards: `BOARD` task status distribution
-# Session authentication and the one cached `user.userprofile` lookup are not
-# counted here — they belong to the request, not to this service.
+# Session authentication, the one cached `user.userprofile` lookup and the one
+# cached lookup of the roles lent today are not counted here — they belong to
+# the request, not to this service. Queries 14–18 are spent only for a user
+# with board access; for anybody else the `boards` token is a constant.
 FIXED_SYNC_QUERIES = 18
+SYNC_QUERIES_WITHOUT_BOARDS = FIXED_SYNC_QUERIES - 5
 
 
 class SyncEndpointTests(SyncStateMixin, TestCase):

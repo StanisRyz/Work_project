@@ -15,10 +15,10 @@ from ..permissions import (
     can_view_board,
     can_work_on_board,
 )
-from .helpers import BoardFixtureMixin, make_user
+from .helpers import BoardFixtureMixin, WidenedBoardAccess, make_user
 
 
-class CreateBoardPermissionTests(TestCase):
+class CreateBoardPermissionTests(WidenedBoardAccess, TestCase):
     def test_every_creator_role_may_create(self):
         for role in BOARD_CREATOR_ROLES:
             with self.subTest(role=role):

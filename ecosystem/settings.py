@@ -104,6 +104,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'documents.context_processors.documentation_access',
+                'boards.context_processors.boards_access',
                 'notifications.context_processors.notification_summary',
                 # «Что ждёт меня»: the counts beside Акты/Протоколы/Задачи in the
                 # menu. Lazy — computed only when a page draws the menu.

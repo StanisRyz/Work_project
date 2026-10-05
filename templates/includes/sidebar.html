@@ -50,9 +50,10 @@ owning module's own queryset.
         {% endif %}
         {% comment %}
         «Доски» — the same shape as «Документация»: a first-level link with no
-        submenu. Every signed-in employee reads boards (`can_view_board()`).
+        submenu. Drawn for whoever has board access (`can_use_boards()`, through
+        `boards.context_processors.boards_access`).
         {% endcomment %}
-        {% if user.is_authenticated %}
+        {% if can_use_boards %}
             <div class="sidebar__group">
                 <a class="sidebar__category{% if active_page == 'boards' %} sidebar__category--active{% endif %}" href="{% url 'boards:list' %}">
                     <span>Доски</span>

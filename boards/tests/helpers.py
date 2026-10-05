@@ -1,6 +1,7 @@
 """Shared fixtures for the board tests."""
 
 from datetime import timedelta
+from unittest import mock
 
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -31,7 +32,30 @@ def due(days=5):
     return timezone.localdate() + timedelta(days=days)
 
 
-class BoardFixtureMixin:
+# Every role there is: board access as it will be once widened.
+ALL_ROLES = frozenset(UserProfile.Role.values)
+
+
+class WidenedBoardAccess:
+    """Board access open to every role for the whole test class.
+
+    Boards are admitted to administrators only for now
+    (`boards.permissions.BOARD_ACCESS_ROLES`); the board tests keep ПДО, ОТК
+    and ТО as owners and members, so they run with the admission widened —
+    which is also what keeps the behaviour after widening covered. Patched
+    before `setUpTestData()`, which already creates boards.
+    `boards/tests/test_access.py` runs with the real constant.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        patcher = mock.patch('boards.permissions.BOARD_ACCESS_ROLES', ALL_ROLES)
+        patcher.start()
+        cls.addClassCleanup(patcher.stop)
+        super().setUpClass()
+
+
+class BoardFixtureMixin(WidenedBoardAccess):
     """An ПДО-owned board with two ordinary members and one outsider."""
 
     @classmethod

@@ -8,12 +8,14 @@ refuses a URL typed by hand, exactly as it did before this page existed.
 
 «Документация» asks its own rule (`documents.permissions.can_view_documents`,
 today «every signed-in employee»; which folders they then see is the library's
-business); the other six sections are open to every authenticated user,
-which is what `_always()` states rather than leaving the key out.
+business) and «Доски» asks board access (`boards.permissions.can_use_boards`);
+the other sections are open to every authenticated user, which is what
+`_always()` states rather than leaving the key out.
 """
 
 from django.urls import reverse
 
+from boards.permissions import can_use_boards
 from documents.permissions import can_view_documents
 
 
@@ -90,7 +92,7 @@ QUICK_ACCESS_SECTIONS = (
         'url_name': 'boards:list',
         'icon': 'boards',
         'accent': 'green',
-        'is_visible': _always,
+        'is_visible': can_use_boards,
     },
 )
 

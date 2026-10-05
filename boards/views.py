@@ -42,6 +42,7 @@ from .permissions import (
     can_create_board,
     can_manage_board,
     can_restore_board,
+    can_use_boards,
     can_view_board,
     can_work_on_board,
 )
@@ -96,6 +97,7 @@ def _require(allowed):
 
 @login_required
 def board_list(request):
+    _require(can_use_boards(request.user))
     state = build_board_list_state(request.user, request.GET.get('tab'))
     state.update({
         'active_page': 'boards',

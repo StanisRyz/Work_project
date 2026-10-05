@@ -318,10 +318,13 @@ def _protocols_revision(user):
 def _boards_revision(user):
     """Every board and every open board page, in one token.
 
-    `boards.permissions.can_view_board` lets every signed-in employee read
-    every board, so — exactly like `_protocols_revision()` — the token takes no
-    `user` filter; the argument only keeps the shape. If that rule ever
-    narrows, the visible boards go here.
+    Boards are read by whoever has board access
+    (`boards.permissions.can_use_boards()`), and such a reader reads every
+    board, so — exactly like `_protocols_revision()` — the token takes no
+    per-board filter. Without access the key is still there but constant — a
+    token of the same shape built from no data: the client compares the same
+    set of keys for every user, nothing about boards reaches somebody who may
+    not open one, and no query is spent on it.
 
     Four aggregates, no rows loaded:
 
@@ -336,8 +339,11 @@ def _boards_revision(user):
       their count and the newest `created_at` say everything.
     """
     from boards.models import BoardCard, BoardCardComment, BoardMember
+    from boards.permissions import can_use_boards
     from tasks.models import Task
 
+    if not can_use_boards(user):
+        return _token('b', 'no-access')
     cards = BoardCard.objects.aggregate(total=Count('pk'), last_updated=Max('updated_at'))
     board_tasks = Task.objects.filter(source_type=Task.SourceType.BOARD)
     tasks = board_tasks.aggregate(total=Count('pk'), last_updated=Max('updated_at'))

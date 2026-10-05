@@ -1,4 +1,5 @@
 from acts.permissions import has_full_act_access, is_act_admin
+from boards.permissions import can_use_boards
 
 from .models import ROUTING_SOURCE_TYPES, Task
 
@@ -28,7 +29,10 @@ _SOURCE_AWARE_SELECT_RELATED = (
 
 
 def can_view_task(task, user):
-    return bool(getattr(user, 'is_authenticated', False))
+    """Every authenticated user — except a `BOARD` task without board access."""
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    return task.source_type != Task.SourceType.BOARD or can_use_boards(user)
 
 
 def _tasks_queryset():
@@ -37,16 +41,30 @@ def _tasks_queryset():
     )
 
 
+def _without_boards_unless_allowed(tasks, user):
+    """A `BOARD` task is a board's work: shown only to whoever may use boards.
+
+    The board's own rule (`boards.permissions.can_use_boards()`), asked once
+    per queryset, never restated — so the registry with every tab and its
+    Excel, the task page, the quick search, «Мои задачи», the dashboard counts
+    and the `tasks` sync revision all follow it.
+    """
+    if can_use_boards(user):
+        return tasks
+    return tasks.exclude(source_type=Task.SourceType.BOARD)
+
+
 def get_visible_tasks_queryset(user):
     """Tasks in the user's working scope."""
-    tasks = _tasks_queryset()
+    tasks = _without_boards_unless_allowed(_tasks_queryset(), user)
     return tasks if has_full_act_access(user) else tasks.filter(assignees__user=user).distinct()
 
 
 def get_readable_tasks_queryset(user):
-    """All tasks readable by an authenticated user."""
-    tasks = _tasks_queryset()
-    return tasks if getattr(user, 'is_authenticated', False) else tasks.none()
+    """Every task an authenticated user reads: all of them, a `BOARD` one with board access."""
+    if not getattr(user, 'is_authenticated', False):
+        return _tasks_queryset().none()
+    return _without_boards_unless_allowed(_tasks_queryset(), user)
 
 
 def can_complete_task(task, user):

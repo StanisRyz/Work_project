@@ -162,16 +162,29 @@ def workup_targets():
 
 
 def board_targets(board=None):
-    """Everyone `boards.permissions.can_view_board` already lets in.
+    """Every active account with board access — whom `can_view_board` lets in.
 
-    Reading a board is every signed-in employee — its work is `tasks.Task`,
-    which every authenticated user reads — so the audience is the same as for
-    `protocol_targets` and `workup_targets`, and the event says nothing a
-    reader could not fetch from the board page. The rule is not restated: if
-    `can_view_board` ever narrows, this is the one place that follows it, and
-    `board` is what it would need.
+    Boards are open only to `boards.permissions.BOARD_ACCESS_ROLES` and genuine
+    superusers, so the audience is those accounts, resolved by the database
+    through `board_access_q()` — the board's own rule as a filter, never
+    restated — with the usual active-account and active-profile conditions
+    (`active_employee_q()`; a superuser without a profile is kept, as in
+    `_every_reader_targets()`). Nobody else receives `board.updated`. `board`
+    keeps the signature uniform with the other recipient functions.
     """
-    return _every_reader_targets()
+    from boards.permissions import board_access_q
+
+    return user_targets(
+        get_user_model()
+        .objects.filter(
+            board_access_q(),
+            Q(userprofile__is_active=True) | Q(is_superuser=True),
+            is_active=True,
+        )
+        .distinct()
+        .order_by('pk')
+        .values_list('pk', flat=True)
+    )
 
 
 def comment_targets(comment):
