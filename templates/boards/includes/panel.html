@@ -1,0 +1,78 @@
+{% load people %}{% comment %}
+The card panel, drawn by the server for `?card=`, `&edit=1` or `?new=`.
+
+`panel` is `view`, `edit` or `new`. The forms post to the card routes; a
+refusal or an invalid form comes back here with the panel open and the typed
+values in place (`form` is then the bound form). Closing is a plain link to
+the board. A closed task's panel is read-only: completion, attachments and
+«Вернуть в работу» stay on the task page for now, linked below.
+{% endcomment %}
+<aside class="board-panel" aria-label="Карточка">
+    <div class="board-panel__head">
+        <h2>{% if panel == 'new' %}Новая карточка{% elif panel == 'edit' %}Редактирование{% else %}Карточка №{{ card.task.pk }}{% endif %}</h2>
+        <a class="board-panel__close" href="{{ board_url }}" aria-label="Закрыть панель" title="Закрыть">×</a>
+    </div>
+    {% if panel_error %}<div class="form-error">{{ panel_error }}</div>{% endif %}
+
+    {% if panel == 'view' %}
+        <h3 class="board-panel__title user-text">{{ card.card.title }}</h3>
+        {% if card.card.description %}<p class="board-panel__description user-text">{{ card.card.description|linebreaksbr }}</p>{% endif %}
+        <dl class="board-panel__facts">
+            <div><dt>Колонка</dt><dd>{% if card.column %}{{ card.column.label }}{% else %}—{% endif %}</dd></div>
+            <div><dt>Задача</dt><dd>№{{ card.task.pk }} · {{ card.task.status }}</dd></div>
+            <div><dt>Исполнители</dt><dd>{% for user in card.assignees %}<span class="board-panel__person">{{ user|person_name }}</span>{% endfor %}</dd></div>
+            <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=card.due_date done=card.is_closed %}</dd></div>
+            <div><dt>Подразделение</dt><dd class="user-text">{{ card.department.name|default:'—' }}</dd></div>
+            <div><dt>Создал</dt><dd>{{ card.card.created_by|person_name }}, {{ card.card.created_at|date:'d.m.Y H:i' }}</dd></div>
+        </dl>
+        {% if can_edit_card %}
+            <div class="form-actions">
+                <a class="link-button link-button--secondary" href="{{ board_url }}?card={{ card.card.pk }}&amp;edit=1">Редактировать</a>
+            </div>
+            <form class="board-panel__move" method="post" action="{% url 'boards:card_move' board.pk card.card.pk %}">
+                {% csrf_token %}
+                <label>
+                    <span>{{ move_form.stage.label }}</span>
+                    {{ move_form.stage }}
+                </label>
+                <button class="link-button link-button--secondary" type="submit">Переместить</button>
+            </form>
+        {% endif %}
+        <p class="board-panel__task-link"><a href="{% url 'tasks:detail' card.task.pk %}">Открыть задачу №{{ card.task.pk }}</a></p>
+    {% else %}
+        {% if panel == 'new' %}
+            <p class="board-panel__lead">Колонка «{{ new_stage.label }}»</p>
+        {% endif %}
+        <form class="form-card board-card-form" method="post"
+              action="{% if panel == 'new' %}{% url 'boards:card_create' board.pk %}{% else %}{% url 'boards:card_update' board.pk card.card.pk %}{% endif %}"
+              data-unsaved-guard>
+            {% csrf_token %}
+            {% if panel == 'new' %}<input type="hidden" name="stage" value="{{ new_stage.code }}">{% endif %}
+            {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors }}</div>{% endif %}
+            <label>
+                <span>{{ form.title.label }}</span>
+                {{ form.title }}
+                {{ form.title.errors }}
+            </label>
+            <label>
+                <span>{{ form.description.label }}</span>
+                {{ form.description }}
+                {{ form.description.errors }}
+            </label>
+            <label>
+                <span>{{ form.due_date.label }}</span>
+                {{ form.due_date }}
+                {{ form.due_date.errors }}
+            </label>
+            <fieldset class="board-card-form__assignees">
+                <legend>{{ form.assignees.label }}</legend>
+                {{ form.assignees }}
+                {{ form.assignees.errors }}
+            </fieldset>
+            <div class="form-actions">
+                <button class="link-button" type="submit">{% if panel == 'new' %}Создать карточку{% else %}Сохранить{% endif %}</button>
+                <a class="link-button link-button--secondary" href="{% if panel == 'edit' %}{{ board_url }}?card={{ card.card.pk }}{% else %}{{ board_url }}{% endif %}">Отмена</a>
+            </div>
+        </form>
+    {% endif %}
+</aside>

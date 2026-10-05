@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% load static people %}
+
+{% block title %}{{ board.name }} · Доски{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261005-1">
+{% endblock %}
+
+{% block content_class %}page-container--fill{% endblock %}
+
+{% block content %}
+{% comment %}
+One board: four columns in the order of `boards/columns.py` and, beside them,
+the card panel the query string asks for. Everything comes from one
+`build_board_state()` read.
+
+It works without JavaScript. A tile is a link to `?card=<pk>`, the panel's
+forms post to the card routes, and closing the panel is a link back to the
+board. `can_work`/`can_manage`/`can_edit_card` only decide which controls are
+drawn — every route asks the same rule again, and a reader sees the board and
+the panel with no control at all.
+{% endcomment %}
+<section class="act-detail-heading board-heading">
+    <a class="act-back-link" href="{% url 'boards:list' %}" aria-label="К списку досок">←</a>
+    <div class="board-heading__title">
+        <h1 class="user-text">{{ board.name }}</h1>
+        <span class="board-heading__meta"><span class="user-text">{{ board.department.name }}</span> · владелец {{ board.owner|person_name }}</span>
+    </div>
+    <div class="board-heading__actions">
+        <a class="link-button link-button--secondary" href="{% url 'boards:members' board.pk %}">Участники ({{ member_count }})</a>
+        {% if can_work %}<a class="link-button" href="{{ board_url }}?new=TODO">+ Карточка</a>{% endif %}
+    </div>
+</section>
+
+<div class="fill-region">
+    <div class="board-layout{% if panel %} board-layout--with-panel{% endif %}">
+        <div class="board-columns" aria-label="Колонки доски">
+            {% for column in columns %}
+                <section class="board-column board-column--{{ column.code|lower }}" aria-labelledby="board-column-{{ column.code }}">
+                    <header class="board-column__header">
+                        <h2 id="board-column-{{ column.code }}">{{ column.label }}</h2>
+                        <span class="tab-count">{{ column.count }}</span>
+                        {% if can_work and column.is_stored %}
+                            <a class="board-column__add" href="{{ board_url }}?new={{ column.code }}" title="Новая карточка в колонке «{{ column.label }}»" aria-label="Новая карточка в колонке «{{ column.label }}»">+</a>
+                        {% endif %}
+                    </header>
+                    <ol class="board-column__cards">
+                        {% for item in column.cards %}
+                            <li>{% include 'boards/includes/tile.html' %}</li>
+                        {% empty %}
+                            <li class="board-column__empty">Карточек нет</li>
+                        {% endfor %}
+                    </ol>
+                    {% if column.more %}<p class="board-column__more">и ещё {{ column.more }}</p>{% endif %}
+                </section>
+            {% endfor %}
+        </div>
+        {% if panel %}
+            {% include 'boards/includes/panel.html' %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

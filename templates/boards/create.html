@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Новая доска · Экосистема качества{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261005-1">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+A new board. The owner is whoever submits the form — it never asks — and
+`create_board()` makes them a member too.
+{% endcomment %}
+<section class="act-detail-heading">
+    <a class="act-back-link" href="{% url 'boards:list' %}" aria-label="К списку досок">←</a>
+    <div class="act-detail-heading__title"><h1>Новая доска</h1></div>
+</section>
+
+<form class="form-card board-form" method="post" data-unsaved-guard>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors }}</div>{% endif %}
+    <label>
+        <span>{{ form.name.label }}</span>
+        {{ form.name }}
+        {{ form.name.errors }}
+    </label>
+    <label>
+        <span>{{ form.description.label }}</span>
+        {{ form.description }}
+        {{ form.description.errors }}
+    </label>
+    <label>
+        <span>{{ form.department.label }}</span>
+        {{ form.department }}
+        {{ form.department.errors }}
+    </label>
+    <label>
+        <span>{{ form.members.label }}</span>
+        {{ form.members }}
+        <small class="board-form__hint">{{ form.members.help_text }} Несколько человек выбираются с Ctrl.</small>
+        {{ form.members.errors }}
+    </label>
+    <div class="form-actions">
+        <button class="link-button" type="submit">Создать доску</button>
+        <a class="link-button link-button--secondary" href="{% url 'boards:list' %}">Отмена</a>
+    </div>
+</form>
+{% endblock %}

@@ -48,6 +48,17 @@ owning module's own queryset.
                 </a>
             </div>
         {% endif %}
+        {% comment %}
+        «Доски» — the same shape as «Документация»: a first-level link with no
+        submenu. Every signed-in employee reads boards (`can_view_board()`).
+        {% endcomment %}
+        {% if user.is_authenticated %}
+            <div class="sidebar__group">
+                <a class="sidebar__category{% if active_page == 'boards' %} sidebar__category--active{% endif %}" href="{% url 'boards:list' %}">
+                    <span>Доски</span>
+                </a>
+            </div>
+        {% endif %}
         <div class="sidebar__group" data-nav-group>
             <button class="sidebar__category{% if active_page == 'calculator' or active_page == 'plate_cutting' %} sidebar__category--active{% endif %}"
                     type="button" aria-expanded="false" aria-controls="sidebar-submenu-calculators" data-nav-category>

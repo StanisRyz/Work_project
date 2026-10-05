@@ -1,0 +1,384 @@
+/* Доски: the registry, the board with its four columns and the card panel.
+
+   Tokens only (`base.css`): no control pixel values and no hex colours. The
+   board is a one-screen page (`page-container--fill` → `.fill-region`); the
+   columns row takes what is left, every column scrolls down on its own, and
+   on a narrow screen the row scrolls sideways inside itself — the page never
+   does. Above 1240px the panel stands beside the columns, below it above
+   them, and under 760px everything falls back to the ordinary flow, as the
+   registries do. */
+
+.board-heading {
+    flex-wrap: wrap;
+}
+
+.board-heading__title {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.board-heading__title h1 {
+    margin: 0;
+}
+
+.board-heading__meta {
+    color: var(--color-muted);
+}
+
+.board-heading__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-left: auto;
+}
+
+/* ---- Columns and panel ---- */
+
+.board-layout {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 14px;
+    min-height: 0;
+}
+
+.board-columns {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 12px;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.board-column {
+    display: flex;
+    flex: 1 0 260px;
+    flex-direction: column;
+    min-height: 0;
+    max-width: 420px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.board-column__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* One height whether or not the column has «+»: «Готово» has none. */
+    min-height: calc(var(--control-height) + 16px);
+    box-sizing: border-box;
+    padding: var(--cell-padding);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.board-column__header h2 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: var(--font-size-base);
+}
+
+.board-column__add {
+    display: inline-grid;
+    width: var(--control-height);
+    height: var(--control-height);
+    margin-left: auto;
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    font-size: 1.4em;
+    line-height: 1;
+    text-decoration: none;
+}
+
+.board-column__add:hover,
+.board-column__add:focus-visible {
+    border-color: var(--color-primary);
+}
+
+.board-column__cards {
+    display: grid;
+    flex: 1 1 auto;
+    align-content: start;
+    gap: 8px;
+    min-height: 0;
+    margin: 0;
+    padding: 10px;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.board-column__empty,
+.board-column__more {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.board-column__more {
+    padding: 0 10px 10px;
+}
+
+/* ---- Tile ---- */
+
+.board-tile {
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+.board-tile:hover,
+.board-tile:focus-visible {
+    border-color: var(--color-primary);
+}
+
+.board-tile--open {
+    border-color: var(--color-primary);
+    box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.board-tile__title {
+    font-weight: 600;
+}
+
+.board-tile__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+}
+
+.board-tile__number {
+    color: var(--color-muted);
+}
+
+.board-tile__assignees {
+    display: inline-flex;
+    gap: 2px;
+    margin-right: auto;
+}
+
+.board-avatar {
+    display: inline-grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    color: var(--color-primary-dark);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* ---- Panel ---- */
+
+.board-panel {
+    display: grid;
+    flex: 0 0 380px;
+    align-content: start;
+    gap: 12px;
+    min-height: 0;
+    padding: 16px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.board-panel__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.board-panel__head h2 {
+    margin: 0;
+    font-size: 1.15em;
+}
+
+.board-panel__close {
+    display: inline-grid;
+    width: var(--control-height);
+    height: var(--control-height);
+    margin-left: auto;
+    place-items: center;
+    border-radius: var(--radius);
+    color: var(--color-muted);
+    font-size: 1.6em;
+    line-height: 1;
+    text-decoration: none;
+}
+
+.board-panel__close:hover,
+.board-panel__close:focus-visible {
+    background: var(--color-bg);
+    color: var(--color-text);
+}
+
+.board-panel__title {
+    margin: 0;
+    font-size: 1.05em;
+}
+
+.board-panel__description,
+.board-panel__lead,
+.board-panel__task-link {
+    margin: 0;
+}
+
+.board-panel__lead {
+    color: var(--color-muted);
+}
+
+.board-panel__facts {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+}
+
+.board-panel__facts > div {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: 8px;
+}
+
+.board-panel__facts dt {
+    color: var(--color-muted);
+}
+
+.board-panel__facts dd {
+    margin: 0;
+}
+
+.board-panel__person {
+    display: block;
+}
+
+.board-panel__move {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 10px;
+}
+
+.board-panel__move label {
+    display: grid;
+    flex: 1 1 160px;
+    gap: 6px;
+    color: var(--color-muted);
+}
+
+.board-panel__move select {
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+}
+
+.board-card-form {
+    padding: 0;
+    border: 0;
+}
+
+.board-card-form__assignees {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.board-card-form__assignees legend {
+    float: left;
+    margin-bottom: 4px;
+    padding: 0;
+    color: var(--color-muted);
+    font-weight: 700;
+}
+
+.board-card-form__assignees > div {
+    clear: both;
+    display: grid;
+    gap: 4px;
+}
+
+.board-card-form__assignees label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-text);
+}
+
+.board-card-form__assignees input {
+    width: auto;
+}
+
+/* ---- Other pages ---- */
+
+.board-form {
+    max-width: 760px;
+}
+
+.board-form select[multiple] {
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+}
+
+.board-form__hint {
+    color: var(--color-muted);
+}
+
+.board-members-table td {
+    vertical-align: middle;
+}
+
+.board-members-table__actions {
+    text-align: right;
+}
+
+/* The panel above the columns once the screen is too narrow for both. */
+@media (max-width: 1240px) {
+    .board-layout--with-panel {
+        flex-direction: column;
+    }
+
+    .board-layout--with-panel .board-panel {
+        flex: 0 1 auto;
+        order: -1;
+        max-height: 45%;
+    }
+}
+
+/* A phone: the ordinary flow, like every registry. The columns keep their
+   own sideways scroll; each column is as tall as its cards. */
+@media (max-width: 760px) {
+    .board-layout,
+    .board-layout--with-panel {
+        display: grid;
+    }
+
+    .board-layout--with-panel .board-panel {
+        max-height: none;
+    }
+
+    .board-column {
+        flex-basis: 78vw;
+    }
+
+    .board-column__cards {
+        overflow-y: visible;
+    }
+}

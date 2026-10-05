@@ -10,6 +10,8 @@ Nothing here decides who may *complete* a card. A card's work is a
 unchanged: an assignee of the task, or an administrator.
 """
 
+from django.db.models import Q
+
 from accounts.models import UserProfile
 from accounts.roles import has_any_role
 from acts.permissions import is_act_admin
@@ -27,6 +29,17 @@ BOARD_CREATOR_ROLES = frozenset({
 
 def _is_authenticated(user):
     return bool(getattr(user, 'is_authenticated', False))
+
+
+def active_employee_q(prefix=''):
+    """«An active employee» as a filter: an active account with an active profile.
+
+    `prefix` walks a relation first — `prefix='user__'` asks it about a
+    `BoardMember`. The one filter-side statement of the rule
+    `is_active_employee()` states for one user; the services filter with it
+    and never restate it.
+    """
+    return Q(**{f'{prefix}is_active': True, f'{prefix}userprofile__is_active': True})
 
 
 def is_active_employee(user):
@@ -57,10 +70,15 @@ def can_create_board(user):
 
 
 def can_manage_board(user, board):
-    """The owner, or an administrator: membership is theirs to change."""
+    """The owner while still an active employee, or an administrator.
+
+    A deactivated profile grants nothing, the owner's included.
+    """
     if not _is_authenticated(user):
         return False
-    return user.pk == board.owner_id or is_act_admin(user)
+    if is_act_admin(user):
+        return True
+    return user.pk == board.owner_id and is_active_employee(user)
 
 
 def can_work_on_board(user, board):

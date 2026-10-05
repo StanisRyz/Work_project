@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% load static people %}
+
+{% block title %}Доски · Экосистема качества{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261005-1">
+{% endblock %}
+
+{% block content_class %}page-container--fill{% endblock %}
+
+{% block content %}
+{% comment %}
+The board registry: «Мои» (boards I am a member of) and «Все». Both counts
+are annotations of the one query (`build_board_list_state()`). No filters,
+no Excel and no remembered tab: there are a handful of boards.
+
+«Создать доску» is drawn only for `can_create_board()`, and the form re-checks
+it anyway.
+{% endcomment %}
+<div class="act-registry-toolbar">
+    <nav class="act-registry-tabs" aria-label="Область списка досок">
+        <a class="act-registry-tabs__link{% if tab == 'my' %} act-registry-tabs__link--active{% endif %}" href="?tab=my">Мои <span class="tab-count">{{ tab_counts.my }}</span></a>
+        <a class="act-registry-tabs__link{% if tab == 'all' %} act-registry-tabs__link--active{% endif %}" href="?tab=all">Все <span class="tab-count">{{ tab_counts.all }}</span></a>
+    </nav>
+    {% if can_create %}
+        <a class="link-button" href="{% url 'boards:create' %}">+ Создать доску</a>
+    {% endif %}
+</div>
+
+<div class="fill-region">
+{% if boards %}
+<section class="table-card act-table-card">
+    <table class="data-table board-registry-table">
+        <thead><tr><th>Название</th><th>Подразделение</th><th>Владелец</th><th>Участников</th><th>Открытых карточек</th></tr></thead>
+        <tbody>
+        {% for board in boards %}
+            <tr data-row-url="{% url 'boards:detail' board.pk %}">
+                <td><a class="table-link user-text" href="{% url 'boards:detail' board.pk %}">{{ board.name }}</a></td>
+                <td class="user-text">{{ board.department.name }}</td>
+                <td>{{ board.owner|person_name }}</td>
+                <td>{{ board.member_count }}</td>
+                <td>{{ board.open_card_count }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% else %}
+    {% if tab == 'my' %}
+        {% include 'acts/includes/empty_state.html' with title='Вы пока не участник ни одной доски' message='Откройте вкладку «Все» или попросите владельца доски добавить вас.' %}
+    {% else %}
+        {% include 'acts/includes/empty_state.html' with title='Досок пока нет' message='Доску создают ПДО, Отдел продаж, руководитель или администратор.' %}
+    {% endif %}
+{% endif %}
+</div>
+{% endblock %}

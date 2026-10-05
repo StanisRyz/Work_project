@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% load static people %}
+
+{% block title %}Участники · {{ board.name }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261005-1">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+Who is on the board. Everybody reads the list; the owner and an
+administrator (`can_manage`) also get the add form and «Исключить», which
+goes through the one confirmation modal. `remove_board_member()` refuses the
+owner and anybody still holding an open card, and that refusal comes back as
+a message on this page.
+{% endcomment %}
+<section class="act-detail-heading">
+    <a class="act-back-link" href="{% url 'boards:detail' board.pk %}" aria-label="К доске">←</a>
+    <div class="act-detail-heading__title"><h1 class="user-text">Участники · {{ board.name }}</h1></div>
+</section>
+
+<section class="table-card">
+    <table class="data-table board-members-table">
+        <thead><tr><th>Сотрудник</th><th>Подразделение</th><th></th></tr></thead>
+        <tbody>
+        {% for member in members %}
+            <tr>
+                <td>{{ member.user|person_name }}{% if member.user_id == board.owner_id %} <span class="status-badge status-badge--in_progress">Владелец</span>{% endif %}</td>
+                <td class="user-text">{% with profile=member.user.userprofile %}{{ profile.department.name|default:'—' }}{% endwith %}</td>
+                <td class="board-members-table__actions">
+                    {% if can_manage and member.user_id != board.owner_id %}
+                        <button class="link-button link-button--danger link-button--compact" type="button"
+                                data-confirm
+                                data-confirm-title="Исключить {{ member.user|person_name }}?"
+                                data-confirm-text="Сотрудник перестанет быть участником доски. Исполнителя открытой карточки исключить нельзя — сначала переназначьте карточку."
+                                data-confirm-label="Исключить"
+                                data-confirm-variant="danger"
+                                data-confirm-url="{% url 'boards:member_remove' board.pk member.user_id %}">Исключить</button>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+{% if can_manage %}
+    <form class="form-card board-form" method="post" action="{% url 'boards:members_add' board.pk %}">
+        {% csrf_token %}
+        {% if add_form.fields.users.queryset.exists %}
+            <label>
+                <span>{{ add_form.users.label }}</span>
+                {{ add_form.users }}
+                <small class="board-form__hint">Несколько человек выбираются с Ctrl.</small>
+            </label>
+            <div class="form-actions"><button class="link-button" type="submit">Добавить</button></div>
+        {% else %}
+            <p class="board-form__hint">Все активные сотрудники уже на доске.</p>
+        {% endif %}
+    </form>
+{% endif %}
+{% endblock %}

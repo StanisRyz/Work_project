@@ -73,6 +73,12 @@ class BoardAccessTests(BoardFixtureMixin, TestCase):
         self.assertTrue(can_manage_board(self.admin, self.board))
         self.assertFalse(can_manage_board(self.member, self.board))
 
+    def test_deactivated_owner_does_not_manage(self):
+        self.owner.userprofile.is_active = False
+        self.owner.userprofile.save()
+        self.assertFalse(can_manage_board(self.owner, self.board))
+        self.assertTrue(can_manage_board(self.admin, self.board))
+
     def test_members_and_admin_work(self):
         self.assertTrue(can_work_on_board(self.member, self.board))
         self.assertTrue(can_work_on_board(self.owner, self.board))

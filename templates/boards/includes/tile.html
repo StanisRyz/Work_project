@@ -1,0 +1,15 @@
+{% load people %}{% comment %}
+One card on a column: a real link to `?card=<pk>`, so it opens the panel with
+or without JavaScript and «open in a new tab» keeps working. Spans only inside
+— an `<a>` holds no interactive content.
+{% endcomment %}
+<a class="board-tile{% if card and card.card.pk == item.card.pk %} board-tile--open{% endif %}" href="{{ board_url }}?card={{ item.card.pk }}">
+    <span class="board-tile__title user-text text-clamp-2" title="{{ item.card.title }}">{{ item.card.title }}</span>
+    <span class="board-tile__footer">
+        <span class="board-tile__number">№{{ item.task.pk }}</span>
+        <span class="board-tile__assignees">
+            {% for user in item.assignees %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}
+        </span>
+        {% include 'includes/due_date.html' with date=item.due_date done=item.is_closed %}
+    </span>
+</a>

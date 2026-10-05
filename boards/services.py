@@ -26,6 +26,7 @@ from ecosystem.logging_utils import log_event
 from .columns import WORK_STAGES
 from .models import Board, BoardCard, BoardMember
 from .permissions import (
+    active_employee_q,
     can_create_board,
     can_manage_board,
     can_work_on_board,
@@ -85,19 +86,13 @@ def _lock_card_task(card):
 
 
 def _active_users(user_ids):
-    """`{pk: user}` for the active employees among `user_ids`.
-
-    The same condition `boards.permissions.is_active_employee()` states for one
-    user, written as a filter.
-    """
+    """`{pk: user}` for the active employees among `user_ids`."""
     ids = {int(getattr(value, 'pk', value)) for value in user_ids}
     if not ids:
         return {}
     return {
         user.pk: user
-        for user in get_user_model().objects.filter(
-            pk__in=ids, is_active=True, userprofile__is_active=True,
-        )
+        for user in get_user_model().objects.filter(active_employee_q(), pk__in=ids)
     }
 
 
@@ -117,10 +112,7 @@ def _clean_assignees(board, assignee_ids):
         raise BoardError('Укажите хотя бы одного исполнителя.')
     member_ids = set(
         BoardMember.objects.filter(
-            board=board,
-            user_id__in=ids,
-            user__is_active=True,
-            user__userprofile__is_active=True,
+            active_employee_q('user__'), board=board, user_id__in=ids,
         ).values_list('user_id', flat=True)
     )
     if set(ids) - member_ids:

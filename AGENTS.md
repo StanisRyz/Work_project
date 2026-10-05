@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`boards_for_user()` in `boards/selectors.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`. No pages, notifications or realtime events of its own yet |
+| `boards` | simple kanban boards: `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_list_state()`/`boards_for_user()` in `boards/selectors.py`; the pages under `/work/boards/` (registry, «Новая доска», the board with its card panel `?card=<pk>` / `&edit=1` / `?new=<stage>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript. Each card's work is one `tasks.Task` with `source_type=BOARD`. No notifications or realtime events of its own yet |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -38,7 +38,8 @@ model without explicit approval.
 The user-facing sections are Главная (`/`), Акты (`/quality/acts/`), Задачи
 (`/quality/tasks/`), Протоколы (`/quality/protocols/`), СМК (`/quality/smk/`),
 Калькулятор времени навивки (`/calculators/winding/`), Калькулятор рубки пластин
-(`/calculators/plate-cutting/`) and Документация (`/documents/`). Под «Качество»
+(`/calculators/plate-cutting/`), Документация (`/documents/`) and Доски
+(`/work/boards/`). Под «Качество»
 пункты идут Акты · Протоколы · СМК · Задачи; the СМК form is reachable both from
 its own registry and, as before, from «Задачи» through `tasks:create`. `/` is the
 dashboard itself — not a redirect — and it is the login fallback for every role
@@ -48,9 +49,10 @@ rights: each card asks the owning section's existing rule («Документа�
 `can_view_documents()`, today every signed-in employee). Django Admin (`/admin/`) is reached directly, not
 from the sidebar.
 
-Public URLs follow the two-level convention `/quality/<module>/` and
-`/calculators/<module>/`, mirroring the navigation; a new user-facing module is
-mounted the same way. Infrastructure stays outside it: `/accounts/`,
+Public URLs follow the two-level convention `/quality/<module>/`,
+`/calculators/<module>/` and `/work/<module>/` — the last for working tools
+that are not about quality, today only `/work/boards/` — mirroring the
+navigation; a new user-facing module is mounted the same way. Infrastructure stays outside it: `/accounts/`,
 `/notifications/`, `/realtime/`, `/health/`, `/admin/`. The path is public
 routing only — app names, Python packages and URL namespaces are unchanged
 (`acts:`, `tasks:`, `protocols:`, `calculator:`, `plate_cutting:`), so links
@@ -66,7 +68,9 @@ categories Качество (Акты, Задачи, Протоколы) and К�
 plus Документация — a first-level item that is a plain link to `/documents/`,
 has no submenu, and is drawn for whoever `can_view_documents()` admits — every
 signed-in employee (`documents.context_processors.documentation_access` →
-`can_view_documentation`). Only leaf items are links; categories are buttons, one submenu open at a time,
+`can_view_documentation`) — and, after it, Доски: the same first-level plain
+link, to `/work/boards/`, drawn for every signed-in employee
+(`active_page == 'boards'`). Only leaf items are links; categories are buttons, one submenu open at a time,
 and the panel and the profile menu are never open together. All of that state
 lives in `static/js/app.js`.
 
@@ -1675,14 +1679,38 @@ tasks never live inside `acts`.
 - **`boards/permissions.py` is the whole rule.** Reading is every signed-in
   employee; creating is `BOARD_CREATOR_ROLES` (ПДО, Отдел продаж, руководитель,
   администратор, through `accounts.roles`, so a lent role counts) or a genuine
-  superuser; managing members is the owner or `is_act_admin()`; working on
+  superuser; managing members is the owner while still an active employee, or
+`is_act_admin()`; working on
   cards is an active member or `is_act_admin()`. Finishing a card is
   `can_complete_task()` and nothing of the board's. `Board.department` grants
   nothing.
-- **`build_board_state()` is one read**: the board's `BOARD` tasks with their
-  cards and statuses in one query and the исполнители in one prefetch, so its
-  query count does not grow with the cards. Working columns are in `position`
-  order, «Готово» newest completion first.
+  «An active employee» — an active account with an active profile — is
+  `is_active_employee()` for one user and `active_employee_q(prefix)` as a
+  filter; the services filter with the latter and never restate it.
+- **`build_board_state()` is one read**: the open cards with their tasks and
+  statuses in one query, the newest `done_limit` (`DONE_LIMIT`, 50) completed
+  ones in another plus a count for «и ещё N», the исполнители in one prefetch
+  each, and the card `card_id` names in one more — so its query count does not
+  grow with the cards. Working columns are in `position` order, «Готово» newest
+  completion first. The panel card is found only on this board (a foreign,
+  missing or non-numeric id is no panel, never a 404), and a cancelled card is
+  found too, read-only.
+- **The board pages work without JavaScript.** `boards/views.py` asks the right
+  *before* the HTTP method (a typed-in URL without it is a 403), every mutating
+  route is POST only and answers a GET by redirecting to the board, and a
+  `BoardError` or an invalid form re-renders the board with the panel open, the
+  bound form and the error beside it — never a 500, never lost input; success
+  redirects to `?card=<pk>`. The panel is chosen by the query string and drawn
+  by the server: `?card=` reads, `&edit=1` edits (only while `can_work` and the
+  task is open), `?new=<stage>` creates in a working column; closing is a link.
+  A closed task's panel is read-only with «Открыть задачу №N». Tiles are real
+  links; `can_work`/`can_manage`/`can_edit_card` decide markup only. The
+  registry counts (участников, открытых карточек) are subquery annotations of
+  the one query, because «Мои» already filters through the membership table.
+  `static/css/boards.css` is tokens only: one screen (`page-container--fill`),
+  every column scrolls down on its own and the row of columns sideways inside
+  itself; the panel stands beside the columns above 1240px, above them below
+  it, and below 760px everything is the ordinary flow.
 
 ### Documentation library (`documents`)
 

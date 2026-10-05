@@ -8,7 +8,7 @@ refuses a URL typed by hand, exactly as it did before this page existed.
 
 «Документация» asks its own rule (`documents.permissions.can_view_documents`,
 today «every signed-in employee»; which folders they then see is the library's
-business); the other five sections are open to every authenticated user,
+business); the other six sections are open to every authenticated user,
 which is what `_always()` states rather than leaving the key out.
 """
 
@@ -82,6 +82,15 @@ QUICK_ACCESS_SECTIONS = (
         'icon': 'documents',
         'accent': 'blue',
         'is_visible': can_view_documents,
+    },
+    {
+        'code': 'boards',
+        'label': 'Доски',
+        'description': 'Канбан-доски отделов',
+        'url_name': 'boards:list',
+        'icon': 'boards',
+        'accent': 'green',
+        'is_visible': _always,
     },
 )
 
