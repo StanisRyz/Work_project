@@ -64,6 +64,9 @@ INSTALLED_APPS = [
     # it. Feeds the existing notification pipeline and owns no channel.
     'bugs',
     'documents',
+    # Kanban boards for Отдел продаж and ПДО: each card is an ordinary
+    # `tasks.Task` with `source_type=BOARD`.
+    'boards',
     'maintenance',
     'realtime',
     'django.contrib.admin',

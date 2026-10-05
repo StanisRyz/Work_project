@@ -69,6 +69,10 @@ class Task(models.Model):
         DOCUMENT_ACK = 'DOCUMENT_ACK', 'Ознакомление с документом'
         DOCUMENT_APPROVAL = 'DOCUMENT_APPROVAL', 'Согласование документа'
         DOCUMENT_REVIEW = 'DOCUMENT_REVIEW', 'Пересмотр документа'
+        # A card on a kanban board (`boards`). Ordinary work, completed by an
+        # исполнитель with an execution comment; the card is where the board
+        # keeps its column and order, the task is the work itself.
+        BOARD = 'BOARD', 'Доска'
 
     class WorkflowStage(models.TextChoices):
         """Which act stage an `ACT_WORKFLOW` task represents.
@@ -181,6 +185,17 @@ class Task(models.Model):
         blank=True,
         verbose_name='Версия документа',
     )
+    # The board card a `BOARD` task is the work of. One task per card —
+    # `unique_board_card_task` — and `PROTECT`, so a card with task history is
+    # never deleted out from under it.
+    board_card = models.ForeignKey(
+        'boards.BoardCard',
+        on_delete=models.PROTECT,
+        related_name='tasks',
+        null=True,
+        blank=True,
+        verbose_name='Карточка доски',
+    )
     # Which single assignee this task was split off for — of `source_action`
     # for an act task, of `protocol_action` for a protocol one — and NULL for a
     # shared task. The one field that tells the two modes apart, and the same
@@ -275,6 +290,7 @@ class Task(models.Model):
                     Q(
                         source_type='ACT',
                         document_version__isnull=True,
+                        board_card__isnull=True,
                         bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
@@ -289,6 +305,7 @@ class Task(models.Model):
                     | Q(
                         source_type='PROTOCOL_APPROVAL',
                         document_version__isnull=True,
+                        board_card__isnull=True,
                         bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
@@ -304,6 +321,7 @@ class Task(models.Model):
                     | Q(
                         source_type='PROTOCOL_ACTION',
                         document_version__isnull=True,
+                        board_card__isnull=True,
                         bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
@@ -322,6 +340,7 @@ class Task(models.Model):
                     | Q(
                         source_type='ACT_REJECTION',
                         document_version__isnull=True,
+                        board_card__isnull=True,
                         bug_report__isnull=True,
                         smk_source__isnull=True,
                         smk_action__isnull=True,
@@ -341,6 +360,7 @@ class Task(models.Model):
                         Q(
                             source_type='ACT_WORKFLOW',
                             document_version__isnull=True,
+                            board_card__isnull=True,
                         bug_report__isnull=True,
                             smk_source__isnull=True,
                             smk_action__isnull=True,
@@ -365,6 +385,7 @@ class Task(models.Model):
                     | Q(
                         source_type='SMK',
                         document_version__isnull=True,
+                        board_card__isnull=True,
                         bug_report__isnull=True,
                         act__isnull=True,
                         root_analysis__isnull=True,
@@ -386,6 +407,7 @@ class Task(models.Model):
                     | Q(
                         source_type='BUG',
                         document_version__isnull=True,
+                        board_card__isnull=True,
                         act__isnull=True,
                         root_analysis__isnull=True,
                         source_action__isnull=True,
@@ -407,6 +429,7 @@ class Task(models.Model):
                     | Q(
                         source_type__in=['DOCUMENT_ACK', 'DOCUMENT_APPROVAL', 'DOCUMENT_REVIEW'],
                         document_version__isnull=False,
+                        board_card__isnull=True,
                         individual_assignee__isnull=False,
                         act__isnull=True,
                         root_analysis__isnull=True,
@@ -416,6 +439,25 @@ class Task(models.Model):
                         smk_source__isnull=True,
                         smk_action__isnull=True,
                         bug_report__isnull=True,
+                        workflow_stage='',
+                    )
+                    # A board card: the card alone and the board's department,
+                    # nothing from any quality document, and one shared task —
+                    # a card is one piece of work, never split.
+                    | Q(
+                        source_type='BOARD',
+                        board_card__isnull=False,
+                        document_version__isnull=True,
+                        act__isnull=True,
+                        root_analysis__isnull=True,
+                        source_action__isnull=True,
+                        protocol__isnull=True,
+                        protocol_action__isnull=True,
+                        smk_source__isnull=True,
+                        smk_action__isnull=True,
+                        bug_report__isnull=True,
+                        individual_assignee__isnull=True,
+                        department__isnull=False,
                         workflow_stage='',
                     )
                 ),
@@ -504,6 +546,13 @@ class Task(models.Model):
                 condition=Q(source_type='DOCUMENT_REVIEW'),
                 name='unique_document_review_task',
             ),
+            # One task per board card, so a retried or concurrent creation
+            # cannot put the same work on the board twice.
+            models.UniqueConstraint(
+                fields=['board_card'],
+                condition=Q(source_type='BOARD'),
+                name='unique_board_card_task',
+            ),
         ]
 
     def __str__(self):
@@ -540,6 +589,10 @@ class Task(models.Model):
             self.SourceType.DOCUMENT_APPROVAL,
             self.SourceType.DOCUMENT_REVIEW,
         }
+
+    @property
+    def is_board_task(self):
+        return self.source_type == self.SourceType.BOARD
 
     @property
     def is_cancelled(self):
@@ -628,6 +681,11 @@ class Task(models.Model):
                     self.SourceType.DOCUMENT_REVIEW,
                 )
             },
+            self.SourceType.BOARD: (
+                ('board_card',),
+                ('act', 'root_analysis', 'source_action', 'protocol',
+                 'protocol_action', 'individual_assignee'),
+            ),
         }.get(self.source_type, ((), ()))
         if not required:
             raise ValidationError({'source_type': 'Неизвестный тип источника задачи.'})
@@ -646,6 +704,9 @@ class Task(models.Model):
             forbidden = (*forbidden, 'bug_report')
         if not self.is_document_task:
             forbidden = (*forbidden, 'document_version')
+        # And the board card, forbidden everywhere but on a board task.
+        if self.source_type != self.SourceType.BOARD:
+            forbidden = (*forbidden, 'board_card')
         for name in required:
             if getattr(self, f'{name}_id') is None:
                 errors[name] = f'Обязательно для источника «{source_name}».'

@@ -30,6 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
+| `boards` | simple kanban boards: `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`boards_for_user()` in `boards/selectors.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`. No pages, notifications or realtime events of its own yet |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -459,10 +460,10 @@ tasks never live inside `acts`.
   no completion time. `can_complete_task()` is unchanged and already refuses
   anything but `IN_PROGRESS`. Written **only** by
   `tasks.services.cancel_smk_action_tasks()`, inside the caller's transaction.
-- **A task's origin is `source_type`, never a nullable relation.** Ten values
+- **A task's origin is `source_type`, never a nullable relation.** Eleven values
   exist — `ACT`, `ACT_WORKFLOW`, `ACT_REJECTION`, `PROTOCOL_APPROVAL`,
   `PROTOCOL_ACTION`, `SMK`, `BUG`, `DOCUMENT_ACK`, `DOCUMENT_APPROVAL`,
-  `DOCUMENT_REVIEW` — and exactly one relation shape is valid for each,
+  `DOCUMENT_REVIEW`, `BOARD` — and exactly one relation shape is valid for each,
   enforced by `Task.clean()` and by the
   `task_source_relations_match_source_type` check constraint:
 
@@ -476,6 +477,7 @@ tasks never live inside `acts`.
   | `SMK` | `smk_source`, `smk_action`, `department` | `act`, `root_analysis`, `source_action`, `protocol`, `protocol_action`, `workflow_stage` |
   | `BUG` | `bug_report` | everything else, `department` and `individual_assignee` included |
   | `DOCUMENT_ACK`, `DOCUMENT_APPROVAL`, `DOCUMENT_REVIEW` | `document_version`, `individual_assignee` | every act, protocol, СМК and bug relation, `workflow_stage`; `department` free (the owning подразделение when the card names one) |
+  | `BOARD` | `board_card`, `department` | every act, protocol, СМК, bug and document relation, `individual_assignee`, `workflow_stage` |
 
   The act relations are nullable *only* so the other shapes can exist; for an
   `ACT` task all three stay required. `department` is nullable for the same
@@ -487,7 +489,8 @@ tasks never live inside `acts`.
   every non-`SMK` branch for the same reason: a relation outside a shape must
   be provably absent, not merely unmentioned. `Task.clean()` adds them to
   `forbidden` in one place instead of restating them in five tuples, and
-  `document_version` likewise on every non-document branch. A document task is
+  `document_version` likewise on every non-document branch, and `board_card`
+  on every non-`BOARD` one. A document task is
   always **personal** — one version, one person — so `individual_assignee` is
   required there and `TaskAssignee` is exactly that person;
   `unique_document_ack_task` / `unique_document_approval_task` (per version and
@@ -1401,7 +1404,9 @@ tasks never live inside `acts`.
   to one of them means adding it to an existing rule in the module that owns
   it (a `frozenset` such as `DOCUMENT_MANAGER_ROLES`, a `MANAGING_ROLES`, an
   `is_*()` helper) — never a new permission model, a new access layer or a
-  role check written outside `*/permissions.py`. The same-named `Department`
+  role check written outside `*/permissions.py`. The one right any of them
+  holds so far is `OPR` creating a board, by being listed in
+  `boards.permissions.BOARD_CREATOR_ROLES`. The same-named `Department`
   rows (`accounts.0008`) are separate organisational metadata; no check keys on
   a department code except the ПДО lookup in `tasks/services.py`.
 - **Reading the journal stays open to every authenticated user**: the calculator
@@ -1637,6 +1642,47 @@ tasks never live inside `acts`.
   filter is `source_type`; the task's own workflow status is a separate column,
   and the two are never conflated again. Never hard-code a public URL in a
   template.
+
+### Boards (`boards`)
+
+- **A card is a `BoardCard` plus exactly one `tasks.Task`.** The card holds what
+  only the board needs — column (`stage`), `position`, title, description — and
+  the task (`source_type=BOARD`, `Task.board_card`, `unique_board_card_task`) is
+  the work: исполнители, срок, status, completion. `create_card()` writes both
+  in one `atomic()` block through `tasks.services.create_board_card_task()`;
+  `Task.task_text` is `compose_task_text(title, description)` and nothing else,
+  and `Task.department` is the board's. A `BOARD` task is shared, never split,
+  and never `requires_attachment`. It shows in «Задачи» like any task; tasks of
+  other sources never reach a board.
+- **«Готово» is derived, never stored.** `BoardCard.Stage` is `TODO`,
+  `IN_PROGRESS`, `REVIEW`; `boards/columns.py` is the one description of the
+  four columns, and `card_column()` puts a card in `DONE` exactly when its task
+  is `COMPLETED`, on no column when it is `CANCELLED`, otherwise in its
+  `stage`. Completing the task from its own page and an administrator's
+  `reopen_task()` therefore move the card with no hook in `tasks.services`, and
+  a reopened card returns to the column and place it kept.
+- **`boards/services.py` is the only writer**, each function one `atomic()`
+  block locking `Board` → card → task (no `select_related()` on a lock) and
+  re-checking the right and the state after the locks; refusals are
+  `BoardError`. `update_card()` and `move_card()` refuse a card whose task is
+  `is_final`. Positions are spaced by `POSITION_STEP` (1024) and a column is
+  renumbered under the board lock only when no gap is left. The task side is
+  `create_board_card_task()`, `update_board_card_task()` (an `IN_PROGRESS`
+  `BOARD` task only, `updated_at` listed) and the existing
+  `replace_task_assignees()`; `complete_card()` is `complete_task()` and does
+  not touch `stage`. Every исполнитель is an active member, and a member who is
+  the исполнитель of an open card, or the owner, cannot be removed.
+- **`boards/permissions.py` is the whole rule.** Reading is every signed-in
+  employee; creating is `BOARD_CREATOR_ROLES` (ПДО, Отдел продаж, руководитель,
+  администратор, through `accounts.roles`, so a lent role counts) or a genuine
+  superuser; managing members is the owner or `is_act_admin()`; working on
+  cards is an active member or `is_act_admin()`. Finishing a card is
+  `can_complete_task()` and nothing of the board's. `Board.department` grants
+  nothing.
+- **`build_board_state()` is one read**: the board's `BOARD` tasks with their
+  cards and statuses in one query and the исполнители in one prefetch, so its
+  query count does not grow with the cards. Working columns are in `position`
+  order, «Готово» newest completion first.
 
 ### Documentation library (`documents`)
 

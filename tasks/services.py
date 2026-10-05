@@ -527,6 +527,103 @@ def create_bug_report_task(report, assignee_ids, *, created_by, due_date):
     return _save_new_task(task, sorted(set(assignee_ids)), actor=created_by)
 
 
+# --------------------------------------------------------------------------
+# Board card tasks
+#
+# Written *only* through these two functions, called only from
+# `boards/services.py` inside the transaction that already holds the board and
+# card locks. Assignees change through `replace_task_assignees()`, like every
+# other task's. Completion is the ordinary `complete_task()`, and the card's
+# «Готово» is derived from it (`boards.columns`), so nothing here knows about
+# columns.
+# --------------------------------------------------------------------------
+
+
+def create_board_card_task(card, assignee_ids, *, created_by, due_date, task_text, department):
+    """The one task a board card is the work of.
+
+    Shared, never split: a card is one piece of work, and whoever finishes it
+    finishes it for the rest. The wording is composed by
+    `boards.services.compose_task_text()` and the department is the board's,
+    both passed in so this module owns the task and not the board's rules.
+    «One task per card» is `unique_board_card_task`, not a check here.
+    """
+    task = Task(
+        source_type=Task.SourceType.BOARD,
+        board_card=card,
+        task_text=task_text,
+        department=department,
+        due_date=due_date,
+        requires_attachment=False,
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    return _save_new_task(task, sorted(set(assignee_ids)), actor=created_by)
+
+
+def update_board_card_task(task, *, task_text, due_date, actor):
+    """Rewrite a live board task's wording and deadline, under its row lock.
+
+    Only a `BOARD` task still `IN_PROGRESS`: a completed one is a record of
+    work done, and a cancelled one was withdrawn. A call that changes nothing
+    writes nothing and emits nothing.
+    """
+    started = time.monotonic()
+
+    def _rejected(reason):
+        log_event(
+            logger,
+            'INFO',
+            'task.operation_rejected',
+            operation='update_board_card_task',
+            task_id=_pk_of(task),
+            actor_user_id=_pk_of(actor),
+            reason=reason,
+            outcome='rejected',
+        )
+
+    task_text = (task_text or '').strip()
+    if not task_text:
+        _rejected('empty_task_text')
+        raise TaskWorkflowError('Текст задачи не может быть пустым.')
+    if due_date is None:
+        _rejected('missing_due_date')
+        raise TaskWorkflowError('Укажите срок задачи.')
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(pk=task.pk)
+        if task.source_type != Task.SourceType.BOARD:
+            _rejected('not_board_task')
+            raise TaskWorkflowError('Задача не относится к доске.')
+        if task.status.code != 'IN_PROGRESS':
+            _rejected('not_in_progress')
+            raise TaskWorkflowError('Изменить можно только задачу в работе.')
+        changed = []
+        if task.task_text != task_text:
+            task.task_text = task_text
+            changed.append('task_text')
+        if task.due_date != due_date:
+            task.due_date = due_date
+            changed.append('due_date')
+        if not changed:
+            return task
+        # `updated_at` listed explicitly: `auto_now` is applied only to the
+        # fields named in `update_fields`.
+        task.save(update_fields=[*changed, 'updated_at'])
+        emit_task_updated(task, changed_fields=tuple(changed))
+    log_event(
+        logger,
+        'INFO',
+        'task.updated',
+        task_id=task.pk,
+        source_type=task.source_type,
+        actor_user_id=_pk_of(actor),
+        changed_fields=','.join(changed),
+        duration_ms=(time.monotonic() - started) * 1000,
+        outcome='ok',
+    )
+    return task
+
+
 def cancel_smk_action_tasks(actions, *, actor, reason):
     """Close the live tasks of the given СМК мероприятия, without completing one.
 

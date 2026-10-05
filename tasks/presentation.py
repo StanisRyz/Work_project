@@ -53,6 +53,9 @@ def describe_task_source(task):
             'label': document.title,
             'url': reverse('documents:document_detail', args=[document.pk]),
         }
+    if task.source_type == Task.SourceType.BOARD:
+        # Neutral for now: the board has no page to link to yet.
+        return {'label': '', 'url': ''}
     if task.protocol_id is None:
         return {'label': '', 'url': ''}
     return {
