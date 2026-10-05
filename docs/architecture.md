@@ -57,7 +57,7 @@ Redis обслуживает **только** real-time. Доставка пис
 | `references` | справочники: операции, виды дефектов, статусы актов и задач, приоритеты; `seed_references` |
 | `acts` | акты, дефекты, корневые проработки, корректирующие мероприятия, история, комментарии, вложения, workflow, права |
 | `tasks` | задачи, созданные при утверждении акта, их исполнители и завершение |
-| `boards` | канбан-доски: `Board`, `BoardMember`, `BoardCard`; колонки (`columns.py`), права, сервисы, выборки, страницы под `/work/boards/` (реестр, доска с панелью карточки `?card=`, участники), работающие без JavaScript. Работа карточки — одна задача `tasks.Task` с `source_type=BOARD` |
+| `boards` | канбан-доски: `Board`, `BoardMember`, `BoardCard`; колонки (`columns.py`), права, сервисы, выборки, страницы под `/work/boards/` (реестр, доска с панелью карточки `?card=`, участники), работающие без JavaScript. Работа карточки — одна задача `tasks.Task` с `source_type=BOARD`; её завершают, прикладывают файлы и возвращают в работу в панели карточки, через сервисы и маршруты `tasks` |
 | `notifications` | внутренние уведомления, дедупликация, маршрутизация получателей, очередь email-доставок |
 | `realtime` | контракт событий, targets, каналы, публикация, SSE-endpoint, сверка ревизий. Моделей и миграций нет |
 | `maintenance` | технические команды: проверки готовности, логирования, документации, инструменты переноса. Моделей и миграций нет |
@@ -80,7 +80,13 @@ realtime  →  acts.permissions, tasks.permissions, notifications.services
 - `boards` зависит от `tasks` так же, как `smk`: `tasks.models` ссылается на
   `boards.BoardCard` строкой, а `boards.services` импортирует
   `tasks.services` локально, внутри функций. Колонка «Готово» вычисляется из
-  статуса задачи в `boards.columns`, поэтому `tasks` о досках не знает;
+  статуса задачи в `boards.columns`, поэтому `tasks` о досках не знает. В
+  обратную сторону `tasks` знает только имя маршрута `boards:detail` и связь
+  `Task.board_card` (`tasks.presentation.board_card_url()`), как `acts:detail`
+  и `protocols:detail`; модуль `boards` он не импортирует. Общие для страницы
+  задачи и панели карточки части лежат в `tasks`: черновик «Выполнения»
+  (`tasks/drafts.py`), список вложений (`tasks.presentation.task_attachment_cards()`)
+  и его разметка (`templates/tasks/includes/attachments.html`);
 - `realtime` не содержит собственных бизнес-правил. Видимость он берёт из
   `acts.permissions` / `tasks.permissions`, а состав получателей — из
   `notifications.services`. Второго набора правил маршрутизации в проекте нет;

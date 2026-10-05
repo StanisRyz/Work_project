@@ -17,4 +17,5 @@ urlpatterns = [
     path('<int:pk>/cards/create/', views.card_create, name='card_create'),
     path('<int:pk>/cards/<int:card_pk>/update/', views.card_update, name='card_update'),
     path('<int:pk>/cards/<int:card_pk>/move/', views.card_move, name='card_move'),
+    path('<int:pk>/cards/<int:card_pk>/complete/', views.card_complete, name='card_complete'),
 ]

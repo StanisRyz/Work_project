@@ -4,8 +4,14 @@ The card panel, drawn by the server for `?card=`, `&edit=1` or `?new=`.
 `panel` is `view`, `edit` or `new`. The forms post to the card routes; a
 refusal or an invalid form comes back here with the panel open and the typed
 values in place (`form` is then the bound form). Closing is a plain link to
-the board. A closed task's panel is read-only: completion, attachments and
-«Вернуть в работу» stay on the task page for now, linked below.
+the board.
+
+A `BOARD` task is worked here, not on the task page (`tasks:detail` redirects
+to this panel): «Выполнение» posts to `boards:card_complete`, «Вложения» is
+the task page's own include with its own routes, and «Вернуть в работу» posts
+to `tasks:reopen` through the shared confirmation modal. Every one of those
+rights is `tasks.permissions`' answer, carried on `card`; the board has no
+rules of its own about them.
 {% endcomment %}
 <aside class="board-panel" aria-label="Карточка">
     <div class="board-panel__head">
@@ -13,6 +19,8 @@ the board. A closed task's panel is read-only: completion, attachments and
         <a class="board-panel__close" href="{{ board_url }}" aria-label="Закрыть панель" title="Закрыть">×</a>
     </div>
     {% if panel_error %}<div class="form-error">{{ panel_error }}</div>{% endif %}
+    {% comment %}A refused completion by somebody with no «Выполнение» form to show it beside.{% endcomment %}
+    {% if execution_error and not card.can_complete %}<div class="form-error">{{ execution_error }}</div>{% endif %}
 
     {% if panel == 'view' %}
         <h3 class="board-panel__title user-text">{{ card.card.title }}</h3>
@@ -38,7 +46,49 @@ the board. A closed task's panel is read-only: completion, attachments and
                 <button class="link-button link-button--secondary" type="submit">Переместить</button>
             </form>
         {% endif %}
-        <p class="board-panel__task-link"><a href="{% url 'tasks:detail' card.task.pk %}">Открыть задачу №{{ card.task.pk }}</a></p>
+
+        {% if card.task.is_cancelled %}
+            <section class="board-panel__section">
+                <h3>Отмена</h3>
+                <div class="user-text">{{ card.task.cancellation_reason|linebreaksbr|default:'—' }}</div>
+                <p class="board-panel__meta">Отменил {{ card.task.cancelled_by|person_name|default:'Система' }}, {{ card.task.cancelled_at|date:'d.m.Y H:i' }}</p>
+            </section>
+        {% elif card.can_complete %}
+            {% comment %}
+            The textarea keeps the task page's id: the upload and delete forms
+            of the shared «Вложения» include copy the unsaved text from
+            `#task-execution-comment`, so picking a file does not lose it.
+            {% endcomment %}
+            <form class="board-panel__section board-execution-form" method="post" action="{% url 'boards:card_complete' board.pk card.card.pk %}" data-hotkey-submit data-unsaved-guard{% if execution_error %}="dirty"{% endif %}>
+                {% csrf_token %}
+                <h3>Выполнение</h3>
+                <textarea id="task-execution-comment" name="execution_comment" rows="4" required placeholder="Опишите результат выполнения">{{ execution_comment }}</textarea>
+                {% if execution_error %}<p class="field-error">{{ execution_error }}</p>{% endif %}
+                <div class="form-actions"><button class="link-button" type="submit">Завершить</button></div>
+            </form>
+        {% elif card.task.completed_by %}
+            <section class="board-panel__section">
+                <h3>Выполнение</h3>
+                <div class="user-text">{{ card.task.execution_comment|linebreaksbr }}</div>
+                <p class="board-panel__meta">Завершил {{ card.task.completed_by|person_name }}, {{ card.task.completed_at|date:'d.m.Y H:i' }}</p>
+            </section>
+        {% endif %}
+
+        <div class="board-panel__attachments">
+            {% include 'tasks/includes/attachments.html' %}
+        </div>
+
+        {% if card.can_reopen %}
+            <div class="form-actions">
+                <button class="link-button link-button--warning" type="button"
+                        data-confirm
+                        data-confirm-title="Вернуть задачу {{ card.task.pk }} в работу?"
+                        data-confirm-text="Карточка вернётся в колонку «{{ card.card.get_stage_display }}». Вложения и результат выполнения сохранятся."
+                        data-confirm-label="Вернуть в работу"
+                        data-confirm-variant="warning"
+                        data-confirm-url="{% url 'tasks:reopen' card.task.pk %}">Вернуть в работу</button>
+            </div>
+        {% endif %}
     {% else %}
         {% if panel == 'new' %}
             <p class="board-panel__lead">Колонка «{{ new_stage.label }}»</p>

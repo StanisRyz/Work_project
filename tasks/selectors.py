@@ -44,7 +44,9 @@ def _source_search_filter(term):
     type series of its own to narrow by.
     """
     head, separator, tail = term.partition('№')
-    criteria = Q(act__number__icontains=term)
+    # A board task is found by the name of its board — the label its «Источник»
+    # column shows.
+    criteria = Q(act__number__icontains=term) | Q(board_card__board__name__icontains=term)
     smk = Q()
     if separator:
         name, number = head.strip(), tail.strip()

@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_list_state()`/`boards_for_user()` in `boards/selectors.py`; the pages under `/work/boards/` (registry, «Новая доска», the board with its card panel `?card=<pk>` / `&edit=1` / `?new=<stage>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript. Each card's work is one `tasks.Task` with `source_type=BOARD`. No notifications or realtime events of its own yet |
+| `boards` | simple kanban boards: `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_list_state()`/`boards_for_user()` in `boards/selectors.py`; the pages under `/work/boards/` (registry, «Новая доска», the board with its card panel `?card=<pk>` / `&edit=1` / `?new=<stage>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript; the card panel is where a `BOARD` task is worked (`boards:card_complete`, the task's own attachment and reopen routes). Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. No realtime events of its own yet |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -875,11 +875,31 @@ tasks never live inside `acts`.
   fills any `[data-attachment-carry-from]` from a delegated `submit` listener on
   `document`, so a new attachment form inherits the behaviour by markup alone.
   `task_add_attachment()` and `task_delete_attachment()` park it in the session
-  under `task_execution_draft`, keyed by task, and `task_detail` pops it back
-  into the field on the next render. It is a draft and never a comment: `complete_task()` is still the only
+  under `task_execution_draft`, keyed by task, through `tasks/drafts.py`
+  (`remember_execution_draft()`/`take_execution_draft()`), and the next page
+  that shows the task pops it back into the field — `task_detail`, or for a
+  `BOARD` task the board's card panel (`task_detail` redirects there and leaves
+  the draft alone). It is a draft and never a comment: `complete_task()` is still the only
   writer of `Task.execution_comment`, the upload still creates nothing but a
   `TaskAttachment`, and a browser without JavaScript posts an empty draft
   exactly as before.
+- **«Вложения» is one list and one include.** `tasks.presentation.task_attachment_cards()`
+  builds the cards (size label, the per-row delete right from
+  `can_delete_task_attachment()`), and `templates/tasks/includes/attachments.html`
+  draws them with the upload and delete forms; the task page and the board's
+  card panel both include it, so a file is never handled two ways. Both pages
+  name the «Выполнение» textarea `#task-execution-comment`, which is what the
+  include's `[data-attachment-carry-from]` reads.
+- **A `BOARD` task is worked on its board, and is not a routing task.**
+  `is_routing_task` does not include it: it is completed by its исполнитель
+  through `complete_task()` with an execution comment, takes attachments and is
+  reopened by an administrator, under exactly the rules every ordinary task has.
+  Only *where* it is shown differs: `tasks:detail` redirects it to
+  `tasks.presentation.board_card_url()` (the board with `?card=<pk>`), and no
+  branch of `tasks/views.py` draws `tasks/detail.html` for it — a refused
+  `tasks:complete` or upload puts its message in `messages`, parks the draft
+  and redirects to the card. `tasks` names the route and reads
+  `Task.board_card`; it never imports `boards`.
 - **An «Исполнители» row is avatar · name · подразделение, sized by class.**
   `.task-detail-assignee-avatar` never shrinks, `.task-detail-assignee-name`
   takes what is left (`flex: 1 1 auto` **and** `min-width: 0` — without the
@@ -1009,7 +1029,7 @@ tasks never live inside `acts`.
   | --- | --- | --- |
   | act | `ACT_SENT_TO_KO`, `ACT_SENT_TO_TO`, `ACT_SENT_TO_OTK`, `ACT_RETURNED_TO_OTK`, `ACT_RETURNED_TO_KO`, `ACT_RETURNED_TO_TO`, `ACTION_ASSIGNED`, `ACT_APPROVED` | `COMMENT_ADDED` |
   | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
-  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED` | — |
+  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED` | — |
   | bug | `BUG_REPORTED` | — |
   | document | `DOCUMENT_ACK_REQUIRED`, `DOCUMENT_APPROVAL_REQUIRED`, `DOCUMENT_REVIEW_DUE`, `DOCUMENT_VERSION_RETURNED` | `DOCUMENT_UPDATED` (a subscriber's «новая версия» — information asked for, not a duty) |
 
@@ -1695,6 +1715,27 @@ tasks never live inside `acts`.
   completion first. The panel card is found only on this board (a foreign,
   missing or non-numeric id is no panel, never a 404), and a cancelled card is
   found too, read-only.
+- **The card panel is where a `BOARD` task is worked.** «Выполнение»
+  (`form[data-hotkey-submit]`) posts to `boards:card_complete` →
+  `complete_card()` → `complete_task()`; reading the board is asked before the
+  method, and who may finish is the task's own rule — a refusal re-renders the
+  panel with the text and the message. The field starts from the posted text,
+  else the session draft, else `task.execution_comment` (a reopened task shows
+  its old result). «Вложения» is the task page's include and routes, «Вернуть в
+  работу» posts to `tasks:reopen` through the shared modal, and every right
+  shown (`can_complete`, `can_reopen`, `can_upload_attachment`, the per-row
+  delete) comes from `tasks.permissions`, carried on the panel card by
+  `build_board_state()`. A completed card shows the result, who finished it and
+  download-only files; a cancelled one shows the reason and no action.
+  `describe_task_source()` names the board and links to the card, and the
+  registry search finds a task by its board's name.
+- **`BOARD_TASK_ASSIGNED` tells the people a card was put on.**
+  `notify_board_task_assigned()` is `TASK`-sourced, keyed `task:<pk>` and
+  `exclude_actor=True` — putting a card on yourself tells nobody. `create_card()`
+  calls it for every исполнитель and `update_card()` for the added ones only,
+  inside the card's transaction after the task and its исполнители exist. One
+  notification per assignment, email-eligible, its link `tasks:detail` (→ the
+  card); the source reads «Доска «<name>»», never the `BOARD` code.
 - **The board pages work without JavaScript.** `boards/views.py` asks the right
   *before* the HTTP method (a typed-in URL without it is a 403), every mutating
   route is POST only and answers a GET by redirecting to the board, and a
@@ -1703,7 +1744,7 @@ tasks never live inside `acts`.
   redirects to `?card=<pk>`. The panel is chosen by the query string and drawn
   by the server: `?card=` reads, `&edit=1` edits (only while `can_work` and the
   task is open), `?new=<stage>` creates in a working column; closing is a link.
-  A closed task's panel is read-only with «Открыть задачу №N». Tiles are real
+  A closed task's panel is read-only. Tiles are real
   links; `can_work`/`can_manage`/`can_edit_card` decide markup only. The
   registry counts (участников, открытых карточек) are subquery annotations of
   the one query, because «Мои» already filters through the membership table.

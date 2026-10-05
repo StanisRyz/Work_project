@@ -263,7 +263,7 @@ class PanelTests(BoardViewMixin, TestCase):
         self.assertEqual(response.context['panel'], 'view')
         self.assertNotIn('Переместить', main_of(response))
         self.assertNotIn('edit=1', main_of(response))
-        self.assertContains(response, reverse('tasks:detail', args=[task_of(self.card_obj).pk]))
+        self.assertNotContains(response, 'Открыть задачу')
 
 
 class CardRouteTests(BoardViewMixin, TestCase):

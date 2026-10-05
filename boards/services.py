@@ -96,6 +96,10 @@ def _active_users(user_ids):
     }
 
 
+def _users(user_ids):
+    return list(get_user_model().objects.filter(pk__in=user_ids).order_by('pk'))
+
+
 def _clean_title(title):
     title = (title or '').strip()
     if not title:
@@ -302,6 +306,7 @@ def create_card(
     stage=BoardCard.Stage.TODO,
 ):
     """A new card at the end of its column, and the one task it is the work of."""
+    from notifications.services import notify_board_task_assigned
     from tasks.services import TaskWorkflowError, create_board_card_task
 
     with transaction.atomic():
@@ -335,6 +340,9 @@ def create_card(
             )
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
+        # Inside the transaction and after the task and its исполнители exist,
+        # so a rollback leaves no notification about a card that never was.
+        notify_board_task_assigned(task, actor, _users(ids))
     log_event(
         logger,
         'INFO',
@@ -352,6 +360,8 @@ def create_card(
 
 def update_card(card, *, actor, title, description, due_date, assignee_ids):
     """Correct a live card, and its task with it."""
+    from notifications.services import notify_board_task_assigned
+    from tasks.models import TaskAssignee
     from tasks.services import (
         TaskWorkflowError,
         replace_task_assignees,
@@ -388,9 +398,17 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids):
                 due_date=due_date,
                 actor=actor,
             )
+            current_ids = set(
+                TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True)
+            )
             replace_task_assignees(task, ids, actor=actor)
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
+        # Only the people this edit put on the card: those who stay already
+        # know, and those removed have nothing to do.
+        added_ids = [user_id for user_id in ids if user_id not in current_ids]
+        if added_ids:
+            notify_board_task_assigned(task, actor, _users(added_ids))
     log_event(
         logger,
         'INFO',

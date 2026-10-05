@@ -44,20 +44,33 @@ def _item(task):
     }
 
 
-def _panel_card(board, card_id):
+def _panel_card(board, card_id, user):
     """The card `?card=` names, with its task — or `None`.
 
     `None` for anything that is not a card of this board: a foreign or missing
     id, or text. Unlike the columns, a cancelled card is found too — its panel
     is the read-only record of what was withdrawn.
+
+    The panel is where a `BOARD` task is worked, so the card also carries what
+    the task page used to show: its attachments
+    (`tasks.presentation.task_attachment_cards()`, the task page's own list)
+    and the task rights, each asked once of `tasks.permissions` — the board
+    has no rules of its own about completing, reopening or files.
     """
+    from tasks.permissions import (
+        can_complete_task,
+        can_reopen_task,
+        can_upload_task_attachment,
+    )
+    from tasks.presentation import task_attachment_cards
+
     try:
         card_id = int(card_id)
     except (TypeError, ValueError):
         return None
     task = (
         _board_tasks(board)
-        .select_related('board_card__created_by', 'department')
+        .select_related('board_card__created_by', 'department', 'completed_by', 'cancelled_by')
         .filter(board_card_id=card_id)
         .first()
     )
@@ -67,6 +80,10 @@ def _panel_card(board, card_id):
     code = card_column(task.board_card, task)
     item['column'] = next((column for column in COLUMNS if column.code == code), None)
     item['department'] = task.department
+    item['attachments'] = task_attachment_cards(task, user)
+    item['can_complete'] = can_complete_task(task, user)
+    item['can_reopen'] = can_reopen_task(task, user)
+    item['can_upload_attachment'] = can_upload_task_attachment(task, user)
     return item
 
 
@@ -113,7 +130,7 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None):
         'board': board,
         'columns': columns,
         'member_count': BoardMember.objects.filter(board=board).count(),
-        'card': _panel_card(board, card_id) if card_id not in (None, '') else None,
+        'card': _panel_card(board, card_id, user) if card_id not in (None, '') else None,
         'can_work': can_work_on_board(user, board),
         'can_manage': can_manage_board(user, board),
     }

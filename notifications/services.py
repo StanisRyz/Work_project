@@ -92,6 +92,8 @@ EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.PROTOCOL_TASK_ASSIGNED,
     Notification.EventType.ACT_REJECTION_ASSIGNED,
     Notification.EventType.SMK_TASK_ASSIGNED,
+    # A board card put on somebody: work they did not choose themselves.
+    Notification.EventType.BOARD_TASK_ASSIGNED,
     # A bug report is exactly the kind of fact this list is for: somebody has
     # to look at it, and the people who must are often not in the application
     # when it arrives.
@@ -273,6 +275,30 @@ def notify_smk_task_assigned(task, actor, assignees):
         recipients=assignees,
         source_key=f'task:{task.pk}',
         exclude_actor=False,
+    )
+
+
+def notify_board_task_assigned(task, actor, assignees):
+    """Tell the people a board card was put on that the work is theirs.
+
+    The same shape as `notify_smk_task_assigned()` — task-sourced and keyed on
+    the task — with one difference: `exclude_actor=True`. A card somebody puts
+    on themselves is work they already know about, so they are not told about
+    it. Called by `boards/services.py` inside the card's transaction, once the
+    task and its исполнители exist: with every исполнитель when the card is
+    created, with only the added ones when it is edited.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_TASK_ASSIGNED,
+        task=task,
+        actor=actor,
+        recipients=assignees,
+        source_key=f'task:{task.pk}',
+        exclude_actor=True,
     )
 
 
@@ -587,6 +613,8 @@ def _task_source_context(task):
     """
     from tasks.models import Task
 
+    if task.source_type == Task.SourceType.BOARD and task.board_card_id:
+        return f'Доска «{task.board_card.board.name}»'
     if task.source_type == Task.SourceType.ACT_REJECTION and task.act_id:
         return f'Брак по акту {task.act.number}'
     if task.smk_source_id:
@@ -734,8 +762,8 @@ def _protocol_event_text(event_type, protocol):
 def _task_event_text(event_type, task):
     """Text for a task-sourced notification, without assuming a protocol.
 
-    Three source types reach this — a protocol decision, a ПДО rejection and
-    an СМК measure — and each has a different record to name. Each branch
+    Four source types reach this — a protocol decision, a ПДО rejection, an
+    СМК measure and a board card — and each has a different record to name. Each branch
     reads its own source relation, so none can dereference another's NULL.
     """
     if event_type == Notification.EventType.ACT_REJECTION_ASSIGNED:
@@ -751,6 +779,13 @@ def _task_event_text(event_type, task):
             f'Назначена задача по записи {label}',
             f'Вы назначены исполнителем корректирующего мероприятия по записи {label}.',
             'Ознакомьтесь с задачей в системе',
+        )
+    if event_type == Notification.EventType.BOARD_TASK_ASSIGNED:
+        name = task.board_card.board.name
+        return NotificationText(
+            f'Назначена задача на доске «{name}»',
+            f'Вы назначены исполнителем карточки на доске «{name}».',
+            'Откройте карточку на доске.',
         )
     label = _protocol_label(task.protocol)
     return {

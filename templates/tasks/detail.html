@@ -147,122 +147,12 @@ still completed with the execution comment and nothing attached.
     {% endif %}
 
     <div class="task-detail-side">
-    <section class="task-detail-attachments-card">
-        <h2>Вложения</h2>
-        {% comment %}
-        An announcement, not a control. The file input is never marked
-        `required` and the «Завершить задачу» button is never hidden or
-        disabled: uploading and completing are separate requests on purpose, so
-        the rule is enforced by `complete_task()` alone and its refusal comes
-        back in the «Выполнение» error slot like any other. Routing tasks never
-        reach this page — `task_detail` redirects them to their document.
-        {% endcomment %}
-        {% if task.requires_attachment %}
-            <p class="task-attachment-required">Для выполнения этой задачи необходимо добавить вложение.</p>
-        {% endif %}
-        {% if can_upload_attachment %}
-            {% comment %}
-            The same upload flow the act and protocol pages have, from the same
-            `attachment_upload.js`: choosing the file opens the shared
-            confirmation modal and «Загрузить» posts this form. «Добавить
-            вложение» is the no-JavaScript path and is hidden once the dialog
-            works. Nothing about completion changes — the file and the
-            «Завершить задачу» request stay separate, and `complete_task()`
-            remains the only place the requirement is enforced.
-            {% endcomment %}
-            <form class="task-attachment-form" id="task-attachment-form" method="post" action="{% url 'tasks:add_attachment' task.pk %}" enctype="multipart/form-data" data-attachment-upload>
-                {% csrf_token %}
-                <input type="hidden" name="list_query" value="{{ list_query }}">
-                {% comment %}
-                The unsaved «Выполнение» text, carried through the upload round
-                trip. `attachment_upload.js` fills it from the element named in
-                `data-attachment-carry-from` at submit time, and the view puts
-                it back into the textarea after the redirect. The server-rendered
-                value covers the re-render after a rejected file; a browser
-                without JavaScript simply posts an empty draft, exactly as
-                before. It is never stored as the task's execution comment —
-                `complete_task()` is still the only writer of that field.
-                {% endcomment %}
-                <input type="hidden" name="execution_comment" value="{{ execution_comment }}"
-                       data-attachment-carry-from="#task-execution-comment">
-                {% comment %}
-                The act and protocol picker, not the browser's bare «Выберите
-                файл»: `attachment_upload.js` writes the chosen name into the
-                label and turns the card green, exactly as on those pages.
-                {% endcomment %}
-                <div class="attachment-picker">
-                    {{ attachment_form.file }}
-                    <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>
-                    <span data-attachment-file-name>{% if task.requires_attachment %}Приложите подтверждающий файл{% else %}Файл к задаче, если нужен{% endif %}</span>
-                    <button class="link-button link-button--secondary link-button--compact" type="button" data-attachment-file-trigger>Выбрать файл</button>
-                </div>
-                {{ attachment_form.file.errors }}
-        {% comment %}
-        Hidden, and clicked by `attachment_upload.js` — never by a person. It
-        carries the modal's attributes so an upload is confirmed through
-        exactly the same dialog as every other action in the project; the file
-        names themselves are written onto it at the moment of choosing.
-        {% endcomment %}
-        <button class="attachment-form__confirm" type="button" hidden
-                data-confirm
-                data-confirm-form="task-attachment-form"
-                data-confirm-title="Загрузить файл?"
-                data-confirm-label="Загрузить"
-                data-confirm-cancel-label="Нет"
-                data-attachment-upload-confirm>Загрузить</button>
-                <button class="link-button link-button--secondary link-button--compact" type="submit" data-attachment-upload-submit>Добавить вложение</button>
-            </form>
-        {% endif %}
-        {% if attachments %}
-            <ul class="task-attachment-list">
-                {% for item in attachments %}
-                    <li class="task-attachment-row">
-                        <div class="task-attachment-row__main">
-                            <a class="table-link user-text" href="{% url 'tasks:download_attachment' task.pk item.object.pk %}">{{ item.object.original_name }}</a>
-                            <span class="task-attachment-meta">{{ item.formatted_size }} · {{ item.object.uploaded_by|person_name|default:'Без автора' }} · {{ item.object.created_at|date:'d.m.Y H:i' }}</span>
-                        </div>
-                        {% comment %}
-                        A wrongly uploaded file is taken off here, and only
-                        while the task is still active: `can_delete` is
-                        `tasks.permissions.can_delete_task_attachment()` — an
-                        исполнитель or an администратор of an `IN_PROGRESS`
-                        task — and the endpoint asks it again, so a closed task
-                        keeps its attachment history whatever this page shows.
-
-                        A real form with a real submit button, so the action
-                        still works without JavaScript; the button carries the
-                        shared confirmation modal's attributes, so with it the
-                        deletion is confirmed through the same dialog as every
-                        other destructive action in the project.
-                        {% endcomment %}
-                        {% if item.can_delete %}
-                            <form class="task-attachment-delete-form" id="task-attachment-delete-{{ item.object.pk }}" method="post" action="{% url 'tasks:delete_attachment' task.pk item.object.pk %}">
-                                {% csrf_token %}
-                                <input type="hidden" name="list_query" value="{{ list_query }}">
-                                {# The same draft the upload form carries: removing a file must not wipe the comment either. #}
-                                <input type="hidden" name="execution_comment" value="{{ execution_comment }}"
-                                       data-attachment-carry-from="#task-execution-comment">
-                                <button class="task-attachment-delete" type="submit"
-                                        data-confirm
-                                        data-confirm-form="task-attachment-delete-{{ item.object.pk }}"
-                                        data-confirm-title="Удалить вложение?"
-                                        data-confirm-text="Файл «{{ item.object.original_name }}» будет удалён без возможности восстановления."
-                                        data-confirm-label="Удалить"
-                                        data-confirm-cancel-label="Отмена"
-                                        data-confirm-variant="danger"
-                                        aria-label="Удалить вложение {{ item.object.original_name }}"
-                                        title="Удалить вложение">
-                                    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
-                                </button>
-                            </form>
-                        {% endif %}
-                    </li>
-                {% endfor %}
-            </ul>
-        {% else %}
-            <p class="task-completion-meta">Вложения пока не добавлены.</p>
-        {% endif %}
-    </section>
+    {% comment %}
+    The attachments card is one include, shared with the board's card panel:
+    the same list (`tasks.presentation.task_attachment_cards()`), the same
+    routes and the same upload and delete forms in both places.
+    {% endcomment %}
+    {% include 'tasks/includes/attachments.html' %}
 
     <section class="task-detail-assignee-card">
         <h2>Исполнители</h2>

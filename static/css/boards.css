@@ -324,6 +324,43 @@
     width: auto;
 }
 
+/* «Выполнение», «Отмена» and «Вложения»: the task page's blocks, set flat
+   inside the panel — separated by a rule, no box inside the box. */
+.board-panel__section,
+.board-panel__attachments .task-detail-attachments-card {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 12px 0 0;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    border-radius: 0;
+    background: none;
+}
+
+.board-panel__section h3,
+.board-panel__attachments .task-detail-attachments-card h2 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: var(--font-size-base);
+}
+
+.board-panel__meta {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.board-execution-form textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: var(--control-font-size);
+    resize: vertical;
+}
+
 /* ---- Other pages ---- */
 
 .board-form {

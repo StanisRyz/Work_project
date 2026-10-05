@@ -25,11 +25,14 @@ class BoardTaskInRegistryTests(BoardFixtureMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Позвонить заказчику')
 
-    def test_detail_page_opens(self):
-        response = self.client.get(reverse('tasks:detail', args=[self.task.pk]))
-        self.assertEqual(response.status_code, 200)
+    def test_detail_opens_the_card_on_its_board(self):
+        response = self.client.get(reverse('tasks:detail', args=[self.task.pk]), follow=True)
+        self.assertRedirects(
+            response,
+            f"{reverse('boards:detail', args=[self.board.pk])}?card={self.task.board_card_id}",
+        )
+        self.assertEqual(response.context['panel'], 'view')
         self.assertContains(response, 'Позвонить заказчику')
-        self.assertContains(response, 'Карточка доски')
 
     def test_excel_export_opens(self):
         response = self.client.get(reverse('tasks:list'), {'tab': 'all', 'export': 'xlsx'})

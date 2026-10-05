@@ -21,6 +21,9 @@ _SOURCE_AWARE_SELECT_RELATED = (
     # And for the three «Документация» sources: the document the version
     # belongs to is what «Источник» names.
     'document_version__document',
+    # And for a `BOARD` task: the board's name and id build its source label
+    # and the link to the card.
+    'board_card__board',
 )
 
 

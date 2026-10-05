@@ -12,9 +12,24 @@ a moved route follows automatically and no public URL is spelled out.
 
 from django.urls import reverse
 
+from ecosystem.attachments import format_file_size
 from protocols.selectors import APPROVAL_STATUS_VARIANTS
 
 from .models import Task
+from .permissions import can_delete_task_attachment
+
+
+def board_card_url(task):
+    """Where a `BOARD` task lives: its board, with the card's panel open.
+
+    The one place that address is built — `tasks:detail` redirects here, the
+    registry's «Источник» links here. Only a route name and the
+    `Task.board_card` relation are read, exactly as `acts:detail` and
+    `protocols:detail` are named elsewhere in this module; `tasks` never
+    imports `boards`.
+    """
+    board_url = reverse('boards:detail', args=[task.board_card.board_id])
+    return f'{board_url}?card={task.board_card_id}'
 
 
 def describe_task_source(task):
@@ -54,8 +69,9 @@ def describe_task_source(task):
             'url': reverse('documents:document_detail', args=[document.pk]),
         }
     if task.source_type == Task.SourceType.BOARD:
-        # Neutral for now: the board has no page to link to yet.
-        return {'label': '', 'url': ''}
+        if task.board_card_id is None:
+            return {'label': '', 'url': ''}
+        return {'label': task.board_card.board.name, 'url': board_card_url(task)}
     if task.protocol_id is None:
         return {'label': '', 'url': ''}
     return {
@@ -129,3 +145,29 @@ def describe_task(task):
         'source': describe_task_source(task),
         'state': describe_task_state(task),
     }
+
+
+def task_attachment_cards(task, user):
+    """Stored attachments, each with the size label and the delete right.
+
+    Read by the task page and by the board's card panel — one list, so the two
+    can never show a file differently. `can_delete` is answered by
+    `tasks.permissions`, the same function the endpoint re-asks: the cross is a
+    shortcut to a permitted action, never the permission itself.
+    """
+    attachments = list(task.attachments.select_related('uploaded_by'))
+    for attachment in attachments:
+        # The task is already in hand; never let a card re-fetch it row by row.
+        attachment.task = task
+    # The answer depends on the task and the user alone, so it is asked once
+    # rather than once per file — but it is asked through the very function the
+    # endpoint re-asks, so the two can never drift apart.
+    can_delete = bool(attachments) and can_delete_task_attachment(attachments[0], user)
+    return [
+        {
+            'object': attachment,
+            'formatted_size': format_file_size(attachment.file_size),
+            'can_delete': can_delete,
+        }
+        for attachment in attachments
+    ]

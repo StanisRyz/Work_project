@@ -19,6 +19,9 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
+from tasks.drafts import take_execution_draft
+from tasks.forms import TaskAttachmentForm
+
 from .forms import AddMembersForm, BoardForm, CardForm, MoveCardForm
 from .models import Board, BoardCard, BoardMember
 from .permissions import (
@@ -31,6 +34,7 @@ from .selectors import build_board_list_state, build_board_state, resolve_new_st
 from .services import (
     BoardError,
     add_board_members,
+    complete_card,
     create_board,
     create_card,
     move_card,
@@ -112,12 +116,17 @@ def _card_initial(item):
 
 
 def _render_board(request, board, *, card_id=None, panel=None, form=None, move_form=None,
-                  error='', status=200):
+                  error='', execution_comment=None, execution_error='', status=200):
     """The board page with its panel; the one renderer every board view uses.
 
     `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from the query
     string. A form passed in is shown as it is — bound, with its errors — so a
     refused POST keeps what was typed.
+
+    «Выполнение» starts from what was just posted (a refused completion), else
+    from the draft an upload or a deletion parked in the session, else from the
+    task's own result — so a task an administrator reopened shows what was
+    written before, exactly as the task page does.
     """
     state = build_board_state(board, request.user, card_id=card_id)
     item = state['card']
@@ -138,6 +147,10 @@ def _render_board(request, board, *, card_id=None, panel=None, form=None, move_f
         form = CardForm(board=board, initial={'stage': new_stage.code})
     if panel == 'view' and can_edit_card and move_form is None:
         move_form = MoveCardForm(initial={'stage': item['card'].stage})
+    if item is not None and panel == 'view' and item['can_complete'] and execution_comment is None:
+        execution_comment = (
+            take_execution_draft(request, item['task']) or item['task'].execution_comment
+        )
     state.update({
         'active_page': 'boards',
         'header_title': board.name,
@@ -147,6 +160,15 @@ def _render_board(request, board, *, card_id=None, panel=None, form=None, move_f
         'new_stage': new_stage,
         'can_edit_card': can_edit_card,
         'panel_error': error,
+        # The task's own names, so the shared «Вложения» include reads the
+        # same context here as on the task page.
+        'task': item['task'] if item else None,
+        'attachments': item['attachments'] if item else [],
+        'can_upload_attachment': bool(item and item['can_upload_attachment']),
+        'attachment_form': TaskAttachmentForm(),
+        'list_query': '',
+        'execution_comment': execution_comment or '',
+        'execution_error': execution_error,
         'board_url': reverse('boards:detail', args=[board.pk]),
     })
     return render(request, 'boards/detail.html', state, status=status)
@@ -229,6 +251,34 @@ def card_move(request, pk, card_pk):
         request, board, card_id=card.pk, panel='view', move_form=form,
         error='Выберите колонку.',
     )
+
+
+@login_required
+def card_complete(request, pk, card_pk):
+    """«Завершить» in the card panel: `complete_card()`, i.e. `complete_task()`.
+
+    Reading the board is what is asked before the method; who may finish the
+    work is the task's own rule (`can_complete_task()`), answered by
+    `complete_task()` under the task's lock — the board adds none. A refusal
+    (an empty result, somebody who is not an исполнитель, a task already
+    closed) comes back as the board with the panel open, the text in the field
+    and the message beside it.
+    """
+    board = _board_or_404(pk)
+    _require(can_view_board(request.user, board))
+    card = get_object_or_404(BoardCard, pk=card_pk, board=board)
+    if request.method != 'POST':
+        return redirect(_card_url(board, card))
+    execution_comment = request.POST.get('execution_comment', '')
+    try:
+        complete_card(card, actor=request.user, execution_comment=execution_comment)
+    except BoardError as exc:
+        return _render_board(
+            request, board, card_id=card.pk, panel='view',
+            execution_comment=execution_comment, execution_error=str(exc),
+        )
+    messages.success(request, 'Задача выполнена, карточка в колонке «Готово».')
+    return redirect(_card_url(board, card))
 
 
 # --------------------------------------------------------------------------

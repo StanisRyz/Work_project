@@ -54,6 +54,7 @@ class Notification(models.Model):
         PROTOCOL_TASK_ASSIGNED = 'PROTOCOL_TASK_ASSIGNED', 'Назначена задача по протоколу'
         ACT_REJECTION_ASSIGNED = 'ACT_REJECTION_ASSIGNED', 'Назначена задача ПДО по браку'
         SMK_TASK_ASSIGNED = 'SMK_TASK_ASSIGNED', 'Назначена задача СМК'
+        BOARD_TASK_ASSIGNED = 'BOARD_TASK_ASSIGNED', 'Назначена задача на доске'
         BUG_REPORTED = 'BUG_REPORTED', 'Сообщение об ошибке в системе'
         DOCUMENT_ACK_REQUIRED = 'DOCUMENT_ACK_REQUIRED', 'Требуется ознакомление с документом'
         DOCUMENT_APPROVAL_REQUIRED = 'DOCUMENT_APPROVAL_REQUIRED', 'Требуется согласование документа'
