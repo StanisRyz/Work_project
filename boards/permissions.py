@@ -114,6 +114,16 @@ def can_cancel_card(user, card):
     return user.pk in (card.created_by_id, board.owner_id)
 
 
+def can_comment_card(user, card):
+    """Writing in a card's «Обсуждение»: whoever may work on its board.
+
+    An active member or an administrator, never on an archived board — and
+    whatever the state of the card's task: a completed or cancelled card is
+    still discussed. Reading the discussion is reading the board.
+    """
+    return can_work_on_board(user, card.board)
+
+
 def can_work_on_board(user, board):
     """An active member puts cards on the board, edits and moves them.
 

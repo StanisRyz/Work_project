@@ -1416,14 +1416,19 @@ function boardEvent(boardId, change, eventId) {
     };
 }
 
-function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2' } = {}) {
-    return {
+function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments } = {}) {
+    const payload = {
         columns_html: `<section data-column="TODO"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
         columns_revision: columns,
         panel_html: `<textarea name="execution_comment" data-fresh-panel></textarea>`,
         panel_revision: panel,
         panel: 'view',
     };
+    if (comments) {
+        payload.comments_html = `<ol><li data-comment-id="2" data-fresh-comment>${comments}</li></ol>`;
+        payload.comments_revision = comments;
+    }
+    return payload;
 }
 
 const boardCalls = (env) => env.fetchCalls.filter((call) => call.url.startsWith('/work/boards/4/fragment/'));
@@ -1567,6 +1572,69 @@ test('the boards sync token moving refreshes the board', async () => {
     env.clock.advance(300);
     await flush();
     assert.equal(boardCalls(env).length, afterOpen + 1);
+});
+
+test('a message on the open card replaces the list and leaves the dirty panel and the message form alone', async () => {
+    const env = load({ page: 'board' });
+    // Only the list and the tile's counter moved: the panel fingerprint did not.
+    env.setFetchHandler(() =>
+        boardFragment({ columns: 'columns-rev-2', panel: 'panel-rev-initial', comments: 'comments-rev-2' }),
+    );
+
+    env.live.execution.value = 'Половина результата';
+    env.document.dispatch('input', { target: env.live.execution });
+    env.live.commentText.value = 'Своё сообщение, ещё не отправлено';
+    env.document.dispatch('input', { target: env.live.commentText });
+    const boardEventPayload = boardEvent(4, 'comment_added');
+    env.source.emitEvent('board.updated', boardEventPayload);
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.comments.querySelector('[data-fresh-comment]'), 'the list is replaced');
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'), 'the counter on the tile too');
+    assert.equal(env.live.panel.querySelector('[data-fresh-panel]'), null, 'the panel is untouched');
+    assert.equal(env.live.execution.value, 'Половина результата');
+    assert.equal(env.live.commentText.value, 'Своё сообщение, ещё не отправлено');
+    assert.equal(env.live.conflictBanner.hidden, true, 'a message is no conflict');
+});
+
+test('a message on another card refreshes only the columns', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() =>
+        boardFragment({ columns: 'columns-rev-2', panel: 'panel-rev-initial', comments: 'comments-rev-initial' }),
+    );
+
+    env.source.emitEvent('board.updated', { ...boardEvent(4, 'comment_added', 'other-card'), data: { board_id: 4, card_id: 77, change: 'comment_added' } });
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'));
+    assert.equal(env.live.comments.querySelector('[data-fresh-comment]'), null, 'the list stays');
+    assert.equal(env.live.panel.querySelector('[data-fresh-panel]'), null);
+});
+
+test('a reader at the bottom of the list follows the new message, one above it stays', async () => {
+    const env = load({ page: 'board' });
+    let revision = 'comments-rev-2';
+    env.setFetchHandler(() => boardFragment({ panel: 'panel-rev-initial', comments: revision }));
+    const comments = env.live.comments;
+
+    comments.scrollHeight = 500;
+    comments.clientHeight = 100;
+    comments.scrollTop = 400;
+    env.source.emitEvent('board.updated', boardEvent(4, 'comment_added', 'at-bottom'));
+    env.clock.advance(300);
+    await flush();
+    assert.equal(comments.scrollTop, 500, 'scrolled to the newest message');
+
+    comments.scrollHeight = 700;
+    comments.scrollTop = 120;
+    revision = 'comments-rev-3';
+    env.source.emitEvent('board.updated', boardEvent(4, 'comment_added', 'reading-above'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(comments.querySelector('[data-fresh-comment]'));
+    assert.equal(comments.scrollTop, 120, 'left where the reader was');
 });
 
 function loadDnd(env) {

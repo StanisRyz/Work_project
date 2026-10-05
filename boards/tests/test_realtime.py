@@ -67,7 +67,7 @@ class BoardEventContractTests(TestCase):
             BOARD_CHANGES,
             {
                 'card_created', 'card_updated', 'card_moved', 'card_completed', 'members_changed',
-                'card_cancelled', 'board_archived', 'board_restored',
+                'card_cancelled', 'board_archived', 'board_restored', 'comment_added',
             },
         )
         event = board_updated_event(7, 'card_moved', 12)

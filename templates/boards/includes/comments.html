@@ -1,0 +1,22 @@
+{% load people %}{% comment %}
+The messages of a card's «Обсуждение», oldest first: the live block
+`[data-live-board-comments]`. Read-only — the form to write one is the page's,
+beside this block and outside every block the live client replaces — so it is
+replaced whenever its fingerprint moves. It is its own block, and no message
+appears in the card panel: a new message never changes `panel_revision`.
+{% endcomment %}
+{% if card.comments %}
+    <ol class="board-discussion__messages">
+        {% for comment in card.comments %}
+            <li class="board-discussion__message" data-comment-id="{{ comment.pk }}">
+                <span class="board-avatar" title="{{ comment.author|person_name }}">{{ comment.author|person_initials }}</span>
+                <div class="board-discussion__body">
+                    <p class="board-discussion__meta"><strong>{{ comment.author|person_name }}</strong> · {{ comment.created_at|date:'d.m.Y H:i' }}</p>
+                    <div class="board-discussion__text user-text">{{ comment.text|linebreaksbr }}</div>
+                </div>
+            </li>
+        {% endfor %}
+    </ol>
+{% else %}
+    <p class="board-discussion__empty">Сообщений пока нет.</p>
+{% endif %}

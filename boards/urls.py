@@ -24,4 +24,5 @@ urlpatterns = [
     path('<int:pk>/cards/<int:card_pk>/move/', views.card_move, name='card_move'),
     path('<int:pk>/cards/<int:card_pk>/complete/', views.card_complete, name='card_complete'),
     path('<int:pk>/cards/<int:card_pk>/cancel/', views.card_cancel, name='card_cancel'),
+    path('<int:pk>/cards/<int:card_pk>/comment/', views.card_comment, name='card_comment'),
 ]

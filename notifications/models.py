@@ -55,6 +55,8 @@ class Notification(models.Model):
         ACT_REJECTION_ASSIGNED = 'ACT_REJECTION_ASSIGNED', 'Назначена задача ПДО по браку'
         SMK_TASK_ASSIGNED = 'SMK_TASK_ASSIGNED', 'Назначена задача СМК'
         BOARD_TASK_ASSIGNED = 'BOARD_TASK_ASSIGNED', 'Назначена задача на доске'
+        BOARD_TASK_CANCELLED = 'BOARD_TASK_CANCELLED', 'Карточка отменена'
+        BOARD_CARD_COMMENT = 'BOARD_CARD_COMMENT', 'Новое сообщение в карточке'
         BUG_REPORTED = 'BUG_REPORTED', 'Сообщение об ошибке в системе'
         DOCUMENT_ACK_REQUIRED = 'DOCUMENT_ACK_REQUIRED', 'Требуется ознакомление с документом'
         DOCUMENT_APPROVAL_REQUIRED = 'DOCUMENT_APPROVAL_REQUIRED', 'Требуется согласование документа'

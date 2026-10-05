@@ -15,9 +15,10 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from .columns import COLUMNS, DONE, card_column
-from .models import Board, BoardMember
+from .models import Board, BoardCardComment, BoardMember
 from .permissions import (
     can_cancel_card,
+    can_comment_card,
     can_manage_board,
     can_restore_board,
     can_work_on_board,
@@ -91,12 +92,19 @@ def _filtered(tasks, filters, user, *, open_work):
 
 
 def _board_tasks(board):
+    """The board's tasks with their cards, исполнители and message counts.
+
+    The «Обсуждение» count is a subquery annotation of the same query, so a
+    tile's counter costs no query of its own.
+    """
     from tasks.models import Task
 
+    comments = BoardCardComment.objects.filter(card=OuterRef('board_card'))
     return (
         Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__board=board)
         .select_related('status', 'board_card')
         .prefetch_related('assignees__user__userprofile')
+        .annotate(comment_count=_count_subquery(comments, 'card'))
     )
 
 
@@ -109,6 +117,7 @@ def _item(task):
         'assignees': [assignee.user for assignee in task.assignees.all()],
         'due_date': task.due_date,
         'is_closed': task.status.is_final,
+        'comment_count': getattr(task, 'comment_count', 0),
     }
 
 
@@ -157,6 +166,12 @@ def _panel_card(board, card_id, user):
     item['can_cancel'] = (
         task.status.code == 'IN_PROGRESS' and can_cancel_card(user, task.board_card)
     )
+    # «Обсуждение»: every message, oldest first, in one query; writing is
+    # `can_comment_card()`, whatever the state of the task.
+    item['comments'] = list(
+        BoardCardComment.objects.filter(card=task.board_card).select_related('author')
+    )
+    item['can_comment'] = can_comment_card(user, task.board_card)
     return item
 
 

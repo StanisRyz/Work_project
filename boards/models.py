@@ -186,3 +186,38 @@ class BoardCard(models.Model):
 
     def __str__(self):
         return f'Карточка #{self.pk}: {self.title[:60]}'
+
+
+class BoardCardComment(models.Model):
+    """One message of a card's «Обсуждение».
+
+    A record of the discussion, not a chat: no editing, no deletion, no files
+    or mentions. Written only by `services.post_card_comment()`; read by every
+    reader of the board.
+    """
+
+    card = models.ForeignKey(
+        BoardCard,
+        on_delete=models.PROTECT,
+        related_name='comments',
+        verbose_name='Карточка',
+    )
+    author = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_card_comments',
+        verbose_name='Автор',
+    )
+    text = models.TextField('Текст')
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+        verbose_name = 'Сообщение в карточке'
+        verbose_name_plural = 'Сообщения в карточках'
+        indexes = [
+            models.Index(fields=['card', 'created_at'], name='board_card_comment_time'),
+        ]
+
+    def __str__(self):
+        return f'Сообщение #{self.pk} в карточке #{self.card_id}'

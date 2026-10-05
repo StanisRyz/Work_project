@@ -29,8 +29,9 @@ def main_of(response):
 
 
 def panel_of(content):
-    """The card panel alone — the `<aside>` the live client replaces."""
-    return content.split('data-live-board-panel', 1)[1].split('</aside>', 1)[0]
+    """The guarded card panel alone — without «Обсуждение», its sibling."""
+    panel = content.split('data-live-board-panel', 1)[1].split('</aside>', 1)[0]
+    return panel.split('board-discussion', 1)[0]
 
 
 def upload(name='отчёт.pdf', content=b'%PDF-1.4 '):

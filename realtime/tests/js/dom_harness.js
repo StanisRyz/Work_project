@@ -499,6 +499,7 @@ function createEnvironment({
         board.setAttribute('data-board-fragment-url', '/work/boards/4/fragment/?card=9');
         board.setAttribute('data-columns-revision', 'columns-rev-initial');
         board.setAttribute('data-panel-revision', 'panel-rev-initial');
+        board.setAttribute('data-comments-revision', 'comments-rev-initial');
         board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
         const columns = new Element('div');
         columns.setAttribute('data-live-board-columns', '');
@@ -511,7 +512,18 @@ function createEnvironment({
         execution.setAttribute('name', 'execution_comment');
         execution.value = '';
         panel.append(execution);
-        board.append(columns, panel);
+        // «Обсуждение»: the read-only message list and, beside it, its form —
+        // outside every live block, as `boards/detail.html` draws them.
+        const comments = new Element('div');
+        comments.setAttribute('data-live-board-comments', '');
+        comments.innerHTML = '<ol><li data-comment-id="1">исходное сообщение</li></ol>';
+        comments.scrollTop = 0;
+        comments.scrollHeight = 0;
+        comments.clientHeight = 0;
+        const commentText = new Element('textarea');
+        commentText.setAttribute('name', 'text');
+        commentText.value = '';
+        board.append(columns, panel, comments, commentText);
         const conflict = new Element('div');
         conflict.setAttribute('data-board-conflict-banner', '');
         conflict.hidden = true;
@@ -523,6 +535,8 @@ function createEnvironment({
             columns,
             panel,
             execution,
+            comments,
+            commentText,
             conflictBanner: conflict,
             modalTextarea,
         });

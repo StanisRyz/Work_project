@@ -92,7 +92,10 @@ EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.PROTOCOL_TASK_ASSIGNED,
     Notification.EventType.ACT_REJECTION_ASSIGNED,
     Notification.EventType.SMK_TASK_ASSIGNED,
-    # A board card put on somebody: work they did not choose themselves.
+    # A board card put on somebody: work they did not choose themselves. A
+    # cancelled card and a new message in a card's «Обсуждение» stay in the
+    # bell only: nothing is asked of anybody, and a lively card would flood
+    # the mailbox.
     Notification.EventType.BOARD_TASK_ASSIGNED,
     # A bug report is exactly the kind of fact this list is for: somebody has
     # to look at it, and the people who must are often not in the application
@@ -298,6 +301,54 @@ def notify_board_task_assigned(task, actor, assignees):
         actor=actor,
         recipients=assignees,
         source_key=f'task:{task.pk}',
+        exclude_actor=True,
+    )
+
+
+def notify_board_task_cancelled(task, actor, assignees):
+    """Tell a cancelled card's исполнители that the work was withdrawn.
+
+    Bell only — not in `EMAIL_ELIGIBLE_EVENTS`: nothing is asked of anybody,
+    the task simply leaves «Мои задачи». Keyed `task:<pk>:cancelled`, so it can
+    never repeat, and `exclude_actor=True`: whoever cancelled knows. Called by
+    `boards.services.cancel_card()` inside its transaction, after the task is
+    cancelled. The text names the board; the reason stays on the card.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_TASK_CANCELLED,
+        task=task,
+        actor=actor,
+        recipients=assignees,
+        source_key=f'task:{task.pk}:cancelled',
+        exclude_actor=True,
+    )
+
+
+def notify_board_card_comment(comment, task, actor, recipients):
+    """One bell entry per message of a card's «Обсуждение», per recipient.
+
+    `TASK`-sourced on the card's task, so the link is `tasks:detail` → the
+    card, like every other board notification; keyed on the message, so one
+    message notifies each person once. Bell only. The recipients are the
+    caller's (`boards.services.post_card_comment()`: the исполнители and the
+    card's author); the author of the message is never told about their own,
+    and inactive accounts are dropped here as everywhere. The text names the
+    board and never repeats the message.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_CARD_COMMENT,
+        task=task,
+        actor=actor,
+        recipients=recipients,
+        source_key=f'board_comment:{comment.pk}',
         exclude_actor=True,
     )
 
@@ -786,6 +837,20 @@ def _task_event_text(event_type, task):
             f'Назначена задача на доске «{name}»',
             f'Вы назначены исполнителем карточки на доске «{name}».',
             'Откройте карточку на доске.',
+        )
+    if event_type == Notification.EventType.BOARD_TASK_CANCELLED:
+        name = task.board_card.board.name
+        return NotificationText(
+            f'Карточка отменена на доске «{name}»',
+            f'Карточка, где вы исполнитель, отменена на доске «{name}». Задача закрыта без выполнения.',
+            'Причина отмены — на карточке. Дополнительных действий не требуется.',
+        )
+    if event_type == Notification.EventType.BOARD_CARD_COMMENT:
+        name = task.board_card.board.name
+        return NotificationText(
+            f'Новое сообщение в карточке на доске «{name}»',
+            f'В обсуждении карточки №{task.pk} на доске «{name}» появилось новое сообщение.',
+            'Откройте карточку, чтобы прочитать обсуждение.',
         )
     label = _protocol_label(task.protocol)
     return {

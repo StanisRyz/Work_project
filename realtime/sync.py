@@ -323,7 +323,7 @@ def _boards_revision(user):
     `user` filter; the argument only keeps the shape. If that rule ever
     narrows, the visible boards go here.
 
-    Three aggregates, no rows loaded:
+    Four aggregates, no rows loaded:
 
     * the cards — a new card moves `total`, an edit or a move `last_updated`;
     * the `BOARD` tasks with their status mix — completing a card from its task
@@ -331,15 +331,18 @@ def _boards_revision(user):
       all touch the task, never the card, and the mix moves even when the
       timestamps happen not to;
     * the memberships — who may work on a board changes what its page draws,
-      and a removal leaves no timestamp behind, only a smaller count.
+      and a removal leaves no timestamp behind, only a smaller count;
+    * the messages of every card's «Обсуждение» — never edited or deleted, so
+      their count and the newest `created_at` say everything.
     """
-    from boards.models import BoardCard, BoardMember
+    from boards.models import BoardCard, BoardCardComment, BoardMember
     from tasks.models import Task
 
     cards = BoardCard.objects.aggregate(total=Count('pk'), last_updated=Max('updated_at'))
     board_tasks = Task.objects.filter(source_type=Task.SourceType.BOARD)
     tasks = board_tasks.aggregate(total=Count('pk'), last_updated=Max('updated_at'))
     members = BoardMember.objects.aggregate(total=Count('pk'), last_added=Max('added_at'))
+    comments = BoardCardComment.objects.aggregate(total=Count('pk'), last=Max('created_at'))
     return _token(
         'b',
         cards['total'],
@@ -349,6 +352,8 @@ def _boards_revision(user):
         _status_counts(board_tasks),
         members['total'],
         members['last_added'],
+        comments['total'],
+        comments['last'],
     )
 
 

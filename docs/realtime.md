@@ -81,7 +81,8 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 `board.updated` — одно событие на доску, а не тип на каждое действие:
 `change` берётся из закрытого набора `realtime.events.BOARD_CHANGES` —
 `card_created`, `card_updated`, `card_moved`, `card_completed`,
-`card_cancelled`, `members_changed`, `board_archived`, `board_restored`;
+`card_cancelled`, `members_changed`, `board_archived`, `board_restored`,
+`comment_added`;
 неизвестный код фабрика отклоняет. Ни заголовка карточки,
 ни описания, ни имён, ни прав: открытая доска перезапрашивает свой фрагмент.
 Задача карточки, изменённая вне доски (`tasks:complete`, возврат в работу
@@ -110,7 +111,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `cancel_card`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `cancel_card`, `post_card_comment`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.
@@ -291,17 +292,25 @@ read-only набор авторизованного пользователя, д
 трогает саму строку протокола, поэтому без него сверка не заметила бы решения.
 
 Токен `boards`, как и `protocols`, не фильтруется по пользователю — доски читает
-каждый сотрудник. Он строится из трёх агрегатов: карточки (число и
+каждый сотрудник. Он строится из четырёх агрегатов: карточки (число и
 `max(updated_at)`), задачи `BOARD` (число, `max(updated_at)` и распределение по
-статусам) и участники (число и `max(added_at)`). Задачи нужны отдельно:
+статусам), участники (число и `max(added_at)`) и сообщения обсуждений карточек
+(число и последний `created_at` — сообщения не правятся и не удаляются). Задачи нужны отдельно:
 завершение со страницы задачи, возврат в работу и новый срок или исполнитель
 меняют задачу, а не карточку. Участники — потому что исключение участника не
 оставляет метки времени, только меньшее число.
 
-Фрагмент доски отдаёт два блока сразу — `columns_html`/`columns_revision` и
-`panel_html`/`panel_revision` (плюс `panel`: `view`, `edit`, `new` или пусто) —
-тем же `_board_context()` и теми же частичными шаблонами
-(`boards/includes/columns.html`, `boards/includes/panel.html`), что и страница.
+Фрагмент доски отдаёт три блока сразу — `columns_html`/`columns_revision`,
+`panel_html`/`panel_revision` (плюс `panel`: `view`, `edit`, `new` или пусто) и
+`comments_html`/`comments_revision` (сообщения «Обсуждения» открытой карточки,
+только в режиме просмотра) — тем же `_board_context()` и теми же частичными
+шаблонами (`boards/includes/columns.html`, `panel.html`, `comments.html`), что и
+страница. Сообщения — отдельный блок только для чтения: в разметку панели они
+не входят, поэтому новое сообщение не меняет `panel_revision` и не поднимает
+баннер конфликта над «Выполнением» или правкой. Форма сообщения не входит ни в
+один заменяемый блок, и набираемый текст не перерисовывается. После замены
+списка читатель, который был внизу, остаётся внизу, а пролиставший выше —
+на месте.
 Адрес фрагмента с параметрами панели строит сервер (`data-board-fragment-url`):
 доска, отрисованная в ответ на отклонённый POST, стоит по адресу этого POST, и
 адресная строка о панели ничего не говорит. В этот же адрес входит фильтр доски

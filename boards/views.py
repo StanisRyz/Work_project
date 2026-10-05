@@ -38,6 +38,7 @@ from .forms import AddMembersForm, BoardForm, CardForm, MoveCardForm
 from .models import Board, BoardCard, BoardMember
 from .permissions import (
     can_cancel_card,
+    can_comment_card,
     can_create_board,
     can_manage_board,
     can_restore_board,
@@ -61,6 +62,7 @@ from .services import (
     create_board,
     create_card,
     move_card,
+    post_card_comment,
     remove_board_member,
     restore_board,
     update_card,
@@ -149,11 +151,13 @@ def _card_initial(item):
 
 COLUMNS_TEMPLATE = 'boards/includes/columns.html'
 PANEL_TEMPLATE = 'boards/includes/panel.html'
+COMMENTS_TEMPLATE = 'boards/includes/comments.html'
 
 
 def _board_context(request, board, *, card_id=None, edit=False, new=None, panel=None,
                    form=None, move_form=None, error='', execution_comment=None,
-                   execution_error='', take_draft=True, version_conflict=False):
+                   execution_error='', take_draft=True, version_conflict=False,
+                   comment_text='', comment_error=''):
     """Everything the board page and its live fragment render.
 
     `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from `card_id`,
@@ -229,6 +233,11 @@ def _board_context(request, board, *, card_id=None, edit=False, new=None, panel=
         'filter_query': filters.query,
         'filter_suffix': f'?{filters.query}' if filters.query else '',
         'version_conflict': version_conflict,
+        # «Обсуждение»'s form — outside every live block, so a refresh never
+        # redraws what is being typed in it.
+        'show_discussion': bool(item is not None and panel == 'view'),
+        'comment_text': comment_text,
+        'comment_error': comment_error,
     })
     query = _panel_query(item, panel, new_stage, filters)
     state['fragment_url'] = reverse('boards:fragment', args=[board.pk]) + query
@@ -256,16 +265,28 @@ def _panel_query(item, panel, new_stage, filters):
 
 
 def _board_blocks(request, context):
-    """The two live blocks as markup, each with its fingerprint."""
+    """The three live blocks as markup, each with its fingerprint.
+
+    The messages of «Обсуждение» are a block of their own and appear in no
+    other: a new message moves `comments_revision` (and the tile's counter in
+    `columns_revision`), never `panel_revision`, so it cannot raise the
+    conflict banner over a «Выполнение» or an edit being typed.
+    """
     columns_html = render_to_string(COLUMNS_TEMPLATE, context, request=request)
     panel_html = (
         render_to_string(PANEL_TEMPLATE, context, request=request) if context['panel'] else ''
+    )
+    comments_html = (
+        render_to_string(COMMENTS_TEMPLATE, context, request=request)
+        if context['show_discussion'] else ''
     )
     return {
         'columns_html': columns_html,
         'columns_revision': content_revision(columns_html),
         'panel_html': panel_html,
         'panel_revision': content_revision(panel_html) if panel_html else '',
+        'comments_html': comments_html,
+        'comments_revision': content_revision(comments_html) if comments_html else '',
     }
 
 
@@ -503,6 +524,30 @@ def card_cancel(request, pk, card_pk):
     except BoardError as exc:
         return _render_board(request, board, card_id=card.pk, panel='view', error=str(exc))
     messages.success(request, 'Карточка отменена: её задача закрыта без выполнения.')
+    return redirect(_card_url(board, card, request))
+
+
+@login_required
+def card_comment(request, pk, card_pk):
+    """«Отправить» in the card's «Обсуждение»: `post_card_comment()`.
+
+    The right (`can_comment_card()`) is asked before the method. Success goes
+    back to the card under the board's filter; a refusal re-renders the panel
+    with the text and the message beside the form.
+    """
+    board = _board_or_404(pk)
+    card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
+    _require(can_comment_card(request.user, card))
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request))
+    text = request.POST.get('text', '')
+    try:
+        post_card_comment(card, actor=request.user, text=text)
+    except BoardError as exc:
+        return _render_board(
+            request, board, card_id=card.pk, panel='view',
+            comment_text=text, comment_error=str(exc),
+        )
     return redirect(_card_url(board, card, request))
 
 

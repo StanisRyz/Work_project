@@ -12,6 +12,12 @@
  *                              awaiting the server, the «Готово» modal open)
  *                              the refresh waits, and runs once on
  *                              `quality:board-idle`.
+ *   [data-live-board-comments] the messages of the open card's «Обсуждение»:
+ *                              read-only, replaced whenever its fingerprint
+ *                              moved, keeping a reader at the bottom there.
+ *                              Its form is outside every block, and no message
+ *                              is part of the panel's fingerprint — a message
+ *                              never raises the banner over a «Выполнение».
  *   [data-live-board-panel]    holds forms, so it is guarded exactly like the
  *                              act and protocol work blocks: an unchanged
  *                              fingerprint does nothing, a changed one replaces
@@ -46,6 +52,7 @@
 
     const columnsElement = root.querySelector('[data-live-board-columns]');
     const panelElement = root.querySelector('[data-live-board-panel]');
+    const commentsElement = root.querySelector('[data-live-board-comments]');
     const conflictBanner = document.querySelector('[data-board-conflict-banner]');
     const reloadButton = document.querySelector('[data-board-conflict-reload]');
     if (reloadButton) {
@@ -58,6 +65,7 @@
 
     let columnsRevision = root.dataset.columnsRevision || '';
     let panelRevision = root.dataset.panelRevision || '';
+    let commentsRevision = root.dataset.commentsRevision || '';
     // A page re-rendered from a refused form, or holding a «Выполнение» draft
     // parked by an attachment request, already shows input that is not stored.
     let dirty = root.dataset.panelHoldsInput === 'true';
@@ -151,11 +159,43 @@
         }
     };
 
+    // A reader within this many pixels of the end of the message list counts
+    // as «at the bottom» and is kept there when a new message arrives.
+    const BOTTOM_SLACK = 24;
+
+    /**
+     * «Обсуждение»'s messages: read-only, so replaced whenever the
+     * fingerprint moved. Its form is outside this block, so what is being
+     * typed there is never redrawn, and no message is part of the guarded
+     * panel. A reader at the bottom of the list stays at the bottom and sees
+     * the new message; one who scrolled up stays where they were.
+     */
+    const applyComments = (payload) => {
+        if (!commentsElement || typeof payload.comments_html !== 'string' || !payload.comments_html) {
+            return;
+        }
+        const revision = revisionOf(payload.comments_revision);
+        if (revision && revision === commentsRevision) {
+            return;
+        }
+        const scrollTop = Number(commentsElement.scrollTop) || 0;
+        const atBottom =
+            Number(commentsElement.scrollHeight || 0) - scrollTop - Number(commentsElement.clientHeight || 0)
+            <= BOTTOM_SLACK;
+        commentsElement.innerHTML = payload.comments_html;
+        commentsElement.scrollTop = atBottom ? Number(commentsElement.scrollHeight || 0) : scrollTop;
+        commentsRevision = revision;
+        if (window.qualityFragments) {
+            window.qualityFragments.reinitialise(commentsElement);
+        }
+    };
+
     const coordinator = core.createRefreshCoordinator({
         url: fragmentUrl,
         apply(payload) {
             applyColumns(payload);
             applyPanel(payload);
+            applyComments(payload);
         },
         // A lost session stops the whole client; a board that is gone stops
         // only this coordinator, which `createRefreshCoordinator` already did.

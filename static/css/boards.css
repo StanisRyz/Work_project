@@ -234,6 +234,19 @@
     display: none;
 }
 
+/* The guarded part of the panel: the card itself. «Обсуждение» is its
+   sibling inside the same <aside>, so a refresh of one never touches the
+   other. */
+.board-panel__main {
+    display: grid;
+    align-content: start;
+    gap: 12px;
+}
+
+.board-panel__main[hidden] {
+    display: none;
+}
+
 .board-panel__head {
     display: flex;
     align-items: center;
@@ -408,6 +421,74 @@
     font: inherit;
     font-size: var(--control-font-size);
     resize: vertical;
+}
+
+/* ---- «Обсуждение» ---- */
+
+/* The message list scrolls on its own, so a new message at the bottom does
+   not push the form out of sight; `realtime/boards.js` keeps a reader who
+   was at the bottom there. */
+.board-discussion__list {
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.board-discussion__messages {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-discussion__message {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+}
+
+.board-discussion__body {
+    display: grid;
+    gap: 2px;
+}
+
+.board-discussion__meta,
+.board-discussion__empty {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.board-discussion__meta strong {
+    color: var(--color-text);
+}
+
+.board-discussion__form {
+    display: grid;
+    gap: 8px;
+}
+
+.board-discussion__form textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: var(--control-font-size);
+    resize: vertical;
+}
+
+.board-tile__comments {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--color-muted);
+}
+
+.board-tile__comments .ui-icon {
+    width: 14px;
+    height: 14px;
 }
 
 /* ---- Other pages ---- */

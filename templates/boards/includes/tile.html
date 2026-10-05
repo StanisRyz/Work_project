@@ -21,6 +21,7 @@ the drag's counts and the redirect after completion stay filtered.
             <span class="board-tile__assignees">
                 {% for user in item.assignees %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}
             </span>
+            {% if item.comment_count %}<span class="board-tile__comments" title="Сообщений в обсуждении: {{ item.comment_count }}" aria-label="Сообщений в обсуждении: {{ item.comment_count }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>{{ item.comment_count }}</span>{% endif %}
             {% include 'includes/due_date.html' with date=item.due_date done=item.is_closed %}
         </span>
     </a>

@@ -41,14 +41,16 @@ from realtime.events import (
     BOARD_CHANGE_CARD_CREATED,
     BOARD_CHANGE_CARD_MOVED,
     BOARD_CHANGE_CARD_UPDATED,
+    BOARD_CHANGE_COMMENT_ADDED,
     BOARD_CHANGE_MEMBERS_CHANGED,
 )
 
 from .columns import WORK_STAGES
-from .models import Board, BoardCard, BoardMember
+from .models import Board, BoardCard, BoardCardComment, BoardMember
 from .permissions import (
     active_employee_q,
     can_cancel_card,
+    can_comment_card,
     can_create_board,
     can_manage_board,
     can_restore_board,
@@ -65,6 +67,7 @@ POSITION_STEP = 1024
 # is there: a column whose end would pass it is renumbered first.
 MAX_POSITION = 2_147_483_647
 TITLE_MAX_LENGTH = 200
+COMMENT_MAX_LENGTH = 4000
 
 
 ARCHIVED_MESSAGE = 'Доска в архиве — изменить её нельзя.'
@@ -613,9 +616,11 @@ def cancel_card(card, *, actor, reason):
     — with the reason, who and when, and nothing claimed about the work — and
     the card leaves every column (`columns.card_column()`); its panel still
     reads the record by `?card=`. Who may do it is `can_cancel_card()`, asked
-    after the locks; nobody is notified, as when an СМК correction withdraws a
-    task.
+    after the locks; its исполнители get one bell entry each
+    (`notify_board_task_cancelled()`), never an email.
     """
+    from notifications.services import notify_board_task_cancelled
+    from tasks.models import TaskAssignee
     from tasks.services import TaskWorkflowError, cancel_board_card_task
 
     with transaction.atomic():
@@ -633,6 +638,9 @@ def cancel_card(card, *, actor, reason):
             task = cancel_board_card_task(task, actor=actor, reason=reason)
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
+        # Its исполнители, in the bell only; whoever cancelled is not told.
+        assignee_ids = TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True)
+        notify_board_task_cancelled(task, actor, _users(assignee_ids))
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_CANCELLED, card.pk)
     log_event(
         logger,
@@ -716,3 +724,56 @@ def restore_board(board, *, actor):
         board_id=board.pk, actor_user_id=actor.pk, outcome='ok',
     )
     return board
+
+
+# --------------------------------------------------------------------------
+# «Обсуждение»
+# --------------------------------------------------------------------------
+
+
+def post_card_comment(card, *, actor, text):
+    """One message in a card's «Обсуждение». No editing, no deletion.
+
+    Locks the board, then the card, and asks `can_comment_card()` after the
+    locks — an active member or an administrator, not on an archived board;
+    the state of the task does not matter. The text is stripped, required and
+    at most `COMMENT_MAX_LENGTH` characters. The исполнители and the card's
+    author hear of it in the bell (`notify_board_card_comment()`, never the
+    writer), and the board publishes `board.updated(comment_added)`. Logged
+    by identifiers only, never the text.
+    """
+    from notifications.services import notify_board_card_comment
+    from tasks.models import Task, TaskAssignee
+
+    text = (text or '').strip()
+    with transaction.atomic():
+        board = _lock_board(card.board_id)
+        card = _lock_card(card, board)
+        card.board = board
+        _refuse_archived('post_comment', board, actor=actor, card_id=card.pk)
+        if not can_comment_card(actor, card):
+            _rejected('post_comment', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise BoardError('Писать в обсуждение могут участники доски.')
+        if not text:
+            raise BoardError('Напишите сообщение.')
+        if len(text) > COMMENT_MAX_LENGTH:
+            raise BoardError(f'Сообщение — не длиннее {COMMENT_MAX_LENGTH} символов.')
+        comment = BoardCardComment.objects.create(card=card, author=actor, text=text)
+        task = Task.objects.get(source_type=Task.SourceType.BOARD, board_card=card)
+        recipient_ids = {
+            *TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True),
+            card.created_by_id,
+        }
+        notify_board_card_comment(comment, task, actor, _users(recipient_ids))
+        emit_board_updated(board.pk, BOARD_CHANGE_COMMENT_ADDED, card.pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.comment_posted',
+        board_id=board.pk,
+        board_card_id=card.pk,
+        comment_id=comment.pk,
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return comment

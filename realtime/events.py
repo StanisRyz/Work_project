@@ -86,6 +86,7 @@ BOARD_CHANGE_MEMBERS_CHANGED = 'members_changed'
 BOARD_CHANGE_CARD_CANCELLED = 'card_cancelled'
 BOARD_CHANGE_BOARD_ARCHIVED = 'board_archived'
 BOARD_CHANGE_BOARD_RESTORED = 'board_restored'
+BOARD_CHANGE_COMMENT_ADDED = 'comment_added'
 
 BOARD_CHANGES = frozenset(
     {
@@ -97,6 +98,7 @@ BOARD_CHANGES = frozenset(
         BOARD_CHANGE_CARD_CANCELLED,
         BOARD_CHANGE_BOARD_ARCHIVED,
         BOARD_CHANGE_BOARD_RESTORED,
+        BOARD_CHANGE_COMMENT_ADDED,
     }
 )
 
