@@ -31,7 +31,7 @@ from django.views.decorators.http import require_GET
 
 from realtime.auth import realtime_login_required
 from realtime.fragments import content_revision
-from tasks.drafts import take_execution_draft
+from tasks.drafts import remember_execution_draft, take_execution_draft
 from tasks.forms import TaskAttachmentForm
 
 from .forms import AddMembersForm, BoardForm, CardForm, MoveCardForm
@@ -182,7 +182,10 @@ def _board_context(request, board, *, card_id=None, edit=False, new=None, panel=
     render.
     """
     filters = parse_board_filters(request.GET)
-    state = build_board_state(board, request.user, card_id=card_id, filters=filters)
+    all_comments = request.GET.get('comments') == 'all'
+    state = build_board_state(
+        board, request.user, card_id=card_id, filters=filters, all_comments=all_comments,
+    )
     item = state['card']
     can_edit_card = bool(item and state['can_work'] and not item['is_closed'])
     new_stage = None
@@ -239,13 +242,18 @@ def _board_context(request, board, *, card_id=None, edit=False, new=None, panel=
         'comment_text': comment_text,
         'comment_error': comment_error,
     })
-    query = _panel_query(item, panel, new_stage, filters)
+    query = _panel_query(item, panel, new_stage, filters, all_comments=all_comments)
     state['fragment_url'] = reverse('boards:fragment', args=[board.pk]) + query
     state['page_url'] = board_url + query
+    # «Показать ранние (N)»: this very panel with every message.
+    state['all_comments_url'] = (
+        board_url + _panel_query(item, panel, new_stage, filters, all_comments=True)
+        if state['show_discussion'] else ''
+    )
     return state, holds_input
 
 
-def _panel_query(item, panel, new_stage, filters):
+def _panel_query(item, panel, new_stage, filters, *, all_comments=False):
     """The query string that asks for exactly the panel this page shows.
 
     It goes on the live fragment's URL and on the page's own address for a
@@ -258,6 +266,8 @@ def _panel_query(item, panel, new_stage, filters):
         query['card'] = item['card'].pk
         if panel == 'edit':
             query['edit'] = '1'
+        elif all_comments:
+            query['comments'] = 'all'
     elif panel == 'new' and new_stage is not None:
         query['new'] = new_stage.code
     encoded = '&'.join(part for part in (urlencode(query), filters.query) if part)
@@ -541,6 +551,7 @@ def card_comment(request, pk, card_pk):
     if request.method != 'POST':
         return redirect(_card_url(board, card, request))
     text = request.POST.get('text', '')
+    _remember_draft(request, card)
     try:
         post_card_comment(card, actor=request.user, text=text)
     except BoardError as exc:
@@ -549,6 +560,24 @@ def card_comment(request, pk, card_pk):
             comment_text=text, comment_error=str(exc),
         )
     return redirect(_card_url(board, card, request))
+
+
+def _remember_draft(request, card):
+    """Park the «Выполнение» text the message form carried, as an upload does.
+
+    The form's hidden `execution_comment` is filled from the panel's textarea
+    at submit time (`[data-attachment-carry-from]`), and the panel drawn next —
+    after the redirect, or the refusal re-rendered here — takes it back. Only
+    a form that carried the field speaks for the draft: one without it (no
+    «Выполнение» on the panel) leaves the session alone. A draft, never a
+    result — `complete_task()` is still the only writer of
+    `Task.execution_comment`.
+    """
+    if 'execution_comment' not in request.POST:
+        return
+    task = card.tasks.first()  # the one `BOARD` task — `unique_board_card_task`
+    if task is not None:
+        remember_execution_draft(request, task, request.POST['execution_comment'])
 
 
 @login_required

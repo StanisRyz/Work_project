@@ -4,7 +4,12 @@ The messages of a card's «Обсуждение», oldest first: the live block
 beside this block and outside every block the live client replaces — so it is
 replaced whenever its fingerprint moves. It is its own block, and no message
 appears in the card panel: a new message never changes `panel_revision`.
+Only the newest `COMMENTS_LIMIT` are read; «Показать ранние (N)» is this panel
+with `comments=all`, built by the server with the board's filter kept.
 {% endcomment %}
+{% if card.comments_earlier and all_comments_url %}
+    <p class="board-discussion__earlier"><a href="{{ all_comments_url }}">Показать ранние ({{ card.comments_earlier }})</a></p>
+{% endif %}
 {% if card.comments %}
     <ol class="board-discussion__messages">
         {% for comment in card.comments %}

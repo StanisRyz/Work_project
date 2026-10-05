@@ -1,0 +1,59 @@
+### check
+System check identified no issues (0 silenced).
+exit=0
+### makemigrations --check --dry-run
+No changes detected
+exit=0
+### check_documentation
+[2026-10-05 18:42:30,230] INFO ecosystem.startup request=- user=-: application.started app_env=development release=- database=sqlite realtime_enabled=false email_enabled=false log_to_file=false log_to_console=true log_level=INFO pid=1753
+Проверка документации
+
+  [PASS    ] documents: Активных документов — 10, архивных — 5.
+  [PASS    ] links: Все относительные ссылки разрешаются (15 документов).
+  [PASS    ] stage_markers: Активные документы не содержат маркеров этапов.
+  [PASS    ] archive_notice: Все архивные документы (5) помечены.
+  [PASS    ] commands: Все упомянутые management-команды существуют.
+  [PASS    ] structure: Все активные документы непусты и имеют один H1.
+  [WARNING ] length: AGENTS.md: 2371 строк заметно превышает ориентир 190. Допустимо, если содержимое уникально.
+  [WARNING ] length: README.md: 651 строк заметно превышает ориентир 220. Допустимо, если содержимое уникально.
+  [WARNING ] length: docs/domain.md: 611 строк заметно превышает ориентир 350. Допустимо, если содержимое уникально.
+  [WARNING ] length: docs/realtime.md: 525 строк заметно превышает ориентир 350. Допустимо, если содержимое уникально.
+
+Документация корректна, предупреждений — 4.
+exit=0
+### check_logging
+Конфигурация логирования
+
+  Файл:            выключен
+  Консоль:         включена
+  Уровень:         INFO (realtime: INFO)
+
+  [WARNING ] log_handlers: Только консоль: сбор и хранение выполняет process manager или внешняя система.
+
+Логирование настроено.
+exit=0
+### check_realtime_transport
+REALTIME_ENABLED         — False
+Publisher backend        — realtime.backends.NoopRealtimePublisher
+Redis                    — redis://127.0.0.1:6379/0
+Префикс каналов          — quality-ecosystem:realtime
+Connect / socket timeout — 1.0 / 1.0 с
+Heartbeat                — 25.0 с
+Максимальный размер      — 16384 байт
+REALTIME_ENABLED=false: транспорт проверяется, но события не публикуются.
+PING — ok
+Подписка на диагностический канал: quality-ecosystem:realtime:diagnostic:ddc4fb44dcae4658984cf6882e193872
+Round trip: 1.6 мс
+Транспорт real-time доступен: PING, публикация и подписка работают.
+exit=0
+### check_fresh_bootstrap — на PostgreSQL, см. checks-production.txt
+
+### node
+  ok   without real-time the board script does nothing
+
+90/90 passed
+exit=0
+
+### test --parallel 4 (окружение без SQLITE_DB_PATH/MEDIA_ROOT_PATH)
+Ran 1389 tests in 116.924s
+OK (skipped=8)

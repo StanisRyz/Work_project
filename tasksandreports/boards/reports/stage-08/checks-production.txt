@@ -1,0 +1,138 @@
+# Production-проверки на свежей БД PostgreSQL 16 (quality_s8: migrate с нуля,
+# seed_references, collectstatic), Redis 7 локально. Окружение — по .env.example
+# в режиме production (секрет сгенерирован и здесь не печатается):
+#   APP_ENV=production DEBUG=false SECRET_KEY=<100 символов>
+#   ALLOWED_HOSTS=quality.example.internal
+#   CSRF_TRUSTED_ORIGINS=APP_BASE_URL=https://quality.example.internal
+#   DATABASE_ENGINE=postgresql DB_SSLMODE=disable (локальный сокет-хост 127.0.0.1)
+#   MEDIA_ROOT_PATH, STATIC_ROOT_PATH, LOG_FILE_PATH — отдельные абсолютные каталоги, LOG_TO_FILE=true
+#   BACKUP_POLICY_ACKNOWLEDGED=true ENABLE_DEMO_RESET=false EMAIL_NOTIFICATIONS_ENABLED=false
+#   REALTIME_ENABLED=true REALTIME_PUBLISHER_BACKEND=realtime.backends.RedisRealtimePublisher
+#   REALTIME_REDIS_URL=redis://127.0.0.1:6379/0
+
+### check
+System check identified some issues:
+
+WARNINGS:
+?: (ecosystem.W001) SECURE_HSTS_SECONDS = 0: HSTS не включён.
+	HINT: Включайте HSTS только когда HTTPS точно работает для всех имён: браузеры запоминают заголовок надолго.
+?: (ecosystem.W003) DB_SSLMODE допускает незашифрованное соединение с PostgreSQL.
+	HINT: Для соединения по сети используйте require, verify-ca или verify-full.
+?: (ecosystem.W005) Redis используется по незашифрованному redis://.
+	HINT: Используйте rediss:// либо подтвердите закрытую внутреннюю сеть через REDIS_NETWORK_IS_TRUSTED=true.
+
+System check identified 3 issues (0 silenced).
+exit=0
+### check_logging
+System check identified some issues:
+
+WARNINGS:
+?: (ecosystem.W001) SECURE_HSTS_SECONDS = 0: HSTS не включён.
+	HINT: Включайте HSTS только когда HTTPS точно работает для всех имён: браузеры запоминают заголовок надолго.
+?: (ecosystem.W003) DB_SSLMODE допускает незашифрованное соединение с PostgreSQL.
+	HINT: Для соединения по сети используйте require, verify-ca или verify-full.
+?: (ecosystem.W005) Redis используется по незашифрованному redis://.
+	HINT: Используйте rediss:// либо подтвердите закрытую внутреннюю сеть через REDIS_NETWORK_IS_TRUSTED=true.
+Конфигурация логирования
+
+  Файл:            включён
+  Консоль:         включена
+  Уровень:         INFO (realtime: INFO)
+  Путь:            /tmp/claude-0/prod/logs/application.log
+  Ротация:         20971520 байт x 10 архивных копий
+  Каталог:         существует, доступен для записи
+
+  [PASS    ] log_handlers: Файл и консоль.
+  [PASS    ] log_rotation: 20971520 байт x 10 архивных копий.
+  [PASS    ] log_path: Путь доступен для записи.
+
+Логирование настроено.
+exit=0
+### check_realtime_transport
+System check identified some issues:
+
+WARNINGS:
+?: (ecosystem.W001) SECURE_HSTS_SECONDS = 0: HSTS не включён.
+	HINT: Включайте HSTS только когда HTTPS точно работает для всех имён: браузеры запоминают заголовок надолго.
+?: (ecosystem.W003) DB_SSLMODE допускает незашифрованное соединение с PostgreSQL.
+	HINT: Для соединения по сети используйте require, verify-ca или verify-full.
+?: (ecosystem.W005) Redis используется по незашифрованному redis://.
+	HINT: Используйте rediss:// либо подтвердите закрытую внутреннюю сеть через REDIS_NETWORK_IS_TRUSTED=true.
+REALTIME_ENABLED         — True
+Publisher backend        — realtime.backends.RedisRealtimePublisher
+Redis                    — redis://127.0.0.1:6379/0
+Префикс каналов          — quality-ecosystem:realtime
+Connect / socket timeout — 1.0 / 1.0 с
+Heartbeat                — 25.0 с
+Максимальный размер      — 16384 байт
+PING — ok
+Подписка на диагностический канал: quality-ecosystem:realtime:diagnostic:67512eb0d08642ab87fd05c5d65d8982
+Round trip: 1.6 мс
+Транспорт real-time доступен: PING, публикация и подписка работают.
+exit=0
+### check_fresh_bootstrap
+System check identified some issues:
+
+WARNINGS:
+?: (ecosystem.W001) SECURE_HSTS_SECONDS = 0: HSTS не включён.
+	HINT: Включайте HSTS только когда HTTPS точно работает для всех имён: браузеры запоминают заголовок надолго.
+?: (ecosystem.W003) DB_SSLMODE допускает незашифрованное соединение с PostgreSQL.
+	HINT: Для соединения по сети используйте require, verify-ca или verify-full.
+?: (ecosystem.W005) Redis используется по незашифрованному redis://.
+	HINT: Используйте rediss:// либо подтвердите закрытую внутреннюю сеть через REDIS_NETWORK_IS_TRUSTED=true.
+  [PASS    ] backend: PostgreSQL.
+  [PASS    ] connection: Соединение установлено.
+  [PASS    ] migrations: Все миграции применены.
+  [PASS    ] act_statuses: Все обязательные коды присутствуют (8).
+  [PASS    ] task_statuses: Все обязательные коды присутствуют (3).
+  [PASS    ] operations: Записей: 13.
+  [PASS    ] defect_types: Записей: 20.
+  [PASS    ] synthetic_data: Синтетических данных нет.
+  [PASS    ] demo_admin: Демонстрационного администратора нет.
+  [PASS    ] existing_data: Рабочих данных нет — установка чистая.
+  [PASS    ] demo_reset: ENABLE_DEMO_RESET выключен.
+  [PASS    ] media_root: Каталог существует и доступен для записи.
+  [PASS    ] static_root: Каталог собран.
+  [PASS    ] realtime: Включён с транспортом.
+  [PASS    ] email: Выключен — SMTP не требуется.
+
+Чистая установка готова к первому запуску.
+exit=0
+### check_production_readiness
+System check identified some issues:
+
+WARNINGS:
+?: (ecosystem.W001) SECURE_HSTS_SECONDS = 0: HSTS не включён.
+	HINT: Включайте HSTS только когда HTTPS точно работает для всех имён: браузеры запоминают заголовок надолго.
+?: (ecosystem.W003) DB_SSLMODE допускает незашифрованное соединение с PostgreSQL.
+	HINT: Для соединения по сети используйте require, verify-ca или verify-full.
+?: (ecosystem.W005) Redis используется по незашифрованному redis://.
+	HINT: Используйте rediss:// либо подтвердите закрытую внутреннюю сеть через REDIS_NETWORK_IS_TRUSTED=true.
+Окружение: APP_ENV=production
+
+  [PASS    ] django_checks: Ошибок нет.
+  [WARNING ] django_check_warnings: Предупреждения: ecosystem.W001, ecosystem.W003, ecosystem.W005, security.W004.
+  [PASS    ] database_backend: PostgreSQL.
+  [PASS    ] database_version: Версия сервера: 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1).
+  [PASS    ] backend: PostgreSQL.
+  [PASS    ] connection: Соединение установлено.
+  [PASS    ] migrations: Все миграции применены.
+  [PASS    ] act_statuses: Все обязательные коды присутствуют (8).
+  [PASS    ] task_statuses: Все обязательные коды присутствуют (3).
+  [PASS    ] operations: Записей: 13.
+  [PASS    ] defect_types: Записей: 20.
+  [PASS    ] synthetic_data: Синтетических данных нет.
+  [PASS    ] demo_admin: Демонстрационного администратора нет.
+  [PASS    ] existing_data: Рабочих данных нет — установка чистая.
+  [PASS    ] realtime_transport: Redis отвечает на PING.
+  [PASS    ] static_root: Каталог собран.
+  [PASS    ] media_isolation: MEDIA_ROOT отделён от публичной статики.
+  [PASS    ] demo_reset: Выключен.
+  [PASS    ] email: Выключен — SMTP не требуется.
+  [PASS    ] log_handlers: Файл и консоль.
+  [PASS    ] log_rotation: 20971520 байт x 10 архивных копий.
+  [PASS    ] log_path: Путь доступен для записи.
+  [PASS    ] backup_policy: Подтверждено администратором. Это не доказательство наличия копий: требуется реальный тест восстановления.
+
+Итог: PASS 22, WARNING 1, BLOCKING 0.
+exit=0

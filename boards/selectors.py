@@ -29,6 +29,11 @@ from .permissions import (
 # a board in use for a year has hundreds of them and nobody scrolls that far.
 DONE_LIMIT = 50
 
+# How many messages of «Обсуждение» the panel draws: the newest ones, oldest
+# first. The earlier ones are counted, not read, and `?comments=all` shows
+# them — a card discussed for months stays one query and a short list.
+COMMENTS_LIMIT = 100
+
 REGISTRY_TABS = ('my', 'all', 'archive')
 
 # The longest `?q=` a board search reads; anything past it is dropped.
@@ -121,7 +126,7 @@ def _item(task):
     }
 
 
-def _panel_card(board, card_id, user):
+def _panel_card(board, card_id, user, *, all_comments=False):
     """The card `?card=` names, with its task — or `None`.
 
     `None` for anything that is not a card of this board: a foreign or missing
@@ -166,16 +171,23 @@ def _panel_card(board, card_id, user):
     item['can_cancel'] = (
         task.status.code == 'IN_PROGRESS' and can_cancel_card(user, task.board_card)
     )
-    # «Обсуждение»: every message, oldest first, in one query; writing is
-    # `can_comment_card()`, whatever the state of the task.
-    item['comments'] = list(
-        BoardCardComment.objects.filter(card=task.board_card).select_related('author')
-    )
+    # «Обсуждение»: the newest `COMMENTS_LIMIT` messages, oldest first, in one
+    # query sliced by the database — or every one under `all_comments`. How
+    # many are left out is the card's `comment_count`, already annotated, so
+    # there is no second query. Writing is `can_comment_card()`, whatever the
+    # state of the task.
+    comments = BoardCardComment.objects.filter(card=task.board_card).select_related('author')
+    if all_comments:
+        item['comments'] = list(comments)
+    else:
+        item['comments'] = list(comments.order_by('-created_at', '-pk')[:COMMENTS_LIMIT])[::-1]
+    item['comments_earlier'] = max(item['comment_count'] - len(item['comments']), 0)
     item['can_comment'] = can_comment_card(user, task.board_card)
     return item
 
 
-def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None, filters=NO_FILTERS):
+def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None, filters=NO_FILTERS,
+                      all_comments=False):
     """Everything one board page renders.
 
     `columns` follows `boards.columns.COLUMNS`; each is
@@ -186,7 +198,9 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None, filte
     on none of them.
 
     `card` is the card `card_id` names (see `_panel_card()`), else `None` —
-    found whatever the filters say, so the open panel never disappears.
+    found whatever the filters say, so the open panel never disappears. Its
+    «Обсуждение» holds the newest `COMMENTS_LIMIT` messages and counts the
+    rest in `comments_earlier`; `all_comments` (`?comments=all`) reads them all.
 
     `filters` (`BoardFilters`) narrows the columns and their counts: «Мои»
     and the search apply to every column, «Просроченные» to the open ones
@@ -235,7 +249,10 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None, filte
         'board': board,
         'columns': columns,
         'member_count': BoardMember.objects.filter(board=board).count(),
-        'card': _panel_card(board, card_id, user) if card_id not in (None, '') else None,
+        'card': (
+            _panel_card(board, card_id, user, all_comments=all_comments)
+            if card_id not in (None, '') else None
+        ),
         'can_work': can_work,
         'can_manage': can_manage_board(user, board),
         'can_restore': can_restore_board(user, board),

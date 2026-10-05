@@ -880,6 +880,9 @@ tasks never live inside `acts`.
   `document`, so a new attachment form inherits the behaviour by markup alone.
   `task_add_attachment()` and `task_delete_attachment()` park it in the session
   under `task_execution_draft`, keyed by task, through `tasks/drafts.py`
+  (and so does `boards:card_comment`, whose message form carries the same
+  hidden field beside a completable task — a form without it leaves the draft
+  alone)
   (`remember_execution_draft()`/`take_execution_draft()`), and the next page
   that shows the task pops it back into the field — `task_detail`, or for a
   `BOARD` task the board's card panel (`task_detail` redirects there and leaves
@@ -1898,7 +1901,16 @@ tasks never live inside `acts`.
   `boards:card_comment` (right before the method; success → `?card=` with the
   filter, refusal → the panel with the text and the error). A tile shows the
   count when it is above zero — a subquery annotation of `_board_tasks()`, so
-  no query per tile.
+  no query per tile. The panel reads only the newest
+  `selectors.COMMENTS_LIMIT` (100) messages — sliced in the query, newest
+  first, then reversed — and counts the rest from that same annotation, so a
+  long discussion is still one query; «Показать ранние (N)» is the panel's own
+  address plus `comments=all` (`all_comments_url`, filter kept), which
+  `_board_context()` reads for the page and the fragment alike and carries on
+  `data-board-fragment-url`/`data-board-page-url`. The message form carries
+  the unsaved «Выполнение» as a hidden `execution_comment`
+  (`[data-attachment-carry-from]`, no script of its own) and `card_comment()`
+  parks it with `remember_execution_draft()` on success and on refusal.
   **The messages are the third live block and touch nothing else.** The
   `<aside>` holds three siblings: the guarded panel
   (`.board-panel__main[data-live-board-panel]`), the read-only message list

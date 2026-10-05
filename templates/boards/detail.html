@@ -4,7 +4,7 @@
 {% block title %}{{ board.name }} · Доски{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261007-1">
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261008-1">
 {% endblock %}
 
 {% block content_class %}page-container--fill{% endblock %}
@@ -127,6 +127,15 @@ takes `data-board-url` for the reload after the open card moved.
                         {% if card.can_comment %}
                             <form class="board-discussion__form" method="post" action="{% url 'boards:card_comment' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if comment_error %}="dirty"{% endif %}>
                                 {% csrf_token %}
+                                {% if card.can_complete %}
+                                    {% comment %}
+                                    The half-written «Выполнение» rides along, exactly as on the
+                                    attachment forms: `attachment_upload.js` copies the textarea into
+                                    it at submit time and the view parks it as the task's draft.
+                                    {% endcomment %}
+                                    <input type="hidden" name="execution_comment" value="{{ execution_comment }}"
+                                           data-attachment-carry-from="#task-execution-comment">
+                                {% endif %}
                                 <textarea id="board-comment-text" name="text" aria-label="Сообщение" rows="2" maxlength="4000" required placeholder="Сообщение участникам карточки">{{ comment_text }}</textarea>
                                 {% if comment_error %}<p class="field-error">{{ comment_error }}</p>{% endif %}
                                 <div class="form-actions"><button class="link-button link-button--secondary" type="submit">Отправить</button></div>

@@ -459,6 +459,19 @@
     color: var(--color-muted);
 }
 
+.board-discussion__earlier {
+    margin: 0 0 8px;
+}
+
+.board-discussion__earlier a {
+    color: var(--color-primary);
+}
+
+.board-discussion__earlier a:hover {
+    color: var(--color-primary-dark);
+    text-decoration: underline;
+}
+
 .board-discussion__meta strong {
     color: var(--color-text);
 }
