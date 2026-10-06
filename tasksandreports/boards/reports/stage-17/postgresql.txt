@@ -1,0 +1,60 @@
+$ python manage.py migrate   # с нуля, PostgreSQL 16
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying boards.0015_board_fields... OK
+  Applying boards.0016_column_stale_days... OK
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-17/seed_demo.py
+72 objects imported automatically (use -v 2 for details).
+
+seeded
+seeded stage 16
+seeded stage 17
+
+# время в колонке, застой, «Застрявшие», таблица и Excel через выборки и сервисы
+72 objects imported automatically (use -v 2 for details).
+
+в колонке: {'ZAP-1': (5, True), 'ZAP-2': (9, True), 'ZAP-7': (0, False), 'ZAP-8': (1, False), 'ZAP-3': (2, False), 'ZAP-5': (4, False), 'ZAP-4': (12, False), 'ZAP-6': (None, False)}
+«Застрявшие»: {'Сделать': ['ZAP-1', 'ZAP-2'], 'В работе': [], 'На проверке': [], 'Готово': ['ZAP-6']}
+column_counts == страница: True
+IntegrityError (0 дн.): IntegrityError
+IntegrityError (366 дн.): IntegrityError
+IntegrityError (завершающая колонка): IntegrityError
+таблица sort='' -> '': ['ZAP-1', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+таблица sort='field_4' -> 'field_4': ['ZAP-1', 'ZAP-3', 'ZAP-6', 'ZAP-2', 'ZAP-4', 'ZAP-7', 'ZAP-8', 'ZAP-5']
+таблица sort='-field_6' -> '-field_6': ['ZAP-3', 'ZAP-1', 'ZAP-6', 'ZAP-2', 'ZAP-4', 'ZAP-8', 'ZAP-7', 'ZAP-5']
+таблица sort='due' -> 'due': ['ZAP-3', 'ZAP-8', 'ZAP-1', 'ZAP-7', 'ZAP-5', 'ZAP-6', 'ZAP-4', 'ZAP-2']
+таблица sort='-days' -> '-days': ['ZAP-4', 'ZAP-2', 'ZAP-1', 'ZAP-5', 'ZAP-3', 'ZAP-8', 'ZAP-7', 'ZAP-6']
+таблица sort='title' -> 'title': ['ZAP-8', 'ZAP-6', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-1', 'ZAP-7', 'ZAP-2']
+таблица sort='board_card__title' -> '': ['ZAP-1', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+«Все поддоски», поиск «нарезать» (строчными): [('ZAP-9', 'Цех ПиР')]
+attachment; filename="ZAP-Osnovnaya-2026-10-06.xlsx"
+части пакета: ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml']
+
+$ python manage.py migrate boards 0015   # откат миграции этапа
+Operations to perform:
+  Target specific migration: 0015_board_fields, from boards
+Running migrations:
+  Rendering model states... DONE
+  Unapplying boards.0016_column_stale_days... OK
+72 objects imported automatically (use -v 2 for details).
+
+stale_after_days после отката: False
+
+$ python manage.py migrate   # снова вперёд
+  Applying boards.0016_column_stale_days... OK
+72 objects imported automatically (use -v 2 for details).
+
+stale_after_days: True
+пороги после отката и наката: [None]
+
+$ /tmp/claude-0/-home-user-Work-project/2f8d423d-0c9a-5f6b-b16a-2aaffad0d25c/scratchpad/venv/bin/python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test boards dashboard tasks notifications realtime ecosystem --parallel 4   # на PostgreSQL
+ERROR: setUpClass (ecosystem.test_text_rendering.UserTextRenderingTests)
+Ran 1180 tests in 114.959s
+FAILED (errors=1, skipped=4)
+# Единственная ошибка — ecosystem.test_text_rendering (setUpTestData): тестовый акт пишет
+# строку длиннее varchar(240) — StringDataRightTruncation; SQLite длину не проверяет.
+# Ошибка есть и без изменений этапа (проверено на коде до этапа); остальные 1179 тестов на
+# PostgreSQL проходят, в том числе boards, ecosystem.xlsx и выгрузки dashboard.

@@ -1,0 +1,95 @@
+
+=== 1920×1080 ===
+PASS  ZAP-1 «в колонке 5 дн.»  — ['в колонке 5 дн.', False]
+PASS  ZAP-7 «в колонке сегодня»  — ['в колонке сегодня', False]
+PASS  ZAP-4 «в колонке 12 дн.»  — ['в колонке 12 дн.', False]
+PASS  completed ZAP-6 says nothing  — ['', False]
+PASS  «Сделать» header «⏱ 3 дн.»
+PASS  other headers have no mark
+PASS  stale tiles: ZAP-1 (5 дн.), ZAP-2 (9 дн.)  — ['ZAP-1', 'ZAP-2']
+PASS  ZAP-8 (1 дн.) and ZAP-7 (0) not highlighted
+PASS  ZAP-4 (12 дн., no threshold) not highlighted
+PASS  address has stale=1  — http://127.0.0.1:8765/work/boards/1/1/?stale=1
+PASS  «Застрявшие»: Сделать = ZAP-1, ZAP-2; В работе and На проверке empty  — {'Сделать': [2, ['ZAP-1', 'ZAP-2']], 'В работе': [0, []], 'На проверке': [0, []], 'Готово': [1, ['ZAP-6']]}
+PASS  «Готово» untouched by the filter  — [1, ['ZAP-6']]
+PASS  filter row one line, no sideways scroll (board)  — height 34, sideways scroll False
+PASS  address has view=table  — http://127.0.0.1:8765/work/boards/1/1/?view=table
+PASS  table headers: code, title, column, people, due, days, the five fields and two dates  — ['Код', 'Название', 'Колонка', 'Исполнители', 'Срок', 'В колонке', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена']
+PASS  rows in the board's order  — ['ZAP-1', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+PASS  days of the stuck rows highlighted (2)  — 2
+PASS  filter row one line, no sideways scroll (table)  — height 34, sideways scroll False
+PASS  the table scrolls sideways inside its card, not the page  — (False, True)
+PASS  address has sort=field_4  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=field_4
+PASS  sorted by «Приоритет»: Высокий, Средний, Низкий, then the empty  — ['ZAP-1', 'ZAP-3', 'ZAP-6', 'ZAP-2', 'ZAP-4', 'ZAP-7', 'ZAP-8', 'ZAP-5']
+PASS  address has sort=-field_4  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=-field_4
+PASS  «Приоритет» descending, the empty still last  — ['ZAP-4', 'ZAP-2', 'ZAP-1', 'ZAP-3', 'ZAP-6', 'ZAP-7', 'ZAP-8', 'ZAP-5']
+PASS  address has sort=due  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=due
+PASS  sorted by «Срок»  — ['ZAP-3', 'ZAP-8', 'ZAP-1', 'ZAP-7', 'ZAP-5', 'ZAP-6', 'ZAP-4', 'ZAP-2']
+PASS  address has sort=-due  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=-due
+PASS  «Срок» descending  — ['ZAP-2', 'ZAP-4', 'ZAP-7', 'ZAP-5', 'ZAP-6', 'ZAP-1', 'ZAP-8', 'ZAP-3']
+PASS  address has sort=due  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=due
+PASS  «Высокий» in the table: ZAP-3, ZAP-1, ZAP-6 by «Срок»  — ['ZAP-3', 'ZAP-1', 'ZAP-6']
+PASS  the order survived the filter  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=due&f_4=1
+PASS  chip «Приоритет: Высокий»  — ['Приоритет: Высокий']
+PASS  «Поддоска» right after «Код»  — ['Код', 'Поддоска', 'Название']
+PASS  ZAP-9 of «Цех ПиР» is there  — [['ZAP-9', 'Цех ПиР', 'Нарезать заготовки для партии 12', 'Сделать', 'Мария Петрова', '12.10.2026через 6 дней', 'сегодня', '—', '—', '—', '—', '—', '—', '06.10.2026', '—']]
+PASS  address: scope=board, cancelled=1  — http://127.0.0.1:8765/work/boards/1/1/?view=table&cancelled=1&scope=board
+PASS  file name ZAP-Osnovnaya-<date>.xlsx  — ZAP-Osnovnaya-2026-10-06.xlsx
+PASS  Excel headers: the screen's plus «Статус»  — ['Код', 'Название', 'Колонка', 'Статус', 'Исполнители', 'Срок', 'В колонке, дн.', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена']
+PASS  Excel rows = screen rows, same order
+PASS  title, column and days agree cell by cell
+PASS  ZAP-1 cell types: dates are dates, numbers are numbers, empty is empty  — ['str', 'str', 'str', 'str', 'str', 'datetime', 'int', 'str', 'NoneType', 'datetime', 'str', 'str', 'int', 'datetime', 'NoneType']
+PASS  the date format is ДД.ММ.ГГГГ  — dd.mm.yyyy
+
+Первые строки скачанного файла (openpyxl):
+Код | Название | Колонка | Статус | Исполнители | Срок | В колонке, дн. | Номер заявки | Заказ покупателя | Срок изготовления | Приоритет | Стоп | Сумма | Создана | Завершена
+ZAP-3 | Запустить партию в цех МП | В работе | В работе | Иван Иванов | 05.10.2026 | 2 | 3-1581 |  | 20.11.2026 | Высокий |  | 2100000 | 06.10.2026 | 
+ZAP-1 | Согласовать спецификацию | Сделать | В работе | Иван Иванов | 08.10.2026 | 5 | 3-1579 |  | 30.11.2026 | Высокий | Да | 1250000 | 06.10.2026 | 
+ZAP-6 | Закупить металл | Готово | Выполнена | Иван Иванов | 10.10.2026 |  | 3-1584 |  | 30.10.2026 | Высокий |  | 990000 | 06.10.2026 | 06.10.2026
+ZAP-2 | Утвердить технологическую карту на изделие 9АВ.616.001-365 и передать в ПДО | Сделать | В работе | Иван Иванов | 16.10.2026 | 9 | 3-1580 |  | 15.12.2026 | Средний |  | 480000.5 | 06.10.2026 | 
+
+
+=== 1536×864 ===
+PASS  ZAP-1 «в колонке 5 дн.»  — ['в колонке 5 дн.', True]
+PASS  ZAP-7 «в колонке сегодня»  — ['в колонке сегодня', False]
+PASS  ZAP-4 «в колонке 12 дн.»  — ['в колонке 12 дн.', False]
+PASS  completed ZAP-6 says nothing  — ['', False]
+PASS  «Сделать» header «⏱ 3 дн.»
+PASS  other headers have no mark
+PASS  stale tiles: ZAP-1 (5 дн.), ZAP-2 (9 дн.)  — ['ZAP-1', 'ZAP-2']
+PASS  ZAP-8 (1 дн.) and ZAP-7 (0) not highlighted
+PASS  ZAP-4 (12 дн., no threshold) not highlighted
+PASS  address has stale=1  — http://127.0.0.1:8765/work/boards/1/1/?stale=1
+PASS  «Застрявшие»: Сделать = ZAP-1, ZAP-2; В работе and На проверке empty  — {'Сделать': [2, ['ZAP-1', 'ZAP-2']], 'В работе': [0, []], 'На проверке': [0, []], 'Готово': [1, ['ZAP-6']]}
+PASS  «Готово» untouched by the filter  — [1, ['ZAP-6']]
+PASS  filter row one line, no sideways scroll (board)  — height 34, sideways scroll False
+PASS  address has view=table  — http://127.0.0.1:8765/work/boards/1/1/?view=table
+PASS  table headers: code, title, column, people, due, days, the five fields and two dates  — ['Код', 'Название', 'Колонка', 'Исполнители', 'Срок', 'В колонке', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена']
+PASS  rows in the board's order  — ['ZAP-1', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+PASS  days of the stuck rows highlighted (2)  — 2
+PASS  filter row one line, no sideways scroll (table)  — height 34, sideways scroll False
+PASS  the table scrolls sideways inside its card, not the page  — (False, True)
+PASS  address has sort=field_4  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=field_4
+PASS  sorted by «Приоритет»: Высокий, Средний, Низкий, then the empty  — ['ZAP-1', 'ZAP-3', 'ZAP-6', 'ZAP-2', 'ZAP-4', 'ZAP-7', 'ZAP-8', 'ZAP-5']
+PASS  address has sort=-field_4  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=-field_4
+PASS  «Приоритет» descending, the empty still last  — ['ZAP-4', 'ZAP-2', 'ZAP-1', 'ZAP-3', 'ZAP-6', 'ZAP-7', 'ZAP-8', 'ZAP-5']
+PASS  address has sort=due  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=due
+PASS  sorted by «Срок»  — ['ZAP-3', 'ZAP-8', 'ZAP-1', 'ZAP-7', 'ZAP-5', 'ZAP-6', 'ZAP-4', 'ZAP-2']
+PASS  address has sort=-due  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=-due
+PASS  «Срок» descending  — ['ZAP-2', 'ZAP-4', 'ZAP-7', 'ZAP-5', 'ZAP-6', 'ZAP-1', 'ZAP-8', 'ZAP-3']
+PASS  address has sort=due  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=due
+PASS  «Высокий» in the table: ZAP-3, ZAP-1, ZAP-6 by «Срок»  — ['ZAP-3', 'ZAP-1', 'ZAP-6']
+PASS  the order survived the filter  — http://127.0.0.1:8765/work/boards/1/1/?view=table&sort=due&f_4=1
+PASS  chip «Приоритет: Высокий»  — ['Приоритет: Высокий']
+PASS  «Поддоска» right after «Код»  — ['Код', 'Поддоска', 'Название']
+PASS  ZAP-9 of «Цех ПиР» is there  — [['ZAP-9', 'Цех ПиР', 'Нарезать заготовки для партии 12', 'Сделать', 'Мария Петрова', '12.10.2026через 6 дней', 'сегодня', '—', '—', '—', '—', '—', '—', '06.10.2026', '—']]
+PASS  address: scope=board, cancelled=1  — http://127.0.0.1:8765/work/boards/1/1/?view=table&cancelled=1&scope=board
+PASS  file name ZAP-Osnovnaya-<date>.xlsx  — ZAP-Osnovnaya-2026-10-06.xlsx
+PASS  Excel headers: the screen's plus «Статус»  — ['Код', 'Название', 'Колонка', 'Статус', 'Исполнители', 'Срок', 'В колонке, дн.', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена']
+PASS  Excel rows = screen rows, same order
+PASS  title, column and days agree cell by cell
+PASS  ZAP-1 cell types: dates are dates, numbers are numbers, empty is empty  — ['str', 'str', 'str', 'str', 'str', 'datetime', 'int', 'str', 'NoneType', 'datetime', 'str', 'str', 'int', 'datetime', 'NoneType']
+PASS  the date format is ДД.ММ.ГГГГ  — dd.mm.yyyy
+PASS  no JavaScript errors and no browser dialogs
+
+81/81 PASS
