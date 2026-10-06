@@ -8,8 +8,9 @@ posted to it — it is only what the next page puts back into the field. Keyed
 by task, so a draft can never surface on a different task, and popped on first
 read, so it survives one navigation and no more.
 
-Two pages read it: the task page and, for a `BOARD` task, the card panel on
-the board (`tasks:detail` redirects there and leaves the draft for it).
+Only the task page reads it. A `BOARD` task has no «Выполнение» field on its
+board — its result is typed into «Завершить» in the card drawer's heading —
+so nothing there parks or takes a draft.
 """
 
 EXECUTION_DRAFT_SESSION_KEY = 'task_execution_draft'

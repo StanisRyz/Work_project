@@ -1,0 +1,26 @@
+{% load people %}{% comment %}
+«Лог» of a card, newest first: the live block `[data-live-board-log]`,
+read-only, so replaced whenever its fingerprint (`log_revision`) moves.
+
+The entries are the card's journal (`BoardCardEvent`, written by
+`boards/services.py` with every change) and, beside them by time, the files of
+its task — who added which file and when, read off `TaskAttachment`, never
+written twice. `selectors.card_log()` merges them and words each entry from
+its stored snapshots, so a column renamed since still reads as it was then.
+Messages of «Чат» are not here; they are on their own tab.
+{% endcomment %}
+{% if card.log %}
+    <ol class="board-log">
+        {% for entry in card.log %}
+            <li class="board-log__entry board-log__entry--{{ entry.kind }}">
+                <span class="board-avatar" title="{{ entry.actor|person_name|default:'Без автора' }}">{{ entry.actor|person_initials }}</span>
+                <div class="board-log__body">
+                    <p class="board-log__text user-text">{{ entry.text }}</p>
+                    <p class="board-log__meta">{{ entry.actor|person_name|default:'Без автора' }} · {{ entry.at|date:'d.m.Y H:i' }}</p>
+                </div>
+            </li>
+        {% endfor %}
+    </ol>
+{% else %}
+    <p class="board-drawer__empty">Записей пока нет.</p>
+{% endif %}

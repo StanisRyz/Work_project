@@ -1,7 +1,6 @@
 """Stage 7: «Обсуждение» in the card panel, and the cancellation notice."""
 
 import json
-import re
 
 from django.db import connection, transaction
 from django.test import TestCase, override_settings
@@ -27,7 +26,13 @@ from ..services import (
     cancel_card,
     post_card_comment,
 )
-from .helpers import BoardFixtureMixin, board_url, fragment_url, make_user
+from .helpers import (
+    BoardFixtureMixin,
+    assert_page_matches_fragment,
+    board_url,
+    fragment_url,
+    make_user,
+)
 
 
 def task_of(card):
@@ -42,20 +47,8 @@ def notes(event_type):
     return Notification.objects.filter(event_type=event_type)
 
 
-def attribute(content, name):
-    match = re.search(rf'{name}="([^"]*)"', content)
-    return match.group(1) if match else None
-
-
 def main_of(response):
     return response.content.decode().split('<main', 1)[1].split('</main>', 1)[0]
-
-
-CSRF_INPUT = re.compile(r'<input\b[^>]*\bname="csrfmiddlewaretoken"[^>]*>')
-
-
-def same_markup(fragment, page):
-    return CSRF_INPUT.sub('', fragment) in CSRF_INPUT.sub('', page)
 
 
 # --------------------------------------------------------------------------
@@ -240,7 +233,7 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
         self.client.force_login(self.member)
         response = self.client.post(f'{self.url}?mine=1', {'text': 'Готов к работе'})
         self.assertRedirects(
-            response, f'{self.page_url}?card={self.card_obj.pk}&mine=1', fetch_redirect_response=False,
+            response, f'{self.page_url}?card={self.card_obj.pk}&tab=chat&mine=1', fetch_redirect_response=False,
         )
         self.assertEqual(BoardCardComment.objects.get().text, 'Готов к работе')
         response = self.client.post(self.url, {'text': '   '})
@@ -253,7 +246,7 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
         post_card_comment(self.card_obj, actor=self.member, text='Первое\nвторая строка')
         self.client.force_login(self.colleague)
         content = main_of(self.client.get(self.page_url, {'card': self.card_obj.pk}))
-        self.assertIn('Обсуждение', content)
+        self.assertIn('>Чат <span class="tab-count" data-board-tab-count="chat">1</span>', content)
         self.assertIn('Первое<br>вторая строка', content)
         self.assertIn('class="board-discussion__text user-text"', content)
         self.assertIn(f'action="{self.url}"', content)
@@ -271,19 +264,20 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
         content = main_of(self.client.get(self.page_url))
         self.assertIn('Сообщений в обсуждении: 2', content)
 
-    def test_fragment_equals_the_page_for_all_three_blocks(self):
+    def test_fragment_equals_the_page_for_every_block(self):
         post_card_comment(self.card_obj, actor=self.member, text='Есть')
         self.client.force_login(self.member)
         query = {'card': self.card_obj.pk}
         page = self.client.get(self.page_url, query).content.decode()
         fragment = self.client.get(fragment_url(self.board), query).json()
-        for block in ('columns', 'panel', 'comments'):
-            with self.subTest(block=block):
-                self.assertTrue(fragment[f'{block}_html'])
-                self.assertTrue(same_markup(fragment[f'{block}_html'], page))
-                self.assertEqual(attribute(page, f'data-{block}-revision'), fragment[f'{block}_revision'])
-                self.assertEqual(fragment[f'{block}_revision'], content_revision(fragment[f'{block}_html']))
-        self.assertNotIn('Есть', fragment['panel_html'])
+        assert_page_matches_fragment(self, page, fragment)
+        for block in ('columns', 'comments', 'log'):
+            self.assertEqual(fragment[f'{block}_revision'], content_revision(fragment[f'{block}_html']))
+        self.assertEqual(
+            fragment['panel_revision'], content_revision(fragment['panel_html'] + fragment['card_html']),
+        )
+        self.assertNotIn('Есть', fragment['panel_html'] + fragment['card_html'])
+        self.assertEqual(fragment['chat_count'], 1)
 
     def test_a_new_message_does_not_move_the_panel_fingerprint(self):
         self.client.force_login(self.member)
@@ -296,14 +290,20 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
         self.assertNotEqual(before['columns_revision'], after['columns_revision'], 'счётчик на плитке')
         self.assertIn('Новое', after['comments_html'])
 
-    def test_no_discussion_outside_the_view_panel(self):
+    def test_no_chat_without_a_card(self):
         self.client.force_login(self.member)
         url = fragment_url(self.board)
-        for query in ({}, {'card': self.card_obj.pk, 'edit': '1'}, {'new': 'TODO'}):
+        column = self.column('TODO').pk
+        for query in ({}, {'new': column}, {'new': 'TODO'}):
             with self.subTest(query=query):
                 payload = self.client.get(url, query).json()
                 self.assertEqual(payload['comments_html'], '')
                 self.assertEqual(payload['comments_revision'], '')
+                self.assertEqual(payload['log_html'], '')
+        # Editing a card keeps its chat and its log beside the form.
+        payload = self.client.get(url, {'card': self.card_obj.pk, 'edit': '1'}).json()
+        self.assertTrue(payload['comments_html'])
+        self.assertTrue(payload['log_html'])
 
     def _queries(self):
         with CaptureQueriesContext(connection) as queries:

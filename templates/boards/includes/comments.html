@@ -1,9 +1,10 @@
 {% load people %}{% comment %}
-The messages of a card's «Обсуждение», oldest first: the live block
-`[data-live-board-comments]`. Read-only — the form to write one is the page's,
-beside this block and outside every block the live client replaces — so it is
-replaced whenever its fingerprint moves. It is its own block, and no message
-appears in the card panel: a new message never changes `panel_revision`.
+The messages of a card's «Чат», oldest first: the live block
+`[data-live-board-comments]`. Read-only — the form to write one is the
+drawer's, below this block and outside every block the live client replaces —
+so it is replaced whenever its fingerprint moves. It is its own block, and no
+message appears in the guarded panel: a new message never changes
+`panel_revision`.
 Only the newest `COMMENTS_LIMIT` are read; «Показать ранние (N)» is this panel
 with `comments=all`, built by the server with the board's filter kept.
 {% endcomment %}

@@ -4,19 +4,16 @@
  * A convenience of this browser only: the collapsed state is kept in
  * `localStorage` (every access in try/catch — a private window or blocked
  * storage simply forgets it). With nothing remembered the panel starts
- * collapsed below 1240px, where the columns need the width. While a card
- * panel is open on a screen up to 1600px wide (125 % scaling of a 1920px
- * monitor), the strip is drawn whatever was remembered — the columns and the
- * card panel need the width more — and nothing is stored. Without
- * JavaScript the panel is always open. Nothing here is a rule: the panel
- * lists only what the server drew.
+ * collapsed below 1240px, where the columns need the width. An open card
+ * changes nothing here: its drawer lies over the columns and takes no width
+ * from them. Without JavaScript the panel is always open. Nothing here is a
+ * rule: the panel lists only what the server drew.
  */
 (() => {
     'use strict';
 
     const STORAGE_KEY = 'quality.boards.navCollapsed';
     const NARROW = '(max-width: 1240px)';
-    const CROWDED = '(max-width: 1600px)';
 
     const shell = document.querySelector('[data-board-shell]');
     const toggle = shell && shell.querySelector('[data-board-nav-toggle]');
@@ -51,8 +48,7 @@
 
     const matches = (query) => typeof window.matchMedia === 'function' && window.matchMedia(query).matches;
     const stored = remembered();
-    const crowded = Boolean(document.querySelector('.board-layout--with-panel')) && matches(CROWDED);
-    apply(crowded || (stored === null ? matches(NARROW) : stored));
+    apply(stored === null ? matches(NARROW) : stored);
 
     toggle.addEventListener('click', () => {
         const collapsed = !shell.classList.contains('board-shell--collapsed');

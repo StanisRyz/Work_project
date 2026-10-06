@@ -19,9 +19,17 @@ one `board.updated` (`realtime.emitters.emit_board_updated()`), from inside
 its own `atomic()` block, so the event is published after the commit and a
 refusal or a rollback publishes nothing. A write that stored nothing — an edit
 that changes no field, a drop where the card already stood — is not a change
-and says nothing. A board's task changed elsewhere (`tasks:complete`, a
-reopen, a file) is the task's own `task.*` event and the `boards` sync
-revision, never a `board.updated`.
+and says nothing. A board's task changed elsewhere (an attachment added or
+removed) is the task's own `task.*` event and the `boards` sync revision, never
+a `board.updated`.
+
+Every change of a card is also one entry of its journal (`BoardCardEvent`,
+written by `_record()` in the same transaction): created, edited (which
+fields), moved (the columns' names as they were), completed, reopened,
+cancelled. A write that stored nothing records nothing, and a rollback takes
+the entry with it. Completing and reopening a card's task go through
+`complete_card()`/`reopen_card()` only — `tasks:complete` and `tasks:reopen`
+refuse a `BOARD` task — so the journal misses none of them.
 """
 
 import logging
@@ -40,6 +48,7 @@ from realtime.events import (
     BOARD_CHANGE_CARD_COMPLETED,
     BOARD_CHANGE_CARD_CREATED,
     BOARD_CHANGE_CARD_MOVED,
+    BOARD_CHANGE_CARD_REOPENED,
     BOARD_CHANGE_CARD_UPDATED,
     BOARD_CHANGE_COMMENT_ADDED,
     BOARD_CHANGE_MEMBERS_CHANGED,
@@ -47,7 +56,15 @@ from realtime.events import (
 )
 
 from .columns import DEFAULT_COLUMNS, MAX_COLUMNS
-from .models import Board, BoardCard, BoardCardComment, BoardColumn, BoardMember, SubBoard
+from .models import (
+    Board,
+    BoardCard,
+    BoardCardComment,
+    BoardCardEvent,
+    BoardColumn,
+    BoardMember,
+    SubBoard,
+)
 from .permissions import (
     active_employee_q,
     can_cancel_card,
@@ -191,6 +208,22 @@ def compose_task_text(title, description):
 # --------------------------------------------------------------------------
 # Boards and members
 # --------------------------------------------------------------------------
+
+
+def _record(card, kind, *, actor, **details):
+    """One journal entry of `card`, inside the caller's transaction.
+
+    `details` are identifiers and names of columns as they are now — never
+    the card's text, a reason or a message.
+    """
+    BoardCardEvent.objects.create(card=card, actor=actor, kind=kind, details=details)
+
+
+def _column_snapshot(prefix, column):
+    """`{prefix}_id`/`{prefix}` of a column, its name as it reads today."""
+    if column is None:
+        return {f'{prefix}_id': None, prefix: ''}
+    return {f'{prefix}_id': column.pk, prefix: column.name}
 
 
 def create_board(*, name, owner, actor, member_ids=(), department=None, description=''):
@@ -507,6 +540,7 @@ def create_card(
         # Inside the transaction and after the task and its исполнители exist,
         # so a rollback leaves no notification about a card that never was.
         notify_board_task_assigned(task, actor, _users(ids))
+        _record(card, BoardCardEvent.Kind.CREATED, actor=actor, **_column_snapshot('column', column))
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_CREATED, card.pk)
     log_event(
         logger,
@@ -575,7 +609,8 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
         ]
         # Each of the three writes below is itself a no-op when its part did
         # not change; this is what tells the caller whether anything did.
-        task_changed = task.task_text != task_text or task.due_date != due_date
+        due_changed = task.due_date != due_date
+        task_changed = task.task_text != task_text or due_changed
         assignees_changed = set(ids) != current_ids
         stored = bool(changed or task_changed or assignees_changed)
         if stored:
@@ -594,6 +629,13 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
         if added_ids:
             notify_board_task_assigned(task, actor, _users(added_ids))
         if stored:
+            # Which of the four things an editor changes, in the form's order.
+            fields = [*changed]
+            if due_changed:
+                fields.append('due_date')
+            if assignees_changed:
+                fields.append('assignees')
+            _record(card, BoardCardEvent.Kind.EDITED, actor=actor, fields=fields)
             emit_board_updated(board.pk, BOARD_CHANGE_CARD_UPDATED, card.pk)
     log_event(
         logger,
@@ -620,7 +662,7 @@ def move_card(card, *, actor, column, before_card_id=None):
 
     A card whose task is closed is refused: the closing column is reached by
     completing the task, and left only by an administrator reopening it
-    (`tasks:reopen`).
+    (`reopen_card()`).
 
     A move to where the card already stands — its own column, between the
     same neighbours — writes nothing and announces nothing.
@@ -682,6 +724,14 @@ def move_card(card, *, actor, column, before_card_id=None):
         else:
             card.position = position
             card.save(update_fields=['column', 'position', 'updated_at'])
+        if target.pk != previous_column_id:
+            # A reorder within a column is a move of the tile, not of the
+            # work: the journal records where the card went, by name.
+            previous = BoardColumn.objects.filter(pk=previous_column_id).first()
+            _record(
+                card, BoardCardEvent.Kind.MOVED, actor=actor,
+                **_column_snapshot('from_column', previous), **_column_snapshot('to_column', target),
+            )
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_MOVED, card.pk)
     log_event(
         logger,
@@ -717,11 +767,52 @@ def complete_card(card, *, actor, execution_comment):
             task = complete_task(task, actor, execution_comment)
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
+        _record(card, BoardCardEvent.Kind.COMPLETED, actor=actor)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_COMPLETED, card.pk)
     log_event(
         logger,
         'INFO',
         'board.card_completed',
+        board_id=board.pk,
+        board_card_id=card.pk,
+        task_id=task.pk,
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return task
+
+
+def reopen_card(card, *, actor):
+    """Put a completed card back into work — `tasks.services.reopen_task()`.
+
+    The right is the task's own (`can_reopen_task()`: an administrator, a
+    `COMPLETED` task), asked by `reopen_task()` under the task's lock; the
+    board adds only that an archived board stays as it was shelved. The card
+    returns to the working column it kept, or to the first one if that column
+    was deleted meanwhile (`columns.card_column()` decides; nothing is
+    written to `column`), and the journal names that column.
+    """
+    from tasks.services import TaskWorkflowError, reopen_task
+
+    with transaction.atomic():
+        board = _lock_board(card.board_id)
+        card = _lock_card(card, board)
+        task = _lock_card_task(card)
+        _refuse_archived('reopen_card', board, actor=actor, card_id=card.pk)
+        try:
+            task = reopen_task(task, actor)
+        except TaskWorkflowError as exc:
+            raise BoardError(str(exc)) from exc
+        working = [column for column in _sub_board_columns(card.sub_board) if not column.is_done]
+        column = next((column for column in working if column.pk == card.column_id), None)
+        if column is None and working:
+            column = working[0]
+        _record(card, BoardCardEvent.Kind.REOPENED, actor=actor, **_column_snapshot('column', column))
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_REOPENED, card.pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.card_reopened',
         board_id=board.pk,
         board_card_id=card.pk,
         task_id=task.pk,
@@ -763,6 +854,7 @@ def cancel_card(card, *, actor, reason):
         # Its исполнители, in the bell only; whoever cancelled is not told.
         assignee_ids = TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True)
         notify_board_task_cancelled(task, actor, _users(assignee_ids))
+        _record(card, BoardCardEvent.Kind.CANCELLED, actor=actor)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_CANCELLED, card.pk)
     log_event(
         logger,

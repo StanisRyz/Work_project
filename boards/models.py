@@ -332,3 +332,51 @@ class BoardCardComment(models.Model):
 
     def __str__(self):
         return f'Сообщение #{self.pk} в карточке #{self.card_id}'
+
+
+class BoardCardEvent(models.Model):
+    """One entry of a card's journal — «Лог» in the card panel.
+
+    Append-only: written only by `boards/services.py`, inside the transaction
+    of the change it records, so a rolled-back change takes its entry with it;
+    there is no edit and no delete. `details` holds identifiers and the names
+    of columns *as they were* — a column is renamed or deleted later, and the
+    entry must keep saying where the card went — never the text of the card,
+    a reason or a message. Files are not recorded here: the panel reads them
+    off `TaskAttachment` beside these entries.
+    """
+
+    class Kind(models.TextChoices):
+        CREATED = 'CREATED', 'Создание'
+        EDITED = 'EDITED', 'Изменение'
+        MOVED = 'MOVED', 'Перенос'
+        COMPLETED = 'COMPLETED', 'Завершение'
+        REOPENED = 'REOPENED', 'Возврат в работу'
+        CANCELLED = 'CANCELLED', 'Отмена'
+
+    card = models.ForeignKey(
+        BoardCard,
+        on_delete=models.PROTECT,
+        related_name='events',
+        verbose_name='Карточка',
+    )
+    actor = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_card_events',
+        verbose_name='Кто',
+    )
+    kind = models.CharField('Событие', max_length=20, choices=Kind.choices)
+    details = models.JSONField('Подробности', default=dict, blank=True)
+    created_at = models.DateTimeField('Когда', auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+        verbose_name = 'Событие карточки'
+        verbose_name_plural = 'Журнал карточек'
+        indexes = [
+            models.Index(fields=['card', 'created_at'], name='board_card_event_time'),
+        ]
+
+    def __str__(self):
+        return f'{self.get_kind_display()} карточки #{self.card_id}'

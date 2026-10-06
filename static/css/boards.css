@@ -295,12 +295,32 @@
     color: var(--color-primary);
 }
 
-/* ---- Columns and panel ---- */
+/* ---- Columns and the card drawer ---- */
 
+/* The columns take the whole width, card open or not; the drawer is laid over
+   them (absolutely, against this box), never beside them. */
 .board-layout {
     display: flex;
-    gap: 14px;
+    position: relative;
     min-height: 0;
+}
+
+/* The part of the board the drawer leaves visible is dimmed — and still
+   works: the veil takes no pointer events, so dragging, scrolling and the
+   live columns go on under it, and a plain click on it closes the drawer
+   (`board_drawer.js`). */
+.board-layout--with-panel > .board-structure {
+    position: relative;
+}
+
+.board-layout--with-panel > .board-structure::after {
+    content: '';
+    position: absolute;
+    z-index: 5;
+    inset: 0;
+    border-radius: var(--radius);
+    background: rgb(23 32 51 / 12%);
+    pointer-events: none;
 }
 
 /* The live columns block: the row of columns. */
@@ -606,56 +626,108 @@
     font-weight: 700;
 }
 
-/* ---- Panel ---- */
+/* ---- The card drawer ---- */
 
-.board-panel {
-    display: grid;
-    flex: 0 0 380px;
-    align-content: start;
-    gap: 12px;
+/* Over the columns from the right, as tall as the board area: ≈640px, and
+   never more than half the area while the screen is wide. Only the active
+   tab's body scrolls; the heading and the tab strip stay put. */
+.board-drawer {
+    display: flex;
+    position: absolute;
+    z-index: 30;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    flex-direction: column;
+    width: min(640px, 50%);
     min-height: 0;
-    padding: 16px;
-    overflow-y: auto;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
+    box-shadow: -12px 0 32px rgb(23 32 51 / 18%);
 }
 
-/* A panel the live client emptied (`realtime/boards.js`): the author
-   `display: grid` above would otherwise beat the user-agent `[hidden]`. */
-.board-panel[hidden] {
+/* Empty and closed: the author `display: flex` above would otherwise beat
+   the user-agent `[hidden]`. */
+.board-drawer[hidden] {
     display: none;
 }
 
-/* The guarded part of the panel: the card itself. «Обсуждение» is its
-   sibling inside the same <aside>, so a refresh of one never touches the
-   other. */
-.board-panel__main {
+@media (prefers-reduced-motion: no-preference) {
+    .board-drawer {
+        animation: board-drawer-in 0.18s ease-out;
+    }
+}
+
+@keyframes board-drawer-in {
+    from {
+        opacity: 0;
+        transform: translateX(32px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.board-drawer__frame {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* The heading: «Карточка №N», status, title; the actions on the right. */
+.board-drawer__head {
     display: grid;
-    align-content: start;
+    flex: 0 0 auto;
+    gap: 8px;
+    padding: 14px 16px 10px;
+}
+
+.board-drawer__titlebar {
+    display: flex;
+    align-items: flex-start;
     gap: 12px;
 }
 
-.board-panel__main[hidden] {
-    display: none;
+.board-drawer__heading {
+    display: grid;
+    flex: 1 1 auto;
+    gap: 4px;
+    min-width: 0;
 }
 
-.board-panel__head {
+.board-drawer__meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
-}
-
-.board-panel__head h2 {
+    gap: 4px 8px;
     margin: 0;
-    font-size: 1.15em;
+    color: var(--color-muted);
 }
 
-.board-panel__close {
+.board-drawer__title {
+    margin: 0;
+    font-size: 1.2em;
+}
+
+.board-drawer__title:focus {
+    outline: none;
+}
+
+.board-drawer__actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-drawer__close {
     display: inline-grid;
     width: var(--control-height);
     height: var(--control-height);
-    margin-left: auto;
     place-items: center;
     border-radius: var(--radius);
     color: var(--color-muted);
@@ -664,73 +736,218 @@
     text-decoration: none;
 }
 
-.board-panel__close:hover,
-.board-panel__close:focus-visible {
+.board-drawer__close:hover,
+.board-drawer__close:focus-visible {
     background: var(--color-bg);
     color: var(--color-text);
 }
 
-.board-panel__title {
-    margin: 0;
-    font-size: 1.05em;
+/* «Завершить»: the result field opens under the button. */
+.board-complete > summary {
+    list-style: none;
 }
 
-.board-panel__description,
-.board-panel__lead,
-.board-panel__task-link {
+.board-complete > summary::-webkit-details-marker {
+    display: none;
+}
+
+.board-complete__body {
+    width: 340px;
+    max-width: calc(100vw - 32px);
+}
+
+.board-complete__form {
+    display: grid;
+    gap: 6px;
+}
+
+.board-complete__form .link-button {
+    justify-self: start;
+}
+
+.board-complete__form textarea,
+.board-chat__form textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: var(--control-font-size);
+    resize: vertical;
+}
+
+/* The tab strip. */
+.board-drawer__tabs {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 4px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-border);
+    overflow-x: auto;
+}
+
+.board-drawer__tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: -1px;
+    padding: 8px 10px;
+    border-bottom: 2px solid transparent;
+    color: var(--color-muted);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.board-drawer__tab:hover {
+    color: var(--color-text);
+}
+
+.board-drawer__tab.is-active {
+    border-bottom-color: var(--color-primary);
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+/* «Описание» and «Файлы» sit in the guarded block's second container, which
+   lays its bodies straight into the drawer's column. */
+.board-drawer__card {
+    display: contents;
+}
+
+/* A tab body: shown only for the drawer's `data-board-tab`. */
+.board-drawer__body {
+    display: none;
+    flex: 1 1 0;
+    align-content: start;
+    gap: 12px;
+    min-height: 0;
+    padding: 14px 16px 16px;
+    overflow-y: auto;
+}
+
+.board-drawer[data-board-tab="description"] [data-board-tab-body="description"],
+.board-drawer[data-board-tab="files"] [data-board-tab-body="files"],
+.board-drawer[data-board-tab="log"] [data-board-tab-body="log"] {
+    display: grid;
+}
+
+/* «Чат»: the messages scroll, the form stays at the bottom. */
+.board-drawer[data-board-tab="chat"] [data-board-tab-body="chat"] {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.board-drawer__description,
+.board-drawer__empty {
     margin: 0;
 }
 
-.board-panel__lead {
+.board-drawer__empty {
     color: var(--color-muted);
 }
 
-.board-panel__facts {
+.board-drawer__facts {
     display: grid;
     gap: 8px;
     margin: 0;
 }
 
-.board-panel__facts > div {
+.board-drawer__facts > div {
     display: grid;
     grid-template-columns: 120px minmax(0, 1fr);
     gap: 8px;
 }
 
-.board-panel__facts dt {
+.board-drawer__facts dt {
     color: var(--color-muted);
 }
 
-.board-panel__facts dd {
+.board-drawer__facts dd {
     margin: 0;
 }
 
-.board-panel__person {
-    display: block;
+.board-drawer__people {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
 }
 
-.board-panel__move {
+.board-drawer__person {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.board-drawer__section {
+    display: grid;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
+}
+
+.board-drawer__section h3 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: var(--font-size-base);
+}
+
+.board-drawer__tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
+}
+
+.board-drawer__move {
     display: flex;
     flex-wrap: wrap;
     align-items: end;
     gap: 10px;
 }
 
-.board-panel__move label {
+.board-drawer__move label {
     display: grid;
-    flex: 1 1 160px;
     gap: 6px;
     color: var(--color-muted);
 }
 
-.board-panel__move select {
+.board-drawer__move select {
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     font: inherit;
 }
 
+.board-drawer__conflict {
+    margin: 0;
+}
+
+/* «Файлы»: the task page's card, set flat inside the tab. */
+.board-drawer__body .task-detail-attachments-card {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+}
+
+.board-drawer__body .task-detail-attachments-card h2 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: var(--font-size-base);
+}
+
 .board-card-form {
+    display: grid;
+    gap: 12px;
     padding: 0;
     border: 0;
 }
@@ -770,60 +987,28 @@
     width: auto;
 }
 
-/* «Выполнение», «Отмена» and «Вложения»: the task page's blocks, set flat
-   inside the panel — separated by a rule, no box inside the box. */
-.board-panel__section,
-.board-panel__attachments .task-detail-attachments-card {
-    display: grid;
-    gap: 8px;
-    margin: 0;
-    padding: 12px 0 0;
-    border: 0;
-    border-top: 1px solid var(--color-border);
-    border-radius: 0;
-    background: none;
-}
-
-.board-panel__section h3,
-.board-panel__attachments .task-detail-attachments-card h2 {
-    margin: 0;
-    color: var(--color-text);
-    font-size: var(--font-size-base);
-}
-
-.board-panel__conflict {
-    margin: 0;
-}
-
-.board-panel__cancel {
-    padding-top: 12px;
-    border-top: 1px solid var(--color-border);
-}
-
-.board-panel__meta {
-    margin: 0;
-    color: var(--color-muted);
-}
-
-.board-execution-form textarea {
-    box-sizing: border-box;
-    width: 100%;
-    padding: var(--control-padding);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    font: inherit;
-    font-size: var(--control-font-size);
-    resize: vertical;
-}
-
-/* ---- «Обсуждение» ---- */
+/* ---- «Чат» ---- */
 
 /* The message list scrolls on its own, so a new message at the bottom does
    not push the form out of sight; `realtime/boards.js` keeps a reader who
    was at the bottom there. */
-.board-discussion__list {
-    max-height: 320px;
+.board-chat__list {
+    flex: 1 1 0;
+    min-height: 0;
+    padding: 14px 16px;
     overflow-y: auto;
+}
+
+.board-chat__form {
+    display: grid;
+    flex: 0 0 auto;
+    gap: 8px;
+    padding: 10px 16px 14px;
+    border-top: 1px solid var(--color-border);
+}
+
+.board-chat__form .link-button {
+    justify-self: end;
 }
 
 .board-discussion__messages {
@@ -869,20 +1054,36 @@
     color: var(--color-text);
 }
 
-.board-discussion__form {
+/* ---- «Лог» ---- */
+
+.board-log {
     display: grid;
-    gap: 8px;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
 }
 
-.board-discussion__form textarea {
-    box-sizing: border-box;
-    width: 100%;
-    padding: var(--control-padding);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    font: inherit;
-    font-size: var(--control-font-size);
-    resize: vertical;
+.board-log__entry {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+}
+
+.board-log__body {
+    display: grid;
+    gap: 2px;
+}
+
+.board-log__text,
+.board-log__meta {
+    margin: 0;
+}
+
+.board-log__meta {
+    color: var(--color-muted);
+    font-size: 13px;
 }
 
 .board-tile__comments {
@@ -1088,20 +1289,14 @@
     }
 }
 
-/* The panel above the columns once the screen is too narrow for both. */
+/* A narrower screen: the drawer takes almost the whole board area. */
 @media (max-width: 1240px) {
     .board-shell {
         grid-template-columns: 200px minmax(0, 1fr);
     }
 
-    .board-layout--with-panel {
-        flex-direction: column;
-    }
-
-    .board-layout--with-panel .board-panel {
-        flex: 0 1 auto;
-        order: -1;
-        max-height: 45%;
+    .board-drawer {
+        width: calc(100% - 48px);
     }
 }
 
@@ -1118,13 +1313,18 @@
         max-height: 220px;
     }
 
-    .board-layout,
-    .board-layout--with-panel {
+    .board-layout {
         display: grid;
     }
 
-    .board-layout--with-panel .board-panel {
-        max-height: none;
+    /* The drawer is the whole screen. */
+    .board-drawer {
+        position: fixed;
+        z-index: 1000;
+        inset: 0;
+        width: auto;
+        border: 0;
+        border-radius: 0;
     }
 
     .board-column {

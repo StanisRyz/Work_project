@@ -9,12 +9,20 @@
  */
 
 // --------------------------------------------------------------------------
-// Selectors: `.class`, `[attr]`, `[attr="value"]`, `tag`, and a tag or
-// attributes compounded: `details[data-board-menu][open]`
+// Selectors: `.class`, `[attr]`, `[attr="value"]`, `tag`, a tag or
+// attributes compounded: `details[data-board-menu][open]`, `a.board-tile`,
+// and a comma-separated list of those
 // --------------------------------------------------------------------------
 
 function matches(element, selector) {
+    if (selector.indexOf(',') !== -1) {
+        return selector.split(',').some((part) => matches(element, part));
+    }
     const text = selector.trim();
+    const tagClass = /^([a-zA-Z][\w-]*)\.([\w-]+)$/.exec(text);
+    if (tagClass) {
+        return element.tagName === tagClass[1].toUpperCase() && element.classList.contains(tagClass[2]);
+    }
     const compound = /^([a-zA-Z][\w-]*)?((?:\[[^\]]+\])+)$/.exec(text);
     if (compound && (compound[1] || compound[2].indexOf('][') !== -1)) {
         if (compound[1] && element.tagName !== compound[1].toUpperCase()) {
@@ -137,6 +145,10 @@ class Element {
         return this.attributes.has(name) ? this.attributes.get(name) : null;
     }
 
+    removeAttribute(name) {
+        this.attributes.delete(name);
+    }
+
     setAttribute(name, value) {
         this.attributes.set(name, String(value));
     }
@@ -239,6 +251,17 @@ class Element {
 
     matches(selector) {
         return matches(this, selector);
+    }
+
+    closest(selector) {
+        let current = this;
+        while (current instanceof Element) {
+            if (matches(current, selector)) {
+                return current;
+            }
+            current = current.parent;
+        }
+        return null;
     }
 
     querySelectorAll(selector) {
@@ -501,36 +524,71 @@ function createEnvironment({
     }
     if (page === 'board') {
         // The board page as `boards/detail.html` draws it: the root with the
-        // fragment URL and the fingerprints, the columns with one tile, the
-        // card panel with «Выполнение», and the conflict banner.
+        // server-built addresses and the fingerprints, the columns with one
+        // tile, and the card drawer — its heading (the guarded panel, with
+        // «Завершить»'s result field), the tab strip, «Описание»/«Файлы» (the
+        // guarded block's second container), «Чат» with its list and form,
+        // and «Лог» — and the conflict banner.
         const board = new Element('div');
         board.setAttribute('data-board', '');
         board.setAttribute('data-board-id', '4');
         board.setAttribute('data-board-url', '/work/boards/4/7/');
         board.setAttribute('data-board-page-url', '/work/boards/4/7/?card=9');
         board.setAttribute('data-board-fragment-url', '/work/boards/4/7/fragment/?card=9');
+        board.setAttribute('data-board-fragment-base', '/work/boards/4/7/fragment/');
+        board.setAttribute('data-board-close-url', '/work/boards/4/7/');
+        board.setAttribute('data-board-close-fragment-url', '/work/boards/4/7/fragment/');
+        board.setAttribute('data-board-panel', 'view');
         board.setAttribute('data-tabs-revision', 'tabs-rev-initial');
         board.setAttribute('data-columns-revision', 'columns-rev-initial');
         board.setAttribute('data-panel-revision', 'panel-rev-initial');
         board.setAttribute('data-comments-revision', 'comments-rev-initial');
+        board.setAttribute('data-log-revision', 'log-rev-initial');
         board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
         // The sub-board tabs: a read-only live block of their own.
         const tabs = new Element('div');
         tabs.setAttribute('data-live-board-tabs', '');
         tabs.innerHTML = '<nav><a data-tab="7">исходная вкладка</a></nav>';
+        const layout = new Element('div');
+        layout.setAttribute('data-board-layout', '');
+        layout.setAttribute('class', 'board-layout board-layout--with-panel');
         const columns = new Element('div');
         columns.setAttribute('data-live-board-columns', '');
+        columns.setAttribute('data-current-card', '9');
         columns.innerHTML = '<section data-column-id="31"><ol data-column-list>'
-            + '<li data-card-id="9" data-task-id="21" data-card-movable>исходная плитка</li></ol></section>';
-        const panel = new Element('aside');
+            + '<li data-card-id="9" data-task-id="21" data-card-movable>'
+            + '<a class="board-tile board-tile--open" href="/work/boards/4/7/?card=9">исходная плитка</a></li>'
+            + '<li data-card-id="12" data-task-id="24" data-card-movable>'
+            + '<a class="board-tile" href="/work/boards/4/7/?card=12&mine=1">вторая плитка</a></li>'
+            + '</ol></section>';
+        const drawer = new Element('aside');
+        drawer.setAttribute('data-board-drawer', '');
+        drawer.setAttribute('data-board-tab', 'description');
+        const panel = new Element('div');
         panel.setAttribute('data-live-board-panel', '');
         panel.setAttribute('data-task-id', '21');
+        const close = new Element('a');
+        close.setAttribute('href', '/work/boards/4/7/');
+        close.setAttribute('data-board-drawer-close', '');
         const execution = new Element('textarea');
         execution.setAttribute('name', 'execution_comment');
         execution.value = '';
-        panel.append(execution);
-        // «Обсуждение»: the read-only message list and, beside it, its form —
-        // outside every live block, as `boards/detail.html` draws them.
+        panel.append(close, execution);
+        const strip = new Element('nav');
+        strip.innerHTML = ['description', 'chat', 'files', 'log'].map((name) => (
+            `<a class="board-drawer__tab${name === 'description' ? ' is-active' : ''}" `
+            + `href="/work/boards/4/7/?card=9&tab=${name}" data-board-tab-link="${name}" `
+            + `data-board-tab-fragment-url="/work/boards/4/7/fragment/?card=9&tab=${name}">${name}`
+            + `${name === 'chat' || name === 'files' ? `<span data-board-tab-count="${name}">1</span>` : ''}</a>`
+        )).join('');
+        const card = new Element('div');
+        card.setAttribute('data-live-board-card', '');
+        card.innerHTML = '<section data-board-tab-body="description">исходное описание</section>'
+            + '<section data-board-tab-body="files">исходные файлы</section>';
+        // «Чат»: the read-only message list and, below it, its form —
+        // outside every live block, as `boards/includes/drawer.html` draws them.
+        const chat = new Element('section');
+        chat.setAttribute('data-board-tab-body', 'chat');
         const comments = new Element('div');
         comments.setAttribute('data-live-board-comments', '');
         comments.innerHTML = '<ol><li data-comment-id="1">исходное сообщение</li></ol>';
@@ -540,7 +598,19 @@ function createEnvironment({
         const commentText = new Element('textarea');
         commentText.setAttribute('name', 'text');
         commentText.value = '';
-        board.append(tabs, columns, panel, comments, commentText);
+        chat.append(comments, commentText);
+        const logBody = new Element('section');
+        logBody.setAttribute('data-board-tab-body', 'log');
+        const log = new Element('div');
+        log.setAttribute('data-live-board-log', '');
+        log.innerHTML = '<ol><li>исходная запись</li></ol>';
+        logBody.append(log);
+        drawer.append(panel, strip, card, chat, logBody);
+        layout.append(columns, drawer);
+        const message = new Element('div');
+        message.setAttribute('data-board-message', '');
+        message.hidden = true;
+        board.append(tabs, message, layout);
         const conflict = new Element('div');
         conflict.setAttribute('data-board-conflict-banner', '');
         conflict.hidden = true;
@@ -550,11 +620,15 @@ function createEnvironment({
         Object.assign(live, {
             board,
             tabs,
+            layout,
             columns,
+            drawer,
             panel,
+            card,
             execution,
             comments,
             commentText,
+            log,
             conflictBanner: conflict,
             modalTextarea,
         });
@@ -646,6 +720,11 @@ function createEnvironment({
         dispatch(type, event = {}) {
             (documentListeners.get(type) || []).forEach((handler) => handler({ type, ...event }));
         },
+        // What a script's own `CustomEvent` goes through.
+        dispatchEvent(event) {
+            (documentListeners.get(event.type) || []).forEach((handler) => handler(event));
+            return true;
+        },
     };
 
     // The bell double: `replaceItems` stores server HTML as elements the client
@@ -728,7 +807,13 @@ function createEnvironment({
                 reject(new Error('aborted'));
                 return;
             }
-            resolve({ ok: true, status: 200, redirected: false, json: async () => outcome });
+            resolve({
+                ok: true,
+                status: 200,
+                redirected: false,
+                headers: { get: () => 'application/json' },
+                json: async () => outcome,
+            });
         });
     };
 
@@ -765,10 +850,29 @@ function createEnvironment({
         },
         fetch: fetchStub,
         location: {
+            href: 'http://quality.test/',
             search: '',
             reload: () => {},
             replaced: [],
             replace(url) {
+                this.replaced.push(url);
+            },
+            assigned: [],
+            assign(url) {
+                this.assigned.push(url);
+            },
+        },
+        // The history entries a page pushed or replaced, newest last.
+        history: {
+            state: null,
+            pushed: [],
+            replaced: [],
+            pushState(state, _title, url) {
+                this.state = state;
+                this.pushed.push(url);
+            },
+            replaceState(state, _title, url) {
+                this.state = state;
                 this.replaced.push(url);
             },
         },

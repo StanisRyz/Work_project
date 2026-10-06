@@ -1,0 +1,49 @@
+{% comment %}
+The card drawer: everything inside `<aside data-board-drawer>` of the board
+page, top to bottom — the heading, the tab strip, the four tab bodies. The page
+prints it, and `boards:fragment` returns it as `drawer_html` for
+`board_drawer.js` to insert when it opens a card without reloading the page;
+it composes the live blocks already rendered (`panel_html`, `card_html`,
+`comments_html`, `log_html`) and adds no markup of theirs.
+
+Which tab is shown is the `<aside>`'s own `data-board-tab`, outside every
+block the live client replaces, so a replacement never changes the tab. The
+tab strip is links (`?tab=`), so without JavaScript a tab is a page; with it a
+tab is switched in place and the address follows. The numbers beside «Чат» and
+«Файлы» are set again by the live client together with their blocks.
+
+The guarded block has two containers — the heading
+(`[data-live-board-panel]`) and the forms and files
+(`[data-live-board-card]`) — with one fingerprint. «Чат»'s messages
+(`[data-live-board-comments]`) and «Лог» (`[data-live-board-log]`) are
+read-only blocks of their own, and the chat's form is in no block at all, so a
+message being typed is never redrawn.
+{% endcomment %}
+<div class="board-drawer__frame">
+    <div class="board-drawer__head" data-live-board-panel{% if card %} data-task-id="{{ card.task.pk }}"{% endif %}>{{ panel_html }}</div>
+    {% if panel_tabs %}
+        <nav class="board-drawer__tabs" aria-label="Разделы карточки">
+            {% for item in panel_tabs %}
+                <a class="board-drawer__tab{% if item.active %} is-active{% endif %}" href="{{ item.page_url }}"
+                   data-board-tab-link="{{ item.name }}" data-board-tab-fragment-url="{{ item.fragment_url }}"{% if item.active %} aria-current="true"{% endif %}>{{ item.label }}{% if item.count is not None %} <span class="tab-count" data-board-tab-count="{{ item.name }}">{{ item.count }}</span>{% endif %}</a>
+            {% endfor %}
+        </nav>
+    {% endif %}
+    <div class="board-drawer__card" data-live-board-card>{{ card_html }}</div>
+    {% if show_discussion %}
+        <section class="board-drawer__body board-chat" data-board-tab-body="chat" aria-label="Чат">
+            <div class="board-chat__list" data-live-board-comments>{{ comments_html }}</div>
+            {% if card.can_comment %}
+                <form class="board-chat__form" method="post" action="{% url 'boards:card_comment' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if comment_error %}="dirty"{% endif %}>
+                    {% csrf_token %}
+                    <textarea id="board-comment-text" name="text" aria-label="Сообщение" rows="2" maxlength="4000" required placeholder="Сообщение участникам карточки">{{ comment_text }}</textarea>
+                    {% if comment_error %}<p class="field-error">{{ comment_error }}</p>{% endif %}
+                    <button class="link-button link-button--compact" type="submit">Отправить</button>
+                </form>
+            {% endif %}
+        </section>
+        <section class="board-drawer__body" data-board-tab-body="log" aria-label="Лог">
+            <div data-live-board-log>{{ log_html }}</div>
+        </section>
+    {% endif %}
+</div>

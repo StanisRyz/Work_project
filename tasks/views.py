@@ -153,12 +153,12 @@ def task_detail(request, pk):
     # «Ознакомиться» and «Согласовать документ» are answered on the document.
     if task.is_routing_task and task.is_document_task and task.document_version_id:
         return redirect('documents:document_detail', task.document_version.document_id)
-    # A board card is worked on its board. Not a routing entry — it is
-    # completed and takes files exactly like any task — only shown elsewhere.
-    # The parked «Выполнение» draft is deliberately left in the session: the
-    # card panel takes it.
+    # A board card is worked on its board. Not a routing entry — it takes
+    # files exactly like any task — only shown elsewhere. `?tab=files` (where
+    # an attachment request comes back to) opens the panel on its files.
     if task.is_board_task and task.board_card_id:
-        return redirect(board_card_url(task))
+        tab = request.GET.get('tab', '')
+        return redirect(board_card_url(task, tab if tab.isalpha() else ''))
     context = _task_detail_context(
         task, request.user, request.GET.urlencode(),
         # The parked upload draft first, then whatever the task already holds.
@@ -198,18 +198,31 @@ def _task_detail_context(
     }
 
 
+# A `BOARD` task is completed and reopened on its board, never here: the
+# board's routes (`boards:card_complete`, `boards:card_reopen`) are what write
+# the card's journal, and a task closed behind the board's back would leave a
+# gap in it.
+BOARD_TASK_REFUSAL = 'Карточку доски завершают и возвращают на доске.'
+
+
+def _to_board_card(request, task):
+    """`tasks:complete`/`tasks:reopen` of a `BOARD` task: nothing done, the card opened."""
+    messages.info(request, BOARD_TASK_REFUSAL)
+    return redirect(board_card_url(task))
+
+
 @login_required
 def complete_task_view(request, pk):
     if request.method != 'POST':
         return redirect('tasks:detail', pk=pk)
     task = get_object_or_404(get_visible_tasks_queryset(request.user), pk=pk)
+    if task.is_board_task and task.board_card_id:
+        return _to_board_card(request, task)
     execution_comment = request.POST.get('execution_comment', '')
     list_query = request.POST.get('list_query', '')
     try:
         complete_task(task, request.user, execution_comment)
     except TaskWorkflowError as exc:
-        if task.is_board_task:
-            return _back_to_board_card(request, task, str(exc), execution_comment)
         return render(
             request, 'tasks/detail.html',
             _task_detail_context(task, request.user, list_query, execution_comment, str(exc)), status=400,
@@ -217,15 +230,16 @@ def complete_task_view(request, pk):
     return _redirect_to_next_task(request, task, list_query)
 
 
-def _back_to_board_card(request, task, error, execution_comment):
-    """A refusal on a `BOARD` task: the message and the draft go to the card panel.
+def _back_to_board_card(request, task, error):
+    """A refused upload on a `BOARD` task: the message goes to the card's files.
 
     The task page is never drawn for a board task, so where it would come back
-    with the error beside the form, the board does instead.
+    with the error beside the form, the board does instead. No «Выполнение»
+    draft travels: the board's result is typed into «Завершить» in the panel's
+    heading, and no attachment form carries it.
     """
     messages.error(request, error)
-    remember_execution_draft(request, task, execution_comment)
-    return redirect(board_card_url(task))
+    return redirect(board_card_url(task, 'files'))
 
 
 def _redirect_to_next_task(request, done_task, list_query):
@@ -266,6 +280,8 @@ def task_reopen(request, pk):
     one: an administrator is not an исполнитель of the tasks they correct.
     """
     task = get_object_or_404(get_readable_tasks_queryset(request.user), pk=pk)
+    if task.is_board_task and task.board_card_id:
+        return _to_board_card(request, task)
     list_query = request.POST.get('list_query', '')
     try:
         reopen_task(task, request.user)
@@ -315,9 +331,7 @@ def task_add_attachment(request, pk):
                         f"{'?' + list_query if list_query else ''}")
     if task.is_board_task:
         errors = [str(error) for error in form.errors.get('file', [])]
-        return _back_to_board_card(
-            request, task, ' '.join(['Проверьте файл вложения.', *errors]), execution_comment,
-        )
+        return _back_to_board_card(request, task, ' '.join(['Проверьте файл вложения.', *errors]))
     messages.error(request, 'Проверьте файл вложения.')
     context = _task_detail_context(
         task, request.user, list_query, execution_comment, attachment_form=form,

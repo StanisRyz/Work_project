@@ -15,6 +15,7 @@ const vm = require('node:vm');
 
 const {
     createEnvironment,
+    Element,
     FakeBroadcastChannel,
     FakeStorage,
     FakeEventSource,
@@ -29,6 +30,9 @@ const SOURCES = MODULES.map((name) => [name, fs.readFileSync(path.join(CLIENT_DI
 // Dragging is not a real-time module, but what it does after moving the open
 // card depends on whether the live board client runs.
 const BOARD_DND_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_dnd.js'), 'utf8');
+// The card drawer opens, switches and closes without a reload, and the live
+// client has to follow it.
+const BOARD_DRAWER_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_drawer.js'), 'utf8');
 const DEFAULT_COORDINATION_EPOCH = 'test-session-epoch-000000000001';
 const coordinationChannelName = (epoch = DEFAULT_COORDINATION_EPOCH) =>
     `quality-realtime-v1:${epoch}`;
@@ -51,6 +55,8 @@ function load(options = {}) {
         fetch: env.window.fetch,
         EventSource: env.window.EventSource,
         AbortController,
+        URL,
+        URLSearchParams,
         Number,
         JSON,
         Promise,
@@ -1416,14 +1422,24 @@ function boardEvent(boardId, change, eventId) {
     };
 }
 
-function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs } = {}) {
+function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts } = {}) {
     const payload = {
         columns_html: `<section data-column-id="31"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
         columns_revision: columns,
         panel_html: `<textarea name="execution_comment" data-fresh-panel></textarea>`,
+        card_html: `<section data-board-tab-body="description" data-fresh-card>${panel}</section>`
+            + '<section data-board-tab-body="files">файлы</section>',
         panel_revision: panel,
         panel: 'view',
     };
+    if (log) {
+        payload.log_html = `<ol><li data-fresh-log>${log}</li></ol>`;
+        payload.log_revision = log;
+    }
+    if (counts) {
+        payload.chat_count = counts.chat;
+        payload.files_count = counts.files;
+    }
     if (tabs) {
         payload.tabs_html = `<nav><a data-tab="8" data-fresh-tab>${tabs}</a></nav>`;
         payload.tabs_revision = tabs;
@@ -1472,7 +1488,7 @@ test('the columns wait for the drag to end, then refresh once', async () => {
     env.source.emitEvent('board.updated', boardEvent(4, 'card_created', 'first'));
     env.clock.advance(300);
     await flush();
-    assert.equal(env.live.columns.textContent, 'исходная плитка', 'nothing replaced mid-drag');
+    assert.equal(env.live.columns.textContent, 'исходная плиткавторая плитка', 'nothing replaced mid-drag');
     assert.equal(env.core.boardLive.isDeferred, true);
 
     env.live.board.attributes.delete('data-board-busy');
@@ -1573,7 +1589,7 @@ test('an unchanged panel fingerprint neither replaces nor warns', async () => {
 
     assert.equal(boardCalls(env).length, 1);
     assert.equal(env.live.conflictBanner.hidden, true, 'no false conflict');
-    assert.equal(env.live.columns.textContent, 'исходная плитка', 'unchanged columns stay');
+    assert.equal(env.live.columns.textContent, 'исходная плиткавторая плитка', 'unchanged columns stay');
 });
 
 test('a page holding a refused form starts dirty', async () => {
@@ -1743,6 +1759,276 @@ test('without real-time the board script does nothing', async () => {
     const env = load({ page: 'board', realtimeEnabled: false });
     assert.equal(env.core, null);
     assert.equal(env.fetchCalls.length, 0);
+});
+
+// ------------------------------------------------------------ board drawer
+
+function loadDrawer(env) {
+    vm.runInContext(BOARD_DRAWER_SOURCE, env.context, { filename: 'board_drawer.js' });
+    return env.context.window.qualityBoardDrawer;
+}
+
+/** `boards:fragment` for card 12, the second tile, opened from the board. */
+function drawerPayload(tab = 'description') {
+    const query = `?card=12&tab=${tab}&mine=1`;
+    const links = ['description', 'chat', 'files', 'log'].map((name) => (
+        `<a class="board-drawer__tab${name === tab ? ' is-active' : ''}" `
+        + `href="/work/boards/4/7/?card=12&tab=${name}&mine=1" data-board-tab-link="${name}" `
+        + `data-board-tab-fragment-url="/work/boards/4/7/fragment/?card=12&tab=${name}&mine=1">${name}</a>`
+    )).join('');
+    return {
+        ...boardFragment({
+            columns: 'columns-rev-open', panel: 'panel-rev-open', comments: 'comments-rev-open', log: 'log-rev-open',
+        }),
+        panel: 'view',
+        card_id: 12,
+        task_id: 24,
+        tab,
+        page_url: `/work/boards/4/7/${query}`,
+        fragment_url: `/work/boards/4/7/fragment/${query}`,
+        reset_url: '/work/boards/4/7/?card=12',
+        drawer_html: '<div class="board-drawer__frame">'
+            + '<div data-live-board-panel data-task-id="24"><a href="/work/boards/4/7/?mine=1" data-board-drawer-close>×</a>'
+            + '<textarea name="execution_comment" data-opened-panel></textarea></div>'
+            + `<nav>${links}</nav>`
+            + '<div data-live-board-card><section data-board-tab-body="description">описание 12</section>'
+            + '<section data-board-tab-body="files">файлы 12</section></div>'
+            + '<section data-board-tab-body="chat"><div data-live-board-comments><ol><li>сообщение 12</li></ol></div>'
+            + '<textarea name="text" data-opened-chat-form></textarea></section>'
+            + '<section data-board-tab-body="log"><div data-live-board-log><ol><li>запись 12</li></ol></div></section>'
+            + '</div>',
+    };
+}
+
+const tileOf = (env, cardId) => env.live.columns.querySelector(`[data-card-id="${cardId}"]`).querySelector('.board-tile');
+
+/** A plain left click on `target`; returns whether the script took it over. */
+function click(env, target) {
+    let prevented = false;
+    env.document.dispatch('click', {
+        target, button: 0, defaultPrevented: false, preventDefault: () => { prevented = true; },
+    });
+    return prevented;
+}
+
+function drawerHandler(env, { tab } = {}) {
+    env.setFetchHandler((call) => {
+        if (call.url.startsWith('/realtime/sync/')) {
+            return snapshot();
+        }
+        if (call.url.includes('card=12')) {
+            return drawerPayload(tab || new URLSearchParams(call.url.split('?')[1]).get('tab') || 'description');
+        }
+        return boardFragment();
+    });
+}
+
+test('a tile opens its card in the drawer through the fragment and pushes the address', async () => {
+    const env = load({ page: 'board' });
+    drawerHandler(env);
+    loadDrawer(env);
+
+    assert.equal(click(env, tileOf(env, 12)), true, 'the link is taken over, not followed');
+    await flush();
+
+    assert.equal(env.callsTo('/work/boards/4/7/fragment/')[0].url, '/work/boards/4/7/fragment/?card=12&mine=1',
+        'the tile\'s own server-built query');
+    assert.ok(env.live.drawer.querySelector('[data-opened-panel]'), 'drawer_html inserted');
+    assert.equal(env.live.drawer.hidden, false);
+    assert.equal(env.live.drawer.getAttribute('data-board-tab'), 'description');
+    assert.deepEqual(env.window.history.pushed, ['/work/boards/4/7/?card=12&tab=description&mine=1']);
+    assert.deepEqual(env.window.location.assigned, [], 'no navigation, no reload');
+    assert.equal(env.live.board.dataset.boardFragmentUrl, '/work/boards/4/7/fragment/?card=12&tab=description&mine=1');
+    assert.equal(env.live.board.dataset.boardPageUrl, '/work/boards/4/7/?card=12&tab=description&mine=1');
+    assert.equal(env.live.board.dataset.panelRevision, 'panel-rev-open');
+    assert.equal(env.live.columns.dataset.currentCard, '12');
+    assert.ok(tileOf(env, 12).classList.contains('board-tile--open'));
+    assert.ok(!tileOf(env, 9).classList.contains('board-tile--open'));
+
+    // The live client follows: its next request is the new card's address.
+    env.clock.advance(300);
+    await flush();
+    const calls = boardCalls(env);
+    assert.equal(calls[calls.length - 1].url, '/work/boards/4/7/fragment/?card=12&tab=description&mine=1');
+});
+
+test('«назад» and «вперёд» close and open the drawer the same way', async () => {
+    const env = load({ page: 'board' });
+    drawerHandler(env);
+    loadDrawer(env);
+
+    env.window.location.search = '';
+    env.window.dispatch('popstate');
+    assert.equal(env.live.drawer.hidden, true, 'back to the board: closed');
+    assert.equal(env.live.drawer.innerHTML, '');
+    assert.ok(!env.live.layout.classList.contains('board-layout--with-panel'));
+    assert.equal(env.live.board.dataset.boardFragmentUrl, '/work/boards/4/7/fragment/');
+    assert.equal(env.live.columns.dataset.currentCard, '');
+    assert.deepEqual(env.window.history.pushed, [], 'popstate pushes nothing');
+
+    env.window.location.search = '?card=12&tab=chat';
+    env.window.dispatch('popstate');
+    await flush();
+    assert.equal(env.callsTo('/work/boards/4/7/fragment/').pop().url, '/work/boards/4/7/fragment/?card=12&tab=chat');
+    assert.equal(env.live.drawer.hidden, false);
+    assert.equal(env.live.drawer.getAttribute('data-board-tab'), 'chat');
+    assert.deepEqual(env.window.history.pushed, []);
+});
+
+test('«×» and Esc close a clean drawer in place; unsaved input makes them ordinary links', async () => {
+    const env = load({ page: 'board' });
+    drawerHandler(env);
+    loadDrawer(env);
+
+    const closer = env.live.panel.querySelector('[data-board-drawer-close]');
+    env.window.qualityUnsavedGuard = { isDirty: true };
+    assert.equal(click(env, closer), false, 'followed: the browser asks before leaving');
+    assert.equal(env.live.drawer.hidden, false);
+
+    env.window.qualityUnsavedGuard = { isDirty: false };
+    assert.equal(click(env, closer), true);
+    assert.equal(env.live.drawer.hidden, true);
+    assert.deepEqual(env.window.history.pushed, ['/work/boards/4/7/']);
+
+    // Esc, with a menu open above the drawer, belongs to the menu.
+    click(env, tileOf(env, 12));
+    await flush();
+    const menu = new Element('details');
+    menu.setAttribute('data-board-menu', '');
+    menu.setAttribute('open', '');
+    env.live.board.append(menu);
+    env.document.dispatch('keydown', { key: 'Escape', target: env.document.body });
+    assert.equal(env.live.drawer.hidden, false);
+    menu.remove();
+    env.document.dispatch('keydown', { key: 'Escape', target: env.live.commentText });
+    assert.equal(env.live.drawer.hidden, false, 'Esc while typing is the field\'s');
+    env.document.dispatch('keydown', { key: 'Escape', target: env.document.body });
+    assert.equal(env.live.drawer.hidden, true);
+});
+
+test('with unsaved input a tile is an ordinary link: nothing fetched, nothing replaced', async () => {
+    const env = load({ page: 'board' });
+    drawerHandler(env);
+    loadDrawer(env);
+
+    env.live.execution.value = 'Результат, ещё не отправлен';
+    env.document.dispatch('input', { target: env.live.execution });
+    assert.equal(click(env, tileOf(env, 12)), false, 'the live client\'s own dirty flag counts');
+    await flush();
+    assert.equal(env.callsTo('/work/boards/4/7/fragment/').length, 0);
+    assert.equal(env.live.execution.value, 'Результат, ещё не отправлен');
+    assert.deepEqual(env.window.history.pushed, []);
+
+    const clean = load({ page: 'board', realtimeEnabled: false });
+    drawerHandler(clean);
+    loadDrawer(clean);
+    clean.window.qualityUnsavedGuard = { isDirty: true };
+    assert.equal(click(clean, tileOf(clean, 12)), false, 'and so does the leave-page guard');
+});
+
+test('a tab switches in place, the address follows, and a live replacement keeps it', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler((call) => (call.url.startsWith('/realtime/sync/')
+        ? snapshot()
+        : boardFragment({ panel: 'panel-rev-2', comments: 'comments-rev-2', log: 'log-rev-2' })));
+    loadDrawer(env);
+
+    const chat = env.live.drawer.querySelector('[data-board-tab-link="chat"]');
+    assert.equal(click(env, chat), true);
+    assert.equal(env.live.drawer.getAttribute('data-board-tab'), 'chat');
+    assert.ok(chat.classList.contains('is-active'));
+    assert.ok(!env.live.drawer.querySelector('[data-board-tab-link="description"]').classList.contains('is-active'));
+    assert.deepEqual(env.window.history.replaced, ['/work/boards/4/7/?card=9&tab=chat']);
+    assert.equal(env.live.board.dataset.boardFragmentUrl, '/work/boards/4/7/fragment/?card=9&tab=chat');
+    assert.equal(env.callsTo('/work/boards/4/7/fragment/').length, 0, 'switching fetches nothing');
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_updated'));
+    env.clock.advance(300);
+    await flush();
+    assert.equal(boardCalls(env).pop().url, '/work/boards/4/7/fragment/?card=9&tab=chat');
+    assert.ok(env.live.panel.querySelector('[data-fresh-panel]'), 'the heading replaced');
+    assert.ok(env.live.card.querySelector('[data-fresh-card]'), 'and «Описание»/«Файлы» with it');
+    assert.ok(env.live.comments.querySelector('[data-fresh-comment]'));
+    assert.ok(env.live.log.querySelector('[data-fresh-log]'));
+    assert.equal(env.live.drawer.getAttribute('data-board-tab'), 'chat', 'the tab survived the replacement');
+    assert.ok(chat.classList.contains('is-active'));
+});
+
+test('a message and a log entry replace their blocks and counters, never the typed message', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment({
+        columns: 'columns-rev-initial', panel: 'panel-rev-initial', comments: 'comments-rev-2', log: 'log-rev-2',
+        counts: { chat: 5, files: 3 },
+    }));
+    loadDrawer(env);
+
+    env.live.execution.value = 'Половина результата';
+    env.document.dispatch('input', { target: env.live.execution });
+    env.live.commentText.value = 'Пишу ответ';
+    env.document.dispatch('input', { target: env.live.commentText });
+    env.source.emitEvent('board.updated', boardEvent(4, 'comment_added'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.comments.querySelector('[data-fresh-comment]'), 'the chat replaced');
+    assert.ok(env.live.log.querySelector('[data-fresh-log]'), 'the log replaced');
+    assert.equal(env.live.board.querySelector('[data-board-tab-count="chat"]').textContent, '5');
+    assert.equal(env.live.board.querySelector('[data-board-tab-count="files"]').textContent, '1',
+        'files follow their own block, which did not move');
+    assert.equal(env.live.commentText.value, 'Пишу ответ', 'the message being typed is never redrawn');
+    assert.equal(env.live.execution.value, 'Половина результата');
+    assert.equal(env.live.panel.querySelector('[data-fresh-panel]'), null);
+    assert.equal(env.live.conflictBanner.hidden, true, 'a message or an entry is no conflict');
+    assert.equal(env.live.board.dataset.logRevision, 'log-rev-2');
+});
+
+test('an answer for an address the page no longer shows is dropped and fetched again', async () => {
+    const env = load({ page: 'board' });
+    let manual = true;
+    env.setFetchHandler((call) => {
+        if (call.url.startsWith('/realtime/sync/')) {
+            return snapshot();
+        }
+        if (manual) {
+            manual = false;
+            return 'manual';
+        }
+        return boardFragment({ panel: 'panel-rev-3' });
+    });
+    loadDrawer(env);
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_updated'));
+    env.clock.advance(300);
+    await flush();
+    const stale = boardCalls(env)[0];
+    click(env, env.live.drawer.querySelector('[data-board-tab-link="log"]'));
+    stale.resolve({
+        ok: true, status: 200, redirected: false, headers: { get: () => 'application/json' },
+        json: async () => boardFragment({ panel: 'panel-rev-stale' }),
+    });
+    await flush();
+    assert.equal(env.live.board.dataset.panelRevision, 'panel-rev-initial', 'the stale answer is not applied');
+    env.clock.advance(300);
+    await flush();
+    assert.equal(boardCalls(env).pop().url, '/work/boards/4/7/fragment/?card=9&tab=log');
+    assert.equal(env.live.board.dataset.panelRevision, 'panel-rev-3');
+});
+
+test('without real-time the drawer still opens, and a moved open card is drawn again in it', async () => {
+    const env = load({ page: 'board', realtimeEnabled: false });
+    drawerHandler(env);
+    const drawer = loadDrawer(env);
+    const dnd = loadDnd(env);
+
+    assert.equal(click(env, tileOf(env, 12)), true);
+    await flush();
+    assert.ok(env.live.drawer.querySelector('[data-opened-panel]'));
+    assert.equal(drawer.isOpen, true);
+
+    assert.equal(dnd.openCardMoved('12'), 'drawer');
+    await flush();
+    assert.deepEqual(env.window.location.replaced, [], 'no navigation');
+    assert.equal(env.callsTo('/work/boards/4/7/fragment/').pop().url, '/work/boards/4/7/fragment/?card=12&tab=description&mine=1');
 });
 
 // --------------------------------------------------------------------------

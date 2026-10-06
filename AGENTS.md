@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`), `BoardCard` (`sub_board`, a working `column`, `position`, title, description); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card panel `?card=<pk>` / `&edit=1` / `?new=<column id>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript; the card panel is where a `BOARD` task is worked (`boards:card_complete`, the task's own attachment and reopen routes). Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?q`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's four live blocks (tabs, columns, card panel, messages) for `static/js/realtime/boards.js` |
+| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`), `BoardCard` (`sub_board`, a working `column`, `position`, title, description); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|files|log`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`, the task's own attachment routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?q`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat and its log) and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -884,13 +884,12 @@ tasks never live inside `acts`.
   `document`, so a new attachment form inherits the behaviour by markup alone.
   `task_add_attachment()` and `task_delete_attachment()` park it in the session
   under `task_execution_draft`, keyed by task, through `tasks/drafts.py`
-  (and so does `boards:card_comment`, whose message form carries the same
-  hidden field beside a completable task — a form without it leaves the draft
-  alone)
-  (`remember_execution_draft()`/`take_execution_draft()`), and the next page
-  that shows the task pops it back into the field — `task_detail`, or for a
-  `BOARD` task the board's card panel (`task_detail` redirects there and leaves
-  the draft alone). It is a draft and never a comment: `complete_task()` is still the only
+  (`remember_execution_draft()`/`take_execution_draft()`), and the task page
+  pops it back into the field. The board carries no draft: a `BOARD` task's
+  result is typed into «Завершить» in the card drawer's heading, the chat's
+  form has no hidden field, and the drawer takes nothing from the session —
+  on the board the include's carry finds no `#task-execution-comment` and
+  posts it empty, which clears any stale draft. It is a draft and never a comment: `complete_task()` is still the only
   writer of `Task.execution_comment`, the upload still creates nothing but a
   `TaskAttachment`, and a browser without JavaScript posts an empty draft
   exactly as before.
@@ -898,18 +897,28 @@ tasks never live inside `acts`.
   builds the cards (size label, the per-row delete right from
   `can_delete_task_attachment()`), and `templates/tasks/includes/attachments.html`
   draws them with the upload and delete forms; the task page and the board's
-  card panel both include it, so a file is never handled two ways. Both pages
-  name the «Выполнение» textarea `#task-execution-comment`, which is what the
-  include's `[data-attachment-carry-from]` reads.
+  card drawer («Файлы») both include it, so a file is never handled two ways.
+  The task page names its «Выполнение» textarea `#task-execution-comment`,
+  which is what the include's `[data-attachment-carry-from]` reads; the board
+  has none. `list_query` brings the request back: the board passes
+  `tab=files`, and `tasks:detail?tab=files` leads to the card's «Файлы».
+  `attachment_upload.js` wires a form once, on load and through
+  `window.qualityFragments` for one that arrives later (the drawer opened
+  without a reload).
 - **A `BOARD` task is worked on its board, and is not a routing task.**
   `is_routing_task` does not include it: it is completed by its исполнитель
   through `complete_task()` with an execution comment, takes attachments and is
   reopened by an administrator, under exactly the rules every ordinary task has.
-  Only *where* it is shown differs: `tasks:detail` redirects it to
-  `tasks.presentation.board_card_url()` (the card's sub-board with `?card=<pk>`), and no
-  branch of `tasks/views.py` draws `tasks/detail.html` for it — a refused
-  `tasks:complete` or upload puts its message in `messages`, parks the draft
-  and redirects to the card. `tasks` names the route and reads
+  Only *where* it is shown and worked differs: `tasks:detail` redirects it to
+  `tasks.presentation.board_card_url(task, tab='')` (the card's sub-board with
+  `?card=<pk>`, plus `&tab=` when `tasks:detail` was asked for one), and no
+  branch of `tasks/views.py` draws `tasks/detail.html` for it. It is completed
+  and reopened **on the board only** — `boards:card_complete` →
+  `complete_card()`, `boards:card_reopen` → `reopen_card()` — so the card's
+  journal misses neither: `tasks:complete` and `tasks:reopen` change nothing
+  for a `BOARD` task, put «Карточку доски завершают и возвращают на доске.» in
+  `messages` and redirect to the card (`BOARD_TASK_REFUSAL`); a refused upload
+  puts its message in `messages` and redirects to the card's «Файлы». `tasks` names the route and reads
   `Task.board_card`; its one module that asks `boards` is `tasks.permissions`
   (`tasks.selectors` takes `can_use_boards` from it):
   `get_readable_tasks_queryset()` and `get_visible_tasks_queryset()` keep a
@@ -1830,20 +1839,103 @@ tasks never live inside `acts`.
   is found only on this sub-board (a foreign, missing or non-numeric id is no
   panel, never a 404 — `boards:detail?card=` leads to the card's own tab), and
   a cancelled card is found too, read-only.
-- **The card panel is where a `BOARD` task is worked.** «Выполнение»
-  (`form[data-hotkey-submit]`) posts to `boards:card_complete` →
-  `complete_card()` → `complete_task()`; reading the board is asked before the
-  method, and who may finish is the task's own rule — a refusal re-renders the
-  panel with the text and the message. The field starts from the posted text,
-  else the session draft, else `task.execution_comment` (a reopened task shows
-  its old result). «Вложения» is the task page's include and routes, «Вернуть в
-  работу» posts to `tasks:reopen` through the shared modal, and every right
-  shown (`can_complete`, `can_reopen`, `can_upload_attachment`, the per-row
-  delete) comes from `tasks.permissions`, carried on the panel card by
-  `build_board_state()`. A completed card shows the result, who finished it and
+- **The card drawer is where a `BOARD` task is worked — and the only place.**
+  Its heading (`boards/includes/panel.html`, fixed while the tab below
+  scrolls) is «Карточка №N», the title (`.user-text`), the status («В работе»
+  / «Выполнена» / «Отменена») and on the right: «Завершить» — a
+  `<details data-board-menu>` holding a required «Результат»
+  (`#board-complete-result`, `name="execution_comment"`) in a
+  `form[data-hotkey-submit]` posted to `boards:card_complete` →
+  `complete_card()` → `complete_task()`, so it works without JavaScript;
+  «Вернуть в работу» through the shared modal to `boards:card_reopen` →
+  `reopen_card()`; and «×». Reading the board is asked before the method of
+  `card_complete`, and who may finish is the task's own rule — a refusal
+  re-renders the drawer with «Завершить» open, the text and the message. The
+  field starts from the posted text, else `task.execution_comment` (a
+  reopened task shows its old result) — never from the session: there is no
+  «Выполнение» field and no draft on the board. Every right shown
+  (`can_complete`, `can_reopen` — false on an archived board —,
+  `can_upload_attachment`, the per-row delete) comes from
+  `tasks.permissions`, carried on the panel card by `build_board_state()`. A
+  completed card shows the result and who finished it on «Описание» and
   download-only files; a cancelled one shows the reason and no action.
   `describe_task_source()` names the board and links to the card, and the
   registry search finds a task by its board's name.
+- **`reopen_card()` is the board's «Вернуть в работу».** Board → card → task
+  locks, `_refuse_archived()` (an archived board stays as shelved), then
+  `tasks.services.reopen_task()` — whose `can_reopen_task()` (an
+  administrator, a `COMPLETED` task) is the right — a `REOPENED` journal entry
+  naming the working column the card returns to (`card.column`, else the
+  first), and one `board.updated(card_reopened)`. `boards:card_reopen` asks
+  `can_view_board()` and `can_reopen_task()` *before* the method (a 403
+  otherwise — an open task included), answers a GET by going back to the card
+  and changing nothing, and a `BoardError` comes back as the drawer with the
+  message.
+- **The drawer lies over the columns and opens without a reload.**
+  `<aside data-board-drawer>` is always in the page — empty and `hidden`
+  while no card is open — inside `.board-layout` (`position: relative`):
+  `position: absolute`, right, the board area's full height, `width:
+  min(640px, 50%)` above 1240px, `calc(100% - 48px)` up to 1240px and the
+  whole screen (`position: fixed`) below 760px, with a shadow; the columns
+  keep their width and the part left visible is dimmed by a `::after` veil
+  with `pointer-events: none`, so dragging, scrolling and the live columns go
+  on under it. The left panel no longer collapses for an open card.
+  `static/js/board_drawer.js` (board page only, every listener delegated): a
+  plain click on a tile fetches `boards:fragment` with the tile's own query
+  (`data-board-fragment-base` + `?card=…` and the filter), inserts the
+  answer's `drawer_html`, rewrites `[data-board]`'s addresses and
+  fingerprints from the answer, marks the tile and `data-current-card`, and
+  `history.pushState`s the answer's `page_url`; `popstate` opens (`card`/`new`
+  in the address, fetched the same way) or closes without pushing; «×», Esc
+  (not while a dialog or a menu is open or a field has the focus — a
+  capturing listener) and a plain click on the dimmed board close it and push
+  `data-board-close-url`. While the page holds unsaved input
+  (`qualityUnsavedGuard.isDirty` or the live client's dirty flag) none of
+  that is taken over: the tile, «×» or the board is an ordinary navigation
+  and the browser asks. A failed fetch falls back to the tile's own address.
+  After every open and close it dispatches `quality:board-drawer`, and the
+  filter row's hidden `card`/`tab` (disabled while empty) and «Сбросить»
+  follow the open card. Nothing in it is a rule: every address is the
+  server's.
+- **The drawer has four tabs, and the tab is the drawer's, not a block's.**
+  «Описание», «Чат (N)», «Файлы (N)», «Лог», chosen by `?tab=` —
+  `views.parse_panel_tab()`, unknown → «Описание» — and drawn by the server
+  as links (`tab` on each, plus the tab's fragment URL in
+  `data-board-tab-fragment-url`). All four bodies are always rendered, so the
+  tab changes no query and no block: the server writes it as
+  `data-board-tab` on the `<aside>`, CSS shows the matching
+  `[data-board-tab-body]`, and `board_drawer.js` switches it in place —
+  attribute, the active link, `[data-board]`'s page and fragment URLs, and
+  `history.replaceState`. The `<aside>` is outside every live block, so no
+  replacement can change the tab. «Описание» holds the description, the facts
+  (column, исполнители with avatars, срок through `includes/due_date.html`,
+  who created it and when), the result or the reason, then «Редактировать»
+  (`&edit=1`, the form on this same tab), «Переместить в…» and «Отменить
+  карточку»; «Чат» the messages with the form pinned below; «Файлы» the task
+  page's `attachments.html`; «Лог» the journal. `page_url`, `fragment_url`
+  and every redirect name the tab where it matters: a message lands on
+  `tab=chat`, a file on `tab=files` (through `tasks:detail?tab=files`).
+- **`BoardCardEvent` is a card's journal — «Лог».** `card` (`PROTECT`,
+  `related_name='events'`), `actor` (`PROTECT`), `kind` — `CREATED`,
+  `EDITED` (`details.fields`: which of title, description, due date,
+  assignees), `MOVED` (`from_column`/`to_column` with their ids, the names
+  *as they were*), `COMPLETED`, `REOPENED` (the column it returns to),
+  `CANCELLED` — `details` (identifiers and column names only, never the
+  card's text, a reason or a message) and `created_at`, indexed on `(card,
+  created_at)`. Append-only, written by `services._record()` alone, inside the
+  transaction of the change: `create_card()`, `update_card()` only when it
+  stored something, `move_card()` only across columns (a reorder within one
+  and a drop in place are no entry), `complete_card()`, `reopen_card()`,
+  `cancel_card()`; a refusal writes none and a rollback takes it away.
+  `selectors.card_log()` reads it in one query and merges, newest first, the
+  task's files from the panel's own attachment list (who added which file and
+  when — read, never written twice); `describe_card_event()` words each entry
+  without a gendered verb. No message of «Чат» is in it. `boards.0010`
+  backfilled cards stored before: `CREATED` from the card's
+  `created_by`/`created_at`, `COMPLETED`/`CANCELLED` from the task's
+  `completed_*`/`cancelled_*` when both are set — facts only, stamped after
+  insert, a re-run adds nothing; its reverse is a noop and `0009`'s drops the
+  table.
 - **`BOARD_TASK_ASSIGNED` tells the people a card was put on.**
   `notify_board_task_assigned()` is `TASK`-sourced, keyed `task:<pk>` and
   `exclude_actor=True` — putting a card on yourself tells nobody. `create_card()`
@@ -1879,14 +1971,15 @@ tasks never live inside `acts`.
   `data-confirm-comment-name="execution_comment"`) and posts an ordinary form to
   `boards:card_complete`; the dialog's `close` event — fired only by «Отмена»
   or Escape, since a confirm navigates away — puts the tile back. A moved card
-  that the panel is showing is `openCardMoved()`'s: while the live client
+  that the drawer is showing is `openCardMoved()`'s: while the live client
   runs (`QualityRealtime.boardLive.isActive`) it does nothing — the move's
-  own `board.updated` redraws the panel, or raises the conflict banner over
-  unsaved input; without it, the board's own address for that panel
-  (`location.replace()` of `data-board-page-url`, never `reload()`: a board
-  drawn in answer to a refused POST stands at that POST's URL, and reloading
-  it would post again), or, over `qualityUnsavedGuard.isDirty`, the message
-  asking the user to reload.
+  own `board.updated` redraws the drawer, or raises the conflict banner over
+  unsaved input; without it, over `qualityUnsavedGuard.isDirty` the message
+  asking the user to reload, else `qualityBoardDrawer.refresh()` draws the
+  drawer again from the fragment, and only where that script is missing the
+  board's own address for that panel (`location.replace()` of
+  `data-board-page-url`, never `reload()`: a board drawn in answer to a
+  refused POST stands at that POST's URL, and reloading it would post again).
   While a card is in the air, a move awaits the server or the completion modal
   is open, the script holds `data-board-busy` on `[data-board]` and dispatches
   `quality:board-idle` on `document` when it lets go — the live client's one
@@ -1905,13 +1998,14 @@ tasks never live inside `acts`.
 - **The board pages work without JavaScript.** `boards/views.py` asks the right
   *before* the HTTP method (a typed-in URL without it is a 403), every mutating
   route is POST only and answers a GET by redirecting to the board, and a
-  `BoardError` or an invalid form re-renders the sub-board with the panel open,
+  `BoardError` or an invalid form re-renders the sub-board with the drawer open,
   the bound form and the error beside it — never a 500, never lost input;
   success redirects to the card's own sub-board with `?card=<pk>` (card routes
   stay `/<board>/cards/<card>/…`; creating is `/<board>/<sub_board>/cards/create/`).
-  The panel is chosen by the query string and drawn by the server: `?card=`
+  The drawer is chosen by the query string and drawn by the server: `?card=`
   reads, `&edit=1` edits (only while `can_work` and the task is open),
-  `?new=<column id>` creates in that working column; closing is a link. For
+  `?new=<column id>` creates in that working column, `&tab=` picks the tab;
+  closing is a link. For
   whoever manages the board the tabs and every column header carry a «⋯» menu
   (`boards/includes/structure_menu.html`: a `<details>` of small POST forms —
   «Переименовать», ← →, «Удалить» through the shared modal with
@@ -1923,8 +2017,8 @@ tasks never live inside `acts`.
   links; `can_work`/`can_manage`/`can_edit_card` decide markup only.
   `static/css/boards.css` is tokens only: one screen (`page-container--fill`),
   every column scrolls down on its own and the row of columns sideways inside
-  itself; the panel stands beside the columns above 1240px, above them below
-  it, and below 760px everything is the ordinary flow.
+  itself; the drawer lies over the columns (above), and below 760px everything
+  else is the ordinary flow.
 - **Every board page is one frame, and there is no registry.**
   `templates/boards/layout.html` (as `documents/layout.html` does): on the
   left the boards this user reads — `selectors.build_board_nav(user,
@@ -1935,9 +2029,9 @@ tasks never live inside `acts`.
   доска», «Участники» or the empty state. Both parts scroll on their own
   inside the one-screen chain. The panel is not live. «Свернуть» leaves a
   strip (`static/js/board_nav.js`, `localStorage` in try/catch, a convenience
-  only): collapsed by default below 1240px, and drawn collapsed — nothing
-  stored — while a card panel is open on a screen up to 1600px; without
-  JavaScript it is always open. `/work/boards/` (`boards:list`) renders no
+  only): collapsed by default below 1240px, and an open card changes nothing
+  — its drawer takes no width from the columns; without JavaScript it is
+  always open. `/work/boards/` (`boards:list`) renders no
   list: it redirects to the sub-board this session opened last (the session's
   `boards_last_sub_board`, written by every sub-board page, never by the
   fragment) while it exists and its board is still read, else to the first
@@ -1955,7 +2049,7 @@ tasks never live inside `acts`.
   «Участники», «В архив» / «Вернуть из архива»; `?sub=` brings each redirect
   back to the tab. Then the tabs, then the filter row (one compact
   `form[data-registry-filter]`, «Сбросить» only while a filter is set), then
-  the columns with the card panel, which take the rest of the screen:
+  the columns with the card drawer over them, which take the rest of the screen:
   `.board-page` is a column whose rows do not shrink and whose
   `.board-layout` has a zero basis — an `auto` basis was the panel's full
   height, and the overflow was shared with the rows above, which drew the
@@ -1965,34 +2059,49 @@ tasks never live inside `acts`.
   same name stores and publishes nothing, a new one publishes one
   `board.updated(structure_changed)`. `boards:rename` asks the right before
   the method.
-- **A board has four live blocks, rendered once and shared with the fragment**
-  (the fourth, «Обсуждение», is the next bullet).
+- **A board's live blocks are rendered once and shared with the fragment.**
   `_board_context()` builds the context for the page *and* for
   `boards:fragment` (GET, JSON, no-store, `realtime_login_required`, the right
   of the page, per sub-board — `/<board>/<sub_board>/fragment/`, a 404 once
-  that sub-board is deleted — the same `card`/`edit`/`new`); `_board_blocks()`
-  renders `boards/includes/tabs.html`, `boards/includes/columns.html` and
-  `boards/includes/panel.html` with their `content_revision()`s, and the page
-  prints that very markup inside its own containers —
-  `[data-live-board-tabs]`, `[data-live-board-columns]` (`.board-structure`)
-  and `[data-live-board-panel]` (the `<aside>`); the filter row stands between
-  the tabs and the columns and is in no block. The tabs and the columns are
-  read-only and replaced wholesale whenever their fingerprint moved — a card,
-  or a tab or a column created, renamed, moved or deleted — **never while
-  `[data-board]` carries `data-board-busy` or one of their menus is open**: the refresh is
-  deferred and refetched once on `quality:board-idle` or when the menu closes
-  (a capturing `toggle` listener), never applied stale. The panel holds
-  forms and is guarded like the act work tab: unchanged fingerprint → nothing;
-  changed and clean → replaced; changed with unsaved input → the conflict
-  banner, typed text kept. A page whose panel holds input that is not stored —
-  a bound form after a refusal, posted «Выполнение» text, a draft the session
-  returned — says `data-panel-holds-input="true"` and takes its panel
-  fingerprint from a clean render, exactly as the protocol page does; the
-  fragment never takes the session draft (`take_draft=False`). The fragment URL
-  and the banner's reload address are built by the server from the panel
-  actually shown (`data-board-fragment-url`, `data-board-page-url`), never from
-  the address bar. A tile carries `data-task-id` and the panel its task's id,
-  so a `task.*` event refetches only a board that shows that task.
+  that sub-board is deleted — the same `card`/`edit`/`new`/`tab`);
+  `_board_blocks()` renders each block with its `content_revision()`, and the
+  page prints that very markup inside its own containers:
+  `[data-live-board-tabs]` (`tabs.html`), `[data-live-board-columns]`
+  (`columns.html`, `.board-structure`), the guarded panel in **two
+  containers with one fingerprint** — `[data-live-board-panel]` (the
+  drawer's heading, `panel.html`) and `[data-live-board-card]` («Описание» and
+  «Файлы», `card.html`, `display: contents`) — `panel_revision` over both,
+  `[data-live-board-comments]` (`comments.html`) and `[data-live-board-log]`
+  (`log.html`). The fragment adds `chat_count`/`files_count`, `drawer_html`
+  (`drawer.html`: the drawer around those blocks, with the tab strip and the
+  chat's form), and `panel`, `card_id`, `task_id`, `tab`, `page_url`,
+  `fragment_url`, `reset_url` — what `board_drawer.js` opens a card with. The
+  filter row stands between the tabs and the columns and is in no block. The
+  tabs and the columns are read-only and replaced wholesale whenever their
+  fingerprint moved — a card, or a tab or a column created, renamed, moved or
+  deleted — **never while `[data-board]` carries `data-board-busy` or one of
+  their menus is open**: the refresh is deferred and refetched once on
+  `quality:board-idle` or when the menu closes (a capturing `toggle`
+  listener), never applied stale. The guarded panel holds forms and is
+  guarded like the act work tab: unchanged fingerprint → nothing; changed and
+  clean → both containers replaced (and «Файлы (N)» set); changed with
+  unsaved input in either → the conflict banner, typed text kept. «Чат» and
+  «Лог» are read-only and replaced whenever their own fingerprint moved («Чат
+  (N)» set with its block); no message and no journal entry is in the guarded
+  panel, so neither moves `panel_revision` or raises the banner, and the
+  chat's form is in no block, so a message being typed is never redrawn. A
+  page whose panel holds input that is not stored — a bound form after a
+  refusal, a refused result — says `data-panel-holds-input="true"` and takes
+  its panel fingerprint from a clean render, exactly as the protocol page
+  does. The fragment URL and the banner's reload address are built by the
+  server from the drawer actually shown (`data-board-fragment-url`,
+  `data-board-page-url`), never from the address bar; `realtime/boards.js`
+  reads them, and the fingerprints, off `[data-board]` on every request,
+  finds the drawer's blocks anew each time, drops an answer fetched for an
+  address the page no longer shows and fetches again, and on
+  `quality:board-drawer` resets its dirty flag and refreshes. A tile carries
+  `data-task-id` and the heading its task's id, so a `task.*` event refetches
+  only a board that shows that task.
 - **A wrong card is cancelled, never deleted.** `cancel_card()` locks board →
   card → task, asks `can_cancel_card()` after the locks and calls
   `tasks.services.cancel_board_card_task()`: a `BOARD` task in `IN_PROGRESS`
@@ -2043,7 +2152,7 @@ tasks never live inside `acts`.
   refuses a mismatch with `StaleCardError`, and the view re-renders the edit
   panel with what was typed, the error and «Открыть текущую версию» in a new
   tab. `expected_version=None` (a call that is not a form) skips the check.
-- **«Обсуждение» is a record of comments, not a chat.** `BoardCardComment`
+- **«Чат» is a record of comments, not a chat engine.** `BoardCardComment`
   (card, author, text, `created_at`; `PROTECT` both ways, indexed on
   `(card, created_at)`) has no edit and no delete, and no mentions, files,
   reactions or «typing». `post_card_comment()` locks board → card, asks
@@ -2055,11 +2164,12 @@ tasks never live inside `acts`.
   (`notify_board_card_comment()`: `BOARD_CARD_COMMENT`, `TASK`-sourced, keyed
   `board_comment:<pk>`, bell only, the text naming the board and never the
   message) and publishes `board.updated(comment_added, card_id)`; the log
-  carries identifiers only. Reading is reading the board. The panel draws the
+  carries identifiers only. Reading is reading the board. «Чат» draws the
   messages oldest first (`person_initials`, `person_name`, time, `.user-text`
-  with `linebreaksbr`) and, for a writer, a `form[data-hotkey-submit]` to
-  `boards:card_comment` (right before the method; success → `?card=` with the
-  filter, refusal → the panel with the text and the error). A tile shows the
+  with `linebreaksbr`) and, for a writer, a `form[data-hotkey-submit]` pinned
+  below them, to `boards:card_comment` (right before the method; success →
+  `?card=…&tab=chat` with the filter, refusal → the drawer with the text and
+  the error). A tile shows the
   count when it is above zero — a subquery annotation of `_board_tasks()`, so
   no query per tile. The panel reads only the newest
   `selectors.COMMENTS_LIMIT` (100) messages — sliced in the query, newest
@@ -2068,20 +2178,17 @@ tasks never live inside `acts`.
   address plus `comments=all` (`all_comments_url`, filter kept), which
   `_board_context()` reads for the page and the fragment alike and carries on
   `data-board-fragment-url`/`data-board-page-url`. The message form carries
-  the unsaved «Выполнение» as a hidden `execution_comment`
-  (`[data-attachment-carry-from]`, no script of its own) and `card_comment()`
-  parks it with `remember_execution_draft()` on success and on refusal.
-  **The messages are the third live block and touch nothing else.** The
-  `<aside>` holds three siblings: the guarded panel
-  (`.board-panel__main[data-live-board-panel]`), the read-only message list
-  (`[data-live-board-comments]`, `boards/includes/comments.html`, its own
-  `comments_revision`, always replaced) and the message form, which is in no
-  live block. No message is rendered inside the panel partial, so
+  nothing else — no `execution_comment`, no carry — and `card_comment()`
+  parks nothing. **The messages are a live block of their own and touch
+  nothing else**: `[data-live-board-comments]` (`comments.html`, its own
+  `comments_revision`, always replaced) and the form below it, which is in no
+  live block; no message is rendered inside the guarded panel, so
   `panel_revision` never moves with a message and a message never raises the
-  conflict banner over a «Выполнение» or an edit; and the form is never
-  redrawn, so a message being typed survives every refresh. `boards.js` keeps a
-  reader at the bottom of the list there and leaves one who scrolled up where
-  they were; `board_discussion.js` opens the list at its newest message.
+  conflict banner over a result or an edit, and the form is never redrawn, so
+  a message being typed survives every refresh. `boards.js` keeps a reader at
+  the bottom of the list there and leaves one who scrolled up where they
+  were; `board_drawer.js` opens the list at its newest message when «Чат» is
+  shown.
 
 ### Documentation library (`documents`)
 
@@ -2429,7 +2536,7 @@ tasks never live inside `acts`.
   controller; realtime never renders the table or carries journal values.
 - Boards emit one event type, `board.updated` (`board_id`, `card_id` or null,
   `change` from the closed `realtime.events.BOARD_CHANGES`: `card_created`,
-  `card_updated`, `card_moved`, `card_completed`, `card_cancelled`,
+  `card_updated`, `card_moved`, `card_completed`, `card_reopened`, `card_cancelled`,
   `members_changed`, `board_archived`, `board_restored`, `comment_added`,
   `structure_changed` — a sub-board or a column created, renamed, moved or
   deleted), through
@@ -2437,8 +2544,9 @@ tasks never live inside `acts`.
   `atomic()` block, once per successful write that stored something. A refusal,
   a rollback, an edit that changes nothing and a drop where the card already
   stood (`move_card()` detects it and writes nothing) publish nothing. A board
-  task changed elsewhere — `tasks:complete`, `reopen_task()`, attachments — is
-  its own `task.*` and never a `board.updated`. The audience is
+  task changed elsewhere — an attachment added or removed — is its own
+  `task.*` and never a `board.updated` (completing and reopening go through
+  the board's routes, `card_completed`/`card_reopened`). The audience is
   `board_targets(board)`: every active account with full access
   (`boards.permissions.full_board_access_q()`, a superuser without a profile
   kept, as in `_every_reader_targets()`) plus the active members of *that*
@@ -2449,8 +2557,9 @@ tasks never live inside `acts`.
   `updated_at`), `BOARD` tasks (count, max `updated_at`, status mix),
   memberships (count, max `added_at`), «Обсуждение» messages (count, max
   `created_at`) and the structure (sub-boards and columns: count and max
-  `updated_at` of each, one query through the columns) — which is how a reader who is no
-  исполнитель learns of a card closed from its task page; for anybody else the
+  `updated_at` of each, one query through the columns) — the safety net for a
+  lost `board.updated`. The card journal needs no aggregate of its own: every
+  entry is written with a card or task row whose `updated_at` already moves; for anybody else the
   key is there but constant and costs no query. The left panel and the
   members page are not live.
 - A live refresh never replaces a form holding unsaved input: only read-only

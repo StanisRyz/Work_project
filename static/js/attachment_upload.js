@@ -16,6 +16,10 @@
  * upload actions on one form is the confusion this replaces. No rule lives
  * here either — the server re-checks the permission, the file type and the
  * size, and a selection this script never saw is validated the same way.
+ *
+ * A form that arrives after the page loaded — the board's card drawer opened
+ * without a reload, a live fragment — is wired by the same code through
+ * `window.qualityFragments`, once per form.
  */
 (() => {
     'use strict';
@@ -45,10 +49,6 @@
         });
     });
 
-    const forms = [...document.querySelectorAll('[data-attachment-upload]')];
-    if (!forms.length) {
-        return;
-    }
     const dialog = document.querySelector('[data-confirm-modal]');
     // Without a usable dialog there is no confirmation step: the forms keep
     // their visible submit button and behave exactly as they did before.
@@ -66,12 +66,18 @@
         return `Файлов: ${names.length}. ${names.join(', ')}.`;
     };
 
-    forms.forEach((form) => {
+    // One form, once: on load and again for every form a live fragment or the
+    // board's card drawer brings in later (`window.qualityFragments`).
+    const initialise = (form) => {
+        if (form.dataset.attachmentUploadReady === 'true') {
+            return;
+        }
         const input = form.querySelector('input[type="file"]');
         const trigger = form.querySelector('[data-attachment-upload-confirm]');
         if (!input || !trigger) {
             return;
         }
+        form.dataset.attachmentUploadReady = 'true';
         // The picker's own label, shared with the act and protocol markup: the
         // chosen name replaces the placeholder and the card turns green.
         const picker = form.querySelector('.attachment-picker');
@@ -121,7 +127,19 @@
             awaiting = form;
             trigger.click();
         });
-    });
+    };
+
+    const initialiseAll = (scope) => {
+        const root = scope || document;
+        if (root.matches && root.matches('[data-attachment-upload]')) {
+            initialise(root);
+        }
+        root.querySelectorAll('[data-attachment-upload]').forEach(initialise);
+    };
+    initialiseAll(document);
+    if (window.qualityFragments) {
+        window.qualityFragments.register('attachment-upload', initialiseAll);
+    }
 
     if (enhanced) {
         dialog.addEventListener('close', () => {

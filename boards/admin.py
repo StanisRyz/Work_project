@@ -10,7 +10,7 @@ from django.contrib import admin
 
 from ecosystem.admin import ReadOnlyAdminMixin
 
-from .models import Board, BoardCard, BoardColumn, BoardMember, SubBoard
+from .models import Board, BoardCard, BoardCardEvent, BoardColumn, BoardMember, SubBoard
 
 
 class BoardMemberInline(ReadOnlyAdminMixin, admin.TabularInline):
@@ -45,3 +45,9 @@ class BoardColumnAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
 @admin.register(BoardCard)
 class BoardCardAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('pk', 'board', 'sub_board', 'column', 'position', 'created_by', 'created_at')
+
+
+@admin.register(BoardCardEvent)
+class BoardCardEventAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ('pk', 'card', 'kind', 'actor', 'created_at')
+    list_filter = ('kind',)

@@ -410,7 +410,8 @@ class BoardFilterTests(BoardFixtureMixin, TestCase):
         self.assertNotIn('Alpha', fragment['columns_html'])
         self.assertEqual(
             attribute(page, 'data-board-fragment-url'),
-            f"{fragment_url(self.board)}?card={self.mine_ok.pk}&amp;mine=1&amp;q=%D0%BF%D0%BB%D0%B0%D0%BD",
+            f"{fragment_url(self.board)}?card={self.mine_ok.pk}&amp;tab=description&amp;mine=1"
+            "&amp;q=%D0%BF%D0%BB%D0%B0%D0%BD",
         )
 
     def test_links_keep_the_filter(self):
@@ -420,13 +421,14 @@ class BoardFilterTests(BoardFixtureMixin, TestCase):
         ))
         page = board_url(self.board)
         self.assertIn(f'href="{page}?card={self.mine_late.pk}&amp;mine=1"', content, 'плитка')
-        self.assertIn(f'href="{page}?mine=1" aria-label="Закрыть панель"', content, '«Закрыть»')
+        self.assertIn(f'href="{page}?mine=1" data-board-drawer-close', content, '«×»')
+        self.assertIn(f'href="{page}?card={self.mine_ok.pk}&amp;tab=chat&amp;mine=1"', content, '«Чат»')
         self.assertIn(
             f'data-card-move-url="{reverse("boards:card_move", args=[self.board.pk, self.mine_ok.pk])}?mine=1"',
             content,
         )
         self.assertIn(f'action="{reverse("boards:card_complete", args=[self.board.pk, self.mine_ok.pk])}?mine=1"', content)
-        self.assertIn(f'href="{page}?card={self.mine_ok.pk}">Сбросить</a>', content)
+        self.assertIn(f'href="{page}?card={self.mine_ok.pk}" data-board-filter-reset>Сбросить</a>', content)
 
     def test_a_redirect_after_a_post_keeps_the_filter(self):
         self.client.force_login(self.member)

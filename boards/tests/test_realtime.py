@@ -45,7 +45,16 @@ from ..services import (
     remove_board_member,
     update_card,
 )
-from .helpers import BoardFixtureMixin, board_url, due, fragment_url, make_user
+from .helpers import (
+    CSRF_INPUT,
+    LIVE_BLOCKS,
+    BoardFixtureMixin,
+    assert_page_matches_fragment,
+    board_url,
+    due,
+    fragment_url,
+    make_user,
+)
 
 
 def task_of(card):
@@ -75,9 +84,9 @@ class BoardEventContractTests(TestCase):
         self.assertEqual(
             BOARD_CHANGES,
             {
-                'card_created', 'card_updated', 'card_moved', 'card_completed', 'members_changed',
-                'card_cancelled', 'board_archived', 'board_restored', 'comment_added',
-                'structure_changed',
+                'card_created', 'card_updated', 'card_moved', 'card_completed', 'card_reopened',
+                'members_changed', 'card_cancelled', 'board_archived', 'board_restored',
+                'comment_added', 'structure_changed',
             },
         )
         event = board_updated_event(7, 'card_moved', 12)
@@ -406,43 +415,52 @@ class BoardFragmentTests(BoardFixtureMixin, TestCase):
 
     def test_the_same_blocks_and_fingerprints_as_the_page_for_each_panel(self):
         self.client.force_login(self.member)
-        for query, panel in (
-            ({'card': self.a.pk}, 'view'),
-            ({'card': self.a.pk, 'edit': '1'}, 'edit'),
-            ({'new': self.column('REVIEW').pk}, 'new'),
-            ({'card': self.done.pk}, 'view'),
+        for query, panel, address in (
+            ({'card': self.a.pk}, 'view', {'card': self.a.pk, 'tab': 'description'}),
+            ({'card': self.a.pk, 'edit': '1'}, 'edit', {'card': self.a.pk, 'edit': '1', 'tab': 'description'}),
+            ({'new': self.column('REVIEW').pk}, 'new', {'new': self.column('REVIEW').pk}),
+            ({'card': self.done.pk}, 'view', {'card': self.done.pk, 'tab': 'description'}),
         ):
             with self.subTest(query=query):
                 payload = self.client.get(self.url(**query)).json()
                 content = self.page(**query)
                 self.assertEqual(payload['panel'], panel)
-                self.assertTrue(same_markup(payload['columns_html'], content))
-                self.assertTrue(same_markup(payload['panel_html'], content))
+                # A new card has no «Чат» and no «Лог».
+                blocks = {
+                    key: value for key, value in LIVE_BLOCKS.items()
+                    if panel != 'new' or key in ('tabs', 'columns', 'panel')
+                }
+                assert_page_matches_fragment(self, content, payload, blocks)
                 self.assertTrue(payload['panel_html'].strip())
-                self.assertEqual(attribute(content, 'data-columns-revision'), payload['columns_revision'])
-                self.assertEqual(attribute(content, 'data-panel-revision'), payload['panel_revision'])
+                self.assertTrue(payload['card_html'].strip())
+                self.assertIn(CSRF_INPUT.sub('', payload['drawer_html']), CSRF_INPUT.sub('', content))
                 self.assertEqual(attribute(content, 'data-panel-holds-input'), 'false')
-                expected_url = self.url(**query).replace('&', '&amp;')
+                expected_url = self.url(**address).replace('&', '&amp;')
                 self.assertEqual(attribute(content, 'data-board-fragment-url'), expected_url)
+                self.assertEqual(payload['fragment_url'], self.url(**address))
+                self.assertEqual(payload['page_url'], board_url(self.board) + self.url(**address)[len(self.url()):])
 
     def test_the_panel_follows_the_query(self):
         self.client.force_login(self.member)
-        view = self.client.get(self.url(card=self.a.pk)).json()['panel_html']
-        self.assertIn('Карточка №', view)
-        self.assertIn('Выполнение', view)
-        edit = self.client.get(self.url(card=self.a.pk, edit='1')).json()['panel_html']
-        self.assertIn('Редактирование', edit)
-        self.assertIn('value="Альфа"', edit)
+        view = self.client.get(self.url(card=self.a.pk)).json()
+        self.assertIn('Карточка №', view['panel_html'])
+        self.assertIn('id="board-complete-result"', view['panel_html'])
+        self.assertIn('data-board-tab-body="description"', view['card_html'])
+        self.assertIn('data-board-tab-body="files"', view['card_html'])
+        edit = self.client.get(self.url(card=self.a.pk, edit='1')).json()
+        self.assertIn('редактирование', edit['panel_html'])
+        self.assertIn('value="Альфа"', edit['card_html'])
         review = self.column('REVIEW')
-        new = self.client.get(self.url(new=review.pk)).json()['panel_html']
-        self.assertIn('Новая карточка', new)
-        self.assertIn(f'name="column" value="{review.pk}"', new)
+        new = self.client.get(self.url(new=review.pk)).json()
+        self.assertIn('Новая карточка', new['panel_html'])
+        self.assertIn(f'name="column" value="{review.pk}"', new['card_html'])
+        self.assertNotIn('data-board-tab-body="files"', new['card_html'])
         # Not a member: no edit, no new — the same answer as the page.
         self.client.force_login(self.outsider)
         self.assertEqual(self.client.get(self.url(card=self.a.pk, edit='1')).json()['panel'], 'view')
         self.assertEqual(self.client.get(self.url(new=self.column('TODO').pk)).json()['panel'], '')
 
-    def test_the_fragment_does_not_take_the_draft(self):
+    def test_neither_the_page_nor_the_fragment_takes_a_draft(self):
         self.client.force_login(self.member)
         session = self.client.session
         request = type('R', (), {'session': session})()
@@ -451,9 +469,8 @@ class BoardFragmentTests(BoardFixtureMixin, TestCase):
         payload = self.client.get(self.url(card=self.a.pk)).json()
         self.assertNotIn('Черновик результата', payload['panel_html'])
         content = self.page(card=self.a.pk)
-        self.assertIn('Черновик результата', content)
-        # The page holds unsaved text: it starts dirty, with the clean fingerprint.
-        self.assertEqual(attribute(content, 'data-panel-holds-input'), 'true')
+        self.assertNotIn('Черновик результата', content)
+        self.assertEqual(attribute(content, 'data-panel-holds-input'), 'false')
         self.assertEqual(attribute(content, 'data-panel-revision'), payload['panel_revision'])
 
     def test_a_refused_post_page_carries_the_clean_fingerprint_and_its_own_address(self):
@@ -469,7 +486,7 @@ class BoardFragmentTests(BoardFixtureMixin, TestCase):
         page = board_url(self.board)
         self.assertEqual(attribute(content, 'data-board-url'), page)
         self.assertEqual(
-            attribute(content, 'data-board-page-url'), f'{page}?card={self.a.pk}&amp;edit=1',
+            attribute(content, 'data-board-page-url'), f'{page}?card={self.a.pk}&amp;edit=1&amp;tab=description',
         )
 
     def test_a_refused_completion_keeps_the_text_and_starts_dirty(self):
@@ -534,10 +551,8 @@ class BoardSyncRevisionTests(BoardFixtureMixin, TestCase):
         self.assert_moves(lambda: self.card('B'))
         self.assert_moves(lambda: move_card(self.a, actor=self.member, column=self.column('REVIEW')))
         self.client.force_login(self.member)
-        self.assert_moves(lambda: self.client.post(
-            reverse('tasks:complete', args=[task_of(self.a).pk]),
-            {'execution_comment': 'Готово'},
-        ))
+        # A task closed behind the board's back (not by `complete_card()`).
+        self.assert_moves(lambda: complete_task(task_of(self.a), self.member, 'Готово'))
         self.assertEqual(task_of(self.a).status.code, 'COMPLETED')
         self.assert_moves(lambda: reopen_task(task_of(self.a), self.admin))
         newcomer = make_user('rt_board_sync_newcomer')

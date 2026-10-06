@@ -1,114 +1,113 @@
-"""«Обсуждение» keeps the unsaved «Выполнение», and a long one stays short."""
+"""«Чат» carries no «Выполнение» draft any more, and a long one stays short."""
 
 import re
+import tempfile
 from unittest import mock
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from realtime.fragments import content_revision
 from tasks.drafts import EXECUTION_DRAFT_SESSION_KEY
-from tasks.models import Task
+from tasks.models import Task, TaskAttachment
 
 from ..models import BoardCardComment
 from ..selectors import COMMENTS_LIMIT
 from ..services import post_card_comment
-from .helpers import BoardFixtureMixin, board_url, fragment_url
+from .helpers import (
+    BoardFixtureMixin,
+    assert_page_matches_fragment,
+    board_url,
+    fragment_url,
+    page_attribute,
+)
 
 
-EXECUTION_FIELD = re.compile(r'<textarea id="task-execution-comment"[^>]*>(.*?)</textarea>', re.S)
-CARRY_FIELD = 'data-attachment-carry-from="#task-execution-comment"'
-CSRF_INPUT = re.compile(r'<input\b[^>]*\bname="csrfmiddlewaretoken"[^>]*>')
+RESULT_FIELD = re.compile(r'<textarea id="board-complete-result"[^>]*>(.*?)</textarea>', re.S)
 
 
-def execution_text(response):
-    match = EXECUTION_FIELD.search(response.content.decode())
+def result_text(response):
+    match = RESULT_FIELD.search(response.content.decode())
     return match.group(1) if match else None
-
-
-def attribute(content, name):
-    match = re.search(rf'{name}="([^"]*)"', content)
-    return match.group(1).replace('&amp;', '&') if match else None
 
 
 def task_of(card):
     return Task.objects.get(source_type=Task.SourceType.BOARD, board_card=card)
 
 
-class ExecutionDraftTests(BoardFixtureMixin, TestCase):
-    """The message form carries «Выполнение» across its round trip."""
+class NoExecutionDraftTests(BoardFixtureMixin, TestCase):
+    """The board neither carries nor takes a «Выполнение» draft (stage 13).
+
+    The result is typed into «Завершить» in the drawer's heading; the chat's
+    form and the attachment forms post nothing on its behalf, and nothing a
+    session holds is put into the field.
+    """
 
     def setUp(self):
         self.card_obj = self.card('Обсуждаемая', assignees=[self.member])
-        self.other = self.card('Соседняя', assignees=[self.member])
         self.page_url = board_url(self.board)
         self.client.force_login(self.member)
 
-    def comment_url(self, card):
-        return reverse('boards:card_comment', args=[self.board.pk, card.pk])
+    def comment_url(self):
+        return reverse('boards:card_comment', args=[self.board.pk, self.card_obj.pk])
 
-    def open_panel(self, card):
-        return self.client.get(self.page_url, {'card': card.pk})
+    def open_panel(self, **extra):
+        return self.client.get(self.page_url, {'card': self.card_obj.pk, **extra})
 
-    def test_the_form_carries_the_field_only_beside_a_completable_task(self):
-        content = self.open_panel(self.card_obj).content.decode()
-        form = content.split('class="board-discussion__form"', 1)[1].split('</form>', 1)[0]
-        self.assertIn('name="execution_comment"', form)
-        self.assertIn(CARRY_FIELD, form)
-        # A member who is no исполнитель writes messages but completes nothing.
-        self.client.force_login(self.colleague)
-        content = self.open_panel(self.card_obj).content.decode()
-        form = content.split('class="board-discussion__form"', 1)[1].split('</form>', 1)[0]
-        self.assertNotIn('name="execution_comment"', form)
+    def test_the_message_form_carries_no_execution_field(self):
+        content = self.open_panel().content.decode()
+        form = content.split('class="board-chat__form"', 1)[1].split('</form>', 1)[0]
+        self.assertIn('name="text"', form)
+        self.assertNotIn('execution_comment', form)
+        self.assertNotIn('data-attachment-carry-from', form)
+        # No «Выполнение» textarea on the board to carry from.
+        self.assertNotIn('id="task-execution-comment"', content)
+        self.assertEqual(result_text(self.open_panel()), '')
 
-    def test_after_a_message_the_execution_field_holds_the_text(self):
+    def test_a_message_parks_nothing(self):
         response = self.client.post(
-            self.comment_url(self.card_obj),
-            {'text': 'Вопрос по сроку', 'execution_comment': 'Наполовину написано'},
+            self.comment_url(), {'text': 'Вопрос по сроку', 'execution_comment': 'Наполовину написано'},
             follow=True,
         )
         self.assertEqual(BoardCardComment.objects.get().text, 'Вопрос по сроку')
-        self.assertEqual(execution_text(response), 'Наполовину написано')
-        self.assertIn('data-panel-holds-input="true"', response.content.decode())
-        # A draft, never a result.
-        task = task_of(self.card_obj)
-        self.assertEqual(task.execution_comment, '')
-        self.assertEqual(task.status.code, 'IN_PROGRESS')
-        # Shown once: the next visit is the stored state again.
-        self.assertEqual(execution_text(self.open_panel(self.card_obj)), '')
-
-    def test_a_refused_message_keeps_the_text_too(self):
-        response = self.client.post(
-            self.comment_url(self.card_obj), {'text': '   ', 'execution_comment': 'Почти готово'},
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(execution_text(response), 'Почти готово')
-        self.assertFalse(BoardCardComment.objects.exists())
-
-    def test_an_empty_draft_clears_an_old_one(self):
-        self.client.post(self.comment_url(self.card_obj), {'text': 'Первое', 'execution_comment': 'Старое'})
-        self.assertIn(EXECUTION_DRAFT_SESSION_KEY, self.client.session)
-        response = self.client.post(
-            self.comment_url(self.card_obj), {'text': 'Второе', 'execution_comment': '  '}, follow=True,
-        )
         self.assertNotIn(EXECUTION_DRAFT_SESSION_KEY, self.client.session)
-        self.assertEqual(execution_text(response), '')
+        self.assertEqual(result_text(response), '')
+        self.assertNotIn('Наполовину написано', response.content.decode())
+        self.assertIn('data-panel-holds-input="false"', response.content.decode())
+        # The message lands on «Чат».
+        self.assertEqual(response.redirect_chain[-1][0], f'{self.page_url}?card={self.card_obj.pk}&tab=chat')
 
-    def test_a_draft_of_another_task_is_not_inserted(self):
-        self.client.post(self.comment_url(self.other), {'text': 'Там', 'execution_comment': 'Чужой черновик'})
-        response = self.open_panel(self.card_obj)
-        self.assertEqual(execution_text(response), '')
-        self.assertNotIn('Чужой черновик', response.content.decode())
-        # Left for its own task, which still gets it.
-        self.assertEqual(execution_text(self.open_panel(self.other)), 'Чужой черновик')
+    def test_the_panel_takes_no_draft_from_the_session(self):
+        session = self.client.session
+        session[EXECUTION_DRAFT_SESSION_KEY] = {'task': task_of(self.card_obj).pk, 'text': 'Старый черновик'}
+        session.save()
+        response = self.open_panel()
+        self.assertEqual(result_text(response), '')
+        self.assertNotIn('Старый черновик', response.content.decode())
 
-    def test_a_form_without_the_field_leaves_the_draft_alone(self):
-        self.client.post(self.comment_url(self.card_obj), {'text': 'Первое', 'execution_comment': 'Моё'})
-        self.client.force_login(self.member)
-        self.client.post(self.comment_url(self.card_obj), {'text': 'Без поля'})
-        self.assertEqual(execution_text(self.open_panel(self.card_obj)), 'Моё')
+    @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-files-'))
+    def test_files_work_without_the_execution_textarea(self):
+        content = self.open_panel(tab='files').content.decode()
+        upload = content.split('class="task-attachment-form"', 1)[1].split('</form>', 1)[0]
+        # The shared include still draws its hidden field; with no
+        # `#task-execution-comment` on the board it simply posts it empty.
+        self.assertIn('name="list_query" value="tab=files"', upload)
+        task = task_of(self.card_obj)
+        response = self.client.post(
+            reverse('tasks:add_attachment', args=[task.pk]),
+            {'list_query': 'tab=files', 'execution_comment': '',
+             'file': SimpleUploadedFile('акт.pdf', b'%PDF-1.4 test', content_type='application/pdf')},
+            follow=True,
+        )
+        self.assertEqual(TaskAttachment.objects.filter(task=task).count(), 1)
+        self.assertEqual(
+            response.redirect_chain[-1][0], f'{self.page_url}?card={self.card_obj.pk}&tab=files',
+        )
+        self.assertIn('data-board-tab="files"', response.content.decode())
+        self.assertNotIn(EXECUTION_DRAFT_SESSION_KEY, self.client.session)
 
 
 class LongDiscussionTests(BoardFixtureMixin, TestCase):
@@ -140,8 +139,8 @@ class LongDiscussionTests(BoardFixtureMixin, TestCase):
         content = self.client.get(self.page_url, {'card': self.card_obj.pk, 'mine': '1'}).content.decode()
         self.assertEqual(self.comments_of(content), ['Сообщение 003', 'Сообщение 004', 'Сообщение 005'])
         self.assertIn('Показать ранние (2)', content)
-        link = attribute(content, 'class="board-discussion__earlier"><a href')
-        self.assertEqual(link, f'{self.page_url}?card={self.card_obj.pk}&comments=all&mine=1')
+        link = page_attribute(content, 'class="board-discussion__earlier"><a href')
+        self.assertEqual(link, f'{self.page_url}?card={self.card_obj.pk}&comments=all&tab=chat&mine=1')
 
     def test_all_reads_every_message_and_keeps_asking_for_them(self):
         self.write(5)
@@ -150,9 +149,9 @@ class LongDiscussionTests(BoardFixtureMixin, TestCase):
         ).content.decode()
         self.assertEqual(len(self.comments_of(content)), 5)
         self.assertNotIn('Показать ранние', content)
-        query = f'?card={self.card_obj.pk}&comments=all&mine=1'
-        self.assertEqual(attribute(content, 'data-board-fragment-url'), self.fragment_url + query)
-        self.assertEqual(attribute(content, 'data-board-page-url'), self.page_url + query)
+        query = f'?card={self.card_obj.pk}&comments=all&tab=description&mine=1'
+        self.assertEqual(page_attribute(content, 'data-board-fragment-url'), self.fragment_url + query)
+        self.assertEqual(page_attribute(content, 'data-board-page-url'), self.page_url + query)
 
     def test_no_link_while_everything_fits(self):
         self.write(self.LIMIT)
@@ -166,11 +165,8 @@ class LongDiscussionTests(BoardFixtureMixin, TestCase):
             with self.subTest(query=query):
                 page = self.client.get(self.page_url, query).content.decode()
                 fragment = self.client.get(self.fragment_url, query).json()
-                for block in ('columns', 'panel', 'comments'):
-                    html = fragment[f'{block}_html']
-                    self.assertIn(CSRF_INPUT.sub('', html), CSRF_INPUT.sub('', page))
-                    self.assertEqual(attribute(page, f'data-{block}-revision'), fragment[f'{block}_revision'])
-                    self.assertEqual(fragment[f'{block}_revision'], content_revision(html))
+                assert_page_matches_fragment(self, page, fragment)
+                self.assertEqual(fragment['comments_revision'], content_revision(fragment['comments_html']))
         limited = self.client.get(self.fragment_url, {'card': self.card_obj.pk}).json()
         every = self.client.get(self.fragment_url, {'card': self.card_obj.pk, 'comments': 'all'}).json()
         self.assertEqual(len(self.comments_of(limited['comments_html'])), self.LIMIT)

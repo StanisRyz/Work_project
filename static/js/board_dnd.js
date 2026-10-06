@@ -30,11 +30,11 @@
  * `attachment_upload.js` clicks its hidden one: the modal asks for the result
  * and posts it as an ordinary form; closing the modal puts the card back.
  *
- * After moving the card the panel shows, see `openCardMoved()`.
+ * After moving the card the drawer shows, see `openCardMoved()`.
  *
  * Every listener is delegated from `document`, so columns replaced wholesale by
  * a later live update keep working with nothing to re-bind. Without
- * JavaScript, «Переместить в…» and «Завершить» in the card panel do the same.
+ * JavaScript, «Переместить в…» and «Завершить» in the card drawer do the same.
  *
  * While a card is in the air, a move awaits the server or the completion modal
  * is open, `[data-board]` carries `data-board-busy`: the live client
@@ -373,14 +373,16 @@
     };
 
     /**
-     * The card the panel shows was just moved: its panel now names the wrong
+     * The card the drawer shows was just moved: it now names the wrong
      * column. With the live client running (`realtime/boards.js`) nothing more
-     * is done — the move's own `board.updated` redraws a clean panel, or
-     * raises the conflict banner over unsaved input. Without it, the board's
-     * own address for this card is loaded (`data-board-page-url`, filter
-     * included — never `reload()`: a board drawn in answer to a refused POST
-     * would post it again), unless the panel holds unsaved input, when a
-     * message asks the user to reload when ready. Returns what it did.
+     * is done — the move's own `board.updated` redraws a clean drawer, or
+     * raises the conflict banner over unsaved input. Without it, unless the
+     * page holds unsaved input (then a message asks the user to reload when
+     * ready), the drawer is drawn again from the server by `board_drawer.js`
+     * — or, where that script is missing, the board's own address for this
+     * card is loaded (`data-board-page-url`, filter included — never
+     * `reload()`: a board drawn in answer to a refused POST would post it
+     * again). Returns what it did.
      */
     const openCardMoved = (cardId) => {
         const core = window.QualityRealtime;
@@ -391,6 +393,10 @@
         if (guard && guard.isDirty) {
             showMessage(MOVED_PANEL_STALE);
             return 'message';
+        }
+        if (window.qualityBoardDrawer && window.qualityBoardDrawer.isOpen) {
+            window.qualityBoardDrawer.refresh();
+            return 'drawer';
         }
         const root = document.querySelector('[data-board]');
         if (!root || !root.dataset.boardUrl) {

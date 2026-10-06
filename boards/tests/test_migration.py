@@ -1,4 +1,5 @@
-"""`boards.0006`–`0008`: the four fixed columns become «Основная» and back.
+"""`boards.0006`–`0008`: the four fixed columns become «Основная» and back;
+`boards.0010`: the journal of cards stored before it.
 
 Run through `MigrationExecutor` on the test database: the board app is taken
 back to `0005` (sub-boards exist, `stage` still rules), cards are written the
@@ -145,3 +146,114 @@ class DefaultSubBoardMigrationTests(TransactionTestCase):
         # And forward again: the data migration runs a second time cleanly.
         apps = migrate(AFTER)
         self.assertEqual(apps.get_model('boards', 'SubBoard').objects.filter(board_id=board_id).count(), 1)
+
+
+JOURNAL_BEFORE = [('boards', '0009_board_card_event')]
+JOURNAL_AFTER = [('boards', '0010_backfill_card_events')]
+NO_JOURNAL = [('boards', '0008_drop_card_stage')]
+
+
+class CardJournalBackfillTests(TransactionTestCase):
+    """`boards.0010`: the journal of cards stored before it, from facts only."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def _cards(self, apps):
+        from datetime import datetime, timezone as dt_timezone
+
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        BoardCardEvent = apps.get_model('boards', 'BoardCardEvent')
+        Task = apps.get_model('tasks', 'Task')
+        TaskStatus = apps.get_model('references', 'TaskStatus')
+
+        statuses = {
+            code: TaskStatus.objects.get_or_create(
+                code=code, defaults={'name': code, 'is_final': code != 'IN_PROGRESS'},
+            )[0]
+            for code in ('IN_PROGRESS', 'COMPLETED', 'CANCELLED')
+        }
+        author = User.objects.create(username='journal_author')
+        finisher = User.objects.create(username='journal_finisher')
+        board = Board.objects.create(name='Доска с прошлым', owner=author)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=author)
+        column = BoardColumn.objects.create(sub_board=sub_board, name='Сделать', position=1)
+        when = {
+            'created': datetime(2026, 9, 1, 9, 0, tzinfo=dt_timezone.utc),
+            'completed': datetime(2026, 9, 3, 15, 30, tzinfo=dt_timezone.utc),
+            'cancelled': datetime(2026, 9, 4, 11, 0, tzinfo=dt_timezone.utc),
+        }
+        cards = {}
+        for title, status, extra in (
+            ('open', 'IN_PROGRESS', {}),
+            ('done', 'COMPLETED', {'completed_by': finisher, 'completed_at': when['completed']}),
+            ('cancelled', 'CANCELLED', {'cancelled_by': finisher, 'cancelled_at': when['cancelled']}),
+            # Completed, but nobody is recorded as having done it: nothing is guessed.
+            ('anonymous', 'COMPLETED', {'completed_at': when['completed']}),
+        ):
+            card = BoardCard.objects.create(
+                board=board, sub_board=sub_board, column=column, position=1024, title=title,
+                created_by=author,
+            )
+            BoardCard.objects.filter(pk=card.pk).update(created_at=when['created'])
+            Task.objects.create(
+                source_type='BOARD', board_card=card, task_text=title, due_date=date(2026, 10, 9),
+                created_by=author, status=statuses[status], **extra,
+            )
+            cards[title] = card.pk
+        # A card that already has its «создание» keeps exactly one.
+        BoardCardEvent.objects.create(card_id=cards['open'], actor=author, kind='CREATED', details={})
+        return cards, author.pk, finisher.pk, when
+
+    def test_facts_only_and_a_second_run_adds_nothing(self):
+        import importlib
+
+        apps = migrate(JOURNAL_BEFORE)
+        cards, author, finisher, when = self._cards(apps)
+
+        apps = migrate(JOURNAL_AFTER)
+        BoardCardEvent = apps.get_model('boards', 'BoardCardEvent')
+
+        def journal():
+            return sorted(BoardCardEvent.objects.values_list('card_id', 'kind', 'actor_id'))
+
+        expected = sorted([
+            (cards['open'], 'CREATED', author),
+            (cards['done'], 'CREATED', author),
+            (cards['done'], 'COMPLETED', finisher),
+            (cards['cancelled'], 'CREATED', author),
+            (cards['cancelled'], 'CANCELLED', finisher),
+            (cards['anonymous'], 'CREATED', author),
+        ])
+        self.assertEqual(journal(), expected)
+        # Each entry carries the time of the fact, not of the migration.
+        stamped = {
+            (event.card_id, event.kind): event.created_at
+            for event in BoardCardEvent.objects.exclude(card_id=cards['open'])
+        }
+        self.assertEqual(stamped[(cards['done'], 'CREATED')], when['created'])
+        self.assertEqual(stamped[(cards['done'], 'COMPLETED')], when['completed'])
+        self.assertEqual(stamped[(cards['cancelled'], 'CANCELLED')], when['cancelled'])
+        self.assertFalse(BoardCardEvent.objects.exclude(details={}).exists())
+
+        backfill = importlib.import_module('boards.migrations.0010_backfill_card_events').backfill
+        backfill(apps, None)
+        self.assertEqual(journal(), expected)
+
+    def test_rolling_the_journal_back_and_forward(self):
+        apps = migrate(JOURNAL_BEFORE)
+        self._cards(apps)
+        migrate(JOURNAL_AFTER)
+        apps = migrate(NO_JOURNAL)
+        with self.assertRaises(LookupError):
+            apps.get_model('boards', 'BoardCardEvent')
+        apps = migrate(JOURNAL_AFTER)
+        self.assertEqual(apps.get_model('boards', 'BoardCardEvent').objects.count(), 6)

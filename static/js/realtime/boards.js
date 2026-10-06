@@ -1,8 +1,8 @@
 /**
- * The open board page — one sub-board — kept current: its tabs, its columns,
- * its card panel and the open card's messages.
+ * The open board page — one sub-board — kept current: its tabs, its columns
+ * and the open card's drawer.
  *
- * Four live blocks, all fetched from `boards:fragment`, which renders the very
+ * Every live block is fetched from `boards:fragment`, which renders the very
  * same partials from the very same context builder as the page — no markup is
  * built here, and nothing here is a rule:
  *
@@ -22,25 +22,43 @@
  *                              column menu left open (`details[data-board-menu]`,
  *                              perhaps with a new name half typed) holds it
  *                              back the same way, until the menu closes.
- *   [data-live-board-comments] the messages of the open card's «Обсуждение»:
- *                              read-only, replaced whenever its fingerprint
- *                              moved, keeping a reader at the bottom there.
- *                              Its form is outside every block, and no message
- *                              is part of the panel's fingerprint — a message
- *                              never raises the banner over a «Выполнение».
- *   [data-live-board-panel]    holds forms, so it is guarded exactly like the
- *                              act and protocol work blocks: an unchanged
- *                              fingerprint does nothing, a changed one replaces
- *                              a clean panel, and a panel with unsaved input
- *                              keeps every typed character and raises the
- *                              conflict banner instead.
+ *   [data-live-board-panel] +  the card drawer's guarded block, in two
+ *   [data-live-board-card]     containers with one fingerprint
+ *                              (`panel_revision`): the heading with
+ *                              «Завершить», and «Описание» + «Файлы». It holds
+ *                              forms, so it is guarded exactly like the act and
+ *                              protocol work blocks: an unchanged fingerprint
+ *                              does nothing, a changed one replaces a clean
+ *                              block, and a block with unsaved input keeps
+ *                              every typed character and raises the conflict
+ *                              banner instead.
+ *   [data-live-board-comments] the messages of «Чат»: read-only, replaced
+ *                              whenever its fingerprint moved, keeping a reader
+ *                              at the bottom there. Its form is outside every
+ *                              block, and no message is part of the guarded
+ *                              block — a message never raises the banner.
+ *   [data-live-board-log]      «Лог»: read-only, replaced whenever its
+ *                              fingerprint moved; no entry is part of the
+ *                              guarded block either.
+ *
+ * The numbers beside «Чат» and «Файлы» are set with their blocks
+ * (`chat_count`, `files_count`). Which tab is shown is the drawer's own
+ * `data-board-tab`, outside every block, so no replacement changes it.
+ *
+ * The drawer is opened, switched and closed without a reload by
+ * `board_drawer.js`, which rewrites the addresses and fingerprints on
+ * `[data-board]` and says so with `quality:board-drawer`. Everything here
+ * therefore reads them off `[data-board]` and finds the drawer's blocks anew
+ * each time; an answer fetched for an address the page no longer shows is
+ * dropped and fetched again.
  *
  * What makes it refetch: `board.updated` for this board, a `task.*` event for
  * a task whose tile or panel is on the page, and the `boards` sync revision
  * moving (a reconnect, a recovery sync, a task closed from its own page).
  *
  * Without real-time (`QualityRealtime` is null) none of this runs and the
- * board is exactly the page the server drew; dragging does not depend on it.
+ * board is exactly the page the server drew; dragging and the drawer do not
+ * depend on it.
  */
 (() => {
     'use strict';
@@ -55,15 +73,17 @@
         return;
     }
     const boardId = Number(root.dataset.boardId);
-    const fragmentUrl = root.dataset.boardFragmentUrl;
-    if (!core.isPositiveInteger(boardId) || !fragmentUrl) {
+    if (!core.isPositiveInteger(boardId) || !root.dataset.boardFragmentUrl) {
         return;
     }
 
     const tabsElement = root.querySelector('[data-live-board-tabs]');
     const columnsElement = root.querySelector('[data-live-board-columns]');
-    const panelElement = root.querySelector('[data-live-board-panel]');
-    const commentsElement = root.querySelector('[data-live-board-comments]');
+    // The drawer's blocks come and go with the card it shows: found anew.
+    const panelElement = () => root.querySelector('[data-live-board-panel]');
+    const cardElement = () => root.querySelector('[data-live-board-card]');
+    const commentsElement = () => root.querySelector('[data-live-board-comments]');
+    const logElement = () => root.querySelector('[data-live-board-log]');
     const conflictBanner = document.querySelector('[data-board-conflict-banner]');
     const reloadButton = document.querySelector('[data-board-conflict-reload]');
     if (reloadButton) {
@@ -74,22 +94,27 @@
         );
     }
 
-    let tabsRevision = root.dataset.tabsRevision || '';
-    let columnsRevision = root.dataset.columnsRevision || '';
-    let panelRevision = root.dataset.panelRevision || '';
-    let commentsRevision = root.dataset.commentsRevision || '';
-    // A page re-rendered from a refused form, or holding a «Выполнение» draft
-    // parked by an attachment request, already shows input that is not stored.
+    // The fingerprints live on `[data-board]`, where `board_drawer.js` also
+    // writes those of a card it opens.
+    const revision = (name) => root.dataset[name] || '';
+    const setRevision = (name, value) => {
+        root.dataset[name] = value;
+    };
+    // A page re-rendered from a refused form already shows input that is not
+    // stored.
     let dirty = root.dataset.panelHoldsInput === 'true';
     let deferred = false;
 
     // -- dirty-state tracking ---------------------------------------------
     //
-    // Only a real gesture inside the panel counts: a drag, the confirmation
-    // modal or the bug-report dialog type nothing a refresh could discard, and
-    // a programmatic replacement dispatches nothing.
+    // Only a real gesture inside the guarded block counts: a drag, the
+    // confirmation modal, the chat's form or the bug-report dialog type
+    // nothing a refresh could discard, and a programmatic replacement
+    // dispatches nothing.
     const insidePanel = (target) =>
-        Boolean(panelElement && target && typeof panelElement.contains === 'function' && panelElement.contains(target));
+        Boolean(target) && [panelElement(), cardElement()].some(
+            (element) => element && typeof element.contains === 'function' && element.contains(target),
+        );
     ['input', 'change'].forEach((type) =>
         document.addEventListener(type, (event) => {
             if (event.isTrusted === false) {
@@ -118,8 +143,8 @@
         if (!columnsElement || typeof payload.columns_html !== 'string') {
             return;
         }
-        const revision = revisionOf(payload.columns_revision);
-        if (revision && revision === columnsRevision) {
+        const next = revisionOf(payload.columns_revision);
+        if (next && next === revision('columnsRevision')) {
             return;
         }
         if (isBusy() || menuOpen()) {
@@ -151,7 +176,7 @@
         if (rowAfter && rowScroll) {
             rowAfter.scrollLeft = rowScroll;
         }
-        columnsRevision = revision;
+        setRevision('columnsRevision', next);
         if (window.qualityFragments) {
             window.qualityFragments.reinitialise(columnsElement);
         }
@@ -161,8 +186,8 @@
         if (!tabsElement || typeof payload.tabs_html !== 'string') {
             return;
         }
-        const revision = revisionOf(payload.tabs_revision);
-        if (revision && revision === tabsRevision) {
+        const next = revisionOf(payload.tabs_revision);
+        if (next && next === revision('tabsRevision')) {
             return;
         }
         if (menuOpen()) {
@@ -171,18 +196,27 @@
             return;
         }
         tabsElement.innerHTML = payload.tabs_html;
-        tabsRevision = revision;
+        setRevision('tabsRevision', next);
         if (window.qualityFragments) {
             window.qualityFragments.reinitialise(tabsElement);
         }
     };
 
+    const setCount = (name, value) => {
+        const count = root.querySelector(`[data-board-tab-count="${name}"]`);
+        if (count && Number.isInteger(value)) {
+            count.textContent = String(value);
+        }
+    };
+
     const applyPanel = (payload) => {
-        if (!panelElement || typeof payload.panel_html !== 'string') {
+        const panel = panelElement();
+        const card = cardElement();
+        if (!panel || typeof payload.panel_html !== 'string') {
             return;
         }
-        const revision = revisionOf(payload.panel_revision);
-        if (revision && revision === panelRevision) {
+        const next = revisionOf(payload.panel_revision);
+        if (next && next === revision('panelRevision')) {
             return;
         }
         if (dirty) {
@@ -191,13 +225,25 @@
             }
             return;
         }
-        panelElement.innerHTML = payload.panel_html;
-        // The panel this page asked for is no longer drawn (the right to
-        // create a card here is gone, for one): nothing is left to show.
-        panelElement.hidden = payload.panel_html === '';
-        panelRevision = revision;
+        if (payload.panel_html === '') {
+            // The panel this page asked for is no longer drawn (the right to
+            // create a card here is gone, for one): nothing is left to show.
+            if (window.qualityBoardDrawer) {
+                window.qualityBoardDrawer.close({ push: false });
+            }
+            return;
+        }
+        panel.innerHTML = payload.panel_html;
+        if (card && typeof payload.card_html === 'string') {
+            card.innerHTML = payload.card_html;
+        }
+        setRevision('panelRevision', next);
+        setCount('files', payload.files_count);
         if (window.qualityFragments) {
-            window.qualityFragments.reinitialise(panelElement);
+            window.qualityFragments.reinitialise(panel);
+            if (card) {
+                window.qualityFragments.reinitialise(card);
+            }
         }
     };
 
@@ -206,39 +252,70 @@
     const BOTTOM_SLACK = 24;
 
     /**
-     * «Обсуждение»'s messages: read-only, so replaced whenever the
-     * fingerprint moved. Its form is outside this block, so what is being
-     * typed there is never redrawn, and no message is part of the guarded
-     * panel. A reader at the bottom of the list stays at the bottom and sees
-     * the new message; one who scrolled up stays where they were.
+     * «Чат»'s messages: read-only, so replaced whenever the fingerprint
+     * moved. Its form is outside this block, so what is being typed there is
+     * never redrawn, and no message is part of the guarded block. A reader at
+     * the bottom of the list stays at the bottom and sees the new message; one
+     * who scrolled up stays where they were. The number beside «Чат» follows.
      */
     const applyComments = (payload) => {
-        if (!commentsElement || typeof payload.comments_html !== 'string' || !payload.comments_html) {
+        const list = commentsElement();
+        if (!list || typeof payload.comments_html !== 'string' || !payload.comments_html) {
             return;
         }
-        const revision = revisionOf(payload.comments_revision);
-        if (revision && revision === commentsRevision) {
+        const next = revisionOf(payload.comments_revision);
+        if (next && next === revision('commentsRevision')) {
             return;
         }
-        const scrollTop = Number(commentsElement.scrollTop) || 0;
+        const scrollTop = Number(list.scrollTop) || 0;
         const atBottom =
-            Number(commentsElement.scrollHeight || 0) - scrollTop - Number(commentsElement.clientHeight || 0)
+            Number(list.scrollHeight || 0) - scrollTop - Number(list.clientHeight || 0)
             <= BOTTOM_SLACK;
-        commentsElement.innerHTML = payload.comments_html;
-        commentsElement.scrollTop = atBottom ? Number(commentsElement.scrollHeight || 0) : scrollTop;
-        commentsRevision = revision;
+        list.innerHTML = payload.comments_html;
+        list.scrollTop = atBottom ? Number(list.scrollHeight || 0) : scrollTop;
+        setRevision('commentsRevision', next);
+        setCount('chat', payload.chat_count);
         if (window.qualityFragments) {
-            window.qualityFragments.reinitialise(commentsElement);
+            window.qualityFragments.reinitialise(list);
         }
     };
 
+    /** «Лог»: read-only, newest first, replaced whenever its fingerprint moved. */
+    const applyLog = (payload) => {
+        const log = logElement();
+        if (!log || typeof payload.log_html !== 'string' || !payload.log_html) {
+            return;
+        }
+        const next = revisionOf(payload.log_revision);
+        if (next && next === revision('logRevision')) {
+            return;
+        }
+        log.innerHTML = payload.log_html;
+        setRevision('logRevision', next);
+        if (window.qualityFragments) {
+            window.qualityFragments.reinitialise(log);
+        }
+    };
+
+    // The address the newest request was made for: an answer for any other
+    // (a card opened or a tab switched meanwhile) is dropped and refetched.
+    let requested = '';
+
     const coordinator = core.createRefreshCoordinator({
-        url: fragmentUrl,
+        url: () => {
+            requested = root.dataset.boardFragmentUrl;
+            return requested;
+        },
         apply(payload) {
+            if (requested !== root.dataset.boardFragmentUrl) {
+                refresh();
+                return;
+            }
             applyTabs(payload);
             applyColumns(payload);
             applyPanel(payload);
             applyComments(payload);
+            applyLog(payload);
         },
         // A lost session stops the whole client; a board that is gone stops
         // only this coordinator, which `createRefreshCoordinator` already did.
@@ -258,6 +335,16 @@
         }
     };
     document.addEventListener('quality:board-idle', resumeDeferred);
+    // A card opened or the drawer closed by `board_drawer.js`: a new block
+    // starts clean (or as the page says), the banner belongs to the old one,
+    // and the columns are brought up to the new address.
+    document.addEventListener('quality:board-drawer', () => {
+        dirty = root.dataset.panelHoldsInput === 'true';
+        if (conflictBanner) {
+            conflictBanner.hidden = true;
+        }
+        refresh();
+    });
     // `toggle` does not bubble; a capturing listener still sees a menu close.
     document.addEventListener('toggle', (event) => {
         const target = event.target;
@@ -283,12 +370,16 @@
     // A task closed from its own page, reopened by an administrator or given
     // another исполнитель says so on `task.*`, which reaches its исполнители;
     // everybody else learns it from the `boards` revision.
-    const showsTask = (taskId) =>
-        core.isPositiveInteger(taskId)
-        && Boolean(
+    const showsTask = (taskId) => {
+        if (!core.isPositiveInteger(taskId)) {
+            return false;
+        }
+        const panel = panelElement();
+        return Boolean(
             (columnsElement && columnsElement.querySelector(`[data-task-id="${taskId}"]`))
-            || (panelElement && Number(panelElement.dataset.taskId) === taskId),
+            || (panel && Number(panel.dataset.taskId) === taskId),
         );
+    };
     [
         core.EVENT_TYPES.TASK_CREATED,
         core.EVENT_TYPES.TASK_UPDATED,
@@ -305,7 +396,7 @@
         coordinator,
         /**
          * Whether this page is kept current: `board_dnd.js` asks it after
-         * moving the open card and, when it is, leaves the panel to the
+         * moving the open card and, when it is, leaves the drawer to the
          * `board.updated` that move publishes. A lost session (`core.stop()`)
          * or a vanished board ends it.
          */

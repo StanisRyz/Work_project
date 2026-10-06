@@ -1,5 +1,6 @@
 """Shared fixtures for the board tests."""
 
+import re
 from datetime import timedelta
 from unittest import mock
 
@@ -65,6 +66,36 @@ def board_url(board, sub_board=None):
 def fragment_url(board, sub_board=None):
     sub_board = sub_board or main_sub_board(board)
     return reverse('boards:fragment', args=[board.pk, sub_board.pk])
+
+
+# The live blocks of a sub-board page: the markup each one is drawn from in
+# the fragment, and the `data-*-revision` attribute the page carries for it.
+# The card panel is one block in two containers, with one fingerprint.
+LIVE_BLOCKS = {
+    'tabs': ('tabs_html',),
+    'columns': ('columns_html',),
+    'panel': ('panel_html', 'card_html'),
+    'comments': ('comments_html',),
+    'log': ('log_html',),
+}
+
+CSRF_INPUT = re.compile(r'<input\b[^>]*\bname="csrfmiddlewaretoken"[^>]*>')
+
+
+def page_attribute(content, name):
+    """The value of the first `name="…"` in `content`, `&amp;` decoded."""
+    match = re.search(rf'{name}="([^"]*)"', content)
+    return match.group(1).replace('&amp;', '&') if match else None
+
+
+def assert_page_matches_fragment(test, page, fragment, blocks=LIVE_BLOCKS):
+    """Every live block of the fragment is in the page, under the page's fingerprint."""
+    page_markup = CSRF_INPUT.sub('', page)
+    for block, keys in blocks.items():
+        with test.subTest(block=block):
+            for key in keys:
+                test.assertIn(CSRF_INPUT.sub('', fragment[key]), page_markup)
+            test.assertEqual(page_attribute(page, f'data-{block}-revision'), fragment[f'{block}_revision'])
 
 
 def card_create_url(board, sub_board=None):

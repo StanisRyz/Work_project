@@ -11,17 +11,19 @@ answers a GET by going back to the board and changing nothing.
 
 A board is read one sub-board at a time: `/work/boards/<board>/` sends the
 reader to its first tab (or to the tab of the card `?card=` names), and
-`/work/boards/<board>/<sub_board>/` is the page. The card panel is part of it,
-chosen by the query string: `?card=<pk>` reads a card, `&edit=1` edits it,
-`?new=<column id>` creates one in that column. A refused or invalid POST
-renders the sub-board again with the panel open, the typed values in place
-and the error beside the form; a successful one redirects to the card's
-sub-board with the card open.
+`/work/boards/<board>/<sub_board>/` is the page. The card drawer is part of
+it, chosen by the query string: `?card=<pk>` reads a card, `&edit=1` edits it,
+`?new=<column id>` creates one in that column, and `&tab=` names the drawer's
+tab («Описание», «Чат», «Файлы», «Лог»). A refused or invalid POST renders the
+sub-board again with the drawer open, the typed values in place and the error
+beside the form; a successful one redirects to the card's sub-board with the
+card open.
 
-Four blocks of the page are live: the tabs, the columns, the panel and the
-open card's messages. `boards:fragment` renders them through the very
-same context builder and the same partials as the page, so a refreshed block
-cannot disagree with a reload.
+The live blocks — the tabs, the columns, the card's guarded panel, its chat
+and its log — are rendered by `boards:fragment` through the very same context
+builder and the same partials as the page, so a refreshed block cannot
+disagree with a reload; the same answer is what `board_drawer.js` opens a
+card with, without reloading the page.
 
 The structure routes (tabs and columns: create, rename, ←/→, delete) are small
 POST forms for whoever manages the board; a refusal comes back as a message on
@@ -44,8 +46,8 @@ from django.views.decorators.http import require_GET
 from accounts.directory import get_employee_directory
 from realtime.auth import realtime_login_required
 from realtime.fragments import content_revision
-from tasks.drafts import remember_execution_draft, take_execution_draft
 from tasks.forms import TaskAttachmentForm
+from tasks.permissions import can_reopen_task
 
 from .forms import (
     AddMembersForm,
@@ -97,6 +99,7 @@ from .services import (
     rename_board,
     rename_column,
     rename_sub_board,
+    reopen_card,
     restore_board,
     update_card,
 )
@@ -114,14 +117,16 @@ def _sub_board_url(board, sub_board_id):
     return reverse('boards:sub_board', args=[board.pk, sub_board_id])
 
 
-def _card_url(board, card, request=None):
+def _card_url(board, card, request=None, *, tab=''):
     """The card's sub-board with `card` open — and, from a request, the filter
-    it was under.
+    it was under; `tab` opens the panel on that tab («Чат» after a message).
 
     Every board form posts to a URL carrying the board's filter query, so the
     redirect after it lands on the same filtered sub-board.
     """
     url = f'{_sub_board_url(board, card.sub_board_id)}?card={card.pk}'
+    if tab:
+        url = f'{url}&tab={tab}'
     query = parse_board_filters(request.GET).query if request is not None else ''
     return f'{url}&{query}' if query else url
 
@@ -265,12 +270,30 @@ def _card_initial(item):
 TABS_TEMPLATE = 'boards/includes/tabs.html'
 COLUMNS_TEMPLATE = 'boards/includes/columns.html'
 PANEL_TEMPLATE = 'boards/includes/panel.html'
+CARD_TEMPLATE = 'boards/includes/card.html'
 COMMENTS_TEMPLATE = 'boards/includes/comments.html'
+LOG_TEMPLATE = 'boards/includes/log.html'
+DRAWER_TEMPLATE = 'boards/includes/drawer.html'
+
+# The card panel's tabs, in order: `?tab=` names one, anything else is the
+# first. The counted ones show their number beside the name.
+PANEL_TABS = (
+    ('description', 'Описание'),
+    ('chat', 'Чат'),
+    ('files', 'Файлы'),
+    ('log', 'Лог'),
+)
+DEFAULT_PANEL_TAB = PANEL_TABS[0][0]
+
+
+def parse_panel_tab(value):
+    """The tab `?tab=` names, or «Описание» for anything unknown."""
+    return value if value in dict(PANEL_TABS) else DEFAULT_PANEL_TAB
 
 
 def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=None, panel=None,
                    form=None, move_form=None, error='', execution_comment=None,
-                   execution_error='', take_draft=True, version_conflict=False,
+                   execution_error='', version_conflict=False,
                    comment_text='', comment_error=''):
     """Everything the board page and its live fragment render.
 
@@ -280,11 +303,14 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     passed in is shown as it is — bound, with its errors — so a refused POST
     keeps what was typed.
 
-    «Выполнение» starts from what was just posted (a refused completion), else
-    from the draft an upload or a deletion parked in the session, else from the
-    task's own result — so a task an administrator reopened shows what was
-    written before, exactly as the task page does. The live fragment passes
-    `take_draft=False`: the draft is the page's to show, once.
+    «Завершить» in the panel's heading starts from what was just posted (a
+    refused completion), else from the task's own result — so a task an
+    administrator reopened shows what was written before. Nothing is taken
+    from the session: the board carries no «Выполнение» draft.
+
+    `?tab=` (`parse_panel_tab()`) says which of the panel's tabs is shown. It
+    changes no block — all four are drawn, the tab is an attribute of the
+    drawer around them — only the addresses the page builds for itself.
 
     The filters (`?mine=1`, `?overdue=1`, `?q=`) are read from `request.GET`
     here and nowhere else — on a POST too, whose action URL carries them — so
@@ -333,10 +359,9 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         move_form.fields['column_id'].widget.choices = [
             (column.pk, column.name) for column in columns if not column.is_done
         ]
-    if item is not None and panel == 'view' and item['can_complete'] and execution_comment is None:
-        draft = take_execution_draft(request, item['task']) if take_draft else None
-        holds_input = holds_input or bool(draft)
-        execution_comment = draft or item['task'].execution_comment
+    if item is not None and item['can_complete'] and execution_comment is None:
+        execution_comment = item['task'].execution_comment
+    tab = parse_panel_tab(request.GET.get('tab'))
     board_url = _sub_board_url(board, sub_board.pk)
     state.update({
         'active_page': 'boards',
@@ -355,31 +380,63 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         'attachments': item['attachments'] if item else [],
         'can_upload_attachment': bool(item and item['can_upload_attachment']),
         'attachment_form': TaskAttachmentForm(),
-        'list_query': '',
+        # Where `tasks:add_attachment`/`delete_attachment` send the user back:
+        # `tasks:detail?tab=files`, which leads to this card's «Файлы».
+        'list_query': 'tab=files',
         'execution_comment': execution_comment or '',
         'execution_error': execution_error,
         'board_url': board_url,
         'filter_query': filters.query,
         'filter_suffix': f'?{filters.query}' if filters.query else '',
         'version_conflict': version_conflict,
-        # «Обсуждение»'s form — outside every live block, so a refresh never
-        # redraws what is being typed in it.
-        'show_discussion': bool(item is not None and panel == 'view'),
+        # The tabs «Чат», «Файлы», «Лог» exist for a card being read or edited;
+        # a new card has only its form. The chat's form is outside every live
+        # block, so a refresh never redraws what is being typed in it.
+        'show_discussion': bool(item is not None and panel in ('view', 'edit')),
         'comment_text': comment_text,
         'comment_error': comment_error,
+        'tab': tab if item is not None and panel in ('view', 'edit') else DEFAULT_PANEL_TAB,
     })
-    query = _panel_query(item, panel, new_column, filters, all_comments=all_comments)
-    state['fragment_url'] = reverse('boards:fragment', args=[board.pk, sub_board.pk]) + query
+    fragment_base = reverse('boards:fragment', args=[board.pk, sub_board.pk])
+    query = _panel_query(item, panel, new_column, filters, all_comments=all_comments, tab=state['tab'])
+    state['fragment_base'] = fragment_base
+    state['fragment_url'] = fragment_base + query
     state['page_url'] = board_url + query
-    # «Показать ранние (N)»: this very panel with every message.
+    # Closing the panel: the sub-board under the same filter.
+    state['close_url'] = board_url + state['filter_suffix']
+    state['close_fragment_url'] = fragment_base + state['filter_suffix']
+    # «Сбросить» of the filter row keeps the open card and drops the filter.
+    state['reset_url'] = (
+        f'{board_url}?card={item["card"].pk}' if item is not None and panel == 'view' else board_url
+    )
+    # The tab strip: each tab's own page and fragment address, built here.
+    state['panel_tabs'] = [
+        {
+            'name': name,
+            'label': label,
+            'active': name == state['tab'],
+            'page_url': board_url + _panel_query(
+                item, panel, new_column, filters, all_comments=all_comments, tab=name,
+            ),
+            'fragment_url': fragment_base + _panel_query(
+                item, panel, new_column, filters, all_comments=all_comments, tab=name,
+            ),
+            'count': (
+                item['comment_count'] if name == 'chat'
+                else len(item['attachments']) if name == 'files' else None
+            ),
+        }
+        for name, label in PANEL_TABS
+    ] if state['show_discussion'] else []
+    # «Показать ранние (N)»: this very panel with every message, on «Чат».
     state['all_comments_url'] = (
-        board_url + _panel_query(item, panel, new_column, filters, all_comments=True)
+        board_url + _panel_query(item, panel, new_column, filters, all_comments=True, tab='chat')
         if state['show_discussion'] else ''
     )
     return state, holds_input
 
 
-def _panel_query(item, panel, new_column, filters, *, all_comments=False):
+def _panel_query(item, panel, new_column, filters, *, all_comments=False, tab=DEFAULT_PANEL_TAB):
     """The query string that asks for exactly the panel this page shows.
 
     It goes on the live fragment's URL and on the page's own address for a
@@ -392,8 +449,9 @@ def _panel_query(item, panel, new_column, filters, *, all_comments=False):
         query['card'] = item['card'].pk
         if panel == 'edit':
             query['edit'] = '1'
-        elif all_comments:
+        if all_comments:
             query['comments'] = 'all'
+        query['tab'] = tab
     elif panel == 'new' and new_column is not None:
         query['new'] = new_column.pk
     encoded = '&'.join(part for part in (urlencode(query), filters.query) if part)
@@ -401,36 +459,54 @@ def _panel_query(item, panel, new_column, filters, *, all_comments=False):
 
 
 def _board_blocks(request, context):
-    """The four live blocks as markup, each with its fingerprint.
+    """The live blocks as markup, each with its fingerprint, and the drawer.
 
     The tabs and the columns are read-only blocks of their own (the filter row
     stands between them on the page), so a tab or a column created, renamed,
     moved or deleted by somebody else arrives with the cards.
 
-    The messages of «Обсуждение» are a block of their own and appear in no
-    other: a new message moves `comments_revision` (and the tile's counter in
-    `columns_revision`), never `panel_revision`, so it cannot raise the
-    conflict banner over a «Выполнение» or an edit being typed.
+    The card panel is one guarded block in two containers — its heading
+    (`panel_html`: number, title, status, «Завершить», «Вернуть в работу»,
+    «×») and its forms and files (`card_html`: «Описание» and «Файлы») — with
+    one fingerprint over both, `panel_revision`. The messages of «Чат» and the
+    entries of «Лог» are read-only blocks of their own and appear in no other:
+    a new message or a new entry moves `comments_revision`/`log_revision`,
+    never `panel_revision`, so neither can raise the conflict banner over a
+    result or an edit being typed. `chat_count`/`files_count` are the numbers
+    beside «Чат» and «Файлы», for the client to set with their blocks.
+
+    `drawer_html` is the whole drawer around those blocks — the tab strip and
+    the chat's form included — which the client inserts once when it opens a
+    card without reloading the page.
     """
     tabs_html = render_to_string(TABS_TEMPLATE, context, request=request)
     columns_html = render_to_string(COLUMNS_TEMPLATE, context, request=request)
-    panel_html = (
-        render_to_string(PANEL_TEMPLATE, context, request=request) if context['panel'] else ''
-    )
-    comments_html = (
-        render_to_string(COMMENTS_TEMPLATE, context, request=request)
-        if context['show_discussion'] else ''
-    )
-    return {
+    panel = context['panel']
+    panel_html = render_to_string(PANEL_TEMPLATE, context, request=request) if panel else ''
+    card_html = render_to_string(CARD_TEMPLATE, context, request=request) if panel else ''
+    discussion = context['show_discussion']
+    comments_html = render_to_string(COMMENTS_TEMPLATE, context, request=request) if discussion else ''
+    log_html = render_to_string(LOG_TEMPLATE, context, request=request) if discussion else ''
+    item = context['card']
+    blocks = {
         'tabs_html': tabs_html,
         'tabs_revision': content_revision(tabs_html),
         'columns_html': columns_html,
         'columns_revision': content_revision(columns_html),
         'panel_html': panel_html,
-        'panel_revision': content_revision(panel_html) if panel_html else '',
+        'card_html': card_html,
+        'panel_revision': content_revision(panel_html + card_html) if panel else '',
         'comments_html': comments_html,
         'comments_revision': content_revision(comments_html) if comments_html else '',
+        'log_html': log_html,
+        'log_revision': content_revision(log_html) if log_html else '',
+        'chat_count': item['comment_count'] if discussion else 0,
+        'files_count': len(item['attachments']) if discussion else 0,
     }
+    blocks['drawer_html'] = (
+        render_to_string(DRAWER_TEMPLATE, {**context, **blocks}, request=request) if panel else ''
+    )
+    return blocks
 
 
 def _render_board(request, board, sub_board, *, status=200, **options):
@@ -451,9 +527,12 @@ def _render_board(request, board, sub_board, *, status=200, **options):
             card_id=context['card']['card'].pk if context['card'] else None,
             edit=context['panel'] == 'edit',
             new=context['new_column'].pk if context['new_column'] else None,
-            take_draft=False,
         )
         blocks['panel_revision'] = _board_blocks(request, clean)['panel_revision']
+        # The drawer printed on the page carries the bound form, not the clean one.
+        blocks['drawer_html'] = render_to_string(
+            DRAWER_TEMPLATE, {**context, **blocks}, request=request,
+        )
     context.update(blocks)
     context['panel_holds_input'] = holds_input
     # The frame and the heading are the page's only — never part of a
@@ -505,11 +584,16 @@ def sub_board_detail(request, pk, sub_pk):
 def board_fragment(request, pk, sub_pk):
     """The live blocks of one sub-board, for the live client.
 
-    The same right as the page, the same query string (`card`, `edit`, `new`),
-    the same context builder and the same partials: a refreshed block is what
-    a reload would draw. JSON, never cached, nothing written — the session
-    draft of «Выполнение» stays where it is. A sub-board deleted meanwhile is
-    a 404, which ends the live client of that page.
+    The same right as the page, the same query string (`card`, `edit`, `new`,
+    `tab`), the same context builder and the same partials: a refreshed block
+    is what a reload would draw. JSON, never cached, nothing written. A
+    sub-board deleted meanwhile is a 404, which ends the live client of that
+    page.
+
+    Besides the blocks it names the panel it drew (`panel`, `card_id`, `tab`)
+    and the addresses the page keeps for it (`page_url`, `fragment_url`,
+    `reset_url`), all built here: `board_drawer.js` opens a card with this
+    very response, inserts `drawer_html` and puts `page_url` in the history.
     """
     board = _board_or_404(pk)
     if not can_view_board(request.user, board):
@@ -522,11 +606,17 @@ def board_fragment(request, pk, sub_pk):
         card_id=request.GET.get('card'),
         edit=request.GET.get('edit') == '1',
         new=request.GET.get('new'),
-        take_draft=False,
     )
+    item = context['card']
     return _no_cache(JsonResponse({
         **_board_blocks(request, context),
         'panel': context['panel'] or '',
+        'card_id': item['card'].pk if item is not None and context['panel'] else None,
+        'task_id': item['task'].pk if item is not None and context['panel'] else None,
+        'tab': context['tab'],
+        'page_url': context['page_url'] if context['panel'] else context['close_url'],
+        'fragment_url': context['fragment_url'],
+        'reset_url': context['reset_url'],
         'generated_at': timezone.now().isoformat(),
     }))
 
@@ -658,7 +748,8 @@ def card_move(request, pk, card_pk):
 
 @login_required
 def card_complete(request, pk, card_pk):
-    """«Завершить» in the card panel: `complete_card()`, i.e. `complete_task()`.
+    """«Завершить» in the card panel's heading, or a drop on the closing column:
+    `complete_card()`, i.e. `complete_task()` plus the card's journal entry.
 
     Reading the board is what is asked before the method; who may finish the
     work is the task's own rule (`can_complete_task()`), answered by
@@ -681,6 +772,31 @@ def card_complete(request, pk, card_pk):
             execution_comment=execution_comment, execution_error=str(exc),
         )
     messages.success(request, 'Задача выполнена, карточка в завершающей колонке.')
+    return redirect(_card_url(board, card, request))
+
+
+@login_required
+def card_reopen(request, pk, card_pk):
+    """«Вернуть в работу» in the card panel's heading: `reopen_card()`.
+
+    The right is the task's own — `can_reopen_task()`: an administrator, a
+    completed task — and it is asked before the method, so a typed-in URL
+    without it is a 403 and a GET with it changes nothing. `reopen_card()`
+    asks it again under the locks; a refusal (an archived board, a task
+    reopened meanwhile) comes back as the panel with the message.
+    """
+    board = _board_or_404(pk)
+    _require(can_view_board(request.user, board))
+    card = get_object_or_404(BoardCard, pk=card_pk, board=board)
+    task = card.tasks.select_related('status').first()  # `unique_board_card_task`
+    _require(task is not None and can_reopen_task(task, request.user))
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request))
+    try:
+        reopen_card(card, actor=request.user)
+    except BoardError as exc:
+        return _render_board(request, board, card.sub_board, card_id=card.pk, panel='view', error=str(exc))
+    messages.success(request, 'Задача возвращена в работу.')
     return redirect(_card_url(board, card, request))
 
 
@@ -720,7 +836,6 @@ def card_comment(request, pk, card_pk):
     if request.method != 'POST':
         return redirect(_card_url(board, card, request))
     text = request.POST.get('text', '')
-    _remember_draft(request, card)
     try:
         post_card_comment(card, actor=request.user, text=text)
     except BoardError as exc:
@@ -728,25 +843,7 @@ def card_comment(request, pk, card_pk):
             request, board, card.sub_board, card_id=card.pk, panel='view',
             comment_text=text, comment_error=str(exc),
         )
-    return redirect(_card_url(board, card, request))
-
-
-def _remember_draft(request, card):
-    """Park the «Выполнение» text the message form carried, as an upload does.
-
-    The form's hidden `execution_comment` is filled from the panel's textarea
-    at submit time (`[data-attachment-carry-from]`), and the panel drawn next —
-    after the redirect, or the refusal re-rendered here — takes it back. Only
-    a form that carried the field speaks for the draft: one without it (no
-    «Выполнение» on the panel) leaves the session alone. A draft, never a
-    result — `complete_task()` is still the only writer of
-    `Task.execution_comment`.
-    """
-    if 'execution_comment' not in request.POST:
-        return
-    task = card.tasks.first()  # the one `BOARD` task — `unique_board_card_task`
-    if task is not None:
-        remember_execution_draft(request, task, request.POST['execution_comment'])
+    return redirect(_card_url(board, card, request, tab='chat'))
 
 
 @login_required

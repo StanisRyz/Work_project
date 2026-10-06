@@ -16,7 +16,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from .columns import MAX_COLUMNS, card_column
-from .models import Board, BoardCardComment, BoardColumn, BoardMember, SubBoard
+from .models import Board, BoardCardComment, BoardCardEvent, BoardColumn, BoardMember, SubBoard
 from .permissions import (
     can_cancel_card,
     can_comment_card,
@@ -170,7 +170,8 @@ def _panel_card(board, sub_board, columns, card_id, user, *, all_comments=False)
     item['department'] = task.department
     item['attachments'] = task_attachment_cards(task, user)
     item['can_complete'] = can_complete_task(task, user)
-    item['can_reopen'] = can_reopen_task(task, user)
+    # An archived board stays as it was shelved: `reopen_card()` refuses it.
+    item['can_reopen'] = can_reopen_task(task, user) and not board.is_archived
     item['can_upload_attachment'] = can_upload_task_attachment(task, user)
     # `board` is the very board of the page: no second query for it.
     task.board_card.board = board
@@ -190,7 +191,79 @@ def _panel_card(board, sub_board, columns, card_id, user, *, all_comments=False)
         item['comments'] = list(comments.order_by('-created_at', '-pk')[:COMMENTS_LIMIT])[::-1]
     item['comments_earlier'] = max(item['comment_count'] - len(item['comments']), 0)
     item['can_comment'] = can_comment_card(user, task.board_card)
+    item['log'] = card_log(task.board_card, item['attachments'])
     return item
+
+
+# The fields an «Изменение» entry names, in the edit form's order.
+EDITED_FIELD_LABELS = {
+    'title': 'заголовок',
+    'description': 'описание',
+    'due_date': 'срок',
+    'assignees': 'исполнители',
+}
+
+
+def describe_card_event(event):
+    """The sentence «Лог» shows for one `BoardCardEvent`.
+
+    Built from the kind and the stored snapshots only — a column's name is
+    the one it had then — and neutral in person: «Перенос: «Сделать» →
+    «В работе»», never a verb that would need the actor's gender.
+    """
+    details = event.details if isinstance(event.details, dict) else {}
+    kind = event.kind
+    if kind == BoardCardEvent.Kind.CREATED:
+        column = details.get('column')
+        return f'Карточка создана в колонке «{column}»' if column else 'Карточка создана'
+    if kind == BoardCardEvent.Kind.EDITED:
+        names = [
+            EDITED_FIELD_LABELS[name]
+            for name in details.get('fields') or () if name in EDITED_FIELD_LABELS
+        ]
+        return f'Изменено: {", ".join(names)}' if names else 'Карточка изменена'
+    if kind == BoardCardEvent.Kind.MOVED:
+        return f'Перенос: «{details.get("from_column") or "—"}» → «{details.get("to_column") or "—"}»'
+    if kind == BoardCardEvent.Kind.COMPLETED:
+        return 'Задача выполнена'
+    if kind == BoardCardEvent.Kind.REOPENED:
+        column = details.get('column')
+        return f'Возвращена в работу, в колонку «{column}»' if column else 'Возвращена в работу'
+    if kind == BoardCardEvent.Kind.CANCELLED:
+        return 'Карточка отменена'
+    return event.get_kind_display()
+
+
+def card_log(card, attachments):
+    """«Лог» of a card, newest first: its journal and its files.
+
+    The journal is one query (`BoardCardEvent`, its authors joined); the files
+    are the panel's own attachment list, already read, so a file costs no
+    query here — they are not journal entries, only shown beside them, by
+    time: who added which file and when.
+    """
+    entries = [
+        {
+            'kind': event.kind.lower(),
+            'actor': event.actor,
+            'at': event.created_at,
+            'text': describe_card_event(event),
+            'order': (event.created_at, 1, event.pk),
+        }
+        for event in BoardCardEvent.objects.filter(card=card).select_related('actor')
+    ]
+    entries.extend(
+        {
+            'kind': 'file',
+            'actor': item['object'].uploaded_by,
+            'at': item['object'].created_at,
+            'text': f'Добавлен файл «{item["object"].original_name}»',
+            'order': (item['object'].created_at, 0, item['object'].pk),
+        }
+        for item in attachments
+    )
+    entries.sort(key=lambda entry: entry['order'], reverse=True)
+    return entries
 
 
 def _return_column(card, columns):

@@ -27,9 +27,9 @@ def main_of(response):
 
 
 def panel_of(content):
-    """The guarded card panel alone — without «Обсуждение», its sibling."""
-    panel = content.split('data-live-board-panel', 1)[1].split('</aside>', 1)[0]
-    return panel.split('board-discussion', 1)[0]
+    """The guarded card panel alone — its heading, «Описание» and «Файлы» —
+    without «Чат» and «Лог», its siblings."""
+    return content.split('data-live-board-panel', 1)[1].split('data-board-tab-body="chat"', 1)[0]
 
 
 def upload(name='отчёт.pdf', content=b'%PDF-1.4 '):
@@ -60,38 +60,53 @@ class RedirectTests(PanelTestMixin, TestCase):
         response = self.client.get(reverse('tasks:detail', args=[self.task.pk]))
         self.assertRedirects(response, self.card_url)
 
-    def test_draft_survives_the_upload_and_lands_in_the_panel(self):
+    def test_an_upload_comes_back_to_the_files_and_carries_no_draft(self):
         self.client.force_login(self.member)
         response = self.client.post(
             reverse('tasks:add_attachment', args=[self.task.pk]),
-            {'file': upload(), 'execution_comment': 'Почти готово'},
+            {'file': upload(), 'list_query': 'tab=files', 'execution_comment': 'Почти готово'},
             follow=True,
         )
-        self.assertRedirects(response, self.card_url)
-        self.assertEqual(response.context['execution_comment'], 'Почти готово')
-        self.assertContains(response, 'Почти готово</textarea>')
+        self.assertRedirects(response, f'{self.card_url}&tab=files')
+        self.assertEqual(response.context['tab'], 'files')
+        self.assertEqual(response.context['execution_comment'], '')
+        self.assertNotContains(response, 'Почти готово')
         self.assertEqual(TaskAttachment.objects.filter(task=self.task).count(), 1)
 
-    def test_complete_error_goes_back_to_the_board(self):
+    def test_tasks_complete_does_nothing_for_a_board_task(self):
         self.client.force_login(self.member)
         response = self.client.post(
-            reverse('tasks:complete', args=[self.task.pk]), {'execution_comment': '  '}, follow=True,
+            reverse('tasks:complete', args=[self.task.pk]), {'execution_comment': 'Сделано'}, follow=True,
         )
         self.assertRedirects(response, self.card_url)
         self.assertTemplateNotUsed(response, 'tasks/detail.html')
-        self.assertContains(response, 'Укажите результат выполнения задачи.')
+        self.assertContains(response, 'Карточку доски завершают и возвращают на доске.')
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status.code, 'IN_PROGRESS')
+        self.assertEqual(self.task.execution_comment, '')
+        self.assertFalse(self.card_obj.events.filter(kind='COMPLETED').exists())
 
-    def test_upload_error_goes_back_to_the_board(self):
+    def test_tasks_reopen_does_nothing_for_a_board_task(self):
+        complete_task(self.task, self.member, 'Готово')
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse('tasks:reopen', args=[self.task.pk]), follow=True)
+        self.assertRedirects(response, self.card_url)
+        self.assertContains(response, 'Карточку доски завершают и возвращают на доске.')
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status.code, 'COMPLETED')
+        self.assertFalse(self.card_obj.events.filter(kind='REOPENED').exists())
+
+    def test_upload_error_goes_back_to_the_files(self):
         self.client.force_login(self.member)
         response = self.client.post(
             reverse('tasks:add_attachment', args=[self.task.pk]),
             {'file': upload('вирус.exe'), 'execution_comment': 'Текст'},
             follow=True,
         )
-        self.assertRedirects(response, self.card_url)
+        self.assertRedirects(response, f'{self.card_url}&tab=files')
         self.assertTemplateNotUsed(response, 'tasks/detail.html')
         self.assertContains(response, 'Проверьте файл вложения.')
-        self.assertEqual(response.context['execution_comment'], 'Текст')
+        self.assertEqual(response.context['execution_comment'], '')
         self.assertFalse(TaskAttachment.objects.exists())
 
 
@@ -147,10 +162,12 @@ class PanelWorkTests(PanelTestMixin, TestCase):
 
     def test_admin_reopens_into_the_old_column_with_the_old_result(self):
         complete_task(self.task, self.member, 'Сверено, расхождений нет')
+        reopen_url = reverse('boards:card_reopen', args=[self.board.pk, self.card_obj.pk])
         response = self.panel(self.admin)
-        self.assertContains(response, reverse('tasks:reopen', args=[self.task.pk]))
+        self.assertContains(response, reopen_url)
+        self.assertNotContains(response, reverse('tasks:reopen', args=[self.task.pk]))
         self.assertContains(response, 'Сверено, расхождений нет')
-        response = self.client.post(reverse('tasks:reopen', args=[self.task.pk]), follow=True)
+        response = self.client.post(reopen_url, follow=True)
         self.assertRedirects(response, self.card_url)
         self.task.refresh_from_db()
         self.assertEqual(self.task.status.code, 'IN_PROGRESS')
@@ -161,7 +178,9 @@ class PanelWorkTests(PanelTestMixin, TestCase):
 
     def test_member_does_not_see_reopen(self):
         complete_task(self.task, self.member, 'Готово')
-        self.assertNotContains(self.panel(self.member), reverse('tasks:reopen', args=[self.task.pk]))
+        self.assertNotContains(
+            self.panel(self.member), reverse('boards:card_reopen', args=[self.board.pk, self.card_obj.pk]),
+        )
 
     def test_attachment_is_uploaded_and_deleted_back_to_the_board(self):
         self.client.force_login(self.member)

@@ -82,6 +82,8 @@ BOARD_CHANGE_CARD_CREATED = 'card_created'
 BOARD_CHANGE_CARD_UPDATED = 'card_updated'
 BOARD_CHANGE_CARD_MOVED = 'card_moved'
 BOARD_CHANGE_CARD_COMPLETED = 'card_completed'
+# An administrator put a completed card back into work (`reopen_card()`).
+BOARD_CHANGE_CARD_REOPENED = 'card_reopened'
 BOARD_CHANGE_MEMBERS_CHANGED = 'members_changed'
 BOARD_CHANGE_CARD_CANCELLED = 'card_cancelled'
 BOARD_CHANGE_BOARD_ARCHIVED = 'board_archived'
@@ -96,6 +98,7 @@ BOARD_CHANGES = frozenset(
         BOARD_CHANGE_CARD_UPDATED,
         BOARD_CHANGE_CARD_MOVED,
         BOARD_CHANGE_CARD_COMPLETED,
+        BOARD_CHANGE_CARD_REOPENED,
         BOARD_CHANGE_MEMBERS_CHANGED,
         BOARD_CHANGE_CARD_CANCELLED,
         BOARD_CHANGE_BOARD_ARCHIVED,

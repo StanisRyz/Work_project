@@ -11,14 +11,15 @@ One sub-board of a board, in the boards frame (`boards/layout.html`), top to
 bottom: the board's heading, its tabs, the filter row, then the columns and,
 beside them, the card panel the query string asks for. Everything comes from
 one `build_board_state()` read. The tabs (`boards/includes/tabs.html`), the
-columns (`boards/includes/columns.html`) and the panel
-(`boards/includes/panel.html`) are rendered once by the view and printed here,
-next to their fingerprints — the same markup `boards:fragment` returns for the
-live client. The heading and the filter row are the page's only.
+columns (`boards/includes/columns.html`) and the card drawer
+(`boards/includes/drawer.html` around its blocks) are rendered once by the
+view and printed here, next to their fingerprints — the same markup
+`boards:fragment` returns for the live client. The heading and the filter row
+are the page's only.
 
-It works without JavaScript. A tile is a link to `?card=<pk>`, the panel's
-forms post to the card routes, and closing the panel is a link back to the
-board. `can_work`/`can_manage`/`can_edit_card` only decide which controls are
+It works without JavaScript. A tile is a link to `?card=<pk>`, the drawer's
+tabs are links to `&tab=`, its forms post to the card routes, and closing it
+is a link back to the board. `can_work`/`can_manage`/`can_edit_card` only decide which controls are
 drawn — every route asks the same rule again, and a reader sees the board and
 the panel with no control at all.
 {% endcomment %}
@@ -75,25 +76,32 @@ the panel with no control at all.
 </header>
 
 {% comment %}
-`[data-board]` is what `static/js/realtime/boards.js` reads: which board, the
-server-built fragment URL asking for this very sub-board and panel, the
-fingerprints of the four live blocks as rendered, and whether the panel
-already holds input that is not stored (a refused form, a parked draft).
+`[data-board]` is what the board's scripts read: which board, the
+server-built addresses of this very sub-board and panel (the page's, the live
+fragment's, and those of the closed board), the fingerprints of the live
+blocks as rendered, which panel is open, and whether it already holds input
+that is not stored (a refused form). `board_drawer.js` rewrites the addresses,
+the fingerprints and the panel when it opens or closes a card without a
+reload — always from the fragment's answer, never from the address bar.
 `board_dnd.js` marks it `data-board-busy` while a card is in the air or a move
-awaits the server, and takes `data-board-url` for the reload after the open
-card moved. It is a column that takes the rest of the screen: the tabs, the
-filter row and the messages keep their own height, and the columns and the
-panel take what is left — never the other way round.
+awaits the server. It is a column that takes the rest of the screen: the tabs,
+the filter row and the messages keep their own height, and the columns take
+what is left — never the other way round.
 {% endcomment %}
 <div class="board-page" data-board
      data-board-id="{{ board.pk }}"
      data-board-url="{{ board_url }}"
      data-board-page-url="{{ page_url }}"
      data-board-fragment-url="{{ fragment_url }}"
+     data-board-fragment-base="{{ fragment_base }}"
+     data-board-close-url="{{ close_url }}"
+     data-board-close-fragment-url="{{ close_fragment_url }}"
+     data-board-panel="{{ panel|default:'' }}"
      data-tabs-revision="{{ tabs_revision }}"
      data-columns-revision="{{ columns_revision }}"
      data-panel-revision="{{ panel_revision }}"
      data-comments-revision="{{ comments_revision }}"
+     data-log-revision="{{ log_revision }}"
      data-panel-holds-input="{% if panel_holds_input %}true{% else %}false{% endif %}">
     <div class="board-tabs-block" data-live-board-tabs>{{ tabs_html }}</div>
 
@@ -102,16 +110,19 @@ panel take what is left — never the other way round.
     `form[data-registry-filter]` of the shared `registry_tools.js` (a tick
     applies at once, the search after a pause), «Применить» for the
     no-JavaScript path. Read by `parse_board_filters()` for the page, its live
-    fragment and the drag's counts alike. The open card stays open; «Сбросить»
-    — drawn only while a filter is set — drops the filter and keeps the card.
+    fragment and the drag's counts alike. The open card and its tab stay
+    open (the two hidden fields, kept current by `board_drawer.js` and
+    disabled while empty); «Сбросить» — drawn only while a filter is set —
+    drops the filter and keeps the card.
     {% endcomment %}
     <form class="board-filters" method="get" action="{{ board_url }}" data-registry-filter>
-        {% if panel == 'view' and card %}<input type="hidden" name="card" value="{{ card.card.pk }}">{% endif %}
+        <input type="hidden" name="card" value="{% if panel == 'view' and card %}{{ card.card.pk }}{% endif %}" data-board-filter-card{% if panel != 'view' or not card %} disabled{% endif %}>
+        <input type="hidden" name="tab" value="{% if panel == 'view' and card %}{{ tab }}{% endif %}" data-board-filter-tab{% if panel != 'view' or not card %} disabled{% endif %}>
         <label class="board-filters__check"><input type="checkbox" name="mine" value="1"{% if filters.mine %} checked{% endif %}> Мои</label>
         <label class="board-filters__check"><input type="checkbox" name="overdue" value="1"{% if filters.overdue %} checked{% endif %}> Просроченные</label>
         <input class="board-filters__search" type="search" name="q" value="{{ filters.q }}" placeholder="Поиск по названию" aria-label="Поиск карточки по названию" maxlength="200" data-registry-search>
         <button class="link-button link-button--secondary link-button--compact" type="submit">Применить</button>
-        {% if filters.is_active %}<a class="board-filters__reset" href="{{ board_url }}{% if panel == 'view' and card %}?card={{ card.card.pk }}{% endif %}">Сбросить</a>{% endif %}
+        {% if filters.is_active %}<a class="board-filters__reset" href="{{ reset_url }}" data-board-filter-reset>Сбросить</a>{% endif %}
     </form>
 
     {% comment %}
@@ -119,9 +130,10 @@ panel take what is left — never the other way round.
     tile with `data-card-movable` may be dragged, a column with
     `data-column-move` (and its `data-column-id`) takes a moved card,
     `data-column-complete` (the closing column) takes only a tile carrying a
-    completion trigger, and `data-current-card` is the card the panel shows. The server decided every one of those; the routes ask again.
-    Without JavaScript none of it matters — «Переместить в…» and «Завершить» in the
-    panel do the same work.
+    completion trigger, and `data-current-card` is the card the drawer shows.
+    The server decided every one of those; the routes ask again. Without
+    JavaScript none of it matters — «Переместить в…» and «Завершить» in the
+    drawer do the same work.
     {% endcomment %}
     <div class="board-message" data-board-message role="status" aria-live="polite" hidden></div>
 
@@ -138,50 +150,25 @@ panel take what is left — never the other way round.
         <button class="link-button" type="button" data-board-conflict-reload>Обновить страницу</button>
     </div>
 
-    <div class="board-layout{% if panel %} board-layout--with-panel{% endif %}">
+    {% comment %}
+    The columns take the whole width whether a card is open or not: the
+    drawer (`boards/includes/drawer.html`) slides in *over* them from the
+    right and the part of the board it leaves visible is dimmed — never
+    narrowed or rebuilt. It is always in the page, empty and hidden while no
+    card is open, so `board_drawer.js` can fill it without a reload. A click
+    on the dimmed part, «×» or Esc closes it; dragging and the live blocks
+    keep working under it.
+    {% endcomment %}
+    <div class="board-layout{% if panel %} board-layout--with-panel{% endif %}" data-board-layout>
         <div class="board-structure" data-live-board-columns data-current-card="{{ card.card.pk|default:'' }}">{{ columns_html }}</div>
-        {% if panel %}
-            {% comment %}
-            Three siblings, so a refresh can never touch what is being typed:
-            the guarded panel (`[data-live-board-panel]`, replaced only when its
-            own fingerprint moved and nothing in it is unsaved), the read-only
-            messages (`[data-live-board-comments]`, always replaced) and the
-            «Обсуждение» form, which is in no live block at all.
-            {% endcomment %}
-            <aside class="board-panel" aria-label="Карточка">
-                <div class="board-panel__main" data-live-board-panel{% if card %} data-task-id="{{ card.task.pk }}"{% endif %}>{{ panel_html }}</div>
-                {% if show_discussion %}
-                    <section class="board-panel__section board-discussion" aria-labelledby="board-discussion-title">
-                        <h3 id="board-discussion-title">Обсуждение</h3>
-                        <div class="board-discussion__list" data-live-board-comments>{{ comments_html }}</div>
-                        {% if card.can_comment %}
-                            <form class="board-discussion__form" method="post" action="{% url 'boards:card_comment' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if comment_error %}="dirty"{% endif %}>
-                                {% csrf_token %}
-                                {% if card.can_complete %}
-                                    {% comment %}
-                                    The half-written «Выполнение» rides along, exactly as on the
-                                    attachment forms: `attachment_upload.js` copies the textarea into
-                                    it at submit time and the view parks it as the task's draft.
-                                    {% endcomment %}
-                                    <input type="hidden" name="execution_comment" value="{{ execution_comment }}"
-                                           data-attachment-carry-from="#task-execution-comment">
-                                {% endif %}
-                                <textarea id="board-comment-text" name="text" aria-label="Сообщение" rows="2" maxlength="4000" required placeholder="Сообщение участникам карточки">{{ comment_text }}</textarea>
-                                {% if comment_error %}<p class="field-error">{{ comment_error }}</p>{% endif %}
-                                <div class="form-actions"><button class="link-button link-button--secondary" type="submit">Отправить</button></div>
-                            </form>
-                        {% endif %}
-                    </section>
-                {% endif %}
-            </aside>
-        {% endif %}
+        <aside class="board-drawer" data-board-drawer data-board-tab="{{ tab }}" aria-label="Карточка"{% if not panel %} hidden{% endif %}>{{ drawer_html }}</aside>
     </div>
 </div>
 {% endblock %}
 
 {% block board_scripts %}
-{# Dragging cards. The board works without it: the panel holds the same actions. #}
-<script src="{% static 'js/board_dnd.js' %}?v=20261011-1" defer></script>
+{# Dragging cards and the card drawer. The board works without them: links and forms do the same. #}
+<script src="{% static 'js/board_dnd.js' %}?v=20261013-1" defer></script>
 <script src="{% static 'js/board_menus.js' %}?v=20261012-1" defer></script>
-<script src="{% static 'js/board_discussion.js' %}?v=20261007-1" defer></script>
+<script src="{% static 'js/board_drawer.js' %}?v=20261013-1" defer></script>
 {% endblock %}

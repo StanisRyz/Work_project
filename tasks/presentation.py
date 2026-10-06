@@ -19,18 +19,21 @@ from .models import Task
 from .permissions import can_delete_task_attachment
 
 
-def board_card_url(task):
+def board_card_url(task, tab=''):
     """Where a `BOARD` task lives: its card's sub-board, with the panel open.
 
     The one place that address is built — `tasks:detail` redirects here, the
     registry's «Источник» links here. Only a route name and the
     `Task.board_card` relation (its `board_id` and `sub_board_id`) are read,
     exactly as `acts:detail` and `protocols:detail` are named elsewhere in this
-    module; `tasks` never imports `boards`.
+    module; `tasks` never imports `boards`. `tab` names the panel's tab to
+    open (the files after an upload); the board reads it and falls back to
+    «Описание» for anything it does not know.
     """
     card = task.board_card
     board_url = reverse('boards:sub_board', args=[card.board_id, card.sub_board_id])
-    return f'{board_url}?card={task.board_card_id}'
+    url = f'{board_url}?card={task.board_card_id}'
+    return f'{url}&tab={tab}' if tab else url
 
 
 def describe_task_source(task):
