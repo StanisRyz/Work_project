@@ -13,8 +13,15 @@ from tasks.models import Task
 from tasks.services import complete_task
 
 from ..models import BoardCard
-from ..services import create_board, create_card
-from .helpers import BoardFixtureMixin, due
+from ..services import create_board, create_sub_board, delete_column
+from .helpers import (
+    BoardFixtureMixin,
+    board_url,
+    column_of,
+    done_column_of,
+    expected_counts,
+    new_card,
+)
 
 FETCH = {'HTTP_X_REQUESTED_WITH': 'fetch'}
 
@@ -25,7 +32,7 @@ def task_of(card):
 
 def order(board, stage):
     return list(
-        BoardCard.objects.filter(board=board, stage=stage)
+        BoardCard.objects.filter(column=column_of(board, stage))
         .order_by('position', 'pk').values_list('title', flat=True)
     )
 
@@ -40,12 +47,16 @@ class FetchMoveTests(BoardFixtureMixin, TestCase):
     def setUp(self):
         self.client.force_login(self.member)
         self.a, self.b = self.card('A'), self.card('B')
-        self.c = self.card('C', stage=BoardCard.Stage.REVIEW)
+        self.c = self.card('C', stage='REVIEW')
 
     def url(self, card):
         return reverse('boards:card_move', args=[self.board.pk, card.pk])
 
-    def post(self, card, **data):
+    def post(self, card, *, stage=None, **data):
+        if stage == 'DONE':
+            data['column_id'] = done_column_of(self.board).pk
+        elif stage is not None:
+            data['column_id'] = self.column(stage).pk
         return self.client.post(self.url(card), data, **FETCH)
 
     def test_before_card_puts_it_in_place(self):
@@ -54,10 +65,47 @@ class FetchMoveTests(BoardFixtureMixin, TestCase):
         answer = response.json()
         self.assertEqual(answer, {
             'ok': True,
-            'stage': 'TODO',
-            'counts': {'TODO': 3, 'IN_PROGRESS': 0, 'REVIEW': 0, 'DONE': 0},
+            'column_id': self.column('TODO').pk,
+            'counts': expected_counts(self.board, TODO=3),
         })
         self.assertEqual(order(self.board, 'TODO'), ['A', 'C', 'B'])
+
+    def test_counts_are_keyed_by_column_id(self):
+        complete_task(task_of(self.b), self.member, 'Да')
+        answer = self.post(self.a, stage='IN_PROGRESS').json()
+        self.assertEqual(answer['counts'], expected_counts(
+            self.board, TODO=0, IN_PROGRESS=1, REVIEW=1, DONE=1,
+        ))
+        self.assertEqual(
+            set(answer['counts']),
+            {str(pk) for pk in self.main.columns.values_list('pk', flat=True)},
+        )
+
+    def test_done_column_is_400_and_the_card_stays(self):
+        response = self.post(self.a, stage='DONE')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['ok'])
+        self.assertIn('завершите задачу', response.json()['error'])
+        self.assertEqual(order(self.board, 'TODO'), ['A', 'B'])
+
+    def test_column_of_another_sub_board_is_400(self):
+        other_tab = create_sub_board(self.board, actor=self.owner, name='Вторая')
+        response = self.client.post(
+            self.url(self.a), {'column_id': column_of(self.board, 'TODO', other_tab).pk}, **FETCH,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('не найдена на этой поддоске', response.json()['error'])
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.sub_board, self.main)
+
+    def test_deleted_column_is_400_and_the_tile_goes_back(self):
+        # The column a stale page still draws was deleted by the owner.
+        gone = self.column('IN_PROGRESS')
+        delete_column(gone, actor=self.owner)
+        response = self.client.post(self.url(self.a), {'column_id': gone.pk}, **FETCH)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('возможно, её удалили', response.json()['error'])
+        self.assertEqual(order(self.board, 'TODO'), ['A', 'B'])
 
     def test_empty_before_card_means_the_end(self):
         response = self.post(self.a, stage='TODO', before_card_id='')
@@ -69,9 +117,7 @@ class FetchMoveTests(BoardFixtureMixin, TestCase):
             name='Другая', department=self.department, owner=self.owner, actor=self.owner,
             member_ids=[self.member.pk],
         )
-        foreign = create_card(
-            other, actor=self.member, title='Чужая', due_date=due(), assignee_ids=[self.member.pk],
-        )
+        foreign = new_card(other, self.member, 'Чужая', assignees=[self.member])
         response = self.post(self.a, stage='TODO', before_card_id=foreign.pk)
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()['ok'])
@@ -85,9 +131,11 @@ class FetchMoveTests(BoardFixtureMixin, TestCase):
         self.assertIn('Задача карточки закрыта', response.json()['error'])
 
     def test_invalid_form_is_400(self):
-        response = self.post(self.a, stage='DONE')
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(response.json()['ok'])
+        for data in ({}, {'column_id': 'мусор'}, {'column_id': '0'}):
+            with self.subTest(data=data):
+                response = self.client.post(self.url(self.a), data, **FETCH)
+                self.assertEqual(response.status_code, 400)
+                self.assertFalse(response.json()['ok'])
 
     def test_no_right_is_403_json(self):
         self.client.force_login(self.outsider)
@@ -97,10 +145,10 @@ class FetchMoveTests(BoardFixtureMixin, TestCase):
         self.assertEqual(order(self.board, 'REVIEW'), ['C'])
 
     def test_ordinary_post_still_redirects(self):
-        response = self.client.post(self.url(self.a), {'stage': 'REVIEW', 'before_card_id': self.c.pk})
-        self.assertRedirects(
-            response, f"{reverse('boards:detail', args=[self.board.pk])}?card={self.a.pk}",
+        response = self.client.post(
+            self.url(self.a), {'column_id': self.column('REVIEW').pk, 'before_card_id': self.c.pk},
         )
+        self.assertRedirects(response, f'{board_url(self.board)}?card={self.a.pk}')
         self.assertEqual(order(self.board, 'REVIEW'), ['A', 'C'])
 
     def test_json_carries_no_markup_and_no_card_text(self):
@@ -123,7 +171,7 @@ class CompleteFromModalTests(BoardFixtureMixin, TestCase):
             reverse('boards:card_complete', args=[self.board.pk, card.pk]),
             {'execution_comment': 'Сделано из окна'},
         )
-        self.assertRedirects(response, f"{reverse('boards:detail', args=[self.board.pk])}?card={card.pk}")
+        self.assertRedirects(response, f'{board_url(self.board)}?card={card.pk}')
         task = task_of(card)
         self.assertEqual(task.status.code, 'COMPLETED')
         self.assertEqual(task.execution_comment, 'Сделано из окна')
@@ -138,7 +186,7 @@ class DragMarkupTests(BoardFixtureMixin, TestCase):
 
     def page(self, user):
         self.client.force_login(user)
-        return self.client.get(reverse('boards:detail', args=[self.board.pk])).content.decode()
+        return self.client.get(board_url(self.board)).content.decode()
 
     def test_reader_gets_nothing_to_drag(self):
         content = self.page(self.outsider)
@@ -158,7 +206,10 @@ class DragMarkupTests(BoardFixtureMixin, TestCase):
         self.assertIn('data-confirm-comment-name="execution_comment"', mine)
         self.assertIn(f'Завершить задачу №{task_of(self.mine).pk}?', mine)
         self.assertEqual(content.count('data-column-move'), 3)
-        self.assertIn('data-column="DONE" data-column-complete', content)
+        done = done_column_of(self.board)
+        self.assertIn(f'data-column-id="{done.pk}" data-column-complete', content)
+        for stage in ('TODO', 'IN_PROGRESS', 'REVIEW'):
+            self.assertIn(f'data-column-id="{self.column(stage).pk}" data-column-move', content)
         self.assertIn('data-board-message', content)
 
     def test_closed_card_is_not_movable(self):
@@ -180,7 +231,7 @@ class DragMarkupTests(BoardFixtureMixin, TestCase):
 
     def _queries(self):
         with CaptureQueriesContext(connection) as queries:
-            self.client.get(reverse('boards:detail', args=[self.board.pk]))
+            self.client.get(board_url(self.board))
         return len(queries)
 
     def test_query_count_is_constant(self):

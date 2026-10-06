@@ -7,13 +7,18 @@ same transaction and linked back through `Task.board_card`. Who does it, by
 when, whether it is done and by whom all live on the task, exactly as for every
 other source, so «Задачи» and the board can never disagree about the work.
 
-«Готово» is therefore not stored here. `BoardCard.Stage` holds the three
-working columns only; a card stands in «Готово» exactly when its task is
-`COMPLETED`, which `boards/columns.py` decides. Nothing here writes itself —
+A board is split into sub-boards (`SubBoard`, the tabs above the columns),
+and each sub-board has its own columns (`BoardColumn`) with any names its
+owner gives them. Exactly one column of a sub-board is the closing one
+(`is_done`), and it is not stored on a card either: a card stands there
+exactly when its task is `COMPLETED`, which `boards/columns.py` decides, and
+`BoardCard.column` only ever names a working column — the one the card stands
+in while open and returns to when reopened. Nothing here writes itself —
 every mutation goes through `boards/services.py`.
 """
 
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from accounts.models import Department
@@ -123,6 +128,86 @@ class BoardMember(models.Model):
         return f'{self.board}: {self.user}'
 
 
+class SubBoard(models.Model):
+    """One tab of a board: its own columns and the cards standing in them.
+
+    Members, the owner, the archive and every right stay on the `Board`; a
+    sub-board only divides its work. `create_board()` gives every board one,
+    «Основная», and a board always keeps at least one
+    (`services.delete_sub_board()` refuses the last).
+    """
+
+    board = models.ForeignKey(
+        Board,
+        on_delete=models.PROTECT,
+        related_name='sub_boards',
+        verbose_name='Доска',
+    )
+    name = models.CharField('Название', max_length=100)
+    # Order of the tabs, 1, 2, 3, … — renumbered by every move.
+    position = models.PositiveIntegerField('Позиция')
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='+',
+        verbose_name='Создал',
+    )
+    created_at = models.DateTimeField('Создана', auto_now_add=True)
+    updated_at = models.DateTimeField('Обновлена', auto_now=True)
+
+    class Meta:
+        ordering = ['board_id', 'position', 'pk']
+        verbose_name = 'Поддоска'
+        verbose_name_plural = 'Поддоски'
+        constraints = [
+            models.UniqueConstraint(fields=['board', 'name'], name='unique_sub_board_name'),
+        ]
+
+    def __str__(self):
+        return f'{self.board}: {self.name}'
+
+
+class BoardColumn(models.Model):
+    """One column of a sub-board, named by its owner.
+
+    The working columns hold the open cards, in `BoardCard.position` order.
+    The closing one (`is_done`, exactly one per sub-board, always the last)
+    holds the cards whose task is completed — derived, never stored on the
+    card — and a drop there is a completion with its result.
+    """
+
+    sub_board = models.ForeignKey(
+        SubBoard,
+        on_delete=models.PROTECT,
+        related_name='columns',
+        verbose_name='Поддоска',
+    )
+    name = models.CharField('Название', max_length=60)
+    # Order within the sub-board, 1, 2, 3, … — renumbered by every change;
+    # the closing column is always the last.
+    position = models.PositiveIntegerField('Позиция')
+    is_done = models.BooleanField('Завершающая', default=False)
+    created_at = models.DateTimeField('Создана', auto_now_add=True)
+    updated_at = models.DateTimeField('Обновлена', auto_now=True)
+
+    class Meta:
+        ordering = ['sub_board_id', 'position', 'pk']
+        verbose_name = 'Колонка доски'
+        verbose_name_plural = 'Колонки досок'
+        constraints = [
+            # At most one closing column per sub-board; the services create
+            # it with the sub-board and never delete it, so there is exactly one.
+            models.UniqueConstraint(
+                fields=['sub_board'],
+                condition=models.Q(is_done=True),
+                name='unique_done_column_per_sub_board',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.sub_board}: {self.name}'
+
+
 class BoardCard(models.Model):
     """Where one piece of board work stands: column and order.
 
@@ -132,28 +217,30 @@ class BoardCard(models.Model):
     the task's text is composed from them by `services.compose_task_text()`.
     """
 
-    class Stage(models.TextChoices):
-        """The three working columns. «Готово» is deliberately absent.
-
-        A card is in «Готово» exactly when its task is completed, so the
-        column is derived (`boards.columns.card_column()`) rather than stored:
-        completing the task from its own page and an administrator reopening it
-        move the card with no hook in `tasks.services`. The stage a done card
-        keeps is the column it returns to when reopened.
-        """
-
-        TODO = 'TODO', 'Сделать'
-        IN_PROGRESS = 'IN_PROGRESS', 'В работе'
-        REVIEW = 'REVIEW', 'На проверке'
-
+    # Rights, locks and events hang on the board; it always is
+    # `sub_board.board` (`clean()` and every service check it).
     board = models.ForeignKey(
         Board,
         on_delete=models.PROTECT,
         related_name='cards',
         verbose_name='Доска',
     )
-    stage = models.CharField(
-        'Колонка', max_length=16, choices=Stage.choices, default=Stage.TODO,
+    sub_board = models.ForeignKey(
+        SubBoard,
+        on_delete=models.PROTECT,
+        related_name='cards',
+        verbose_name='Поддоска',
+    )
+    # Always a working column of `sub_board` — never the closing one, which
+    # is derived from the task. NULL only after its column was deleted while
+    # the card was closed: it then returns to the first working column.
+    column = models.ForeignKey(
+        BoardColumn,
+        on_delete=models.SET_NULL,
+        related_name='cards',
+        verbose_name='Колонка',
+        null=True,
+        blank=True,
     )
     # Order within the column, spaced by `services.POSITION_STEP` so a move
     # usually writes one row; the column is renumbered only when two
@@ -177,18 +264,39 @@ class BoardCard(models.Model):
     updated_at = models.DateTimeField('Обновлена', auto_now=True)
 
     class Meta:
-        ordering = ['board', 'stage', 'position', 'pk']
+        ordering = ['sub_board_id', 'column_id', 'position', 'pk']
         verbose_name = 'Карточка доски'
         verbose_name_plural = 'Карточки досок'
         indexes = [
             models.Index(
-                fields=['board', 'stage', 'position'],
-                name='board_card_column_order',
+                fields=['sub_board', 'column', 'position'],
+                name='board_card_place',
             ),
         ]
 
     def __str__(self):
         return f'Карточка #{self.pk}: {self.title[:60]}'
+
+    def clean(self):
+        """The card's board, sub-board and column must agree.
+
+        `board` is `sub_board.board`, and `column` — when set — is a working
+        column of `sub_board`. The services check the same under the board
+        lock; this is what Admin and a hand-written save would hit.
+        """
+        errors = {}
+        if self.sub_board_id is not None and self.board_id is not None:
+            if self.sub_board.board_id != self.board_id:
+                errors['sub_board'] = 'Поддоска принадлежит другой доске.'
+        if self.column_id is not None and self.sub_board_id is not None:
+            if self.column.sub_board_id != self.sub_board_id:
+                errors['column'] = 'Колонка принадлежит другой поддоске.'
+            elif self.column.is_done:
+                errors['column'] = (
+                    'Карточка стоит в завершающей колонке только по выполненной задаче.'
+                )
+        if errors:
+            raise ValidationError(errors)
 
 
 class BoardCardComment(models.Model):

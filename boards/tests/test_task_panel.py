@@ -12,10 +12,8 @@ from references.models import TaskStatus
 from tasks.models import Task, TaskAttachment
 from tasks.services import add_task_attachment, complete_task
 
-from ..columns import DONE
-from ..models import BoardCard
-from ..services import create_board, create_card
-from .helpers import BoardFixtureMixin, due
+from ..services import create_board
+from .helpers import BoardFixtureMixin, board_url, done_column_of, new_card
 
 
 def task_of(card):
@@ -43,12 +41,12 @@ MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-attachments-
 
 class PanelTestMixin(BoardFixtureMixin):
     def setUp(self):
-        self.card_obj = self.card('Сверить остатки', assignees=[self.member], stage=BoardCard.Stage.REVIEW)
+        self.card_obj = self.card('Сверить остатки', assignees=[self.member], stage='REVIEW')
         self.task = task_of(self.card_obj)
 
     @property
     def card_url(self):
-        return f"{reverse('boards:detail', args=[self.board.pk])}?card={self.card_obj.pk}"
+        return f"{board_url(self.board)}?card={self.card_obj.pk}"
 
     def panel(self, user):
         self.client.force_login(user)
@@ -111,7 +109,8 @@ class PanelWorkTests(PanelTestMixin, TestCase):
         self.task.refresh_from_db()
         self.assertEqual(self.task.status.code, 'COMPLETED')
         done = self.client.get(self.card_url).context['columns'][-1]
-        self.assertEqual(done['code'], DONE)
+        self.assertTrue(done['is_done'])
+        self.assertEqual(done['column'], done_column_of(self.board))
         self.assertEqual([item['card'] for item in done['cards']], [self.card_obj])
 
     def test_empty_comment_is_refused_and_kept(self):
@@ -155,7 +154,7 @@ class PanelWorkTests(PanelTestMixin, TestCase):
         self.assertRedirects(response, self.card_url)
         self.task.refresh_from_db()
         self.assertEqual(self.task.status.code, 'IN_PROGRESS')
-        review = next(column for column in response.context['columns'] if column['code'] == 'REVIEW')
+        review = next(column for column in response.context['columns'] if column['name'] == 'На проверке')
         self.assertEqual([item['card'] for item in review['cards']], [self.card_obj])
         # The administrator may complete it again, so the old result is back in the field.
         self.assertEqual(response.context['execution_comment'], 'Сверено, расхождений нет')
@@ -239,9 +238,7 @@ class RegistryTests(PanelTestMixin, TestCase):
         other = create_board(
             name='Отгрузки', department=self.department, owner=self.owner, actor=self.owner,
         )
-        foreign = create_card(
-            other, actor=self.owner, title='Чужая', due_date=due(), assignee_ids=[self.owner.pk],
-        )
+        foreign = new_card(other, self.owner, 'Чужая', assignees=[self.owner])
         self.client.force_login(self.member)
         response = self.client.get(reverse('tasks:list'), {'tab': 'all', 'source': 'Планир'})
         pks = [row['task'].pk for row in response.context['rows']]

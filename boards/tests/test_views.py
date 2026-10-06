@@ -11,8 +11,17 @@ from tasks.models import Task
 from tasks.services import complete_task
 
 from ..models import Board, BoardCard, BoardMember
-from ..services import create_board, create_card
-from .helpers import BoardFixtureMixin, due, make_user
+from ..services import create_board, create_sub_board
+from .helpers import (
+    BoardFixtureMixin,
+    board_url,
+    card_create_url,
+    done_column_of,
+    due,
+    make_user,
+    new_card,
+    stage_of,
+)
 
 
 def task_of(card):
@@ -27,10 +36,10 @@ def main_of(response):
 
 class BoardViewMixin(BoardFixtureMixin):
     def detail(self, **params):
-        return self.client.get(reverse('boards:detail', args=[self.board.pk]), params)
+        return self.client.get(board_url(self.board), params)
 
     def card_url(self, card):
-        return f"{reverse('boards:detail', args=[self.board.pk])}?card={card.pk}"
+        return f'{board_url(self.board)}?card={card.pk}'
 
 
 class AccessTests(BoardViewMixin, TestCase):
@@ -43,7 +52,7 @@ class AccessTests(BoardViewMixin, TestCase):
             'create': reverse('boards:create'),
             'members_add': reverse('boards:members_add', args=[board]),
             'member_remove': reverse('boards:member_remove', args=[board, self.colleague.pk]),
-            'card_create': reverse('boards:card_create', args=[board]),
+            'card_create': reverse('boards:card_create', args=[board, self.main.pk]),
             'card_update': reverse('boards:card_update', args=[board, card]),
             'card_move': reverse('boards:card_move', args=[board, card]),
         }
@@ -52,6 +61,7 @@ class AccessTests(BoardViewMixin, TestCase):
         urls = [
             reverse('boards:list'),
             reverse('boards:detail', args=[self.board.pk]),
+            board_url(self.board),
             reverse('boards:members', args=[self.board.pk]),
             *self._routes().values(),
         ]
@@ -80,7 +90,7 @@ class AccessTests(BoardViewMixin, TestCase):
         self.client.force_login(self.owner)
         before = (
             Board.objects.count(), BoardMember.objects.count(),
-            list(BoardCard.objects.values_list('pk', 'stage', 'title')),
+            list(BoardCard.objects.values_list('pk', 'column_id', 'title')),
         )
         for name, url in self._routes().items():
             if name == 'create':
@@ -90,7 +100,7 @@ class AccessTests(BoardViewMixin, TestCase):
                 self.assertEqual(response.status_code, 302)
         after = (
             Board.objects.count(), BoardMember.objects.count(),
-            list(BoardCard.objects.values_list('pk', 'stage', 'title')),
+            list(BoardCard.objects.values_list('pk', 'column_id', 'title')),
         )
         self.assertEqual(before, after)
 
@@ -98,7 +108,7 @@ class AccessTests(BoardViewMixin, TestCase):
         self.client.force_login(self.outsider)
         for url in (
             reverse('boards:list'),
-            reverse('boards:detail', args=[self.board.pk]),
+            board_url(self.board),
             reverse('boards:members', args=[self.board.pk]),
         ):
             with self.subTest(url=url):
@@ -150,7 +160,9 @@ class CreateBoardViewTests(BoardViewMixin, TestCase):
             'name': 'Продажи', 'members': [self.member.pk],
         })
         board = Board.objects.get(name='Продажи')
-        self.assertRedirects(response, reverse('boards:detail', args=[board.pk]))
+        self.assertRedirects(
+            response, reverse('boards:detail', args=[board.pk]), fetch_redirect_response=False,
+        )
         self.assertEqual(board.owner, self.owner)
         self.assertEqual(
             set(board.members.values_list('user_id', flat=True)), {self.owner.pk, self.member.pk},
@@ -186,7 +198,7 @@ class BoardPageTests(BoardViewMixin, TestCase):
         self.client.force_login(self.member)
         response = self.detail()
         self.assertEqual(
-            [column['label'] for column in response.context['columns']],
+            [column['name'] for column in response.context['columns']],
             ['Сделать', 'В работе', 'На проверке', 'Готово'],
         )
         self.assertEqual(
@@ -206,12 +218,15 @@ class BoardPageTests(BoardViewMixin, TestCase):
     def test_reader_sees_no_control(self):
         card = self.card('Карточка')
         self.client.force_login(self.outsider)
-        for params in ({}, {'card': card.pk}, {'card': card.pk, 'edit': '1'}, {'new': 'TODO'}):
+        for params in ({}, {'card': card.pk}, {'card': card.pk, 'edit': '1'}, {'new': self.column().pk}):
             with self.subTest(params=params):
                 response = self.detail(**params)
                 content = main_of(response)
                 # The GET filter form is for everybody; nothing that posts is.
-                for marker in ('method="post"', '?new=', 'edit=1', 'Переместить', '+ Карточка'):
+                for marker in (
+                    'method="post"', '?new=', 'edit=1', 'Переместить', '+ Карточка',
+                    'data-board-menu', '+ Колонка',
+                ):
                     self.assertNotIn(marker, content)
 
     def _page_queries(self):
@@ -243,9 +258,7 @@ class PanelTests(BoardViewMixin, TestCase):
         other = create_board(
             name='Другая', department=self.department, owner=self.owner, actor=self.owner,
         )
-        foreign = create_card(
-            other, actor=self.owner, title='Чужая', due_date=due(), assignee_ids=[self.owner.pk],
-        )
+        foreign = new_card(other, self.owner, 'Чужая', assignees=[self.owner])
         for value in (foreign.pk, 999999, 'мусор'):
             with self.subTest(card=value):
                 response = self.detail(card=value)
@@ -257,10 +270,14 @@ class PanelTests(BoardViewMixin, TestCase):
         self.assertEqual(response.context['panel'], 'edit')
         self.assertContains(response, reverse('boards:card_update', args=[self.board.pk, self.card_obj.pk]))
         self.assertContains(response, 'value="Своя"')
-        response = self.detail(new='REVIEW')
+        review = self.column('REVIEW')
+        response = self.detail(new=review.pk)
         self.assertEqual(response.context['panel'], 'new')
-        self.assertContains(response, 'name="stage" value="REVIEW"')
-        for value in ('DONE', 'мусор', ''):
+        self.assertContains(response, f'name="column" value="{review.pk}"')
+        self.assertContains(response, 'Колонка «На проверке»')
+        other_tab = create_sub_board(self.board, actor=self.owner, name='Другая вкладка')
+        foreign_column = other_tab.columns.order_by('position').first()
+        for value in (done_column_of(self.board).pk, foreign_column.pk, 'мусор', ''):
             with self.subTest(new=value):
                 self.assertIsNone(self.detail(new=value).context['panel'])
 
@@ -283,21 +300,22 @@ class CardRouteTests(BoardViewMixin, TestCase):
             'description': 'Уточнить сроки',
             'due_date': due(4).isoformat(),
             'assignees': [self.member.pk],
-            'stage': 'IN_PROGRESS',
+            'column': self.column('IN_PROGRESS').pk,
         }
         data.update(overrides)
         return data
 
     def test_create_redirects_to_the_card(self):
-        response = self.client.post(reverse('boards:card_create', args=[self.board.pk]), self._data())
+        response = self.client.post(card_create_url(self.board), self._data())
         card = BoardCard.objects.get(title='Позвонить заказчику')
         self.assertRedirects(response, self.card_url(card))
-        self.assertEqual(card.stage, 'IN_PROGRESS')
+        self.assertEqual(stage_of(card), 'IN_PROGRESS')
+        self.assertEqual(card.sub_board, self.main)
         self.assertEqual(task_of(card).task_text, 'Позвонить заказчику\n\nУточнить сроки')
 
     def test_invalid_form_keeps_input(self):
         response = self.client.post(
-            reverse('boards:card_create', args=[self.board.pk]), self._data(due_date=''),
+            card_create_url(self.board), self._data(due_date=''),
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['panel'], 'new')
@@ -311,7 +329,7 @@ class CardRouteTests(BoardViewMixin, TestCase):
         self.colleague.userprofile.is_active = False
         self.colleague.userprofile.save()
         response = self.client.post(
-            reverse('boards:card_create', args=[self.board.pk]),
+            card_create_url(self.board),
             self._data(assignees=[self.colleague.pk]),
         )
         self.assertEqual(response.status_code, 200)
@@ -347,27 +365,24 @@ class CardRouteTests(BoardViewMixin, TestCase):
     def test_move_redirects_and_closed_task_is_refused(self):
         card = self.card('Карточка')
         url = reverse('boards:card_move', args=[self.board.pk, card.pk])
-        response = self.client.post(url, {'stage': 'REVIEW'})
+        response = self.client.post(url, {'column_id': self.column('REVIEW').pk})
         self.assertRedirects(response, self.card_url(card))
-        card.refresh_from_db()
-        self.assertEqual(card.stage, 'REVIEW')
+        self.assertEqual(stage_of(card), 'REVIEW')
         complete_task(task_of(card), self.member, 'Сделано')
-        response = self.client.post(url, {'stage': 'TODO'})
+        response = self.client.post(url, {'column_id': self.column('TODO').pk})
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Задача карточки закрыта')
-        card.refresh_from_db()
-        self.assertEqual(card.stage, 'REVIEW')
+        self.assertEqual(stage_of(card), 'REVIEW')
 
     def test_card_of_another_board_is_404(self):
         other = create_board(
             name='Другая', department=self.department, owner=self.owner, actor=self.owner,
             member_ids=[self.member.pk],
         )
-        foreign = create_card(
-            other, actor=self.member, title='Чужая', due_date=due(), assignee_ids=[self.member.pk],
-        )
+        foreign = new_card(other, self.member, 'Чужая', assignees=[self.member])
         response = self.client.post(
-            reverse('boards:card_move', args=[self.board.pk, foreign.pk]), {'stage': 'REVIEW'},
+            reverse('boards:card_move', args=[self.board.pk, foreign.pk]),
+            {'column_id': self.column('REVIEW').pk},
         )
         self.assertEqual(response.status_code, 404)
 

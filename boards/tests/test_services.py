@@ -20,7 +20,7 @@ from ..services import (
     remove_board_member,
     update_card,
 )
-from .helpers import BoardFixtureMixin, due, make_user
+from .helpers import BoardFixtureMixin, done_column_of, due, make_user, new_card, stage_of
 
 
 def task_of(card):
@@ -34,6 +34,15 @@ class CreateBoardTests(BoardFixtureMixin, TestCase):
         )
         self.assertEqual(
             list(board.members.values_list('user_id', flat=True)), [self.owner.pk],
+        )
+
+    def test_a_new_board_has_one_sub_board_with_the_default_columns(self):
+        board = create_board(name='Продажи', owner=self.owner, actor=self.owner)
+        sub_boards = list(board.sub_boards.all())
+        self.assertEqual([(sub.name, sub.position) for sub in sub_boards], [('Основная', 1)])
+        self.assertEqual(
+            list(sub_boards[0].columns.order_by('position').values_list('name', 'position', 'is_done')),
+            [('Сделать', 1, False), ('В работе', 2, False), ('На проверке', 3, False), ('Готово', 4, True)],
         )
 
     def test_refused_without_the_right(self):
@@ -112,7 +121,7 @@ class CreateCardTests(BoardFixtureMixin, TestCase):
 
     def test_cards_go_to_the_end_of_their_column(self):
         first, second = self.card('Первая'), self.card('Вторая')
-        other = self.card('Другая колонка', stage=BoardCard.Stage.REVIEW)
+        other = self.card('Другая колонка', stage='REVIEW')
         self.assertEqual(first.position, POSITION_STEP)
         self.assertEqual(second.position, 2 * POSITION_STEP)
         self.assertEqual(other.position, POSITION_STEP)
@@ -138,12 +147,12 @@ class CreateCardTests(BoardFixtureMixin, TestCase):
         with self.assertRaises(BoardError):
             self._card_without_assignees()
         with self.assertRaises(BoardError):
-            self.card(stage='DONE')
+            self.card(column=done_column_of(self.board))
         self.assertFalse(BoardCard.objects.exists())
 
     def _card_without_assignees(self):
         return create_card(
-            self.board, actor=self.member, title='Без исполнителей',
+            self.main, actor=self.member, title='Без исполнителей',
             due_date=due(), assignee_ids=[],
         )
 
@@ -191,37 +200,36 @@ class UpdateCardTests(BoardFixtureMixin, TestCase):
 class MoveCardTests(BoardFixtureMixin, TestCase):
     def _order(self, stage):
         return list(
-            BoardCard.objects.filter(board=self.board, stage=stage)
+            BoardCard.objects.filter(column=self.column(stage))
             .order_by('position', 'pk').values_list('title', flat=True)
         )
 
     def test_moves_to_the_end_of_another_column(self):
-        target = self.card('В работе', stage=BoardCard.Stage.IN_PROGRESS)
+        target = self.card('В работе', stage='IN_PROGRESS')
         card = self.card('Переносимая')
-        move_card(card, actor=self.member, stage=BoardCard.Stage.IN_PROGRESS)
-        card.refresh_from_db()
-        self.assertEqual(card.stage, BoardCard.Stage.IN_PROGRESS)
+        move_card(card, actor=self.member, column=self.column('IN_PROGRESS'))
+        self.assertEqual(stage_of(card), 'IN_PROGRESS')
         self.assertGreater(card.position, target.position)
-        self.assertEqual(self._order(BoardCard.Stage.IN_PROGRESS), ['В работе', 'Переносимая'])
+        self.assertEqual(self._order('IN_PROGRESS'), ['В работе', 'Переносимая'])
 
     def test_moves_before_a_card(self):
         a, b, c = self.card('A'), self.card('B'), self.card('C')
-        move_card(c, actor=self.member, stage=BoardCard.Stage.TODO, before_card_id=b.pk)
-        self.assertEqual(self._order(BoardCard.Stage.TODO), ['A', 'C', 'B'])
-        move_card(b, actor=self.member, stage=BoardCard.Stage.TODO, before_card_id=a.pk)
-        self.assertEqual(self._order(BoardCard.Stage.TODO), ['B', 'A', 'C'])
+        move_card(c, actor=self.member, column=self.column('TODO'), before_card_id=b.pk)
+        self.assertEqual(self._order('TODO'), ['A', 'C', 'B'])
+        move_card(b, actor=self.member, column=self.column('TODO'), before_card_id=a.pk)
+        self.assertEqual(self._order('TODO'), ['B', 'A', 'C'])
         # A form posts the id as text.
-        move_card(c, actor=self.member, stage=BoardCard.Stage.TODO, before_card_id=str(b.pk))
-        self.assertEqual(self._order(BoardCard.Stage.TODO), ['C', 'B', 'A'])
+        move_card(c, actor=self.member, column=self.column('TODO'), before_card_id=str(b.pk))
+        self.assertEqual(self._order('TODO'), ['C', 'B', 'A'])
 
     def test_renumbers_when_the_gap_is_gone(self):
         a, b, c = self.card('A'), self.card('B'), self.card('C')
         BoardCard.objects.filter(pk=a.pk).update(position=10)
         BoardCard.objects.filter(pk=b.pk).update(position=11)
-        move_card(c, actor=self.member, stage=BoardCard.Stage.TODO, before_card_id=b.pk)
-        self.assertEqual(self._order(BoardCard.Stage.TODO), ['A', 'C', 'B'])
+        move_card(c, actor=self.member, column=self.column('TODO'), before_card_id=b.pk)
+        self.assertEqual(self._order('TODO'), ['A', 'C', 'B'])
         positions = list(
-            BoardCard.objects.filter(board=self.board, stage=BoardCard.Stage.TODO)
+            BoardCard.objects.filter(column=self.column('TODO'))
             .order_by('position').values_list('position', flat=True)
         )
         self.assertEqual(positions, [POSITION_STEP, 2 * POSITION_STEP, 3 * POSITION_STEP])
@@ -230,9 +238,8 @@ class MoveCardTests(BoardFixtureMixin, TestCase):
         card = self.card()
         complete_task(task_of(card), self.member, 'Сделано')
         with self.assertRaises(BoardError):
-            move_card(card, actor=self.member, stage=BoardCard.Stage.REVIEW)
-        card.refresh_from_db()
-        self.assertEqual(card.stage, BoardCard.Stage.TODO)
+            move_card(card, actor=self.member, column=self.column('REVIEW'))
+        self.assertEqual(stage_of(card), 'TODO')
 
     def test_refused_for_a_foreign_or_missing_before_card(self):
         card = self.card()
@@ -240,20 +247,17 @@ class MoveCardTests(BoardFixtureMixin, TestCase):
             name='Другая', department=self.department, owner=self.owner, actor=self.owner,
             member_ids=[self.member.pk],
         )
-        foreign = create_card(
-            other_board, actor=self.member, title='Чужая', due_date=due(),
-            assignee_ids=[self.member.pk],
-        )
+        foreign = new_card(other_board, self.member, 'Чужая', assignees=[self.member])
         for before in (foreign.pk, 999999, 'abc', card.pk):
             with self.subTest(before=before), self.assertRaises(BoardError):
-                move_card(card, actor=self.member, stage=BoardCard.Stage.TODO, before_card_id=before)
+                move_card(card, actor=self.member, column=self.column('TODO'), before_card_id=before)
 
     def test_refused_for_done_column_and_outsider(self):
         card = self.card()
         with self.assertRaises(BoardError):
-            move_card(card, actor=self.member, stage='DONE')
+            move_card(card, actor=self.member, column=done_column_of(self.board))
         with self.assertRaises(BoardError):
-            move_card(card, actor=self.outsider, stage=BoardCard.Stage.REVIEW)
+            move_card(card, actor=self.outsider, column=self.column('REVIEW'))
 
 
 class CompleteCardTests(BoardFixtureMixin, TestCase):
@@ -270,11 +274,11 @@ class CompleteCardTests(BoardFixtureMixin, TestCase):
             with self.subTest(actor=actor.username), self.assertRaises(BoardError):
                 complete_card(card, actor=actor, execution_comment='Готово')
 
-    def test_completes_the_task_and_keeps_the_stage(self):
-        card = self.card(stage=BoardCard.Stage.REVIEW)
+    def test_completes_the_task_and_keeps_the_column(self):
+        card = self.card(stage='REVIEW')
         complete_card(card, actor=self.member, execution_comment='Сделано')
         task = task_of(card)
         card.refresh_from_db()
         self.assertEqual(task.status, TaskStatus.objects.get(code='COMPLETED'))
         self.assertEqual(task.execution_comment, 'Сделано')
-        self.assertEqual(card.stage, BoardCard.Stage.REVIEW)
+        self.assertEqual(stage_of(card), 'REVIEW')

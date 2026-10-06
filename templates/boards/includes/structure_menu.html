@@ -1,0 +1,55 @@
+{% comment %}
+The «⋯» menu of a tab (`kind='sub_board'`) or a column (`kind='column'`):
+«Переименовать», ← →, «Удалить». A `<details>` of ordinary POST forms — it
+opens and posts without JavaScript; `board_menus.js` only closes it on a click
+elsewhere or Esc. «Удалить» is a submit button that, with JavaScript, asks the
+shared confirmation modal first (`data-confirm-form` names its own form). The
+closing column (`object.is_done`) offers «Переименовать» only.
+
+Takes `object`, `name`, `max_length`, `rename_url`, `move_url`, `delete_url`,
+`can_move_left`, `can_move_right`, `can_delete`; every action keeps the
+board's filter (`filter_suffix`).
+{% endcomment %}
+<details class="board-menu" data-board-menu>
+    <summary class="board-menu__toggle" title="{% if kind == 'column' %}Колонка{% else %}Поддоска{% endif %} «{{ name }}»: действия" aria-label="{% if kind == 'column' %}Колонка{% else %}Поддоска{% endif %} «{{ name }}»: действия">⋯</summary>
+    <div class="board-menu__body">
+        <form class="board-menu__form" method="post" action="{{ rename_url }}{{ filter_suffix }}">
+            {% csrf_token %}
+            <label class="board-menu__label" for="board-rename-{{ kind }}-{{ object.pk }}">Переименовать</label>
+            <input id="board-rename-{{ kind }}-{{ object.pk }}" type="text" name="name" value="{{ name }}" maxlength="{{ max_length }}" required>
+            <button class="link-button link-button--compact" type="submit">Сохранить</button>
+        </form>
+        {% if not object.is_done %}
+            {% if can_move_left or can_move_right %}
+                <div class="board-menu__moves">
+                    {% if can_move_left %}
+                        <form method="post" action="{{ move_url }}{{ filter_suffix }}">
+                            {% csrf_token %}
+                            <input type="hidden" name="direction" value="left">
+                            <button class="link-button link-button--secondary link-button--compact" type="submit" title="Левее" aria-label="Переместить левее">←</button>
+                        </form>
+                    {% endif %}
+                    {% if can_move_right %}
+                        <form method="post" action="{{ move_url }}{{ filter_suffix }}">
+                            {% csrf_token %}
+                            <input type="hidden" name="direction" value="right">
+                            <button class="link-button link-button--secondary link-button--compact" type="submit" title="Правее" aria-label="Переместить правее">→</button>
+                        </form>
+                    {% endif %}
+                </div>
+            {% endif %}
+            {% if can_delete %}
+                <form id="board-delete-{{ kind }}-{{ object.pk }}" method="post" action="{{ delete_url }}{{ filter_suffix }}">
+                    {% csrf_token %}
+                    <button class="link-button link-button--danger link-button--compact" type="submit"
+                            data-confirm
+                            data-confirm-form="board-delete-{{ kind }}-{{ object.pk }}"
+                            data-confirm-title="Удалить {% if kind == 'column' %}колонку{% else %}поддоску{% endif %} «{{ name }}»?"
+                            data-confirm-text="{% if kind == 'column' %}Удалить можно колонку без открытых карточек. Завершённые и отменённые карточки останутся в истории и вернутся в первую колонку, если их задачу вернут в работу.{% else %}Удалить можно только пустую поддоску — без единой карточки, даже завершённой или отменённой.{% endif %}"
+                            data-confirm-label="Удалить"
+                            data-confirm-variant="danger">Удалить</button>
+                </form>
+            {% endif %}
+        {% endif %}
+    </div>
+</details>

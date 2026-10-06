@@ -24,7 +24,7 @@ from realtime.sync import REVISION_BOARDS, build_sync_state
 from tasks.models import Task
 
 from ..forms import AddMembersForm, BoardForm, CardForm
-from ..models import Board, BoardCard, BoardMember
+from ..models import Board, BoardMember
 from ..permissions import (
     BOARD_ACCESS_ROLES,
     can_cancel_card,
@@ -42,10 +42,9 @@ from ..services import (
     add_board_members,
     archive_board,
     create_board,
-    create_card,
     post_card_comment,
 )
-from .helpers import department, due, make_user
+from .helpers import board_url, department, fragment_url, make_user, new_card, stage_of
 
 
 def task_of(card):
@@ -77,17 +76,11 @@ class AccessFixture:
         cls.board = create_board(
             name='Доска ОТК', owner=cls.admin, actor=cls.admin, member_ids=[cls.otk.pk],
         )
-        cls.card = create_card(
-            cls.board, actor=cls.admin, title='Карточка ОТК', due_date=due(),
-            assignee_ids=[cls.otk.pk], stage='TODO',
-        )
+        cls.card = new_card(cls.board, cls.admin, 'Карточка ОТК', assignees=[cls.otk])
         cls.foreign = create_board(
             name='Чужая доска', owner=cls.admin, actor=cls.admin, member_ids=[cls.pdo.pk],
         )
-        cls.foreign_card = create_card(
-            cls.foreign, actor=cls.admin, title='Карточка ПДО', due_date=due(),
-            assignee_ids=[cls.pdo.pk], stage='TODO',
-        )
+        cls.foreign_card = new_card(cls.foreign, cls.admin, 'Карточка ПДО', assignees=[cls.pdo])
 
     def setUp(self):
         for name in ('admin', 'admin_two', 'superuser', 'otk', 'pdo', 'loner'):
@@ -198,14 +191,25 @@ class RightsTests(AccessFixture, TestCase):
 class RouteTests(AccessFixture, TestCase):
     def foreign_routes(self):
         board, card = self.foreign.pk, self.foreign_card.pk
+        self.foreign_sub = self.foreign.sub_boards.get()
+        self.foreign_column = self.foreign_sub.columns.order_by('position').first()
         return [
             ('boards:detail', [board]),
+            ('boards:sub_board', [board, self.foreign_sub.pk]),
             ('boards:members', [board]),
             ('boards:archive', [board]),
             ('boards:restore', [board]),
             ('boards:members_add', [board]),
             ('boards:member_remove', [board, self.pdo.pk]),
-            ('boards:card_create', [board]),
+            ('boards:card_create', [board, self.foreign_sub.pk]),
+            ('boards:sub_board_create', [board, self.foreign_sub.pk]),
+            ('boards:sub_board_rename', [board, self.foreign_sub.pk]),
+            ('boards:sub_board_move', [board, self.foreign_sub.pk]),
+            ('boards:sub_board_delete', [board, self.foreign_sub.pk]),
+            ('boards:column_create', [board, self.foreign_sub.pk]),
+            ('boards:column_rename', [board, self.foreign_sub.pk, self.foreign_column.pk]),
+            ('boards:column_move', [board, self.foreign_sub.pk, self.foreign_column.pk]),
+            ('boards:column_delete', [board, self.foreign_sub.pk, self.foreign_column.pk]),
             ('boards:card_update', [board, card]),
             ('boards:card_move', [board, card]),
             ('boards:card_complete', [board, card]),
@@ -216,10 +220,10 @@ class RouteTests(AccessFixture, TestCase):
     def test_a_member_opens_their_board(self):
         self.client.force_login(self.otk)
         self.assertEqual(self.client.get(reverse('boards:list')).status_code, 200)
-        self.assertEqual(self.client.get(reverse('boards:detail', args=[self.board.pk])).status_code, 200)
+        self.assertEqual(self.client.get(board_url(self.board)).status_code, 200)
         response = self.client.post(
             reverse('boards:card_move', args=[self.board.pk, self.card.pk]),
-            {'stage': 'IN_PROGRESS'}, HTTP_X_REQUESTED_WITH='fetch',
+            {'column_id': self.card.sub_board.columns.get(position=2).pk}, HTTP_X_REQUESTED_WITH='fetch',
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.client.get(reverse('boards:create')).status_code, 403)
@@ -230,17 +234,22 @@ class RouteTests(AccessFixture, TestCase):
             url = reverse(name, args=args)
             with self.subTest(route=name):
                 self.assertEqual(self.client.get(url).status_code, 403)
-                self.assertEqual(self.client.post(url, {'text': 'x', 'stage': 'TODO'}).status_code, 403)
-        self.assertEqual(BoardCard.objects.get(pk=self.foreign_card.pk).stage, 'TODO')
+                self.assertEqual(
+                    self.client.post(url, {'text': 'x', 'name': 'x', 'direction': 'right'}).status_code, 403,
+                )
+        self.assertEqual(stage_of(self.foreign_card), 'TODO')
+        self.assertEqual(self.foreign.sub_boards.get().name, 'Основная')
+        self.assertEqual(self.foreign_sub.columns.count(), 4)
 
     def test_json_routes_answer_json_403(self):
         self.client.force_login(self.otk)
-        response = self.client.get(reverse('boards:fragment', args=[self.foreign.pk]))
+        response = self.client.get(fragment_url(self.foreign))
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response['Content-Type'], 'application/json')
         response = self.client.post(
             reverse('boards:card_move', args=[self.foreign.pk, self.foreign_card.pk]),
-            {'stage': 'IN_PROGRESS'}, HTTP_X_REQUESTED_WITH='fetch',
+            {'column_id': self.foreign_card.sub_board.columns.get(position=2).pk},
+            HTTP_X_REQUESTED_WITH='fetch',
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()['ok'], False)
@@ -248,7 +257,7 @@ class RouteTests(AccessFixture, TestCase):
     def test_somebody_on_no_board_gets_403(self):
         self.client.force_login(self.loner)
         self.assertEqual(self.client.get(reverse('boards:list')).status_code, 403)
-        self.assertEqual(self.client.get(reverse('boards:detail', args=[self.board.pk])).status_code, 403)
+        self.assertEqual(self.client.get(board_url(self.board)).status_code, 403)
 
     def test_the_registry_lists_only_readable_boards(self):
         self.client.force_login(self.otk)
@@ -300,7 +309,7 @@ class TaskVisibilityTests(AccessFixture, TestCase):
         self.assertEqual(self.client.get(reverse('tasks:detail', args=[self.foreign_task.pk])).status_code, 404)
         response = self.client.get(reverse('tasks:detail', args=[self.task.pk]))
         self.assertRedirects(
-            response, f"{reverse('boards:detail', args=[self.board.pk])}?card={self.card.pk}",
+            response, f"{board_url(self.board)}?card={self.card.pk}",
             fetch_redirect_response=False,
         )
 
@@ -338,14 +347,8 @@ class TaskVisibilityTests(AccessFixture, TestCase):
                 name=f'Ещё {index}', owner=self.admin, actor=self.admin,
                 member_ids=[self.otk.pk, self.pdo.pk],
             )
-            create_card(
-                board, actor=self.admin, title=f'Своя {index}', due_date=due(),
-                assignee_ids=[self.otk.pk], stage='TODO',
-            )
-            create_card(
-                self.foreign, actor=self.admin, title=f'Чужая {index}', due_date=due(),
-                assignee_ids=[self.pdo.pk], stage='TODO',
-            )
+            new_card(board, self.admin, f'Своя {index}', assignees=[self.otk])
+            new_card(self.foreign, self.admin, f'Чужая {index}', assignees=[self.pdo])
         self.assertEqual(self._registry_queries(), baseline)
 
 
@@ -397,7 +400,9 @@ class BoardFormTests(AccessFixture, TestCase):
     def test_a_name_alone_creates_a_board(self):
         response = self.post({'name': 'Только название'})
         board = Board.objects.get(name='Только название')
-        self.assertRedirects(response, reverse('boards:detail', args=[board.pk]))
+        self.assertRedirects(
+            response, reverse('boards:detail', args=[board.pk]), fetch_redirect_response=False,
+        )
         self.assertIsNone(board.department_id)
         self.assertEqual(board.description, '')
         self.assertEqual(list(board.members.values_list('user_id', flat=True)), [self.admin.pk])
@@ -410,7 +415,9 @@ class BoardFormTests(AccessFixture, TestCase):
             'members': [str(self.otk.pk), str(self.pdo.pk), str(self.otk.pk), '', str(self.admin.pk)],
         })
         board = Board.objects.get(name='Сводная')
-        self.assertRedirects(response, reverse('boards:detail', args=[board.pk]))
+        self.assertRedirects(
+            response, reverse('boards:detail', args=[board.pk]), fetch_redirect_response=False,
+        )
         self.assertEqual(
             sorted(board.members.values_list('user_id', flat=True)),
             sorted([self.admin.pk, self.otk.pk, self.pdo.pk]),
@@ -462,16 +469,10 @@ class RealtimeTests(AccessFixture, TestCase):
             return build_sync_state(fresh(user))['revisions'][REVISION_BOARDS]
 
         otk, loner, admin = revision(self.otk), revision(self.loner), revision(self.admin)
-        create_card(
-            self.foreign, actor=self.admin, title='Ещё чужая', due_date=due(),
-            assignee_ids=[self.pdo.pk], stage='TODO',
-        )
+        new_card(self.foreign, self.admin, 'Ещё чужая', assignees=[self.pdo])
         self.assertEqual(revision(self.otk), otk)
         self.assertEqual(revision(self.loner), loner)
         self.assertNotEqual(revision(self.admin), admin)
-        create_card(
-            self.board, actor=self.admin, title='Ещё своя', due_date=due(),
-            assignee_ids=[self.otk.pk], stage='TODO',
-        )
+        new_card(self.board, self.admin, 'Ещё своя', assignees=[self.otk])
         self.assertNotEqual(revision(self.otk), otk)
         self.assertEqual(revision(self.loner), loner)

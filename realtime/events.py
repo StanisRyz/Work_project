@@ -87,6 +87,8 @@ BOARD_CHANGE_CARD_CANCELLED = 'card_cancelled'
 BOARD_CHANGE_BOARD_ARCHIVED = 'board_archived'
 BOARD_CHANGE_BOARD_RESTORED = 'board_restored'
 BOARD_CHANGE_COMMENT_ADDED = 'comment_added'
+# A sub-board or a column created, renamed, moved or deleted.
+BOARD_CHANGE_STRUCTURE_CHANGED = 'structure_changed'
 
 BOARD_CHANGES = frozenset(
     {
@@ -99,6 +101,7 @@ BOARD_CHANGES = frozenset(
         BOARD_CHANGE_BOARD_ARCHIVED,
         BOARD_CHANGE_BOARD_RESTORED,
         BOARD_CHANGE_COMMENT_ADDED,
+        BOARD_CHANGE_STRUCTURE_CHANGED,
     }
 )
 

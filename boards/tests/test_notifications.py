@@ -14,7 +14,7 @@ from notifications.services import (
 from tasks.models import Task
 
 from ..services import update_card
-from .helpers import BoardFixtureMixin, due
+from .helpers import BoardFixtureMixin, board_url, due
 
 
 def task_of(card):
@@ -79,7 +79,7 @@ class BoardNotificationTests(BoardFixtureMixin, TestCase):
         self.client.force_login(self.colleague)
         self.assertRedirects(
             self.client.get(url),
-            f"{reverse('boards:detail', args=[self.board.pk])}?card={card.pk}",
+            f"{board_url(self.board)}?card={card.pk}",
         )
 
     def test_rollback_leaves_no_notification(self):

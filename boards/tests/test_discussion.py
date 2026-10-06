@@ -27,7 +27,7 @@ from ..services import (
     cancel_card,
     post_card_comment,
 )
-from .helpers import BoardFixtureMixin, make_user
+from .helpers import BoardFixtureMixin, board_url, fragment_url, make_user
 
 
 def task_of(card):
@@ -225,7 +225,7 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
     def setUp(self):
         self.card_obj = self.card('Обсуждаемая', assignees=[self.member])
         self.url = reverse('boards:card_comment', args=[self.board.pk, self.card_obj.pk])
-        self.page_url = reverse('boards:detail', args=[self.board.pk])
+        self.page_url = board_url(self.board)
 
     def test_route_asks_before_the_method_and_get_changes_nothing(self):
         self.client.force_login(self.outsider)
@@ -276,7 +276,7 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
         self.client.force_login(self.member)
         query = {'card': self.card_obj.pk}
         page = self.client.get(self.page_url, query).content.decode()
-        fragment = self.client.get(reverse('boards:fragment', args=[self.board.pk]), query).json()
+        fragment = self.client.get(fragment_url(self.board), query).json()
         for block in ('columns', 'panel', 'comments'):
             with self.subTest(block=block):
                 self.assertTrue(fragment[f'{block}_html'])
@@ -287,7 +287,7 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
 
     def test_a_new_message_does_not_move_the_panel_fingerprint(self):
         self.client.force_login(self.member)
-        url = reverse('boards:fragment', args=[self.board.pk])
+        url = fragment_url(self.board)
         before = self.client.get(url, {'card': self.card_obj.pk}).json()
         post_card_comment(self.card_obj, actor=self.colleague, text='Новое')
         after = self.client.get(url, {'card': self.card_obj.pk}).json()
@@ -298,7 +298,7 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
 
     def test_no_discussion_outside_the_view_panel(self):
         self.client.force_login(self.member)
-        url = reverse('boards:fragment', args=[self.board.pk])
+        url = fragment_url(self.board)
         for query in ({}, {'card': self.card_obj.pk, 'edit': '1'}, {'new': 'TODO'}):
             with self.subTest(query=query):
                 payload = self.client.get(url, query).json()

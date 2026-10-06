@@ -9,11 +9,19 @@
  */
 
 // --------------------------------------------------------------------------
-// Selectors: `.class`, `[attr]`, `[attr="value"]`, `tag`
+// Selectors: `.class`, `[attr]`, `[attr="value"]`, `tag`, and a tag or
+// attributes compounded: `details[data-board-menu][open]`
 // --------------------------------------------------------------------------
 
 function matches(element, selector) {
     const text = selector.trim();
+    const compound = /^([a-zA-Z][\w-]*)?((?:\[[^\]]+\])+)$/.exec(text);
+    if (compound && (compound[1] || compound[2].indexOf('][') !== -1)) {
+        if (compound[1] && element.tagName !== compound[1].toUpperCase()) {
+            return false;
+        }
+        return compound[2].match(/\[[^\]]+\]/g).every((part) => matches(element, part));
+    }
     if (text.startsWith('.')) {
         return element.classList.contains(text.slice(1));
     }
@@ -227,6 +235,10 @@ class Element {
 
     querySelector(selector) {
         return this._descendants().find((node) => matches(node, selector)) || null;
+    }
+
+    matches(selector) {
+        return matches(this, selector);
     }
 
     querySelectorAll(selector) {
@@ -494,16 +506,16 @@ function createEnvironment({
         const board = new Element('div');
         board.setAttribute('data-board', '');
         board.setAttribute('data-board-id', '4');
-        board.setAttribute('data-board-url', '/work/boards/4/');
-        board.setAttribute('data-board-page-url', '/work/boards/4/?card=9');
-        board.setAttribute('data-board-fragment-url', '/work/boards/4/fragment/?card=9');
+        board.setAttribute('data-board-url', '/work/boards/4/7/');
+        board.setAttribute('data-board-page-url', '/work/boards/4/7/?card=9');
+        board.setAttribute('data-board-fragment-url', '/work/boards/4/7/fragment/?card=9');
         board.setAttribute('data-columns-revision', 'columns-rev-initial');
         board.setAttribute('data-panel-revision', 'panel-rev-initial');
         board.setAttribute('data-comments-revision', 'comments-rev-initial');
         board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
         const columns = new Element('div');
         columns.setAttribute('data-live-board-columns', '');
-        columns.innerHTML = '<section data-column="TODO"><ol data-column-list>'
+        columns.innerHTML = '<section data-column-id="31"><ol data-column-list>'
             + '<li data-card-id="9" data-task-id="21" data-card-movable>исходная плитка</li></ol></section>';
         const panel = new Element('aside');
         panel.setAttribute('data-live-board-panel', '');

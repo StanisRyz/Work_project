@@ -1,17 +1,23 @@
 /**
- * The open board page: its columns and its card panel, kept current.
+ * The open board page — one sub-board — kept current: its tabs and columns,
+ * its card panel and the open card's messages.
  *
- * Two live blocks, both fetched from `boards:fragment`, which renders the very
+ * Three live blocks, all fetched from `boards:fragment`, which renders the very
  * same partials from the very same context builder as the page — no markup is
  * built here, and nothing here is a rule:
  *
- *   [data-live-board-columns]  read-only; replaced wholesale whenever its
- *                              fingerprint moved — but never under a gesture:
- *                              while `[data-board]` carries `data-board-busy`
- *                              (`board_dnd.js`: a card in the air, a move
- *                              awaiting the server, the «Готово» modal open)
- *                              the refresh waits, and runs once on
- *                              `quality:board-idle`.
+ *   [data-live-board-columns]  the structure — tabs and columns — read-only;
+ *                              replaced wholesale whenever its fingerprint
+ *                              moved (a card, or a tab or a column created,
+ *                              renamed, moved or deleted) — but never under a
+ *                              gesture: while `[data-board]` carries
+ *                              `data-board-busy` (`board_dnd.js`: a card in
+ *                              the air, a move awaiting the server, the
+ *                              completion modal open) the refresh waits, and
+ *                              runs once on `quality:board-idle`. A tab or
+ *                              column menu left open (`details[data-board-menu]`,
+ *                              perhaps with a new name half typed) holds it
+ *                              back the same way, until the menu closes.
  *   [data-live-board-comments] the messages of the open card's «Обсуждение»:
  *                              read-only, replaced whenever its fingerprint
  *                              moved, keeping a reader at the bottom there.
@@ -96,6 +102,8 @@
     });
 
     const isBusy = () => root.getAttribute('data-board-busy') !== null;
+    const menuOpen = () =>
+        Boolean(columnsElement && columnsElement.querySelector('details[data-board-menu][open]'));
 
     const revisionOf = (value) => (typeof value === 'string' ? value : '');
 
@@ -107,28 +115,35 @@
         if (revision && revision === columnsRevision) {
             return;
         }
-        if (isBusy()) {
-            // A card is in the air or on its way to the server: the markup it
-            // was picked from must stay. Fetched again — not applied stale —
-            // once the gesture is over.
+        if (isBusy() || menuOpen()) {
+            // A card is in the air or on its way to the server, or a menu of
+            // the structure is open: the markup it was picked from must stay.
+            // Fetched again — not applied stale — once the gesture is over.
             deferred = true;
             return;
         }
-        // Each column scrolls on its own; a replacement keeps where it was.
+        // Each column scrolls on its own, and the row of columns sideways; a
+        // replacement keeps where they were.
         const scrolled = {};
-        columnsElement.querySelectorAll('[data-column]').forEach((column) => {
+        columnsElement.querySelectorAll('[data-column-id]').forEach((column) => {
             const list = column.querySelector('[data-column-list]');
             if (list) {
-                scrolled[column.dataset.column] = list.scrollTop;
+                scrolled[column.dataset.columnId] = list.scrollTop;
             }
         });
+        const rowBefore = columnsElement.querySelector('[data-board-columns]');
+        const rowScroll = rowBefore ? Number(rowBefore.scrollLeft) || 0 : 0;
         columnsElement.innerHTML = payload.columns_html;
-        columnsElement.querySelectorAll('[data-column]').forEach((column) => {
+        columnsElement.querySelectorAll('[data-column-id]').forEach((column) => {
             const list = column.querySelector('[data-column-list]');
-            if (list && scrolled[column.dataset.column]) {
-                list.scrollTop = scrolled[column.dataset.column];
+            if (list && scrolled[column.dataset.columnId]) {
+                list.scrollTop = scrolled[column.dataset.columnId];
             }
         });
+        const rowAfter = columnsElement.querySelector('[data-board-columns]');
+        if (rowAfter && rowScroll) {
+            rowAfter.scrollLeft = rowScroll;
+        }
         columnsRevision = revision;
         if (window.qualityFragments) {
             window.qualityFragments.reinitialise(columnsElement);
@@ -208,12 +223,20 @@
 
     const refresh = () => coordinator.schedule(null);
 
-    document.addEventListener('quality:board-idle', () => {
-        if (deferred) {
+    const resumeDeferred = () => {
+        if (deferred && !isBusy() && !menuOpen()) {
             deferred = false;
             refresh();
         }
-    });
+    };
+    document.addEventListener('quality:board-idle', resumeDeferred);
+    // `toggle` does not bubble; a capturing listener still sees a menu close.
+    document.addEventListener('toggle', (event) => {
+        const target = event.target;
+        if (target && typeof target.matches === 'function' && target.matches('details[data-board-menu]') && !target.open) {
+            resumeDeferred();
+        }
+    }, true);
 
     core.registerAdapter({
         name: 'board',

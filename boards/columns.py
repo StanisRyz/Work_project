@@ -1,48 +1,46 @@
-"""The four columns of a board — the one place they are described.
+"""Which column a card stands in — and the columns a new sub-board starts with.
 
-Three are stored (`BoardCard.Stage`): «Сделать», «В работе», «На проверке».
-The fourth, «Готово», is not: a card stands there exactly when its task is
-`COMPLETED`. Deriving it rather than storing it is what lets the task's own
-lifecycle move the card — «Завершить задачу» on the task page puts it in
-«Готово», and an administrator's «Вернуть в работу» (`tasks.services.reopen_task()`)
-takes it back to the column its `stage` still names — without a single hook
-in `tasks.services`.
+The columns themselves are rows (`BoardColumn`), named and ordered by the
+board's owner. What stays fixed is the rule tying a card to one of them:
 
-A `CANCELLED` task's card is on no column at all: the work was withdrawn, and
-showing it anywhere would claim otherwise.
+* a `COMPLETED` task stands in the sub-board's closing column (`is_done`) —
+  derived, never stored, so «Завершить задачу» on the task page puts it there
+  and an administrator's «Вернуть в работу» (`tasks.services.reopen_task()`)
+  takes it back, without a single hook in `tasks.services`;
+* a `CANCELLED` task stands in no column at all: the work was withdrawn, and
+  showing it anywhere would claim otherwise;
+* any other stands in `card.column`, its working column — or, when that was
+  deleted while the card was closed (`column` is NULL), in the first working
+  column of its sub-board. Reopening such a card puts it there too.
 """
 
-from collections import namedtuple
 
-from .models import BoardCard
+# The most columns one sub-board may have, the closing one included.
+MAX_COLUMNS = 15
 
-
-DONE = 'DONE'
-
-Column = namedtuple('Column', ('code', 'label', 'is_stored'))
-
-# In the order a board draws them, left to right.
-COLUMNS = (
-    Column(BoardCard.Stage.TODO.value, BoardCard.Stage.TODO.label, True),
-    Column(BoardCard.Stage.IN_PROGRESS.value, BoardCard.Stage.IN_PROGRESS.label, True),
-    Column(BoardCard.Stage.REVIEW.value, BoardCard.Stage.REVIEW.label, True),
-    Column(DONE, 'Готово', False),
+# A new sub-board's columns, left to right: (name, is_done). Exactly one
+# closing column, and it is the last.
+DEFAULT_COLUMNS = (
+    ('Сделать', False),
+    ('В работе', False),
+    ('На проверке', False),
+    ('Готово', True),
 )
 
-# The columns a card may be put in by hand: `create_card()` and `move_card()`
-# accept these and nothing else.
-WORK_STAGES = frozenset(column.code for column in COLUMNS if column.is_stored)
 
+def card_column(card, task, columns):
+    """The `BoardColumn` `card` stands in, given its task — or `None`.
 
-def card_column(card, task):
-    """Which column `card` stands in, given its task — or `None` if none.
-
-    `DONE` for a completed task, `None` for a cancelled one, otherwise the
-    stored `card.stage`.
+    `columns` is its sub-board's columns in order (the caller reads them once
+    for the whole sub-board, so this costs no query).
     """
     code = task.status.code
-    if code == 'COMPLETED':
-        return DONE
     if code == 'CANCELLED':
         return None
-    return card.stage
+    if code == 'COMPLETED':
+        return next((column for column in columns if column.is_done), None)
+    working = [column for column in columns if not column.is_done]
+    return next(
+        (column for column in working if column.pk == card.column_id),
+        working[0] if working else None,
+    )

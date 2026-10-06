@@ -6,7 +6,7 @@ only inside it — an `<a>` holds no interactive content.
 The `<li>` around it is what `board_dnd.js` drags. `data-card-movable` and the
 move URL are there only while this user may work on the board and the task is
 open (`item.is_movable`); the hidden «Завершить» trigger only when
-`can_complete_task()` says yes (`item.can_complete`). Dropping on «Готово»
+`can_complete_task()` says yes (`item.can_complete`). Dropping on the closing column
 clicks that trigger, so completion goes through the one confirmation modal with
 its required comment, posted as `execution_comment` to `boards:card_complete`.
 `data-task-id` lets the live client tell a `task.*` event about this card's
@@ -31,7 +31,7 @@ the drag's counts and the redirect after completion stay filtered.
                 data-confirm
                 data-confirm-url="{% url 'boards:card_complete' board.pk item.card.pk %}{{ filter_suffix }}"
                 data-confirm-title="Завершить задачу №{{ item.task.pk }}?"
-                data-confirm-text="Карточка перейдёт в «Готово». Укажите результат выполнения."
+                data-confirm-text="Карточка перейдёт в колонку «{{ done_column.name }}». Укажите результат выполнения."
                 data-confirm-label="Завершить"
                 data-confirm-comment="required"
                 data-confirm-comment-label="Результат выполнения"

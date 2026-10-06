@@ -325,7 +325,7 @@ def _boards_revision(user):
     token of the same shape built from no data, no query spent: the client
     compares the same set of keys for every user.
 
-    Four aggregates, no rows loaded:
+    Five aggregates, no rows loaded:
 
     * the cards — a new card moves `total`, an edit or a move `last_updated`;
     * the `BOARD` tasks with their status mix — completing a card from its task
@@ -335,9 +335,14 @@ def _boards_revision(user):
     * the memberships — who may work on a board changes what its page draws,
       and a removal leaves no timestamp behind, only a smaller count;
     * the messages of every card's «Обсуждение» — never edited or deleted, so
-      their count and the newest `created_at` say everything.
+      their count and the newest `created_at` say everything;
+    * the structure — the columns with their sub-boards, in one query: how many
+      of each and the newest `updated_at` of each, so a tab or a column created,
+      renamed, moved (renumbering writes `updated_at`) or deleted moves it.
+      Every sub-board has its closing column, so counting through the columns
+      misses none.
     """
-    from boards.models import BoardCard, BoardCardComment, BoardMember
+    from boards.models import BoardCard, BoardCardComment, BoardColumn, BoardMember
     from boards.permissions import can_use_boards, readable_boards_q
     from tasks.models import Task
 
@@ -356,6 +361,12 @@ def _boards_revision(user):
     comments = BoardCardComment.objects.filter(readable_boards_q(user, 'card__board_id')).aggregate(
         total=Count('pk'), last=Max('created_at'),
     )
+    structure = BoardColumn.objects.filter(readable_boards_q(user, 'sub_board__board_id')).aggregate(
+        columns=Count('pk'),
+        columns_updated=Max('updated_at'),
+        sub_boards=Count('sub_board', distinct=True),
+        sub_boards_updated=Max('sub_board__updated_at'),
+    )
     return _token(
         'b',
         cards['total'],
@@ -367,6 +378,10 @@ def _boards_revision(user):
         members['last_added'],
         comments['total'],
         comments['last'],
+        structure['sub_boards'],
+        structure['sub_boards_updated'],
+        structure['columns'],
+        structure['columns_updated'],
     )
 
 

@@ -1418,7 +1418,7 @@ function boardEvent(boardId, change, eventId) {
 
 function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments } = {}) {
     const payload = {
-        columns_html: `<section data-column="TODO"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
+        columns_html: `<section data-column-id="31"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
         columns_revision: columns,
         panel_html: `<textarea name="execution_comment" data-fresh-panel></textarea>`,
         panel_revision: panel,
@@ -1431,7 +1431,7 @@ function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comme
     return payload;
 }
 
-const boardCalls = (env) => env.fetchCalls.filter((call) => call.url.startsWith('/work/boards/4/fragment/'));
+const boardCalls = (env) => env.fetchCalls.filter((call) => call.url.startsWith('/work/boards/4/7/fragment/'));
 
 test('board.updated for this board refreshes the columns and a clean panel', async () => {
     const env = load({ page: 'board' });
@@ -1443,7 +1443,7 @@ test('board.updated for this board refreshes the columns and a clean panel', asy
 
     const calls = boardCalls(env);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, '/work/boards/4/fragment/?card=9', 'the server-built URL, as it is');
+    assert.equal(calls[0].url, '/work/boards/4/7/fragment/?card=9', 'the server-built URL, as it is');
     assert.ok(env.live.columns.querySelector('[data-fresh-tile]'), 'columns replaced');
     assert.ok(env.live.panel.querySelector('[data-fresh-panel]'), 'a clean panel replaced');
     assert.equal(env.live.conflictBanner.hidden, true);
@@ -1484,6 +1484,34 @@ test('the columns wait for the drag to end, then refresh once', async () => {
     env.clock.advance(300);
     await flush();
     assert.equal(boardCalls(env).length, 2, 'an idle with nothing deferred fetches nothing');
+});
+
+test('an open tab or column menu holds the structure back until it closes', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler((call) => (call.url.startsWith('/realtime/sync/') ? snapshot() : boardFragment()));
+    env.live.columns.innerHTML = '<details data-board-menu open><form><input name="name"></form></details>'
+        + '<section data-column-id="31"><ol data-column-list><li>исходная плитка</li></ol></section>';
+    const menu = env.live.columns.querySelector('[data-board-menu]');
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'structure_changed', 'menu-open'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.columns.querySelector('[data-board-menu]'), 'the open menu is not replaced');
+    assert.equal(env.core.boardLive.isDeferred, true);
+
+    // Another menu closing elsewhere, or this one still open, changes nothing.
+    env.document.dispatch('toggle', { target: menu });
+    env.clock.advance(300);
+    await flush();
+    assert.equal(boardCalls(env).length, 1);
+
+    menu.attributes.delete('open');
+    env.document.dispatch('toggle', { target: menu });
+    env.clock.advance(300);
+    await flush();
+    assert.equal(boardCalls(env).length, 2, 'fetched again once the menu closed');
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'));
+    assert.equal(env.core.boardLive.isDeferred, false);
 });
 
 test('typing in the panel keeps the text and raises the conflict banner', async () => {
@@ -1659,7 +1687,7 @@ test('with the live client stopped, moving the open card loads the board address
     env.core.stop();
 
     assert.equal(dnd.openCardMoved('9'), 'replace');
-    assert.deepEqual(env.window.location.replaced, ['/work/boards/4/?card=9']);
+    assert.deepEqual(env.window.location.replaced, ['/work/boards/4/7/?card=9']);
 });
 
 test('without real-time, moving the open card loads the board address', async () => {
@@ -1667,7 +1695,7 @@ test('without real-time, moving the open card loads the board address', async ()
     const dnd = loadDnd(env);
 
     assert.equal(dnd.openCardMoved('9'), 'replace');
-    assert.deepEqual(env.window.location.replaced, ['/work/boards/4/?card=9']);
+    assert.deepEqual(env.window.location.replaced, ['/work/boards/4/7/?card=9']);
 });
 
 test('without real-time, unsaved input gets the message instead of a navigation', async () => {

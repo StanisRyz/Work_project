@@ -20,15 +20,16 @@ from .permissions import can_delete_task_attachment
 
 
 def board_card_url(task):
-    """Where a `BOARD` task lives: its board, with the card's panel open.
+    """Where a `BOARD` task lives: its card's sub-board, with the panel open.
 
     The one place that address is built — `tasks:detail` redirects here, the
     registry's «Источник» links here. Only a route name and the
-    `Task.board_card` relation are read, exactly as `acts:detail` and
-    `protocols:detail` are named elsewhere in this module; `tasks` never
-    imports `boards`.
+    `Task.board_card` relation (its `board_id` and `sub_board_id`) are read,
+    exactly as `acts:detail` and `protocols:detail` are named elsewhere in this
+    module; `tasks` never imports `boards`.
     """
-    board_url = reverse('boards:detail', args=[task.board_card.board_id])
+    card = task.board_card
+    board_url = reverse('boards:sub_board', args=[card.board_id, card.sub_board_id])
     return f'{board_url}?card={task.board_card_id}'
 
 

@@ -1,10 +1,11 @@
-"""What the board pages show: the registry, one board's columns, one card.
+"""What the board pages show: the registry, one sub-board's columns, one card.
 
 Read only, and never a permission decision of its own — the flags returned are
-`boards.permissions` asked once. The number of queries does not depend on the
-number of cards: the open cards and the latest completed ones are each one
-query through their tasks, the исполнители one prefetch each, and the card the
-panel shows one more.
+`boards.permissions` asked once. The number of queries depends neither on the
+number of cards nor on the number of columns: the tabs and the columns are one
+query each, the open cards and the latest completed ones are each one query
+through their tasks, the исполнители one prefetch each, and the card the panel
+shows one more.
 """
 
 from dataclasses import dataclass
@@ -14,8 +15,8 @@ from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from .columns import COLUMNS, DONE, card_column
-from .models import Board, BoardCardComment, BoardMember
+from .columns import MAX_COLUMNS, card_column
+from .models import Board, BoardCardComment, BoardColumn, BoardMember, SubBoard
 from .permissions import (
     can_cancel_card,
     can_comment_card,
@@ -26,7 +27,7 @@ from .permissions import (
 )
 
 
-# How many completed cards «Готово» draws. The rest are counted, not read:
+# How many completed cards the closing column draws. The rest are counted, not read:
 # a board in use for a year has hundreds of them and nobody scrolls that far.
 DONE_LIMIT = 50
 
@@ -97,8 +98,8 @@ def _filtered(tasks, filters, user, *, open_work):
     return tasks
 
 
-def _board_tasks(board):
-    """The board's tasks with their cards, исполнители and message counts.
+def _board_tasks(sub_board):
+    """The sub-board's tasks with their cards, исполнители and message counts.
 
     The «Обсуждение» count is a subquery annotation of the same query, so a
     tile's counter costs no query of its own.
@@ -107,7 +108,7 @@ def _board_tasks(board):
 
     comments = BoardCardComment.objects.filter(card=OuterRef('board_card'))
     return (
-        Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__board=board)
+        Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__sub_board=sub_board)
         .select_related('status', 'board_card')
         .prefetch_related('assignees__user__userprofile')
         .annotate(comment_count=_count_subquery(comments, 'card'))
@@ -127,11 +128,12 @@ def _item(task):
     }
 
 
-def _panel_card(board, card_id, user, *, all_comments=False):
+def _panel_card(board, sub_board, columns, card_id, user, *, all_comments=False):
     """The card `?card=` names, with its task — or `None`.
 
-    `None` for anything that is not a card of this board: a foreign or missing
-    id, or text. Unlike the columns, a cancelled card is found too — its panel
+    `None` for anything that is not a card of this sub-board: a foreign or
+    missing id, or text. (A card of another sub-board of the same board is
+    reached at its own sub-board's address — `boards:detail` redirects there.) Unlike the columns, a cancelled card is found too — its panel
     is the read-only record of what was withdrawn.
 
     The panel is where a `BOARD` task is worked, so the card also carries what
@@ -152,7 +154,7 @@ def _panel_card(board, card_id, user, *, all_comments=False):
     except (TypeError, ValueError):
         return None
     task = (
-        _board_tasks(board)
+        _board_tasks(sub_board)
         .select_related('board_card__created_by', 'department', 'completed_by', 'cancelled_by')
         .filter(board_card_id=card_id)
         .first()
@@ -160,8 +162,10 @@ def _panel_card(board, card_id, user, *, all_comments=False):
     if task is None:
         return None
     item = _item(task)
-    code = card_column(task.board_card, task)
-    item['column'] = next((column for column in COLUMNS if column.code == code), None)
+    item['column'] = card_column(task.board_card, task, columns)
+    # Where «Вернуть в работу» puts it: its working column, or the first one
+    # if that column was deleted meanwhile.
+    item['return_column'] = _return_column(task.board_card, columns)
     item['department'] = task.department
     item['attachments'] = task_attachment_cards(task, user)
     item['can_complete'] = can_complete_task(task, user)
@@ -169,6 +173,7 @@ def _panel_card(board, card_id, user, *, all_comments=False):
     item['can_upload_attachment'] = can_upload_task_attachment(task, user)
     # `board` is the very board of the page: no second query for it.
     task.board_card.board = board
+    task.board_card.sub_board = sub_board
     item['can_cancel'] = (
         task.status.code == 'IN_PROGRESS' and can_cancel_card(user, task.board_card)
     )
@@ -187,16 +192,37 @@ def _panel_card(board, card_id, user, *, all_comments=False):
     return item
 
 
-def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None, filters=NO_FILTERS,
-                      all_comments=False):
-    """Everything one board page renders.
+def _return_column(card, columns):
+    working = [column for column in columns if not column.is_done]
+    return next(
+        (column for column in working if column.pk == card.column_id),
+        working[0] if working else None,
+    )
 
-    `columns` follows `boards.columns.COLUMNS`; each is
-    `{'code', 'label', 'is_stored', 'cards', 'count', 'more'}`, and each card
-    is `{'card', 'task', 'assignees', 'due_date', 'is_closed'}`. The working
-    columns are in `position` order. «Готово» holds the `done_limit` newest
-    completions and `more` counts the rest. A card whose task was cancelled is
-    on none of them.
+
+def sub_board_columns(sub_board):
+    """The sub-board's columns, in order — one query."""
+    return list(BoardColumn.objects.filter(sub_board=sub_board).order_by('position', 'pk'))
+
+
+def first_sub_board(board):
+    """The board's first tab — where `/work/boards/<board>/` leads."""
+    return SubBoard.objects.filter(board=board).order_by('position', 'pk').first()
+
+
+def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=None,
+                      filters=NO_FILTERS, all_comments=False):
+    """Everything one sub-board page renders.
+
+    `sub_boards` are the board's tabs, each `{'sub_board', 'is_active',
+    'can_move_left', 'can_move_right'}`. `columns` are this sub-board's own,
+    left to right; each is `{'column', 'pk', 'name', 'is_done', 'cards',
+    'count', 'more', 'can_move_left', 'can_move_right', 'can_delete'}`, and each
+    card `{'card', 'task', 'assignees', 'due_date', 'is_closed'}`. The working
+    columns are in `position` order. The closing column holds the `done_limit`
+    newest completions and `more` counts the rest. A card whose task was
+    cancelled is on none of them. The `can_*` flags of a tab or a column say
+    only which of ← → «Удалить» to draw for a manager; the services decide.
 
     `card` is the card `card_id` names (see `_panel_card()`), else `None` —
     found whatever the filters say, so the open panel never disappears. Its
@@ -210,48 +236,72 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None, filte
     Each open card also says what this user may do with it by dragging —
     markup only, the routes ask again: `is_movable` (may work on the board)
     and `can_complete` (`tasks.permissions.can_complete_task()`, asked for the
-    whole board in one query through `completable_task_ids()`).
+    whole sub-board in one query through `completable_task_ids()`).
     """
     from tasks.permissions import completable_task_ids
 
     can_work = can_work_on_board(user, board)
-    tasks = _board_tasks(board)
+    columns = sub_board_columns(sub_board)
+    tabs = list(SubBoard.objects.filter(board=board).order_by('position', 'pk'))
+    tasks = _board_tasks(sub_board)
     open_tasks = list(_filtered(tasks.filter(status__is_final=False), filters, user, open_work=True))
     done_tasks = _filtered(tasks.filter(status__code='COMPLETED'), filters, user, open_work=False)
     completable = completable_task_ids([task.pk for task in open_tasks], user)
-    cards_by_column = {column.code: [] for column in COLUMNS}
+    cards_by_column = {column.pk: [] for column in columns}
     for task in open_tasks:
-        code = card_column(task.board_card, task)
-        if code is not None:
+        column = card_column(task.board_card, task, columns)
+        if column is not None:
             item = _item(task)
             item['is_movable'] = can_work
             item['can_complete'] = task.pk in completable
-            cards_by_column[code].append(item)
+            cards_by_column[column.pk].append(item)
     for cards in cards_by_column.values():
         cards.sort(key=lambda item: (item['card'].position, item['card'].pk))
-    cards_by_column[DONE] = [
-        _item(task)
-        for task in done_tasks.order_by('-completed_at', '-pk')[:done_limit]
-    ]
+    done_column = next((column for column in columns if column.is_done), None)
     done_total = done_tasks.count()
-    columns = []
-    for column in COLUMNS:
-        cards = cards_by_column[column.code]
-        total = done_total if column.code == DONE else len(cards)
-        columns.append({
-            'code': column.code,
-            'label': column.label,
-            'is_stored': column.is_stored,
+    if done_column is not None:
+        cards_by_column[done_column.pk] = [
+            _item(task)
+            for task in done_tasks.order_by('-completed_at', '-pk')[:done_limit]
+        ]
+    working = [column for column in columns if not column.is_done]
+    rows = []
+    for column in columns:
+        cards = cards_by_column[column.pk]
+        total = done_total if column.is_done else len(cards)
+        index = working.index(column) if not column.is_done else None
+        rows.append({
+            'column': column,
+            'pk': column.pk,
+            'name': column.name,
+            'is_done': column.is_done,
             'cards': cards,
             'count': total,
             'more': total - len(cards),
+            'can_move_left': index is not None and index > 0,
+            'can_move_right': index is not None and index < len(working) - 1,
+            'can_delete': index is not None and len(working) > 1,
         })
     return {
         'board': board,
-        'columns': columns,
+        'sub_board': sub_board,
+        'sub_boards': [
+            {
+                'sub_board': tab,
+                'is_active': tab.pk == sub_board.pk,
+                'can_move_left': index > 0,
+                'can_move_right': index < len(tabs) - 1,
+                'can_delete': len(tabs) > 1,
+            }
+            for index, tab in enumerate(tabs)
+        ],
+        'columns': rows,
+        'first_working_column': working[0] if working else None,
+        'done_column': done_column,
+        'can_add_column': len(columns) < MAX_COLUMNS,
         'member_count': BoardMember.objects.filter(board=board).count(),
         'card': (
-            _panel_card(board, card_id, user, all_comments=all_comments)
+            _panel_card(board, sub_board, columns, card_id, user, all_comments=all_comments)
             if card_id not in (None, '') else None
         ),
         'can_work': can_work,
@@ -261,28 +311,37 @@ def build_board_state(board, user, *, done_limit=DONE_LIMIT, card_id=None, filte
     }
 
 
-def column_counts(board, user=None, filters=NO_FILTERS):
-    """`{column code: number of cards}` — the numbers the column headers show.
+def column_counts(sub_board, user=None, filters=NO_FILTERS):
+    """`{column id: number of cards}` — the numbers the column headers show.
 
     What a drag's JSON answer carries back so the headers can be corrected:
-    the open cards per stored column, and every completed one for «Готово» —
-    under the same `filters` the board is drawn with.
+    the open cards per working column (those whose column was deleted count
+    in the first one, where they stand), and every completed one for the
+    closing column — under the same `filters` the sub-board is drawn with.
+    Keys are the column ids as strings, as JSON writes them anyway.
     """
     from tasks.models import Task
 
-    counts = {column.code: 0 for column in COLUMNS}
-    tasks = Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__board=board)
+    columns = sub_board_columns(sub_board)
+    counts = {str(column.pk): 0 for column in columns}
+    working = [column for column in columns if not column.is_done]
+    first_working_id = working[0].pk if working else None
+    tasks = Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__sub_board=sub_board)
     open_cards = (
         _filtered(tasks.filter(status__is_final=False), filters, user, open_work=True)
         .order_by()
-        .values('board_card__stage')
+        .values('board_card__column_id')
         .annotate(n=Count('pk'))
     )
     for row in open_cards:
-        counts[row['board_card__stage']] = row['n']
-    counts[DONE] = _filtered(
-        tasks.filter(status__code='COMPLETED'), filters, user, open_work=False,
-    ).count()
+        key = str(row['board_card__column_id'] or first_working_id)
+        if key in counts:
+            counts[key] += row['n']
+    done = next((column for column in columns if column.is_done), None)
+    if done is not None:
+        counts[str(done.pk)] = _filtered(
+            tasks.filter(status__code='COMPLETED'), filters, user, open_work=False,
+        ).count()
     return counts
 
 
@@ -349,10 +408,17 @@ def build_board_list_state(user, tab=None):
     return {'tab': tab, 'tab_counts': tab_counts, 'boards': list(_with_counts(lists[tab]))}
 
 
-def resolve_new_stage(value):
-    """The working column `?new=` names, or `None` for «Готово» and anything else."""
+def resolve_new_column(columns, value):
+    """The working column `?new=<column id>` names among `columns`, or `None`.
+
+    The closing column, a column of another sub-board and anything that is
+    not a number are `None`.
+    """
+    try:
+        column_id = int(value)
+    except (TypeError, ValueError):
+        return None
     return next(
-        (column for column in COLUMNS if column.is_stored and column.code == value),
+        (column for column in columns if column.pk == column_id and not column.is_done),
         None,
     )
-

@@ -36,12 +36,27 @@ from ..services import (
     cancel_card,
     complete_card,
     create_card,
+    create_column,
+    create_sub_board,
+    delete_column,
+    delete_sub_board,
     move_card,
+    move_column,
+    move_sub_board,
+    rename_column,
+    rename_sub_board,
     remove_board_member,
     restore_board,
     update_card,
 )
-from .helpers import BoardFixtureMixin, due, make_user
+from .helpers import (
+    BoardFixtureMixin,
+    board_url,
+    due,
+    expected_counts,
+    fragment_url,
+    make_user,
+)
 
 
 def task_of(card):
@@ -52,13 +67,13 @@ def board_events(publisher):
     return publisher.events_of_type(RealtimeEventType.BOARD_UPDATED)
 
 
-def titles(state, code):
-    column = next(column for column in state['columns'] if column['code'] == code)
+def titles(state, name):
+    column = next(column for column in state['columns'] if column['name'] == name)
     return [item['card'].title for item in column['cards']]
 
 
 def counts(state):
-    return {column['code']: column['count'] for column in state['columns']}
+    return {str(column['pk']): column['count'] for column in state['columns']}
 
 
 def main_of(response):
@@ -109,8 +124,8 @@ class CancelCardTests(BoardFixtureMixin, TestCase):
         self.assertEqual(task.execution_comment, '')
         self.assertNotEqual(build_sync_state(self.outsider)['revisions'][REVISION_BOARDS], token)
         # Off every column, but still read by its panel.
-        state = build_board_state(self.board, self.member, card_id=self.card_obj.pk)
-        self.assertTrue(all('Ошибочная' not in titles(state, c['code']) for c in state['columns']))
+        state = build_board_state(self.board, self.main, self.member, card_id=self.card_obj.pk)
+        self.assertTrue(all('Ошибочная' not in titles(state, c['name']) for c in state['columns']))
         self.assertEqual(state['card']['task'].status.code, 'CANCELLED')
         self.assertFalse(state['card']['can_cancel'])
         # In the task registry's «Архив», not in «Мои».
@@ -157,7 +172,7 @@ class CancelCardTests(BoardFixtureMixin, TestCase):
         response = self.client.post(f'{url}?mine=1', {'cancellation_reason': 'Ошибка ввода'})
         self.assertRedirects(
             response,
-            f"{reverse('boards:detail', args=[self.board.pk])}?card={self.card_obj.pk}&mine=1",
+            f"{board_url(self.board)}?card={self.card_obj.pk}&mine=1",
             fetch_redirect_response=False,
         )
         self.assertEqual(task_of(self.card_obj).cancellation_reason, 'Ошибка ввода')
@@ -165,7 +180,7 @@ class CancelCardTests(BoardFixtureMixin, TestCase):
         self.assertIn('Ошибка ввода', panel)
 
     def test_the_button_is_drawn_for_those_who_may(self):
-        page = reverse('boards:detail', args=[self.board.pk])
+        page = board_url(self.board)
         for user, expected in ((self.member, True), (self.owner, True), (self.colleague, False)):
             with self.subTest(user=user.username):
                 self.client.force_login(user)
@@ -227,13 +242,21 @@ class ArchiveBoardTests(BoardFixtureMixin, TestCase):
         newcomer = make_user('lifecycle_newcomer')
         writes = {
             'create': lambda: create_card(
-                archived, actor=self.admin, title='X', due_date=due(), assignee_ids=[self.member.pk],
+                self.main, actor=self.admin, title='X', due_date=due(), assignee_ids=[self.member.pk],
             ),
             'update': lambda: update_card(
                 self.open_card, actor=self.admin, title='X', description='', due_date=due(),
                 assignee_ids=[self.member.pk],
             ),
-            'move': lambda: move_card(self.open_card, actor=self.admin, stage='REVIEW'),
+            'move': lambda: move_card(self.open_card, actor=self.admin, column=self.column('REVIEW')),
+            'create_sub_board': lambda: create_sub_board(archived, actor=self.admin, name='Новая'),
+            'rename_sub_board': lambda: rename_sub_board(self.main, actor=self.admin, name='Другое'),
+            'move_sub_board': lambda: move_sub_board(self.main, actor=self.admin, direction='right'),
+            'delete_sub_board': lambda: delete_sub_board(self.main, actor=self.admin),
+            'create_column': lambda: create_column(self.main, actor=self.admin, name='Новая'),
+            'rename_column': lambda: rename_column(self.column('REVIEW'), actor=self.admin, name='Х'),
+            'move_column': lambda: move_column(self.column('REVIEW'), actor=self.admin, direction='left'),
+            'delete_column': lambda: delete_column(self.column('REVIEW'), actor=self.admin),
             'cancel': lambda: cancel_card(self.open_card, actor=self.admin, reason='x'),
             'add_members': lambda: add_board_members(archived, [newcomer.pk], actor=self.admin),
             'remove_member': lambda: remove_board_member(archived, self.colleague, actor=self.admin),
@@ -250,8 +273,17 @@ class ArchiveBoardTests(BoardFixtureMixin, TestCase):
         self.close_everything()
         archive_board(self.board, actor=self.owner)
         pk, card = self.board.pk, self.open_card.pk
+        sub, column = self.main.pk, self.column('REVIEW').pk
         routes = [
-            reverse('boards:card_create', args=[pk]),
+            reverse('boards:card_create', args=[pk, sub]),
+            reverse('boards:sub_board_create', args=[pk, sub]),
+            reverse('boards:sub_board_rename', args=[pk, sub]),
+            reverse('boards:sub_board_move', args=[pk, sub]),
+            reverse('boards:sub_board_delete', args=[pk, sub]),
+            reverse('boards:column_create', args=[pk, sub]),
+            reverse('boards:column_rename', args=[pk, sub, column]),
+            reverse('boards:column_move', args=[pk, sub, column]),
+            reverse('boards:column_delete', args=[pk, sub, column]),
             reverse('boards:card_update', args=[pk, card]),
             reverse('boards:card_move', args=[pk, card]),
             reverse('boards:card_cancel', args=[pk, card]),
@@ -269,10 +301,13 @@ class ArchiveBoardTests(BoardFixtureMixin, TestCase):
         self.close_everything()
         archive_board(self.board, actor=self.owner)
         self.client.force_login(self.owner)
-        content = main_of(self.client.get(reverse('boards:detail', args=[self.board.pk])))
+        content = main_of(self.client.get(board_url(self.board)))
         self.assertIn('В архиве', content)
         self.assertIn(reverse('boards:restore', args=[self.board.pk]), content)
-        for marker in (reverse('boards:archive', args=[self.board.pk]), '+ Карточка', 'data-card-movable'):
+        for marker in (
+            reverse('boards:archive', args=[self.board.pk]), '+ Карточка', 'data-card-movable',
+            'data-board-menu', '+ Колонка',
+        ):
             self.assertNotIn(marker, content)
 
     def test_routes(self):
@@ -315,10 +350,10 @@ class BoardFilterTests(BoardFixtureMixin, TestCase):
         complete_task(task_of(self.done_theirs), self.colleague, 'Да')
 
     def state(self, **filters):
-        return build_board_state(self.board, self.member, filters=BoardFilters(**filters))
+        return build_board_state(self.board, self.main, self.member, filters=BoardFilters(**filters))
 
     def visible(self, state):
-        return sorted(title for column in state['columns'] for title in titles(state, column['code']))
+        return sorted(title for column in state['columns'] for title in titles(state, column['name']))
 
     def test_each_filter_and_their_combination(self):
         self.assertEqual(len(self.visible(self.state())), 5)
@@ -341,11 +376,11 @@ class BoardFilterTests(BoardFixtureMixin, TestCase):
 
     def test_counts_are_the_filtered_numbers_and_match_the_drag_answer(self):
         filters = BoardFilters(mine=True)
-        state = build_board_state(self.board, self.member, filters=filters)
-        self.assertEqual(counts(state), {'TODO': 2, 'IN_PROGRESS': 0, 'REVIEW': 0, 'DONE': 1})
-        self.assertEqual(column_counts(self.board, self.member, filters), counts(state))
+        state = build_board_state(self.board, self.main, self.member, filters=filters)
+        self.assertEqual(counts(state), expected_counts(self.board, TODO=2, DONE=1))
+        self.assertEqual(column_counts(self.main, self.member, filters), counts(state))
         self.assertEqual(
-            column_counts(self.board, self.member, BoardFilters(overdue=True)),
+            column_counts(self.main, self.member, BoardFilters(overdue=True)),
             counts(self.state(overdue=True)),
         )
 
@@ -360,8 +395,8 @@ class BoardFilterTests(BoardFixtureMixin, TestCase):
     def test_page_and_fragment_agree_under_a_filter(self):
         self.client.force_login(self.member)
         query = {'card': self.mine_ok.pk, 'mine': '1', 'q': 'план'}
-        page = self.client.get(reverse('boards:detail', args=[self.board.pk]), query).content.decode()
-        fragment = self.client.get(reverse('boards:fragment', args=[self.board.pk]), query).json()
+        page = self.client.get(board_url(self.board), query).content.decode()
+        fragment = self.client.get(fragment_url(self.board), query).json()
         self.assertEqual(attribute(page, 'data-columns-revision'), fragment['columns_revision'])
         self.assertEqual(attribute(page, 'data-panel-revision'), fragment['panel_revision'])
         self.assertEqual(fragment['columns_revision'], content_revision(fragment['columns_html']))
@@ -369,31 +404,31 @@ class BoardFilterTests(BoardFixtureMixin, TestCase):
         self.assertNotIn('Alpha', fragment['columns_html'])
         self.assertEqual(
             attribute(page, 'data-board-fragment-url'),
-            f"{reverse('boards:fragment', args=[self.board.pk])}?card={self.mine_ok.pk}&amp;mine=1&amp;q=%D0%BF%D0%BB%D0%B0%D0%BD",
+            f"{fragment_url(self.board)}?card={self.mine_ok.pk}&amp;mine=1&amp;q=%D0%BF%D0%BB%D0%B0%D0%BD",
         )
 
     def test_links_keep_the_filter(self):
         self.client.force_login(self.member)
         content = main_of(self.client.get(
-            reverse('boards:detail', args=[self.board.pk]), {'card': self.mine_ok.pk, 'mine': '1'},
+            board_url(self.board), {'card': self.mine_ok.pk, 'mine': '1'},
         ))
-        board_url = reverse('boards:detail', args=[self.board.pk])
-        self.assertIn(f'href="{board_url}?card={self.mine_late.pk}&amp;mine=1"', content, 'плитка')
-        self.assertIn(f'href="{board_url}?mine=1" aria-label="Закрыть панель"', content, '«Закрыть»')
+        page = board_url(self.board)
+        self.assertIn(f'href="{page}?card={self.mine_late.pk}&amp;mine=1"', content, 'плитка')
+        self.assertIn(f'href="{page}?mine=1" aria-label="Закрыть панель"', content, '«Закрыть»')
         self.assertIn(
             f'data-card-move-url="{reverse("boards:card_move", args=[self.board.pk, self.mine_ok.pk])}?mine=1"',
             content,
         )
         self.assertIn(f'action="{reverse("boards:card_complete", args=[self.board.pk, self.mine_ok.pk])}?mine=1"', content)
-        self.assertIn(f'href="{board_url}?card={self.mine_ok.pk}">Сбросить</a>', content)
+        self.assertIn(f'href="{page}?card={self.mine_ok.pk}">Сбросить</a>', content)
 
     def test_a_redirect_after_a_post_keeps_the_filter(self):
         self.client.force_login(self.member)
         url = reverse('boards:card_move', args=[self.board.pk, self.mine_ok.pk])
-        response = self.client.post(f'{url}?mine=1&overdue=1', {'stage': 'REVIEW'})
+        response = self.client.post(f'{url}?mine=1&overdue=1', {'column_id': self.column('REVIEW').pk})
         self.assertRedirects(
             response,
-            f"{reverse('boards:detail', args=[self.board.pk])}?card={self.mine_ok.pk}&mine=1&overdue=1",
+            f"{board_url(self.board)}?card={self.mine_ok.pk}&mine=1&overdue=1",
             fetch_redirect_response=False,
         )
 
@@ -401,9 +436,9 @@ class BoardFilterTests(BoardFixtureMixin, TestCase):
         self.client.force_login(self.member)
         url = reverse('boards:card_move', args=[self.board.pk, self.mine_ok.pk])
         answer = self.client.post(
-            f'{url}?mine=1', {'stage': 'IN_PROGRESS'}, HTTP_X_REQUESTED_WITH='fetch',
+            f'{url}?mine=1', {'column_id': self.column('IN_PROGRESS').pk}, HTTP_X_REQUESTED_WITH='fetch',
         ).json()
-        self.assertEqual(answer['counts'], {'TODO': 1, 'IN_PROGRESS': 1, 'REVIEW': 0, 'DONE': 1})
+        self.assertEqual(answer['counts'], expected_counts(self.board, TODO=1, IN_PROGRESS=1, DONE=1))
 
     def test_before_a_visible_card_lands_before_it_in_the_full_column(self):
         # TODO holds, in order: Alpha (mine), Beta (mine), the two done cards,
@@ -412,22 +447,22 @@ class BoardFilterTests(BoardFixtureMixin, TestCase):
         # Last as the next visible card.
         self.card('Hidden', assignees=[self.colleague])
         last = self.card('Last mine', assignees=[self.member])
-        move_card(self.mine_late, actor=self.member, stage='TODO', before_card_id=last.pk)
+        move_card(self.mine_late, actor=self.member, column=self.column('TODO'), before_card_id=last.pk)
         order = list(
-            BoardCard.objects.filter(board=self.board, stage='TODO')
+            BoardCard.objects.filter(column=self.column('TODO'))
             .order_by('position', 'pk').values_list('title', flat=True)
         )
         self.assertEqual(
             order, ['Beta план', 'Delta отчёт', 'Epsilon', 'Hidden', 'Alpha отчёт', 'Last mine'],
         )
         self.assertEqual(
-            titles(self.state(mine=True), 'TODO'), ['Beta план', 'Alpha отчёт', 'Last mine'],
+            titles(self.state(mine=True), 'Сделать'), ['Beta план', 'Alpha отчёт', 'Last mine'],
             'what the user saw after the drop',
         )
 
     def _queries(self, **query):
         with CaptureQueriesContext(connection) as queries:
-            self.client.get(reverse('boards:detail', args=[self.board.pk]), query)
+            self.client.get(board_url(self.board), query)
         return len(queries)
 
     def test_query_count_is_constant(self):
@@ -469,7 +504,7 @@ class CardVersionTests(BoardFixtureMixin, TestCase):
     def test_an_empty_edit_a_move_and_a_completion_keep_the_version(self):
         self.edit('Исходная', version=1)
         self.assertEqual(BoardCard.objects.get(pk=self.card_obj.pk).version, 1)
-        move_card(self.card_obj, actor=self.member, stage='REVIEW')
+        move_card(self.card_obj, actor=self.member, column=self.column('REVIEW'))
         self.assertEqual(BoardCard.objects.get(pk=self.card_obj.pk).version, 1)
         complete_card(self.card_obj, actor=self.member, execution_comment='Да')
         self.assertEqual(BoardCard.objects.get(pk=self.card_obj.pk).version, 1)
@@ -484,7 +519,7 @@ class CardVersionTests(BoardFixtureMixin, TestCase):
         self.assertEqual(BoardCard.objects.get(pk=self.card_obj.pk).version, 3)
 
     def test_the_form_carries_the_version_and_the_refusal_keeps_the_input(self):
-        url = reverse('boards:detail', args=[self.board.pk])
+        url = board_url(self.board)
         self.client.force_login(self.member)
         form = main_of(self.client.get(url, {'card': self.card_obj.pk, 'edit': '1'}))
         self.assertIn('name="version" value="1"', form)

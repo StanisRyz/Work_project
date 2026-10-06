@@ -1,4 +1,5 @@
-/* Доски: the registry, the board with its four columns and the card panel.
+/* Доски: the registry, a board's sub-board — its tabs, its columns — and the
+   card panel.
 
    Tokens only (`base.css`): no control pixel values and no hex colours. The
    board is a one-screen page (`page-container--fill` → `.fill-region`); the
@@ -76,6 +77,16 @@
     min-height: 0;
 }
 
+/* The live structure block: the tabs above, the row of columns below. */
+.board-structure {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    min-height: 0;
+}
+
 .board-columns {
     display: flex;
     flex: 1 1 auto;
@@ -84,6 +95,155 @@
     min-height: 0;
     overflow-x: auto;
     padding-bottom: 4px;
+}
+
+/* ---- Sub-board tabs ---- */
+
+.board-tabs__list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    border-bottom: 1px solid var(--color-border);
+    list-style: none;
+}
+
+.board-tabs__item {
+    display: flex;
+    position: relative;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: -1px;
+    border-bottom: 2px solid transparent;
+}
+
+.board-tabs__item--active {
+    border-bottom-color: var(--color-primary);
+}
+
+.board-tabs__link {
+    padding: 6px 10px;
+    color: var(--color-muted);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.board-tabs__link:hover,
+.board-tabs__link:focus-visible,
+.board-tabs__item--active .board-tabs__link {
+    color: var(--color-text);
+}
+
+/* ---- Tab and column menus: a <details> with small forms ---- */
+
+.board-menu {
+    position: relative;
+}
+
+.board-menu__toggle {
+    display: inline-grid;
+    width: var(--control-height);
+    height: var(--control-height);
+    place-items: center;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: var(--color-muted);
+    font-weight: 700;
+    line-height: 1;
+    list-style: none;
+    cursor: pointer;
+}
+
+.board-menu__toggle::-webkit-details-marker {
+    display: none;
+}
+
+.board-menu__toggle:hover,
+.board-menu__toggle:focus-visible,
+.board-menu[open] > .board-menu__toggle {
+    border-color: var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.board-menu__toggle--add {
+    color: var(--color-primary);
+    font-size: 1.3em;
+}
+
+.board-menu__body {
+    display: grid;
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 4px);
+    right: 0;
+    gap: 10px;
+    width: 260px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    box-shadow: 0 8px 24px rgb(23 32 51 / 14%);
+}
+
+/* A tab's menu opens to the right of the tab, under it. */
+.board-tabs .board-menu__body {
+    right: auto;
+    left: 0;
+}
+
+.board-menu__form {
+    display: grid;
+    gap: 6px;
+}
+
+.board-menu__label {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.board-menu__form input {
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+}
+
+.board-menu__form .link-button,
+.board-menu__moves {
+    justify-self: start;
+}
+
+.board-menu__moves {
+    display: flex;
+    gap: 6px;
+}
+
+/* «+ Колонка»: after the last column, its menu inside the row. */
+.board-column-new {
+    flex: 0 0 auto;
+}
+
+.board-menu--column-new > summary {
+    list-style: none;
+}
+
+.board-menu--column-new > summary::-webkit-details-marker {
+    display: none;
+}
+
+.board-menu--column-new .board-menu__body {
+    right: auto;
+    left: 0;
+}
+
+.board-column-new__limit {
+    max-width: 200px;
+    margin: 6px 0 0;
+    color: var(--color-muted);
 }
 
 .board-column {
@@ -101,7 +261,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    /* One height whether or not the column has «+»: «Готово» has none. */
+    /* One height whether or not the column has «+»: the closing one has none. */
     min-height: calc(var(--control-height) + 16px);
     box-sizing: border-box;
     padding: var(--cell-padding);
@@ -114,11 +274,19 @@
     font-size: var(--font-size-base);
 }
 
+/* «+» and «⋯» at the right end of the header. */
+.board-column__actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+
 .board-column__add {
     display: inline-grid;
     width: var(--control-height);
     height: var(--control-height);
-    margin-left: auto;
     place-items: center;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);

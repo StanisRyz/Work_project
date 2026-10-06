@@ -11,17 +11,22 @@
  *   [data-card-complete-trigger]  the tile's hidden «Завершить» trigger of the
  *                               shared confirmation modal — present only when
  *                               the user may complete the task
+ *   [data-column-id]            a column, by its `BoardColumn` id
  *   [data-column-move]          a working column that takes a moved card
- *   [data-column-complete]      «Готово»: a drop there only means «complete»
+ *   [data-column-complete]      the closing column: a drop there only means
+ *                               «complete»
  *   [data-column-list]          the column's list, [data-column-count] its count
- *   data-current-card           the card the panel is showing
+ *   [data-current-card]         the card the panel is showing (on the
+ *                               live structure block)
  *   [data-board] data-board-url the board's own address, for the reload after
  *                               the open card moved
  *
- * A drop in a working column posts `stage` and `before_card_id` (the next
+ * A drop in a working column posts `column_id` and `before_card_id` (the next
  * movable card in the list, or empty for the end) with `X-Requested-With:
- * fetch`, and reads `{"ok", "stage", "counts"}` or `{"ok": false, "error"}`.
- * A drop on «Готово» clicks the tile's trigger, exactly as
+ * fetch`, and reads `{"ok", "column_id", "counts"}` (counts keyed by column
+ * id) or `{"ok": false, "error"}` — a column deleted meanwhile is such a
+ * refusal, and the tile goes back. A drop on the closing column clicks the
+ * tile's trigger, exactly as
  * `attachment_upload.js` clicks its hidden one: the modal asks for the result
  * and posts it as an ordinary form; closing the modal puts the card back.
  *
@@ -31,7 +36,7 @@
  * a later live update keep working with nothing to re-bind. Without
  * JavaScript, «Переместить в…» and «Завершить» in the card panel do the same.
  *
- * While a card is in the air, a move awaits the server or the «Готово» modal
+ * While a card is in the air, a move awaits the server or the completion modal
  * is open, `[data-board]` carries `data-board-busy`: the live client
  * (`realtime/boards.js`) must not replace the columns under a gesture, and
  * waits for `quality:board-idle`, dispatched on `document` once the attribute
@@ -113,11 +118,14 @@
     };
 
     const updateCounts = (counts) => {
-        Object.keys(counts || {}).forEach((code) => {
-            const column = document.querySelector(`[data-column="${code}"]`);
+        Object.keys(counts || {}).forEach((columnId) => {
+            if (!/^\d+$/.test(columnId)) {
+                return;
+            }
+            const column = document.querySelector(`[data-column-id="${columnId}"]`);
             const badge = column ? column.querySelector('[data-column-count]') : null;
             if (badge) {
-                badge.textContent = String(counts[code]);
+                badge.textContent = String(counts[columnId]);
             }
         });
     };
@@ -135,7 +143,7 @@
 
     const targetAt = (x, y) => {
         const element = document.elementFromPoint(x, y);
-        const column = element && element.closest ? element.closest('[data-column]') : null;
+        const column = element && element.closest ? element.closest('[data-column-id]') : null;
         if (!column) {
             return null;
         }
@@ -154,7 +162,7 @@
             return;
         }
         if (target.mode === 'complete') {
-            // «Готово» lists the newest completion first.
+            // The closing column lists the newest completion first.
             list.insertBefore(drag.placeholder, list.firstElementChild);
             return;
         }
@@ -205,7 +213,7 @@
         }
         const element = document.elementFromPoint(x, y);
         const list = element && element.closest
-            ? element.closest('[data-column]')?.querySelector('[data-column-list]')
+            ? element.closest('[data-column-id]')?.querySelector('[data-column-list]')
             : null;
         if (list) {
             const rect = list.getBoundingClientRect();
@@ -317,7 +325,7 @@
         if (target.mode === 'complete') {
             complete(state);
         } else {
-            move(state, target.column.dataset.column);
+            move(state, target.column.dataset.columnId);
         }
         syncBusy();
     };
@@ -326,11 +334,11 @@
     // Talking to the server
     // ------------------------------------------------------------------
 
-    const move = (state, stage) => {
+    const move = (state, columnId) => {
         const { item } = state;
         const next = nextMovable(item, item);
         const body = new FormData();
-        body.append('stage', stage);
+        body.append('column_id', columnId);
         body.append('before_card_id', next ? next.dataset.cardId : '');
         item.classList.add('board-column__item--pending');
         movesInFlight += 1;
@@ -349,8 +357,8 @@
                 }
                 item.classList.remove('board-column__item--pending');
                 updateCounts(answer.counts);
-                const row = document.querySelector('[data-board-columns]');
-                if (row && row.dataset.currentCard === item.dataset.cardId) {
+                const holder = document.querySelector('[data-current-card]');
+                if (holder && holder.dataset.currentCard === item.dataset.cardId) {
                     openCardMoved(item.dataset.cardId);
                 }
             })

@@ -28,7 +28,7 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from ecosystem.logging_utils import log_event
@@ -43,10 +43,11 @@ from realtime.events import (
     BOARD_CHANGE_CARD_UPDATED,
     BOARD_CHANGE_COMMENT_ADDED,
     BOARD_CHANGE_MEMBERS_CHANGED,
+    BOARD_CHANGE_STRUCTURE_CHANGED,
 )
 
-from .columns import WORK_STAGES
-from .models import Board, BoardCard, BoardCardComment, BoardMember
+from .columns import DEFAULT_COLUMNS, MAX_COLUMNS
+from .models import Board, BoardCard, BoardCardComment, BoardColumn, BoardMember, SubBoard
 from .permissions import (
     active_employee_q,
     can_cancel_card,
@@ -68,6 +69,9 @@ POSITION_STEP = 1024
 MAX_POSITION = 2_147_483_647
 TITLE_MAX_LENGTH = 200
 COMMENT_MAX_LENGTH = 4000
+SUB_BOARD_NAME_MAX_LENGTH = 100
+COLUMN_NAME_MAX_LENGTH = 60
+DEFAULT_SUB_BOARD_NAME = 'Основная'
 
 
 ARCHIVED_MESSAGE = 'Доска в архиве — изменить её нельзя.'
@@ -192,6 +196,8 @@ def compose_task_text(title, description):
 def create_board(*, name, owner, actor, member_ids=(), department=None, description=''):
     """A new board; its owner is always one of its members.
 
+    It starts with one sub-board, «Основная», and its `DEFAULT_COLUMNS`.
+
     `department` and `description` are kept for the boards that carry them;
     the form asks for neither, and a new board names no department.
     """
@@ -220,6 +226,7 @@ def create_board(*, name, owner, actor, member_ids=(), department=None, descript
         BoardMember.objects.bulk_create(
             [BoardMember(board=board, user_id=user_id, added_by=actor) for user_id in sorted(users)]
         )
+        _create_sub_board_rows(board, DEFAULT_SUB_BOARD_NAME, position=1, actor=actor)
     log_event(
         logger,
         'INFO',
@@ -324,13 +331,65 @@ def remove_board_member(board, user, *, actor):
 # --------------------------------------------------------------------------
 
 
-def _column(board, stage, *, exclude_card_id=None):
-    """The cards stored in one column of `board`, in order.
+def _sub_board_columns(sub_board):
+    """The sub-board's columns in order — read under the board lock."""
+    return list(BoardColumn.objects.filter(sub_board=sub_board).order_by('position', 'pk'))
 
-    Every card whose `stage` names the column, done ones included: a completed
-    card keeps its place so that reopening it puts it back where it was.
+
+def _working_column(sub_board, column, *, operation, actor, card_id=None):
+    """`column` (an object or an id) as a working column of `sub_board`.
+
+    Refused when it is the closing column — reached only by completing the
+    task — or not a column of this sub-board at all: deleted meanwhile, or of
+    another sub-board, which a card never moves to.
     """
-    cards = BoardCard.objects.filter(board=board, stage=stage)
+    column_id = getattr(column, 'pk', column)
+    try:
+        column_id = int(column_id)
+    except (TypeError, ValueError):
+        column_id = None
+    found = (
+        BoardColumn.objects.filter(pk=column_id, sub_board=sub_board).first()
+        if column_id is not None else None
+    )
+    if found is None:
+        _rejected(operation, 'unknown_column', actor=actor, board_id=sub_board.board_id, card_id=card_id)
+        raise BoardError('Колонка не найдена на этой поддоске — возможно, её удалили. Обновите страницу.')
+    if found.is_done:
+        _rejected(operation, 'done_column', actor=actor, board_id=sub_board.board_id, card_id=card_id)
+        raise BoardError(
+            f'В колонку «{found.name}» карточка попадает, когда её задача выполнена: '
+            'завершите задачу с результатом.'
+        )
+    return found
+
+
+def _first_working_id(sub_board):
+    return (
+        BoardColumn.objects.filter(sub_board=sub_board, is_done=False)
+        .order_by('position', 'pk').values_list('pk', flat=True).first()
+    )
+
+
+def _in_column_q(column, first_working_id):
+    """The cards standing in `column`: those naming it, and — for the first
+    working column — those whose column was deleted (`column` NULL)."""
+    condition = Q(column=column)
+    if column.pk == first_working_id:
+        condition |= Q(column__isnull=True)
+    return condition
+
+
+def _column(column, *, exclude_card_id=None):
+    """The cards stored in one working column, in order.
+
+    Every card standing there, done ones included: a completed card keeps its
+    place so that reopening it puts it back where it was.
+    """
+    cards = BoardCard.objects.filter(
+        _in_column_q(column, _first_working_id(column.sub_board_id)),
+        sub_board_id=column.sub_board_id,
+    )
     if exclude_card_id is not None:
         cards = cards.exclude(pk=exclude_card_id)
     return list(cards.order_by('position', 'pk'))
@@ -343,48 +402,69 @@ def _renumber(cards):
     BoardCard.objects.bulk_update(cards, ['position'])
 
 
-def _end_position(board, stage):
+def _end_position(column):
     """The position after the last card of a column, renumbering if needed."""
     last = (
-        BoardCard.objects.filter(board=board, stage=stage)
+        BoardCard.objects.filter(
+            _in_column_q(column, _first_working_id(column.sub_board_id)),
+            sub_board_id=column.sub_board_id,
+        )
         .aggregate(last=Max('position'))['last']
     ) or 0
     if last + POSITION_STEP <= MAX_POSITION:
         return last + POSITION_STEP
-    column = _column(board, stage)
-    _renumber(column)
-    return (len(column) + 1) * POSITION_STEP
+    cards = _column(column)
+    _renumber(cards)
+    return (len(cards) + 1) * POSITION_STEP
+
+
+def _sub_board_of(board, sub_board, *, operation, actor):
+    """`sub_board` (an object or an id), re-read and only if it is on `board`."""
+    sub_board_id = getattr(sub_board, 'pk', sub_board)
+    found = SubBoard.objects.filter(pk=sub_board_id, board=board).first()
+    if found is None:
+        _rejected(operation, 'unknown_sub_board', actor=actor, board_id=board.pk)
+        raise BoardError('Поддоска не найдена на этой доске — возможно, её удалили.')
+    return found
 
 
 def create_card(
-    board, *, actor, title, due_date, assignee_ids, description='',
-    stage=BoardCard.Stage.TODO,
+    sub_board, *, actor, title, due_date, assignee_ids, description='', column=None,
 ):
-    """A new card at the end of its column, and the one task it is the work of."""
+    """A new card at the end of a working column of `sub_board`, and its task.
+
+    `column` (an object or an id) must be a working column of this very
+    sub-board; `None` is its first working column.
+    """
     from notifications.services import notify_board_task_assigned
     from tasks.services import TaskWorkflowError, create_board_card_task
 
     with transaction.atomic():
-        board = _lock_board(board.pk)
+        board = _lock_board(sub_board.board_id)
         _refuse_archived('create_card', board, actor=actor)
         if not can_work_on_board(actor, board):
             _rejected('create_card', 'not_permitted', actor=actor, board_id=board.pk)
             raise BoardError('Работа с карточками этой доски недоступна.')
+        sub_board = _sub_board_of(board, sub_board, operation='create_card', actor=actor)
         title = _clean_title(title)
         description = (description or '').strip()
         if due_date is None:
             raise BoardError('Укажите срок карточки.')
-        if stage not in WORK_STAGES:
-            raise BoardError('Неизвестная колонка доски.')
+        if column is None:
+            column = _first_working_id(sub_board)
+        column = _working_column(sub_board, column, operation='create_card', actor=actor)
         ids = _clean_assignees(board, assignee_ids)
-        card = BoardCard.objects.create(
+        card = BoardCard(
             board=board,
-            stage=stage,
-            position=_end_position(board, stage),
+            sub_board=sub_board,
+            column=column,
+            position=_end_position(column),
             title=title,
             description=description,
             created_by=actor,
         )
+        card.clean()
+        card.save()
         try:
             task = create_board_card_task(
                 card,
@@ -407,9 +487,10 @@ def create_card(
         'INFO',
         'board.card_created',
         board_id=board.pk,
+        sub_board_id=sub_board.pk,
         board_card_id=card.pk,
+        column_id=column.pk,
         task_id=task.pk,
-        stage=card.stage,
         actor_user_id=actor.pk,
         assignee_count=len(ids),
         outcome='ok',
@@ -501,15 +582,19 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
     return card
 
 
-def move_card(card, *, actor, stage, before_card_id=None):
-    """Put a live card in a working column: at the end, or before another card.
+def move_card(card, *, actor, column, before_card_id=None):
+    """Put a live card in a working column of its own sub-board: at the end,
+    or before another card.
 
-    `before_card_id` must name another card of the same board standing in the
-    target column. Positions are spaced by `POSITION_STEP`; when the gap is
-    gone the whole column is renumbered under the same board lock.
+    `column` is an object or an id; the closing column, a column deleted
+    meanwhile and a column of another sub-board are refused — a card never
+    leaves its sub-board. `before_card_id` must name another card standing in
+    the target column. Positions are spaced by `POSITION_STEP`; when the gap
+    is gone the whole column is renumbered under the same board lock.
 
-    A card whose task is closed is refused: «Готово» is reached by completing
-    the task, and left only by an administrator reopening it (`tasks:reopen`).
+    A card whose task is closed is refused: the closing column is reached by
+    completing the task, and left only by an administrator reopening it
+    (`tasks:reopen`).
 
     A move to where the card already stands — its own column, between the
     same neighbours — writes nothing and announces nothing.
@@ -522,63 +607,65 @@ def move_card(card, *, actor, stage, before_card_id=None):
         if not can_work_on_board(actor, board):
             _rejected('move_card', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
             raise BoardError('Работа с карточками этой доски недоступна.')
-        if stage not in WORK_STAGES:
-            _rejected('move_card', 'unknown_stage', actor=actor, board_id=board.pk, card_id=card.pk)
-            raise BoardError('Неизвестная колонка доски.')
+        sub_board = card.sub_board
+        target = _working_column(sub_board, column, operation='move_card', actor=actor, card_id=card.pk)
         if task.status.is_final:
             _rejected('move_card', 'task_final', actor=actor, board_id=board.pk, card_id=card.pk)
             raise BoardError(
                 'Задача карточки закрыта. Вернуть её в работу может только администратор.'
             )
-        previous_stage = card.stage
-        column = _column(board, stage, exclude_card_id=card.pk)
+        first_working_id = _first_working_id(sub_board)
+        previous_column_id = card.column_id or first_working_id
+        cards = _column(target, exclude_card_id=card.pk)
         if before_card_id is None:
-            index = len(column)
+            index = len(cards)
         else:
             try:
                 before_card_id = int(before_card_id)
             except (TypeError, ValueError):
                 before_card_id = None
             index = next(
-                (i for i, other in enumerate(column) if other.pk == before_card_id),
+                (i for i, other in enumerate(cards) if other.pk == before_card_id),
                 None,
             )
             if index is None:
                 _rejected('move_card', 'bad_before_card', actor=actor, board_id=board.pk, card_id=card.pk)
                 raise BoardError('Карточка, перед которой нужно встать, не найдена в этой колонке.')
-        if stage == previous_stage:
+        if target.pk == previous_column_id:
             # Where the card stands now: after every other card of its column
             # that sorts before it. The same index is the same place.
             current_index = sum(
-                1 for other in column if (other.position, other.pk) < (card.position, card.pk)
+                1 for other in cards if (other.position, other.pk) < (card.position, card.pk)
             )
             if index == current_index:
                 return card
-        lower = column[index - 1].position if index > 0 else 0
-        if index < len(column):
-            upper = column[index].position
+        lower = cards[index - 1].position if index > 0 else 0
+        if index < len(cards):
+            upper = cards[index].position
             position = (lower + upper) // 2 if upper - lower >= 2 else None
         else:
             position = lower + POSITION_STEP if lower + POSITION_STEP <= MAX_POSITION else None
         renumbered = position is None
-        card.stage = stage
+        card.column = target
+        card.clean()
         if renumbered:
             # No gap left: respace the whole column with the card in its new
             # place. Every card write happens under the board lock held here.
-            _renumber(column[:index] + [card] + column[index:])
-            card.save(update_fields=['stage', 'updated_at'])
+            _renumber(cards[:index] + [card] + cards[index:])
+            card.save(update_fields=['column', 'updated_at'])
         else:
             card.position = position
-            card.save(update_fields=['stage', 'position', 'updated_at'])
+            card.save(update_fields=['column', 'position', 'updated_at'])
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_MOVED, card.pk)
     log_event(
         logger,
         'INFO',
         'board.card_moved',
         board_id=board.pk,
+        sub_board_id=card.sub_board_id,
         board_card_id=card.pk,
-        previous_stage=previous_stage,
-        stage=card.stage,
+        previous_column_id=previous_column_id,
+        column_id=target.pk,
         renumbered=renumbered,
         actor_user_id=actor.pk,
         outcome='ok',
@@ -590,9 +677,9 @@ def complete_card(card, *, actor, execution_comment):
     """Finish a card's work — `tasks.services.complete_task()`, nothing more.
 
     The comment is required and the right is the task's own
-    (`can_complete_task()`). `card.stage` is not touched: the card stands in
-    «Готово» because its task is completed, and reopening the task returns it
-    to the column it came from.
+    (`can_complete_task()`). `card.column` is not touched: the card stands in
+    the closing column because its task is completed, and reopening the task
+    returns it to the working column it came from.
     """
     from tasks.services import TaskWorkflowError, complete_task
 
@@ -662,6 +749,287 @@ def cancel_card(card, *, actor, reason):
         outcome='ok',
     )
     return task
+
+
+# --------------------------------------------------------------------------
+# Sub-boards and columns
+# --------------------------------------------------------------------------
+#
+# The board's structure belongs to whoever manages the board
+# (`can_manage_board()`: the owner while an active employee, or an
+# administrator), never to an archived board. Each operation locks the board
+# and nothing else — the lock is what serialises every write on the board, so
+# no card can be created in, or moved into, a column while it is being deleted.
+# Positions are plain 1, 2, 3, … and the touched rows are renumbered; the
+# closing column is always the last. Every change publishes one
+# `board.updated(structure_changed)`; a refusal and a rename to the same name
+# publish nothing.
+
+
+def _manageable_board(board_id, operation, *, actor):
+    """The board, locked, if `actor` may change its structure."""
+    board = _lock_board(board_id)
+    _refuse_archived(operation, board, actor=actor)
+    if not can_manage_board(actor, board):
+        _rejected(operation, 'not_permitted', actor=actor, board_id=board.pk)
+        raise BoardError('Менять поддоски и колонки может владелец доски или администратор.')
+    return board
+
+
+def _clean_name(name, *, max_length, what):
+    name = (name or '').strip()
+    if not name:
+        raise BoardError(f'Укажите название {what}.')
+    if len(name) > max_length:
+        raise BoardError(f'Название {what} — не длиннее {max_length} символов.')
+    return name
+
+
+def _clean_sub_board_name(board, name, *, exclude_pk=None):
+    name = _clean_name(name, max_length=SUB_BOARD_NAME_MAX_LENGTH, what='поддоски')
+    # Compared here, not by `name__iexact`: SQLite folds the case of ASCII
+    # letters only, and «основная» must clash with «Основная» everywhere.
+    others = SubBoard.objects.filter(board=board)
+    if exclude_pk is not None:
+        others = others.exclude(pk=exclude_pk)
+    if name.casefold() in {other.casefold() for other in others.values_list('name', flat=True)}:
+        raise BoardError(f'Поддоска «{name}» на этой доске уже есть.')
+    return name
+
+
+def _renumber_rows(rows):
+    """Positions 1, 2, 3, … for `rows` in their new order.
+
+    Only the rows whose position really changes are written, with their
+    `updated_at` — the `boards` sync revision reads it, and `bulk_update()`
+    would not touch an `auto_now` field by itself.
+    """
+    now = timezone.now()
+    changed = []
+    for index, row in enumerate(rows, start=1):
+        if row.position != index:
+            row.position = index
+            row.updated_at = now
+            changed.append(row)
+    if changed:
+        type(changed[0]).objects.bulk_update(changed, ['position', 'updated_at'])
+
+
+def _structure_changed(board, event, *, actor, **ids):
+    emit_board_updated(board.pk, BOARD_CHANGE_STRUCTURE_CHANGED)
+    log_event(
+        logger, 'INFO', event,
+        board_id=board.pk, actor_user_id=actor.pk, outcome='ok', **ids,
+    )
+
+
+def _create_sub_board_rows(board, name, *, position, actor):
+    """A sub-board and its `DEFAULT_COLUMNS` — no checks, no event."""
+    sub_board = SubBoard.objects.create(
+        board=board, name=name, position=position, created_by=actor,
+    )
+    BoardColumn.objects.bulk_create([
+        BoardColumn(sub_board=sub_board, name=column_name, position=index, is_done=is_done)
+        for index, (column_name, is_done) in enumerate(DEFAULT_COLUMNS, start=1)
+    ])
+    return sub_board
+
+
+def create_sub_board(board, *, actor, name):
+    """A new sub-board at the end of the tabs, with the default columns."""
+    with transaction.atomic():
+        board = _manageable_board(board.pk, 'create_sub_board', actor=actor)
+        name = _clean_sub_board_name(board, name)
+        last = SubBoard.objects.filter(board=board).aggregate(last=Max('position'))['last'] or 0
+        sub_board = _create_sub_board_rows(board, name, position=last + 1, actor=actor)
+        _structure_changed(board, 'board.sub_board_created', actor=actor, sub_board_id=sub_board.pk)
+    return sub_board
+
+
+def rename_sub_board(sub_board, *, actor, name):
+    with transaction.atomic():
+        board = _manageable_board(sub_board.board_id, 'rename_sub_board', actor=actor)
+        sub_board = _sub_board_of(board, sub_board, operation='rename_sub_board', actor=actor)
+        name = _clean_sub_board_name(board, name, exclude_pk=sub_board.pk)
+        if name == sub_board.name:
+            return sub_board
+        sub_board.name = name
+        sub_board.save(update_fields=['name', 'updated_at'])
+        _structure_changed(board, 'board.sub_board_renamed', actor=actor, sub_board_id=sub_board.pk)
+    return sub_board
+
+
+def _step(rows, row, direction):
+    """`rows` with `row` swapped one place left or right — or `None` at the edge."""
+    if direction not in ('left', 'right'):
+        raise BoardError('Неизвестное направление.')
+    index = next(i for i, other in enumerate(rows) if other.pk == row.pk)
+    other = index - 1 if direction == 'left' else index + 1
+    if other < 0 or other >= len(rows):
+        return None
+    rows = list(rows)
+    rows[index], rows[other] = rows[other], rows[index]
+    return rows
+
+
+def move_sub_board(sub_board, *, actor, direction):
+    """One tab left (`'left'`) or right (`'right'`)."""
+    with transaction.atomic():
+        board = _manageable_board(sub_board.board_id, 'move_sub_board', actor=actor)
+        sub_board = _sub_board_of(board, sub_board, operation='move_sub_board', actor=actor)
+        rows = _step(list(SubBoard.objects.filter(board=board).order_by('position', 'pk')),
+                     sub_board, direction)
+        if rows is None:
+            _rejected('move_sub_board', 'edge', actor=actor, board_id=board.pk)
+            raise BoardError(
+                'Поддоска уже первая.' if direction == 'left' else 'Поддоска уже последняя.'
+            )
+        _renumber_rows(rows)
+        _structure_changed(board, 'board.sub_board_moved', actor=actor, sub_board_id=sub_board.pk)
+    return sub_board
+
+
+def delete_sub_board(sub_board, *, actor):
+    """Remove an empty sub-board with its columns.
+
+    Only one that holds no card at all — a cancelled or a completed card is a
+    record (`BoardCard.sub_board` is `PROTECT`) — and never the board's last.
+    """
+    with transaction.atomic():
+        board = _manageable_board(sub_board.board_id, 'delete_sub_board', actor=actor)
+        sub_board = _sub_board_of(board, sub_board, operation='delete_sub_board', actor=actor)
+        if BoardCard.objects.filter(sub_board=sub_board).exists():
+            _rejected('delete_sub_board', 'has_cards', actor=actor, board_id=board.pk)
+            raise BoardError(
+                'На поддоске есть карточки — в том числе завершённые или отменённые. '
+                'Удалить можно только пустую поддоску.'
+            )
+        if SubBoard.objects.filter(board=board).count() <= 1:
+            _rejected('delete_sub_board', 'last', actor=actor, board_id=board.pk)
+            raise BoardError('Это единственная поддоска доски — её нельзя удалить.')
+        sub_board_id = sub_board.pk
+        BoardColumn.objects.filter(sub_board=sub_board).delete()
+        sub_board.delete()
+        _renumber_rows(list(SubBoard.objects.filter(board=board).order_by('position', 'pk')))
+        _structure_changed(board, 'board.sub_board_deleted', actor=actor, sub_board_id=sub_board_id)
+
+
+def _column_of(board, column, *, operation, actor):
+    """`column` (an object or an id), re-read and only if it is on `board`."""
+    column_id = getattr(column, 'pk', column)
+    found = BoardColumn.objects.filter(pk=column_id, sub_board__board=board).first()
+    if found is None:
+        _rejected(operation, 'unknown_column', actor=actor, board_id=board.pk)
+        raise BoardError('Колонка не найдена на этой доске — возможно, её удалили.')
+    return found
+
+
+def create_column(sub_board, *, actor, name):
+    """A new working column, just before the closing one."""
+    with transaction.atomic():
+        board = _manageable_board(sub_board.board_id, 'create_column', actor=actor)
+        sub_board = _sub_board_of(board, sub_board, operation='create_column', actor=actor)
+        name = _clean_name(name, max_length=COLUMN_NAME_MAX_LENGTH, what='колонки')
+        columns = _sub_board_columns(sub_board)
+        if len(columns) >= MAX_COLUMNS:
+            _rejected('create_column', 'limit', actor=actor, board_id=board.pk)
+            raise BoardError(f'На поддоске уже {MAX_COLUMNS} колонок — больше нельзя.')
+        working = [column for column in columns if not column.is_done]
+        done = [column for column in columns if column.is_done]
+        column = BoardColumn.objects.create(
+            sub_board=sub_board, name=name, position=len(columns) + 1, is_done=False,
+        )
+        _renumber_rows(working + [column] + done)
+        _structure_changed(
+            board, 'board.column_created', actor=actor,
+            sub_board_id=sub_board.pk, column_id=column.pk,
+        )
+    return column
+
+
+def rename_column(column, *, actor, name):
+    """A new name for any column, the closing one included."""
+    with transaction.atomic():
+        board = _manageable_board(column.sub_board.board_id, 'rename_column', actor=actor)
+        column = _column_of(board, column, operation='rename_column', actor=actor)
+        name = _clean_name(name, max_length=COLUMN_NAME_MAX_LENGTH, what='колонки')
+        if name == column.name:
+            return column
+        column.name = name
+        column.save(update_fields=['name', 'updated_at'])
+        _structure_changed(board, 'board.column_renamed', actor=actor, column_id=column.pk)
+    return column
+
+
+def move_column(column, *, actor, direction):
+    """A working column one place left or right among the working ones.
+
+    The closing column does not move: it is always the last.
+    """
+    with transaction.atomic():
+        board = _manageable_board(column.sub_board.board_id, 'move_column', actor=actor)
+        column = _column_of(board, column, operation='move_column', actor=actor)
+        if column.is_done:
+            _rejected('move_column', 'done_column', actor=actor, board_id=board.pk)
+            raise BoardError('Завершающая колонка всегда последняя.')
+        columns = _sub_board_columns(column.sub_board_id)
+        working = [other for other in columns if not other.is_done]
+        rows = _step(working, column, direction)
+        if rows is None:
+            _rejected('move_column', 'edge', actor=actor, board_id=board.pk)
+            raise BoardError(
+                'Колонка уже первая.' if direction == 'left'
+                else 'Правее только завершающая колонка — она всегда последняя.'
+            )
+        _renumber_rows(rows + [other for other in columns if other.is_done])
+        _structure_changed(board, 'board.column_moved', actor=actor, column_id=column.pk)
+    return column
+
+
+def delete_column(column, *, actor):
+    """Remove a working column that holds no open card.
+
+    Never the closing column, never the last working one, and never a column
+    an open card (task `IN_PROGRESS`) stands in — the first working column
+    holds the cards whose column was deleted before, so they count there too.
+    The closed cards that named it keep their record with `column` NULL: they
+    return to the first working column if reopened.
+    """
+    from tasks.models import Task
+
+    with transaction.atomic():
+        board = _manageable_board(column.sub_board.board_id, 'delete_column', actor=actor)
+        column = _column_of(board, column, operation='delete_column', actor=actor)
+        if column.is_done:
+            _rejected('delete_column', 'done_column', actor=actor, board_id=board.pk)
+            raise BoardError('Завершающую колонку удалить нельзя — её можно переименовать.')
+        working = BoardColumn.objects.filter(sub_board_id=column.sub_board_id, is_done=False)
+        if working.count() <= 1:
+            _rejected('delete_column', 'last_working', actor=actor, board_id=board.pk)
+            raise BoardError('Это единственная рабочая колонка поддоски — её нельзя удалить.')
+        standing = BoardCard.objects.filter(
+            _in_column_q(column, _first_working_id(column.sub_board_id)),
+            sub_board_id=column.sub_board_id,
+        )
+        open_count = Task.objects.filter(
+            source_type=Task.SourceType.BOARD,
+            board_card__in=standing,
+            status__code='IN_PROGRESS',
+        ).count()
+        if open_count:
+            _rejected('delete_column', 'open_cards', actor=actor, board_id=board.pk)
+            raise BoardError(
+                f'В колонке открытые карточки: {open_count}. Перенесите, завершите '
+                'или отмените их, затем удалите колонку.'
+            )
+        column_id, sub_board_id = column.pk, column.sub_board_id
+        BoardCard.objects.filter(column=column).update(column=None)
+        column.delete()
+        _renumber_rows(_sub_board_columns(sub_board_id))
+        _structure_changed(
+            board, 'board.column_deleted', actor=actor,
+            sub_board_id=sub_board_id, column_id=column_id,
+        )
 
 
 # --------------------------------------------------------------------------

@@ -5,7 +5,7 @@ from django.urls import reverse
 
 from tasks.models import Task
 
-from .helpers import BoardFixtureMixin
+from .helpers import BoardFixtureMixin, board_url
 
 
 class BoardTaskInRegistryTests(BoardFixtureMixin, TestCase):
@@ -29,7 +29,7 @@ class BoardTaskInRegistryTests(BoardFixtureMixin, TestCase):
         response = self.client.get(reverse('tasks:detail', args=[self.task.pk]), follow=True)
         self.assertRedirects(
             response,
-            f"{reverse('boards:detail', args=[self.board.pk])}?card={self.task.board_card_id}",
+            f"{board_url(self.board)}?card={self.task.board_card_id}",
         )
         self.assertEqual(response.context['panel'], 'view')
         self.assertContains(response, 'Позвонить заказчику')

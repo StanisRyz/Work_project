@@ -30,7 +30,7 @@ when its fingerprint moved and nothing typed here is unsaved.
     <h3 class="board-panel__title user-text">{{ card.card.title }}</h3>
     {% if card.card.description %}<p class="board-panel__description user-text">{{ card.card.description|linebreaksbr }}</p>{% endif %}
     <dl class="board-panel__facts">
-        <div><dt>Колонка</dt><dd>{% if card.column %}{{ card.column.label }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Колонка</dt><dd class="user-text">{% if card.column %}{{ card.column.name }}{% else %}—{% endif %}</dd></div>
         <div><dt>Задача</dt><dd>№{{ card.task.pk }} · {{ card.task.status }}</dd></div>
         <div><dt>Исполнители</dt><dd>{% for user in card.assignees %}<span class="board-panel__person">{{ user|person_name }}</span>{% endfor %}</dd></div>
         <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=card.due_date done=card.is_closed %}</dd></div>
@@ -44,8 +44,8 @@ when its fingerprint moved and nothing typed here is unsaved.
         <form class="board-panel__move" method="post" action="{% url 'boards:card_move' board.pk card.card.pk %}{{ filter_suffix }}">
             {% csrf_token %}
             <label>
-                <span>{{ move_form.stage.label }}</span>
-                {{ move_form.stage }}
+                <span>{{ move_form.column_id.label }}</span>
+                {{ move_form.column_id }}
             </label>
             <button class="link-button link-button--secondary" type="submit">Переместить</button>
         </form>
@@ -87,7 +87,7 @@ when its fingerprint moved and nothing typed here is unsaved.
             <button class="link-button link-button--warning" type="button"
                     data-confirm
                     data-confirm-title="Вернуть задачу {{ card.task.pk }} в работу?"
-                    data-confirm-text="Карточка вернётся в колонку «{{ card.card.get_stage_display }}». Вложения и результат выполнения сохранятся."
+                    data-confirm-text="Карточка вернётся в колонку «{{ card.return_column.name }}». Вложения и результат выполнения сохранятся."
                     data-confirm-label="Вернуть в работу"
                     data-confirm-variant="warning"
                     data-confirm-url="{% url 'tasks:reopen' card.task.pk %}">Вернуть в работу</button>
@@ -117,13 +117,13 @@ when its fingerprint moved and nothing typed here is unsaved.
     {% endif %}
 {% else %}
     {% if panel == 'new' %}
-        <p class="board-panel__lead">Колонка «{{ new_stage.label }}»</p>
+        <p class="board-panel__lead user-text">Колонка «{{ new_column.name }}»</p>
     {% endif %}
     <form class="form-card board-card-form" method="post"
-          action="{% if panel == 'new' %}{% url 'boards:card_create' board.pk %}{% else %}{% url 'boards:card_update' board.pk card.card.pk %}{% endif %}{{ filter_suffix }}"
+          action="{% if panel == 'new' %}{% url 'boards:card_create' board.pk sub_board.pk %}{% else %}{% url 'boards:card_update' board.pk card.card.pk %}{% endif %}{{ filter_suffix }}"
           data-unsaved-guard>
         {% csrf_token %}
-        {% if panel == 'new' %}<input type="hidden" name="stage" value="{{ new_stage.code }}">{% endif %}
+        {% if panel == 'new' %}<input type="hidden" name="column" value="{{ new_column.pk }}">{% endif %}
         {% if panel == 'edit' %}{{ form.version }}{% endif %}
         {% if version_conflict %}
             {% comment %}The typed values stay below; the current card opens beside them.{% endcomment %}

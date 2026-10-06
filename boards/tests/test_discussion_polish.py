@@ -15,7 +15,7 @@ from tasks.models import Task
 from ..models import BoardCardComment
 from ..selectors import COMMENTS_LIMIT
 from ..services import post_card_comment
-from .helpers import BoardFixtureMixin
+from .helpers import BoardFixtureMixin, board_url, fragment_url
 
 
 EXECUTION_FIELD = re.compile(r'<textarea id="task-execution-comment"[^>]*>(.*?)</textarea>', re.S)
@@ -43,7 +43,7 @@ class ExecutionDraftTests(BoardFixtureMixin, TestCase):
     def setUp(self):
         self.card_obj = self.card('Обсуждаемая', assignees=[self.member])
         self.other = self.card('Соседняя', assignees=[self.member])
-        self.page_url = reverse('boards:detail', args=[self.board.pk])
+        self.page_url = board_url(self.board)
         self.client.force_login(self.member)
 
     def comment_url(self, card):
@@ -118,8 +118,8 @@ class LongDiscussionTests(BoardFixtureMixin, TestCase):
 
     def setUp(self):
         self.card_obj = self.card('Долгая', assignees=[self.member])
-        self.page_url = reverse('boards:detail', args=[self.board.pk])
-        self.fragment_url = reverse('boards:fragment', args=[self.board.pk])
+        self.page_url = board_url(self.board)
+        self.fragment_url = fragment_url(self.board)
         self.client.force_login(self.member)
         patcher = mock.patch('boards.selectors.COMMENTS_LIMIT', self.LIMIT)
         patcher.start()
