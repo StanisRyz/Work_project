@@ -116,7 +116,8 @@
 | 11 | `tasks/stage-11.md` | `main` (`a9c17ac..af8ce2a`) | принят (`reviews/stage-11.md`) |
 | 12 | `tasks/stage-12.md` | `main` (`d50dc12..2cb54db`) | принят (`reviews/stage-12.md`) |
 | 13 | `tasks/stage-13.md` | `main` (`def7fe3..8fbb168`) | принят (`reviews/stage-13.md`) |
-| 14 | `tasks/stage-14.md` | `main` | в работе |
+| 14 | `tasks/stage-14.md` | `main` (`7bb0283..4d05f1f`) | принят (`reviews/stage-14.md`) |
+| 15 | — | — | ждёт команды владельца |
 
 ## Принятые ограничения (к пилоту)
 
