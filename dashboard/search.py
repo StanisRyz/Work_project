@@ -107,7 +107,9 @@ def _tasks(user, term):
     if card_code is not None:
         criteria |= card_code
     tasks = (
-        get_readable_tasks_queryset(user).filter(criteria).select_related('status')
+        # The board of a card is joined too: a hit names the card by its code
+        # («ZAP-12»), which reads the board — never a query per hit.
+        get_readable_tasks_queryset(user).filter(criteria).select_related('status', 'board_card__board')
         .order_by('status__is_final', 'due_date', 'pk')[:GROUP_LIMIT]
     )
     return [

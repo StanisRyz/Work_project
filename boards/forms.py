@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 
 from accounts.templatetags.people import person_name
 
-from .models import BOARD_CODE_MAX_LENGTH, BoardCard, BoardColumn
+from .models import BOARD_CODE_MAX_LENGTH, BoardCard, BoardColumn, BoardField, BoardFieldColor
 from .permissions import active_employee_q
 
 
@@ -97,8 +97,73 @@ class BoardForm(forms.Form):
             return members
         return [user for user in members if user.pk != self.owner.pk]
 
+class FieldOptionSelect(forms.Select):
+    """A list field's `<select>`: each option carries its colour.
+
+    `board-option--<colour>` paints the choice in the open list and «●» marks
+    it in the closed select — a native `<option>` holds no markup, so a chip
+    is not possible there.
+    """
+
+    def __init__(self, *args, colors=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.colors = colors or {}
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        color = self.colors.get(str(value))
+        if color:
+            option['attrs']['class'] = f'board-option board-option--{color}'
+            option['attrs']['data-color'] = color
+        return option
+
+
+# The input each kind of field is typed in; the service parses what it sends.
+def _custom_form_field(field, current_row):
+    """The form field for one of the board's fields. Raw text in, always: the
+    service parses it by kind (`services._clean_field_values()`) and names
+    the field in its refusal, so there is one set of rules and messages."""
+    attrs = {'data-board-field': field.pk}
+    if field.kind == BoardField.Kind.NUMBER:
+        widget = forms.TextInput(attrs={**attrs, 'inputmode': 'decimal', 'autocomplete': 'off'})
+    elif field.kind == BoardField.Kind.DATE:
+        widget = forms.DateInput(attrs={**attrs, 'type': 'date'}, format='%Y-%m-%d')
+    elif field.kind == BoardField.Kind.SELECT:
+        current_option_id = getattr(current_row, 'option_id', None)
+        options = [
+            option for option in field.options.all()
+            # A choice the card already holds stays offered — marked — even
+            # once archived, so saving the card never drops it silently.
+            if not option.is_archived or option.pk == current_option_id
+        ]
+        widget = FieldOptionSelect(
+            attrs=attrs,
+            choices=[('', '—')] + [
+                (str(option.pk), f'● {option.label}' + (' (в архиве)' if option.is_archived else ''))
+                for option in options
+            ],
+            colors={str(option.pk): option.color for option in options},
+        )
+    else:
+        widget = forms.TextInput(attrs={**attrs, 'maxlength': 500})
+    return forms.CharField(label=field.name, required=False, strip=False, widget=widget)
+
+
+def custom_field_name(field):
+    """The form's name for one of the board's fields: `field_<id>`."""
+    return f'field_{getattr(field, "pk", field)}'
+
+
 class CardForm(forms.Form):
-    """One card, new or edited. `column` matters only when creating."""
+    """One card, new or edited. `column` matters only when creating.
+
+    After the standard fields come the board's own live fields, in order
+    (`field_<id>`, see `_custom_form_field()`); `fields` — the board's fields
+    with their options, as `selectors.board_fields()` reads them — saves the
+    page a query, and `field_rows` (`{field id: value row}`) are the card's
+    current values, which keep an archived list option it holds on offer.
+    `field_values()` hands the raw values to the service.
+    """
 
     title = forms.CharField(label='Заголовок', max_length=BoardCard._meta.get_field('title').max_length)
     description = forms.CharField(
@@ -124,9 +189,29 @@ class CardForm(forms.Form):
     # card from one made against the current one. Unused when creating.
     version = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
 
-    def __init__(self, *args, board, **kwargs):
+    def __init__(self, *args, board, fields=None, field_rows=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['assignees'].queryset = active_members(board)
+        if fields is None:
+            from .selectors import board_fields
+
+            fields = board_fields(board)
+        field_rows = field_rows or {}
+        self.board_fields = [field for field in fields if not field.is_archived]
+        for field in self.board_fields:
+            self.fields[custom_field_name(field)] = _custom_form_field(field, field_rows.get(field.pk))
+
+    @property
+    def custom_fields(self):
+        """The bound fields of the board's own fields, in order — for the template."""
+        return [self[custom_field_name(field)] for field in self.board_fields]
+
+    def field_values(self):
+        """`{field id: raw value}` of every live field the form holds."""
+        return {
+            field.pk: self.cleaned_data.get(custom_field_name(field), '')
+            for field in self.board_fields
+        }
 
 
 class MoveCardForm(forms.Form):
@@ -224,3 +309,44 @@ class AddMembersForm(forms.Form):
     def __init__(self, *args, board, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['users'].queryset = active_employees().exclude(board_memberships__board=board)
+
+
+class FieldForm(forms.Form):
+    """«+ Поле» on «Поля карточек»: a name, a kind and — for a list — its
+    options, one `option_label`/`option_color` pair per row (empty rows are
+    dropped). The service checks every rule again."""
+
+    name = forms.CharField(label='Название', max_length=60)
+    kind = forms.ChoiceField(label='Вид', choices=BoardField.Kind.choices)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.option_rows = []
+        if self.is_bound:
+            labels = self.data.getlist('option_label') if hasattr(self.data, 'getlist') else []
+            colors = self.data.getlist('option_color') if hasattr(self.data, 'getlist') else []
+            for index, label in enumerate(labels):
+                color = colors[index] if index < len(colors) else BoardFieldColor.GRAY
+                self.option_rows.append({'label': label, 'color': color or BoardFieldColor.GRAY})
+
+    def options(self):
+        """`(label, colour)` of the filled rows — for a list only."""
+        if self.cleaned_data.get('kind') != BoardField.Kind.SELECT:
+            return []
+        return [(row['label'], row['color']) for row in self.option_rows if row['label'].strip()]
+
+
+class FieldUpdateForm(forms.Form):
+    """A field's name, its kind (offered only while it has no values) and
+    whether its tile shows it."""
+
+    name = forms.CharField(label='Название', max_length=60)
+    kind = forms.ChoiceField(label='Вид', choices=BoardField.Kind.choices, required=False)
+    show_on_tile = forms.BooleanField(label='Показывать на плитке', required=False)
+
+
+class OptionForm(forms.Form):
+    """A list option's label and colour, created or changed."""
+
+    label = forms.CharField(label='Подпись', max_length=60)
+    color = forms.ChoiceField(label='Цвет', choices=BoardFieldColor.choices)

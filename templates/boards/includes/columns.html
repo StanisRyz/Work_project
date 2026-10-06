@@ -13,12 +13,16 @@ small POST forms, so they work without JavaScript; the deletes ask through the
 shared confirmation modal first when it is there. The `can_move_*`/`can_delete`
 flags only decide which buttons to draw; every route asks the service again.
 
+`data-fields-stamp` is the board's card-field setup (`selectors.fields_stamp()`):
+it moves this block's fingerprint with every change of «Поля карточек», even
+one no tile shows yet.
+
 A working column with people pinned to it («Закреплённые исполнители»: a card
 created here or moved here gets them) shows up to three of them in its header
 and «+N»; the full list is on the group's `title`. The manager sets them in the
 column's «⋯» menu.
 {% endcomment %}
-<div class="board-columns" aria-label="Колонки поддоски «{{ sub_board.name }}»" data-board-columns>
+<div class="board-columns" aria-label="Колонки поддоски «{{ sub_board.name }}»" data-board-columns data-fields-stamp="{{ fields_stamp }}">
     {% for column in columns %}
         <section class="board-column{% if column.is_done %} board-column--done{% endif %}" aria-labelledby="board-column-{{ column.pk }}"
                  data-column-id="{{ column.pk }}"{% if can_work and not column.is_done %} data-column-move{% endif %}{% if column.is_done %} data-column-complete{% endif %}>

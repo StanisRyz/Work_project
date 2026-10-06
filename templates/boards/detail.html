@@ -39,7 +39,8 @@ the panel with no control at all.
         {% if can_manage or can_restore %}
             {% comment %}
             The board's own «⋯»: «Переименовать» (`rename_board()`), «Код доски»
-            (`change_board_code()`), «Участники»,
+            (`change_board_code()`), «Участники», «Поля карточек» (the
+            manager's — the page itself is read by every reader),
             «В архив» / «Вернуть из архива» — each its route's own right, asked
             again by the route. `?sub=` brings the redirect back to this tab.
             {% endcomment %}
@@ -62,6 +63,7 @@ the panel with no control at all.
                         </form>
                     {% endif %}
                     <a class="board-menu__link" href="{% url 'boards:members' board.pk %}">Участники ({{ member_count }})</a>
+                    {% if can_manage %}<a class="board-menu__link" href="{% url 'boards:fields' board.pk %}">Поля карточек</a>{% endif %}
                     {% if can_manage %}
                         <button class="link-button link-button--secondary link-button--compact" type="button"
                                 data-confirm

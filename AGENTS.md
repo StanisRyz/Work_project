@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|files|log`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`, the task's own attachment routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?q`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat and its log) and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
+| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|files|log`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`, the task's own attachment routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?q`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat and its log) and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -1920,8 +1920,11 @@ tasks never live inside `acts`.
   there while this page had it open — carries `moved_to`, and the heading
   says «Карточка перенесена на поддоску «…»» with a link there, the drawer
   staying where it is. A cancelled card is found too, read-only. A
-  sub-board page with a card open was 56 queries before stage 14 and is 34
-  (`boards/tests/test_journal.py`, `PAGE_QUERIES`).
+  sub-board page with a card open is 35 on a board without card fields
+  (`boards/tests/test_journal.py`, `PAGE_QUERIES`) and 37 on one with them —
+  the fields with their options and the values of every card on the page,
+  the panel's included, are three queries however many there are
+  (`boards/tests/test_fields.py`, `FieldQueryCountTests`).
 - **The card drawer is where a `BOARD` task is worked — and the only place.**
   Its heading (`boards/includes/panel.html`, fixed while the tab below
   scrolls) is «Карточка ZAP-12» (the copying link above) and «задача №N»,
@@ -2007,12 +2010,14 @@ tasks never live inside `acts`.
 - **`BoardCardEvent` is a card's journal — «Лог».** `card` (`PROTECT`,
   `related_name='events'`), `actor` (`PROTECT`), `kind` — `CREATED`,
   `EDITED` (`details.fields`: which of title, description, due date,
-  assignees; `by_column` when a column's pins changed them), `MOVED`
+  assignees, and `custom` with `details.custom_fields` — the board's own
+  fields by their names at the time, «Изменено: Номер заявки, Срок изг.»;
+  `by_column` when a column's pins changed them), `MOVED`
   (`from_column`/`to_column` with their ids, the names *as they were*, and
   `from_sub_board`/`to_sub_board` when the move crossed sub-boards),
   `COMPLETED`, `REOPENED` (the column it returns to),
-  `CANCELLED` — `details` (identifiers and column names only, never the
-  card's text, a reason or a message) and `created_at`, indexed on `(card,
+  `CANCELLED` — `details` (identifiers and column and field names only,
+  never the card's text, a value, a reason or a message) and `created_at`, indexed on `(card,
   created_at)`. Append-only, written by `services._record()` alone, inside the
   transaction of the change: `create_card()`, `update_card()` only when it
   stored something, `move_card()` only across columns (a reorder within one
@@ -2206,6 +2211,84 @@ tasks never live inside `acts`.
   an old page holding it open redraws its heading with «Карточка перенесена
   на поддоску «…»» and a link — the guarded rule as ever (clean → replaced,
   unsaved input → the banner), the drawer never navigating by itself.
+- **A board's own card fields («Поля карточек») are the board's, shared by
+  its sub-boards.** `BoardField` (board `PROTECT`, `related_name='fields'`,
+  name ≤ 60, `kind` `TEXT`/`NUMBER`/`DATE`/`SELECT`, `position`,
+  `show_on_tile`, `is_archived`), `BoardFieldOption` (a list's choice: field
+  `CASCADE`, label ≤ 60, `color` from the closed `BoardFieldColor` — gray,
+  blue, green, yellow, orange, red, purple, teal, a check constraint —
+  `position`, `is_archived`) and `BoardCardFieldValue` (card `CASCADE` —
+  cards are never deleted —, field and option `PROTECT`; `value_text` ≤ 500,
+  `value_number` `Decimal(18, 4)`, `value_date`, `option`):
+  `unique_board_card_field_value` per card and field, and
+  `board_card_field_value_exactly_one` — exactly one value column filled, a
+  text never `''`. An empty value is **no row**. Which column a kind fills is
+  `KIND_COLUMNS`, checked by `clean()` and the services. At most
+  `services.MAX_FIELDS` (20) live fields per board and `MAX_OPTIONS` (30)
+  live options per field; a field's name is unique on its board, archived
+  ones included, compared by `casefold()` as sub-board names are; option
+  labels likewise within their field. **What a value names is archived,
+  never deleted**: `delete_field()`/`delete_option()` refuse one with
+  values (the `PROTECT` is the database's word), `update_field()` refuses to
+  change the kind of a field with values (a list turned into another kind
+  while unused loses its options), and an archived field or option is
+  offered nowhere and drawn on no tile but keeps its values, which
+  «Описание» shows marked «(в архиве)». The setup is
+  `create_field()` (a list with its `(label, colour)` options in one call —
+  options for another kind are refused), `update_field()` (name,
+  `show_on_tile`, kind), `move_field()`, `archive_field()`/`restore_field()`
+  (within the limit), `delete_field()`, and `create_option()`,
+  `update_option()`, `move_option()`, `archive_option()`/`restore_option()`,
+  `delete_option()`: the manager's (`can_manage_board()`, one board lock,
+  never an archived board, «Поля карточек настраивает владелец доски или
+  администратор.»), each success one `board.updated(structure_changed)` and
+  the sub-boards' `updated_at` touched for the sync revision, the same
+  values again — or archiving what is archived — nothing. **Values** come
+  through `create_card(field_values=…)`/`update_card(field_values=…)`
+  (`{field id: raw value}`; `None` touches no field, a field left out is
+  left as it is): `_clean_field_values()` refuses a field of another board
+  (or one deleted meanwhile), skips an archived one whatever was sent, and
+  parses by kind — text trimmed, ≤ 500; a number with a comma or a point,
+  spaces between groups allowed, no exponent, at most 14 digits before the
+  comma and 4 after; an ISO date; a live option of this very field, or the
+  archived one the card already holds sent back unchanged — and a refusal is
+  `FieldValueError` (a `BoardError` naming the field, with `field_id`, so
+  the form puts it beside that input) before anything is written. A change
+  of values is part of the edit: the same version step, the same
+  `card_updated`, the same `EDITED` entry (`custom`/`custom_fields`); an edit
+  that changes no value stores nothing. **The page**
+  (`boards:fields`, `templates/boards/fields.html`, in `boards/layout.html`)
+  lists the fields in order — name, «В архиве», kind, «на плитке», how many
+  cards hold a value — and a list's options as chips; every reader of the
+  board reads it, whoever manages it gets ← →, «В архив»/«Вернуть»,
+  «Удалить» (unused only, the shared modal), «Изменить» (name, kind while
+  unused, «Показывать на плитке», and each option's label, colour, ← →,
+  archive, delete, «+ Вариант») and «+ Поле» (name, kind, option rows —
+  `option_label`/`option_color`, «+ Вариант» posting the form back with one
+  more row without JavaScript, `static/js/board_fields.js` cloning the row
+  `<template>` with it). Every route asks `can_manage_board()` before the
+  method, a GET changes nothing, a refusal is a message on the page; the
+  board's «⋯» links there for a manager. **Display** reads
+  `selectors.board_fields()` (one query, the options one prefetch) and
+  `card_field_rows()` (the values of every card on the page, the panel's
+  too, one query); `describe_field_value()` words a value — a date
+  `ДД.ММ.ГГГГ`, a number by `format_number()` (no trailing zeros, digit
+  groups apart by a no-break space, a decimal comma), a list option as its
+  chip — and `attach_field_values()` gives each card `field_values` (all it
+  holds, in the fields' order, for «Описание») and `tile_values` (the first
+  `TILE_FIELD_LIMIT` (4) of those with `show_on_tile` and nothing archived:
+  a chip, or «Имя: значение» in `.text-ellipsis` with the whole on
+  `title`). `CardForm` adds the live fields after the standard ones
+  (`field_<id>`, raw text: a text input, `inputmode="decimal"`,
+  `type="date"`, a `FieldOptionSelect` whose options carry
+  `board-option--<colour>` and «●» — a native `<option>` holds no markup);
+  a refused POST keeps every value typed. The eight colours are token pairs
+  declared once at the top of `static/css/boards.css`
+  (`--board-color-<code>-bg`/`-text`, the only hex values there), drawn
+  through `.board-chip--<code>`. The columns block carries
+  `data-fields-stamp` (`selectors.fields_stamp()`, read off the fields in
+  memory), so its fingerprint moves with any setup change as well as with a
+  value a tile shows. Filters and search by field are not there yet.
 - **A wrong card is cancelled, never deleted.** `cancel_card()` locks board →
   card → task, asks `can_cancel_card()` after the locks and calls
   `tasks.services.cancel_board_card_task()`: a `BOARD` task in `IN_PROGRESS`
@@ -2643,7 +2726,8 @@ tasks never live inside `acts`.
   `card_updated`, `card_moved`, `card_completed`, `card_reopened`, `card_cancelled`,
   `members_changed`, `board_archived`, `board_restored`, `comment_added`,
   `structure_changed` — a sub-board or a column created, renamed, moved or
-  deleted, a column's pins set, the board's code changed), through
+  deleted, a column's pins set, the board's code changed, its card fields or
+  their options set up), through
   `emit_board_updated()` from `boards/services.py` alone — inside the write's
   `atomic()` block, once per successful write that stored something. A refusal,
   a rollback, an edit that changes nothing and a drop where the card already
@@ -2661,8 +2745,10 @@ tasks never live inside `acts`.
   `updated_at`), `BOARD` tasks (count, max `updated_at`, status mix),
   memberships (count, max `added_at`), «Обсуждение» messages (count, max
   `created_at`) and the structure (sub-boards and columns: count and max
-  `updated_at` of each, one query through the columns) — the safety net for a
-  lost `board.updated`. The card journal needs no aggregate of its own: every
+  `updated_at` of each, one query through the columns; a change of the card
+  fields and of a board's code touches the sub-boards' `updated_at` instead of
+  costing an aggregate of its own) — the safety net for a lost
+  `board.updated`. The card journal needs no aggregate of its own: every
   entry is written with a card or task row whose `updated_at` already moves; for anybody else the
   key is there but constant and costs no query. The left panel and the
   members page are not live.

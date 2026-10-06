@@ -27,6 +27,15 @@ and `list_query` (`tab=files`) brings an upload back to this tab.
         <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=card.due_date done=card.is_closed %}</dd></div>
         {% if card.department %}<div><dt>Подразделение</dt><dd class="user-text">{{ card.department.name }}</dd></div>{% endif %}
         <div><dt>Создал</dt><dd>{{ card.card.created_by|person_name }}, {{ card.card.created_at|date:'d.m.Y H:i' }}</dd></div>
+        {% comment %}
+        The board's own fields the card holds a value of, in the fields' order
+        (`card.field_values`, `selectors.describe_field_value()`); an empty
+        one is no row and is not shown. A list option is its coloured chip.
+        An archived field or option still shows the value, marked.
+        {% endcomment %}
+        {% for value in card.field_values %}
+            <div class="board-drawer__field{% if value.is_archived %} board-drawer__field--archived{% endif %}"><dt class="user-text">{{ value.name }}</dt><dd>{% if value.color %}<span class="board-chip board-chip--{{ value.color }}">{{ value.text }}</span>{% else %}<span class="user-text">{{ value.text }}</span>{% endif %}{% if value.is_archived %} <span class="board-drawer__archived">(в архиве)</span>{% endif %}</dd></div>
+        {% endfor %}
     </dl>
 
     {% if card.task.is_cancelled %}
@@ -114,6 +123,24 @@ and `list_query` (`tab=files`) brings an upload back to this tab.
             {{ form.assignees }}
             {{ form.assignees.errors }}
         </fieldset>
+        {% comment %}
+        The board's own live fields, in order («Поля карточек»): text, a number
+        (`inputmode="decimal"`, a comma or a point), a date, a list with its
+        colours. Raw values: the service parses them and names the field when
+        it refuses one, and that refusal lands beside the field.
+        {% endcomment %}
+        {% if form.custom_fields %}
+            <fieldset class="board-card-form__fields">
+                <legend>Поля карточки</legend>
+                {% for bound in form.custom_fields %}
+                    <label>
+                        <span class="user-text">{{ bound.label }}</span>
+                        {{ bound }}
+                        {{ bound.errors }}
+                    </label>
+                {% endfor %}
+            </fieldset>
+        {% endif %}
         <div class="form-actions">
             <button class="link-button" type="submit">{% if panel == 'new' %}Создать карточку{% else %}Сохранить{% endif %}</button>
             <a class="link-button link-button--secondary" href="{% if panel == 'edit' %}{{ board_url }}?card={{ card.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}{% else %}{{ close_url }}{% endif %}">Отмена</a>

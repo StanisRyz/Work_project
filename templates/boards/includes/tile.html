@@ -12,13 +12,24 @@ its required comment, posted as `execution_comment` to `boards:card_complete`.
 `data-task-id` lets the live client tell a `task.*` event about this card's
 task from any other. The tile names the card by its code («ZAP-12»,
 `BoardCard.code`; `build_board_state()` attaches the board, so it costs no
-query) — the task's own number is on its `title`. Every URL here carries the
+query) — the task's own number is on its `title`. Under the title, up to four values
+of the board's own fields marked «на плитке» (`item.tile_values`): a list
+option as its coloured chip, anything else «Имя: значение», cut to one line
+with the whole on `title`. Every URL here carries the
 board's filter, so the panel,
 the drag's counts and the redirect after completion stay filtered.
 {% endcomment %}
 <li class="board-column__item" data-card-id="{{ item.card.pk }}" data-task-id="{{ item.task.pk }}"{% if item.is_movable %} data-card-movable data-card-move-url="{% url 'boards:card_move' board.pk item.card.pk %}{{ filter_suffix }}"{% endif %}>
     <a class="board-tile{% if card and card.card.pk == item.card.pk %} board-tile--open{% endif %}" href="{{ board_url }}?card={{ item.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" draggable="false">
         <span class="board-tile__title user-text text-clamp-2" title="{{ item.card.title }}">{{ item.card.title }}</span>
+        {% if item.tile_values %}
+            <span class="board-tile__fields">
+                {% for value in item.tile_values %}
+                    {% if value.color %}<span class="board-chip board-chip--{{ value.color }} text-ellipsis" title="{{ value.name }}: {{ value.text }}">{{ value.text }}</span>
+                    {% else %}<span class="board-tile__field text-ellipsis" title="{{ value.name }}: {{ value.text }}">{{ value.name }}: {{ value.text }}</span>{% endif %}
+                {% endfor %}
+            </span>
+        {% endif %}
         <span class="board-tile__footer">
             <span class="board-tile__number" title="Задача №{{ item.task.pk }}">{{ item.card.code }}</span>
             <span class="board-tile__assignees">

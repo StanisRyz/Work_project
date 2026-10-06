@@ -41,7 +41,10 @@ from .helpers import (
 
 # A sub-board page with a card open, for a member of the board who is an
 # исполнитель of it (`test_query_count_does_not_grow_with_entries_messages_or_files`).
-PAGE_QUERIES = 34
+# 34 at stage 14; one more since the board's card fields are read (none on
+# this board, so neither their options nor any value is) — a board with fields
+# is measured in `test_fields.FieldQueryCountTests`.
+PAGE_QUERIES = 35
 
 MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-journal-'))
 

@@ -336,3 +336,61 @@ class CodesAndNumbersMigrationTests(TransactionTestCase):
         apps = migrate(NUMBERS_AFTER)
         BoardCard = apps.get_model('boards', 'BoardCard')
         self.assertEqual(dict(BoardCard.objects.values_list('title', 'number'))['late'], 4)
+
+
+FIELDS_BEFORE = [('boards', '0014_board_column_pins')]
+FIELDS_AFTER = [('boards', '0015_board_fields')]
+
+
+def _tables():
+    return set(connection.introspection.table_names())
+
+
+class BoardFieldsMigrationTests(TransactionTestCase):
+    """`boards.0015`: three new tables with their constraints; and back."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_forward_with_constraints_then_back(self):
+        from django.db import IntegrityError, transaction
+
+        tables = {'boards_boardfield', 'boards_boardfieldoption', 'boards_boardcardfieldvalue'}
+        migrate(FIELDS_BEFORE)
+        self.assertFalse(tables & _tables())
+
+        apps = migrate(FIELDS_AFTER)
+        self.assertEqual(tables & _tables(), tables)
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        BoardField = apps.get_model('boards', 'BoardField')
+        BoardFieldOption = apps.get_model('boards', 'BoardFieldOption')
+        BoardCardFieldValue = apps.get_model('boards', 'BoardCardFieldValue')
+        owner = User.objects.create(username='fields_migration_owner')
+        board = Board.objects.create(name='Доска', code='FM', owner=owner)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+        column = BoardColumn.objects.create(sub_board=sub_board, name='Сделать', position=1)
+        card = BoardCard.objects.create(
+            board=board, sub_board=sub_board, column=column, position=1024, number=1,
+            title='Карточка', created_by=owner,
+        )
+        field = BoardField.objects.create(board=board, name='Приоритет', kind='SELECT', position=1)
+        option = BoardFieldOption.objects.create(field=field, label='Высокий', color='red', position=1)
+        BoardCardFieldValue.objects.create(card=card, field=field, option=option)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BoardCardFieldValue.objects.create(card=card, field=field, value_text='второе')
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BoardFieldOption.objects.create(field=field, label='Розовый', color='pink', position=2)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BoardField.objects.create(board=board, name='Пустое', kind='LIST', position=2)
+
+        # Back with the rows in place: the tables simply go.
+        migrate(FIELDS_BEFORE)
+        self.assertFalse(tables & _tables())

@@ -85,7 +85,9 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 `card_cancelled`, `members_changed`, `board_archived`, `board_restored`,
 `comment_added`, `structure_changed` (поддоска или колонка создана,
 переименована, переставлена или удалена, доска переименована или сменила
-код, у колонки изменены закреплённые исполнители);
+код, у колонки изменены закреплённые исполнители, на странице «Поля карточек»
+создано, изменено, переставлено, убрано в архив, возвращено или удалено поле
+или вариант списка);
 неизвестный код фабрика отклоняет. Ни заголовка карточки,
 ни описания, ни имён, ни прав: открытая доска перезапрашивает свой фрагмент.
 Завершают и возвращают в работу задачу карточки только маршруты доски
@@ -101,6 +103,14 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 `task.updated` от `replace_task_assignees()`), отдельного `board.updated` нет.
 Смена кода доски, кроме события, двигает `updated_at` её поддосок — так
 ревизия `boards` в `/realtime/sync/` замечает её и у пропустившего событие.
+Так же поступает каждое изменение полей карточек: поля рисуются на плитках и в
+форме карточки каждой поддоски, а отдельного агрегата в токене для них нет.
+Значения полей карточки — часть её правки: одно `card_updated` от
+`update_card()` (и `card_created` при создании), а `updated_at` карточки
+сдвигается вместе с ними. Отпечаток колонок (`columns_revision`) двигается,
+когда меняется значение, видимое на плитке, и при любом изменении полей:
+блок колонок несёт `data-fields-stamp` — отпечаток настроек полей, — так что
+даже поле, которого ещё нет ни на одной плитке, обновляет блок.
 
 ## 3. Явные эмиттеры
 
@@ -124,7 +134,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.

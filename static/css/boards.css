@@ -2,13 +2,78 @@
    board's sub-board — its heading, tabs, filters and columns — and the card
    panel.
 
-   Tokens only (`base.css`): no control pixel values and no hex colours. Every
+   Tokens only (`base.css`): no control pixel values and no hex colours —
+   except the eight colour pairs of the card fields' list options, declared
+   once below as tokens (`--board-color-<code>-bg` / `-text`). Every
    board page is a one-screen page (`page-container--fill`): the left panel and
    the page scroll on their own, the columns row takes what is left of the
    page, every column scrolls down on its own, and on a narrow screen the row
    scrolls sideways inside itself — the page never does. Above 1240px the card
    panel stands beside the columns, below it above them, and under 760px
    everything falls back to the ordinary flow, as the registries do. */
+
+/* ---- Colours of the card fields' list options ----
+   The closed set of `boards.models.BoardFieldColor`: a soft background and a
+   readable text colour each, declared once. A chip, an `<option>` and the
+   «●» of a select read them through `.board-chip--<code>` and
+   `.board-option--<code>` only. */
+
+:root {
+    --board-color-gray-bg: #eef0f3;
+    --board-color-gray-text: #475467;
+    --board-color-blue-bg: #dbeafe;
+    --board-color-blue-text: #1e40af;
+    --board-color-green-bg: #dcfce7;
+    --board-color-green-text: #166534;
+    --board-color-yellow-bg: #fef3c7;
+    --board-color-yellow-text: #92400e;
+    --board-color-orange-bg: #ffedd5;
+    --board-color-orange-text: #9a3412;
+    --board-color-red-bg: #fee2e2;
+    --board-color-red-text: #b91c1c;
+    --board-color-purple-bg: #ede9fe;
+    --board-color-purple-text: #5b21b6;
+    --board-color-teal-bg: #ccfbf1;
+    --board-color-teal-text: #115e59;
+}
+
+.board-chip {
+    display: inline-block;
+    max-width: 100%;
+    padding: 1px 8px;
+    border-radius: var(--radius);
+    background: var(--board-color-gray-bg);
+    color: var(--board-color-gray-text);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    vertical-align: middle;
+}
+
+.board-chip--archived {
+    opacity: 0.6;
+}
+
+.board-chip--gray { background: var(--board-color-gray-bg); color: var(--board-color-gray-text); }
+.board-chip--blue { background: var(--board-color-blue-bg); color: var(--board-color-blue-text); }
+.board-chip--green { background: var(--board-color-green-bg); color: var(--board-color-green-text); }
+.board-chip--yellow { background: var(--board-color-yellow-bg); color: var(--board-color-yellow-text); }
+.board-chip--orange { background: var(--board-color-orange-bg); color: var(--board-color-orange-text); }
+.board-chip--red { background: var(--board-color-red-bg); color: var(--board-color-red-text); }
+.board-chip--purple { background: var(--board-color-purple-bg); color: var(--board-color-purple-text); }
+.board-chip--teal { background: var(--board-color-teal-bg); color: var(--board-color-teal-text); }
+
+/* A choice of a list in a native `<select>`: painted in the open list where
+   the browser allows it (Windows, Linux); the «●» in its label is the marker
+   everywhere. */
+.board-option--gray { background: var(--board-color-gray-bg); color: var(--board-color-gray-text); }
+.board-option--blue { background: var(--board-color-blue-bg); color: var(--board-color-blue-text); }
+.board-option--green { background: var(--board-color-green-bg); color: var(--board-color-green-text); }
+.board-option--yellow { background: var(--board-color-yellow-bg); color: var(--board-color-yellow-text); }
+.board-option--orange { background: var(--board-color-orange-bg); color: var(--board-color-orange-text); }
+.board-option--red { background: var(--board-color-red-bg); color: var(--board-color-red-text); }
+.board-option--purple { background: var(--board-color-purple-bg); color: var(--board-color-purple-text); }
+.board-option--teal { background: var(--board-color-teal-bg); color: var(--board-color-teal-text); }
 
 /* ---- The frame ---- */
 
@@ -961,6 +1026,25 @@
     border: 0;
 }
 
+/* The standard fields of the card form, one under the other with the label
+   above — what `.form-card` gave the form before it moved into the drawer. */
+.board-card-form > label {
+    display: grid;
+    gap: 6px;
+    color: var(--color-muted);
+}
+
+.board-card-form > label input,
+.board-card-form > label textarea {
+    width: 100%;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--control-font-size);
+}
+
 .board-card-form__assignees {
     display: grid;
     gap: 6px;
@@ -1454,4 +1538,324 @@
     .board-form__identity {
         grid-template-columns: minmax(0, 1fr);
     }
+}
+
+
+/* ---- Card fields: the tile, «Описание», the card form ---- */
+
+/* Up to four values under the title: a list option as its chip, anything
+   else «Имя: значение» on a line of its own, cut with the whole on `title`. */
+.board-tile__fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    min-width: 0;
+}
+
+.board-tile__field {
+    flex: 1 1 100%;
+    min-width: 0;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-tile__fields .board-chip {
+    font-size: 12px;
+}
+
+.board-drawer__archived {
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-drawer__field--archived dt,
+.board-drawer__field--archived .board-chip {
+    opacity: 0.75;
+}
+
+.board-card-form__fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    min-width: 0;
+    margin: 0;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.board-card-form__fields legend {
+    float: left;
+    grid-column: 1 / -1;
+    margin-bottom: 4px;
+    padding: 0;
+    color: var(--color-muted);
+    font-weight: 700;
+}
+
+.board-card-form__fields label {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    color: var(--color-muted);
+}
+
+.board-card-form__fields input,
+.board-card-form__fields select {
+    width: 100%;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--control-font-size);
+}
+
+@media (max-width: 560px) {
+    .board-card-form__fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* ---- «Поля карточек» ---- */
+
+.board-fields__intro {
+    max-width: 900px;
+    margin: 0;
+}
+
+.board-fields {
+    display: grid;
+    gap: 10px;
+    max-width: 1100px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-field {
+    display: grid;
+    gap: 8px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.board-field--archived {
+    background: var(--color-bg);
+}
+
+.board-field--archived .board-field__name {
+    color: var(--color-muted);
+}
+
+.board-field__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    min-width: 0;
+}
+
+.board-field__name {
+    min-width: 0;
+    margin: 0;
+    font-size: var(--font-size-base);
+}
+
+.board-field__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    margin: 0;
+}
+
+.board-field__facts > div {
+    display: flex;
+    gap: 6px;
+}
+
+.board-field__facts dt {
+    color: var(--color-muted);
+}
+
+.board-field__facts dd {
+    margin: 0;
+}
+
+.board-field__tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.board-field__options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.board-field__edit > summary {
+    list-style: none;
+}
+
+.board-field__edit > summary::-webkit-details-marker {
+    display: none;
+}
+
+.board-field__edit-body {
+    display: grid;
+    gap: 14px;
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.board-field__form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 10px 14px;
+}
+
+.board-field__form label {
+    display: grid;
+    gap: 4px;
+}
+
+.board-field__form label span {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.board-field__form input[type="text"],
+.board-field__option-list input[type="text"],
+.board-field-new input[type="text"] {
+    width: min(320px, 100%);
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+}
+
+.board-field__form select,
+.board-field__option-list select,
+.board-field-new select {
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+}
+
+.board-field__form .board-field__check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--control-height);
+}
+
+.board-field__option-list {
+    display: grid;
+    gap: 8px;
+}
+
+.board-field__option-list h3 {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-option-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-option-row--archived .board-option-row__form input[type="text"] {
+    color: var(--color-muted);
+}
+
+/* One line per option: the chip, the label, the colour and «Сохранить» stay
+   together; ← →, «В архив» and «Удалить» follow and wrap as a group. */
+.board-option-row__form {
+    display: flex;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.board-option-row__form input[type="text"] {
+    flex: 0 1 220px;
+    width: 220px;
+    min-width: 100px;
+}
+
+.board-field-new {
+    display: grid;
+    gap: 12px;
+}
+
+.board-field-new h2 {
+    margin: 0;
+    font-size: var(--font-size-base);
+}
+
+.board-field-new__identity {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+}
+
+.board-field-new__identity label {
+    display: grid;
+    gap: 4px;
+}
+
+.board-field-new__options {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.board-field-new__options[hidden] {
+    display: none;
+}
+
+.board-field-new__options legend {
+    margin-bottom: 4px;
+    padding: 0;
+    color: var(--color-muted);
+    font-weight: 700;
+}
+
+.board-field-new__options .link-button {
+    justify-self: start;
+}
+
+.board-field-new__rows {
+    display: grid;
+    gap: 6px;
+}
+
+.board-field-new__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-field-new__row .link-button[hidden] {
+    display: none;
 }

@@ -464,3 +464,206 @@ class BoardCardEvent(models.Model):
 
     def __str__(self):
         return f'{self.get_kind_display()} карточки #{self.card_id}'
+
+
+# --------------------------------------------------------------------------
+# Custom card fields
+# --------------------------------------------------------------------------
+#
+# A board's own fields («Номер заявки», «Срок изг.», «Приоритет»): defined
+# once on the board and shared by every sub-board, each card holding at most
+# one value of each. An empty value is no row at all. A field or an option
+# that a value names is never deleted — it is archived: no longer offered,
+# no longer on a tile, but the value stays and «Описание» shows it marked
+# «(в архиве)». `boards/services.py` is the only writer.
+
+
+class BoardFieldColor(models.TextChoices):
+    """The closed set of colours a list option may carry.
+
+    Each is a pair of tokens in `static/css/boards.css`
+    (`--board-color-<code>-bg` / `-text`), drawn through `.board-chip--<code>`.
+    """
+
+    GRAY = 'gray', 'Серый'
+    BLUE = 'blue', 'Синий'
+    GREEN = 'green', 'Зелёный'
+    YELLOW = 'yellow', 'Жёлтый'
+    ORANGE = 'orange', 'Оранжевый'
+    RED = 'red', 'Красный'
+    PURPLE = 'purple', 'Фиолетовый'
+    TEAL = 'teal', 'Бирюзовый'
+
+
+class BoardField(models.Model):
+    """One field of a board's cards, shared by all its sub-boards.
+
+    At most `services.MAX_FIELDS` live (not archived) fields per board; the
+    name is unique on the board whatever the case (`services`, by
+    `casefold()`, as sub-boards are). `kind` changes only while no card holds
+    a value of it, and a field with values is archived, never deleted.
+    """
+
+    class Kind(models.TextChoices):
+        TEXT = 'TEXT', 'Текст'
+        NUMBER = 'NUMBER', 'Число'
+        DATE = 'DATE', 'Дата'
+        SELECT = 'SELECT', 'Список'
+
+    board = models.ForeignKey(
+        Board,
+        on_delete=models.PROTECT,
+        related_name='fields',
+        verbose_name='Доска',
+    )
+    name = models.CharField('Название', max_length=60)
+    kind = models.CharField('Вид', max_length=8, choices=Kind.choices)
+    # Order on the card and on the tile, 1, 2, 3, … — renumbered by every move.
+    position = models.PositiveIntegerField('Позиция')
+    show_on_tile = models.BooleanField('Показывать на плитке', default=True)
+    is_archived = models.BooleanField('В архиве', default=False)
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+    updated_at = models.DateTimeField('Обновлено', auto_now=True)
+
+    class Meta:
+        ordering = ['board_id', 'position', 'pk']
+        verbose_name = 'Поле карточек'
+        verbose_name_plural = 'Поля карточек'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(kind__in=['TEXT', 'NUMBER', 'DATE', 'SELECT']),
+                name='board_field_kind_known',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.board}: {self.name}'
+
+
+class BoardFieldOption(models.Model):
+    """One choice of a list field («Высокий», red). At most
+    `services.MAX_OPTIONS` live ones per field; one a value names is
+    archived, never deleted."""
+
+    field = models.ForeignKey(
+        BoardField,
+        on_delete=models.CASCADE,
+        related_name='options',
+        verbose_name='Поле',
+    )
+    label = models.CharField('Подпись', max_length=60)
+    color = models.CharField(
+        'Цвет', max_length=10, choices=BoardFieldColor.choices, default=BoardFieldColor.GRAY,
+    )
+    position = models.PositiveIntegerField('Позиция')
+    is_archived = models.BooleanField('В архиве', default=False)
+
+    class Meta:
+        ordering = ['field_id', 'position', 'pk']
+        verbose_name = 'Вариант поля'
+        verbose_name_plural = 'Варианты полей'
+        constraints = [
+            # The colour becomes a CSS class (`board-chip--<code>`): only the
+            # eight the stylesheet declares.
+            models.CheckConstraint(
+                condition=models.Q(color__in=BoardFieldColor.values),
+                name='board_field_option_color_known',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.field}: {self.label}'
+
+
+class BoardCardFieldValue(models.Model):
+    """The value one card holds for one field — exactly one column filled.
+
+    `value_text` for `TEXT`, `value_number` for `NUMBER`, `value_date` for
+    `DATE`, `option` for `SELECT`. An empty value is no row: the services
+    delete it. The check constraint says «exactly one column», `clean()` and
+    the services say «the column of the field's kind».
+    """
+
+    card = models.ForeignKey(
+        BoardCard,
+        # Cards are never deleted; the cascade only completes the schema.
+        on_delete=models.CASCADE,
+        related_name='field_values',
+        verbose_name='Карточка',
+    )
+    field = models.ForeignKey(
+        BoardField,
+        on_delete=models.PROTECT,
+        related_name='values',
+        verbose_name='Поле',
+    )
+    value_text = models.CharField('Текст', max_length=500, null=True, blank=True)
+    value_number = models.DecimalField('Число', max_digits=18, decimal_places=4, null=True, blank=True)
+    value_date = models.DateField('Дата', null=True, blank=True)
+    option = models.ForeignKey(
+        BoardFieldOption,
+        on_delete=models.PROTECT,
+        related_name='values',
+        verbose_name='Вариант',
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ['card_id', 'field_id']
+        verbose_name = 'Значение поля карточки'
+        verbose_name_plural = 'Значения полей карточек'
+        constraints = [
+            models.UniqueConstraint(fields=['card', 'field'], name='unique_board_card_field_value'),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        value_text__isnull=False, value_number__isnull=True,
+                        value_date__isnull=True, option__isnull=True,
+                    ) & ~models.Q(value_text='')
+                    | models.Q(
+                        value_text__isnull=True, value_number__isnull=False,
+                        value_date__isnull=True, option__isnull=True,
+                    )
+                    | models.Q(
+                        value_text__isnull=True, value_number__isnull=True,
+                        value_date__isnull=False, option__isnull=True,
+                    )
+                    | models.Q(
+                        value_text__isnull=True, value_number__isnull=True,
+                        value_date__isnull=True, option__isnull=False,
+                    )
+                ),
+                name='board_card_field_value_exactly_one',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.field.name} карточки #{self.card_id}'
+
+    # The column each kind is stored in.
+    KIND_COLUMNS = {
+        BoardField.Kind.TEXT: 'value_text',
+        BoardField.Kind.NUMBER: 'value_number',
+        BoardField.Kind.DATE: 'value_date',
+        BoardField.Kind.SELECT: 'option',
+    }
+
+    def clean(self):
+        """The field is of the card's board, and its kind's column is the filled one."""
+        errors = {}
+        if self.field_id is not None and self.card_id is not None:
+            if self.field.board_id != self.card.board_id:
+                errors['field'] = 'Поле принадлежит другой доске.'
+        if self.field_id is not None:
+            expected = self.KIND_COLUMNS.get(self.field.kind)
+            filled = [
+                name for name in ('value_text', 'value_number', 'value_date', 'option')
+                if getattr(self, name if name != 'option' else 'option_id') not in (None, '')
+            ]
+            if filled != [expected]:
+                errors['field'] = 'Значение не соответствует виду поля.'
+            if self.option_id is not None and self.option.field_id != self.field_id:
+                errors['option'] = 'Вариант принадлежит другому полю.'
+        if errors:
+            raise ValidationError(errors)

@@ -1,0 +1,8 @@
+{% comment %}One option row of «+ Поле»: a label and one of the eight colours. `option_row` is `{'label', 'color'}`, or `None` for the empty template row.{% endcomment %}
+<div class="board-field-new__row" data-option-row>
+    <input type="text" name="option_label" value="{{ option_row.label|default:'' }}" maxlength="60" placeholder="Подпись варианта" aria-label="Подпись варианта">
+    <select name="option_color" aria-label="Цвет варианта">
+        {% for value, label in colors %}<option class="board-option board-option--{{ value }}" value="{{ value }}"{% if option_row and value == option_row.color %} selected{% endif %}>● {{ label }}</option>{% endfor %}
+    </select>
+    <button class="link-button link-button--secondary link-button--compact" type="button" data-remove-option-row hidden title="Убрать строку" aria-label="Убрать строку">×</button>
+</div>

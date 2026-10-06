@@ -5,13 +5,15 @@ Read only, and never a permission decision of its own — the flags returned are
 number of cards nor on the number of columns: the tabs and the columns are one
 query each, the open cards and the latest completed ones are each one query
 through their tasks, the исполнители one prefetch each, and the card the panel
-shows one more.
+shows one more. The board's own card fields are one query with their options
+one prefetch, and the values of every card on the page — the panel's included
+— one more.
 """
 
+import hashlib
+import re
 from dataclasses import dataclass
 from urllib.parse import urlencode
-
-import re
 
 from django.contrib.auth import get_user_model
 from django.db.models import Count, IntegerField, OuterRef, Prefetch, Q, Subquery, Value
@@ -20,7 +22,17 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from .columns import MAX_COLUMNS, card_column
-from .models import Board, BoardCardComment, BoardCardEvent, BoardColumn, BoardMember, SubBoard
+from .models import (
+    Board,
+    BoardCardComment,
+    BoardCardEvent,
+    BoardCardFieldValue,
+    BoardColumn,
+    BoardField,
+    BoardFieldOption,
+    BoardMember,
+    SubBoard,
+)
 from .permissions import (
     active_employee_q,
     can_cancel_card,
@@ -182,8 +194,140 @@ def _item(task, board):
     }
 
 
+# --------------------------------------------------------------------------
+# Custom card fields: how a value reads
+# --------------------------------------------------------------------------
+
+# How many field values a tile draws under its title.
+TILE_FIELD_LIMIT = 4
+
+# Between digit groups of a number: a no-break space, so «1 234 567» never
+# breaks across lines.
+NUMBER_GROUP_SEPARATOR = '\u00a0'
+
+
+def board_fields(board):
+    """Every field of `board` in order, archived ones too, each with its
+    options in order (`field.options.all()`) — one query, plus one for the
+    options when the board has any field."""
+    return list(
+        BoardField.objects.filter(board=board).order_by('position', 'pk')
+        .prefetch_related(Prefetch('options', queryset=BoardFieldOption.objects.order_by('position', 'pk')))
+    )
+
+
+def fields_stamp(fields):
+    """A short fingerprint of the fields' setup, read off what is in memory.
+
+    The columns block carries it, so their fingerprint moves with every
+    change of the setup — a renamed field, a new colour, a field hidden from
+    the tiles — even where no tile shows it yet.
+    """
+    parts = [
+        (field.pk, field.name, field.kind, field.position, field.show_on_tile, field.is_archived,
+         [(option.pk, option.label, option.color, option.position, option.is_archived)
+          for option in field.options.all()])
+        for field in fields
+    ]
+    return hashlib.sha256(repr(parts).encode('utf-8')).hexdigest()[:12]
+
+
+def format_number(value):
+    """«1 234 567,5»: no trailing zeros, digit groups apart, a decimal comma."""
+    text = format(value.normalize(), 'f')
+    sign = '-' if text.startswith('-') else ''
+    integer, _, fraction = text.lstrip('-').partition('.')
+    groups = []
+    while len(integer) > 3:
+        groups.insert(0, integer[-3:])
+        integer = integer[:-3]
+    groups.insert(0, integer)
+    number = sign + NUMBER_GROUP_SEPARATOR.join(groups)
+    return f'{number},{fraction}' if fraction else number
+
+
+def number_input(value):
+    """A stored number as the card form shows it to be edited: «1234,5»."""
+    text = format(value.normalize(), 'f')
+    return text.replace('.', ',')
+
+
+def describe_field_value(field, row):
+    """One value as every board template reads it.
+
+    `{'field', 'name', 'kind', 'text', 'color', 'is_archived', 'on_tile'}`:
+    `text` is the value as it reads — a list option's label, a date
+    `ДД.ММ.ГГГГ`, a number by `format_number()` — and `color` the option's
+    colour code for its chip (empty for the other kinds). `is_archived` is
+    the field's or the option's: «Описание» marks it «(в архиве)», and the
+    tile never shows it. `None` when the row names an option the field does
+    not hold, or a row whose column is not its kind's — neither can happen:
+    the schema and the services keep them together.
+    """
+    color = ''
+    archived = field.is_archived
+    if field.kind == BoardField.Kind.SELECT:
+        option = next((option for option in field.options.all() if option.pk == row.option_id), None)
+        if option is None:
+            return None
+        text, color = option.label, option.color
+        archived = archived or option.is_archived
+    elif field.kind == BoardField.Kind.NUMBER:
+        if row.value_number is None:
+            return None
+        text = format_number(row.value_number)
+    elif field.kind == BoardField.Kind.DATE:
+        if row.value_date is None:
+            return None
+        text = row.value_date.strftime('%d.%m.%Y')
+    else:
+        if not row.value_text:
+            return None
+        text = row.value_text
+    return {
+        'field': field,
+        'name': field.name,
+        'kind': field.kind,
+        'text': text,
+        'color': color,
+        'is_archived': archived,
+        'on_tile': field.show_on_tile and not archived,
+    }
+
+
+def card_field_rows(fields, card_ids):
+    """`{card id: {field id: BoardCardFieldValue}}` for `card_ids` — one query,
+    none at all when the board has no fields."""
+    if not fields or not card_ids:
+        return {}
+    rows = {}
+    for row in BoardCardFieldValue.objects.filter(
+        card_id__in=card_ids, field_id__in=[field.pk for field in fields],
+    ):
+        rows.setdefault(row.card_id, {})[row.field_id] = row
+    return rows
+
+
+def attach_field_values(item, fields, rows):
+    """`item['field_values']` — every value the card holds, in the fields'
+    order, archived ones included — `item['tile_values']` — the first
+    `TILE_FIELD_LIMIT` of those a tile shows — and `item['field_rows']`, the
+    rows by field id (what the edit form starts from)."""
+    item['field_rows'] = rows
+    values = []
+    for field in fields:
+        row = rows.get(field.pk)
+        if row is not None:
+            value = describe_field_value(field, row)
+            if value is not None:
+                values.append(value)
+    item['field_values'] = values
+    item['tile_values'] = [value for value in values if value['on_tile']][:TILE_FIELD_LIMIT]
+    return item
+
+
 def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, can_work,
-                all_comments=False):
+                all_comments=False, fields=(), field_rows=None):
     """The card `?card=` names, with its task — or `None`.
 
     Any card of this board: one of this sub-board, or one moved to another
@@ -273,6 +417,7 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     item['comments_earlier'] = max(item['comment_count'] - len(item['comments']), 0)
     item['can_comment'] = can_work
     item['log'] = card_log(card, item['attachments'])
+    attach_field_values(item, fields, (field_rows or {}).get(card.pk, {}))
     return item
 
 
@@ -311,10 +456,13 @@ def describe_card_event(event, code=''):
         if details.get('by_column'):
             # The people pinned to the column the card came into.
             return f'Исполнители по колонке «{details["by_column"]}»'
-        names = [
-            EDITED_FIELD_LABELS[name]
-            for name in details.get('fields') or () if name in EDITED_FIELD_LABELS
-        ]
+        names = []
+        for name in details.get('fields') or ():
+            if name in EDITED_FIELD_LABELS:
+                names.append(EDITED_FIELD_LABELS[name])
+            elif name == 'custom':
+                # The board's own fields, named as they were at the time.
+                names.extend(str(field) for field in details.get('custom_fields') or ())
         return f'Изменено: {", ".join(names)}' if names else 'Карточка изменена'
     if kind == BoardCardEvent.Kind.MOVED:
         return f'Перенос: «{_place(details, "from")}» → «{_place(details, "to")}»'
@@ -429,6 +577,13 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
     The board's columns are one query for all its sub-boards — the panel's
     «Переместить в…» offers them all — and the pins of this sub-board's
     columns one more.
+
+    `fields` are the board's own card fields, archived ones too, with their
+    options (`board_fields()`), and `fields_stamp` their fingerprint for the
+    columns block. Every card — on a column and in the panel — carries
+    `field_values` (what it holds, in the fields' order, `describe_field_value()`),
+    `tile_values` (the first `TILE_FIELD_LIMIT` a tile shows) and `field_rows`;
+    the values of all of them are one query (`card_field_rows()`).
     """
     from tasks.permissions import completable_task_ids
 
@@ -463,6 +618,17 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
     if done_column is not None:
         done_list = list(done_tasks.order_by('-completed_at', '-pk')[:done_limit])
         cards_by_column[done_column.pk] = [_item(task, board) for task in done_list]
+    # The board's own fields, and the values of every card on the page — the
+    # panel's included, whichever it is — in one query.
+    fields = board_fields(board)
+    panel_id = int(card_id) if str(card_id or '').isdigit() else None
+    field_rows = card_field_rows(
+        fields,
+        [task.board_card_id for task in [*open_tasks, *done_list]] + ([panel_id] if panel_id else []),
+    )
+    for cards in cards_by_column.values():
+        for item in cards:
+            attach_field_values(item, fields, field_rows.get(item['card'].pk, {}))
     working = [column for column in columns if not column.is_done]
     rows = []
     for column in columns:
@@ -517,10 +683,15 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
             _panel_card(
                 board, sub_board, columns_of, card_id, user,
                 loaded=loaded, tabs=tabs, can_work=can_work, all_comments=all_comments,
+                fields=fields, field_rows=field_rows,
             )
             if card_id not in (None, '') else None
         ),
         'move_choices': _move_choices(tabs, columns_of, sub_board),
+        # Every field of the board, archived ones too, with its options: the
+        # card form offers the live ones, «Описание» reads them all.
+        'fields': fields,
+        'fields_stamp': fields_stamp(fields),
         'can_work': can_work,
         'can_manage': can_manage,
         'can_restore': can_restore_board(user, board),

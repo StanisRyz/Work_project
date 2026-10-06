@@ -37,9 +37,19 @@ the next number under the board lock. A working column may carry pinned
 people (`set_column_pins()`), whom a card created in it or moved into it gets
 through `_apply_pins()` in the same transaction; `move_card()` takes a
 working column of any sub-board of the card's own board.
+
+A board has its own card fields («Поля карточек»: text, number, date, a list
+of coloured options), set up by its manager — `create_field()` and the rest,
+one `structure_changed` each — and filled in by `create_card()`/
+`update_card()` through `field_values`, parsed by kind in
+`_clean_field_values()`. A field or an option a card holds a value of is
+archived, never deleted.
 """
 
+import datetime
 import logging
+import re
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -71,8 +81,12 @@ from .models import (
     BoardCard,
     BoardCardComment,
     BoardCardEvent,
+    BoardCardFieldValue,
     BoardColumn,
     BoardColumnPin,
+    BoardField,
+    BoardFieldColor,
+    BoardFieldOption,
     BoardMember,
     SubBoard,
 )
@@ -641,6 +655,7 @@ def _next_number(board):
 
 def create_card(
     sub_board, *, actor, title, due_date, assignee_ids, description='', column=None,
+    field_values=None,
 ):
     """A new card at the end of a working column of `sub_board`, and its task.
 
@@ -648,7 +663,8 @@ def create_card(
     sub-board; `None` is its first working column. The card takes the board's
     next number (`_next_number()`, under the board lock) and the people pinned
     to its column (`_apply_pins()`); every исполнитель it ends up with is told
-    once.
+    once. `field_values` (`{field id: raw value}`) are the board's own fields,
+    parsed by kind (`_clean_field_values()`); an empty one stores nothing.
     """
     from notifications.services import notify_board_task_assigned
     from tasks.services import TaskWorkflowError, create_board_card_task
@@ -668,6 +684,7 @@ def create_card(
             column = _first_working_id(sub_board)
         column = _working_column(sub_board, column, operation='create_card', actor=actor)
         ids = _clean_assignees(board, assignee_ids)
+        values = _clean_field_values(board, field_values, {})
         card = BoardCard(
             board=board,
             sub_board=sub_board,
@@ -680,6 +697,7 @@ def create_card(
         )
         card.clean()
         card.save()
+        _write_field_values(card, _field_value_changes(values, {}), {})
         try:
             task = create_board_card_task(
                 card,
@@ -717,7 +735,7 @@ def create_card(
 
 
 def update_card(card, *, actor, title, description, due_date, assignee_ids,
-                expected_version=None):
+                expected_version=None, field_values=None):
     """Correct a live card, and its task with it.
 
     `expected_version` is the `BoardCard.version` the edit form was drawn with.
@@ -726,6 +744,13 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
     `None` — a call that is not a form — skips the comparison. An edit that
     stored something raises the version by one; one that changed nothing does
     not.
+
+    `field_values` (`{field id: raw value}`) corrects the board's own fields
+    named in it — `None` touches none. An empty value deletes the row; an
+    archived field is left as it is. A value that changed is part of the same
+    edit: the same version step, the same `card_updated`, and the journal's
+    `EDITED` entry adds `custom` to `fields` and the fields' names as they
+    are now to `custom_fields` («Изменено: Номер заявки, Срок изг.»).
     """
     from notifications.services import notify_board_task_assigned
     from tasks.models import TaskAssignee
@@ -761,6 +786,12 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
         current_ids = set(
             TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True)
         )
+        current_rows = {
+            row.field_id: row
+            for row in BoardCardFieldValue.objects.filter(card=card).select_related('field')
+        }
+        values = _clean_field_values(board, field_values, current_rows)
+        custom_changes = _field_value_changes(values, current_rows)
         changed = [
             name for name, value in (('title', title), ('description', description))
             if getattr(card, name) != value
@@ -770,12 +801,13 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
         due_changed = task.due_date != due_date
         task_changed = task.task_text != task_text or due_changed
         assignees_changed = set(ids) != current_ids
-        stored = bool(changed or task_changed or assignees_changed)
+        stored = bool(changed or task_changed or assignees_changed or custom_changes)
         if stored:
             card.title = title
             card.description = description
             card.version += 1
             card.save(update_fields=[*changed, 'version', 'updated_at'])
+            _write_field_values(card, custom_changes, current_rows)
         try:
             update_board_card_task(task, task_text=task_text, due_date=due_date, actor=actor)
             replace_task_assignees(task, ids, actor=actor)
@@ -793,7 +825,12 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
                 fields.append('due_date')
             if assignees_changed:
                 fields.append('assignees')
-            _record(card, BoardCardEvent.Kind.EDITED, actor=actor, fields=fields)
+            details = {}
+            if custom_changes:
+                # The board's own fields, by their names as they are now.
+                fields.append('custom')
+                details['custom_fields'] = [field.name for field, _ in custom_changes]
+            _record(card, BoardCardEvent.Kind.EDITED, actor=actor, fields=fields, **details)
             emit_board_updated(board.pk, BOARD_CHANGE_CARD_UPDATED, card.pk)
     log_event(
         logger,
@@ -1146,7 +1183,10 @@ def _renumber_rows(rows):
             row.updated_at = now
             changed.append(row)
     if changed:
-        type(changed[0]).objects.bulk_update(changed, ['position', 'updated_at'])
+        model = type(changed[0])
+        # An option of a list field has no `updated_at` of its own.
+        stamped = any(field.name == 'updated_at' for field in model._meta.concrete_fields)
+        model.objects.bulk_update(changed, ['position', 'updated_at'] if stamped else ['position'])
 
 
 def _structure_changed(board, event, *, actor, **ids):
@@ -1411,6 +1451,521 @@ def set_column_pins(column, *, actor, user_ids, mode):
             column_id=column.pk, pinned_count=len(requested),
         )
     return column
+
+
+# --------------------------------------------------------------------------
+# Custom card fields
+# --------------------------------------------------------------------------
+#
+# A board's own fields — text, number, date, a list of coloured options —
+# set up by whoever manages the board, under one board lock each, never on an
+# archived board. Every change publishes one `board.updated(structure_changed)`
+# (the tiles and the card form draw the fields) and touches the sub-boards'
+# `updated_at`, which the `boards` sync revision reads; the same values again
+# store and publish nothing. A field or an option some card holds a value of
+# is archived, never deleted, and a field with values keeps its kind.
+#
+# The values themselves are written by `create_card()`/`update_card()`
+# (`field_values`), parsed here by kind: `_clean_field_values()`.
+
+MAX_FIELDS = 20
+MAX_OPTIONS = 30
+FIELD_NAME_MAX_LENGTH = 60
+OPTION_LABEL_MAX_LENGTH = 60
+FIELD_TEXT_MAX_LENGTH = 500
+# `DecimalField(18, 4)`: fourteen digits before the decimal comma, four after.
+NUMBER_INTEGER_DIGITS = 14
+NUMBER_DECIMAL_PLACES = 4
+
+_NUMBER = re.compile(r'^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$')
+_ISO_DATE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+# Spaces a number may be typed or pasted with: «1 234,5».
+_NUMBER_SPACES = re.compile(r'[\s  ]')
+
+
+class FieldValueError(BoardError):
+    """A card field's value refused; the message names the field.
+
+    `field_id` lets a form put the message beside that very input.
+    """
+
+    def __init__(self, field, message):
+        super().__init__(f'«{field.name}»: {message}')
+        self.field_id = field.pk
+
+
+def _fields_board(board_id, operation, *, actor):
+    """The board, locked, if `actor` may set up its card fields."""
+    board = _lock_board(board_id)
+    _refuse_archived(operation, board, actor=actor)
+    if not can_manage_board(actor, board):
+        _rejected(operation, 'not_permitted', actor=actor, board_id=board.pk)
+        raise BoardError('Поля карточек настраивает владелец доски или администратор.')
+    return board
+
+
+def _fields_changed(board, event, *, actor, **ids):
+    """One `board.updated(structure_changed)`, and the sync revision moved.
+
+    The `boards` revision of `/realtime/sync/` reads the sub-boards'
+    `updated_at`; every tile and card form of every sub-board draws the
+    fields, so a reader who missed the event still redraws.
+    """
+    SubBoard.objects.filter(board=board).update(updated_at=timezone.now())
+    _structure_changed(board, event, actor=actor, **ids)
+
+
+def _field_of(board, field, *, operation, actor):
+    """`field` (an object or an id), re-read and only if it is on `board`."""
+    field_id = getattr(field, 'pk', field)
+    found = BoardField.objects.filter(pk=field_id, board=board).first()
+    if found is None:
+        _rejected(operation, 'unknown_field', actor=actor, board_id=board.pk)
+        raise BoardError('Поле не найдено на этой доске — возможно, его удалили.')
+    return found
+
+
+def _option_of(board, option, *, operation, actor):
+    """`option` (an object or an id), re-read and only if it is on `board`."""
+    option_id = getattr(option, 'pk', option)
+    found = (
+        BoardFieldOption.objects.select_related('field')
+        .filter(pk=option_id, field__board=board).first()
+    )
+    if found is None:
+        _rejected(operation, 'unknown_option', actor=actor, board_id=board.pk)
+        raise BoardError('Вариант не найден — возможно, его удалили.')
+    return found
+
+
+def _clean_field_name(board, name, *, exclude_pk=None):
+    """Trimmed, required, at most 60, unique among the board's fields
+    (archived ones too) whatever the case — compared by `casefold()`, as
+    sub-board names are, since SQLite folds ASCII only."""
+    name = _clean_name(name, max_length=FIELD_NAME_MAX_LENGTH, what='поля')
+    others = BoardField.objects.filter(board=board)
+    if exclude_pk is not None:
+        others = others.exclude(pk=exclude_pk)
+    if name.casefold() in {other.casefold() for other in others.values_list('name', flat=True)}:
+        raise BoardError(f'Поле «{name}» на этой доске уже есть.')
+    return name
+
+
+def _clean_kind(kind):
+    if kind not in BoardField.Kind.values:
+        raise BoardError('Неизвестный вид поля.')
+    return kind
+
+
+def _clean_color(color):
+    """One of the eight colours; empty is grey."""
+    color = (color or BoardFieldColor.GRAY).strip()
+    if color not in BoardFieldColor.values:
+        raise BoardError('Неизвестный цвет варианта.')
+    return color
+
+
+def _clean_option_label(label, taken=(), *, field_name=''):
+    label = _clean_name(label, max_length=OPTION_LABEL_MAX_LENGTH, what='варианта')
+    if label.casefold() in {other.casefold() for other in taken}:
+        where = f' поля «{field_name}»' if field_name else ''
+        raise BoardError(f'Вариант «{label}»{where} уже есть.')
+    return label
+
+
+def _refuse_field_limit(board, operation, *, actor):
+    if BoardField.objects.filter(board=board, is_archived=False).count() >= MAX_FIELDS:
+        _rejected(operation, 'field_limit', actor=actor, board_id=board.pk)
+        raise BoardError(
+            f'На доске уже {MAX_FIELDS} полей — больше нельзя. Уберите ненужное в архив.'
+        )
+
+
+def _refuse_option_limit(field, operation, *, actor, adding=1):
+    live = BoardFieldOption.objects.filter(field=field, is_archived=False).count()
+    if live + adding > MAX_OPTIONS:
+        _rejected(operation, 'option_limit', actor=actor, board_id=field.board_id)
+        raise BoardError(
+            f'У поля «{field.name}» может быть не больше {MAX_OPTIONS} вариантов. '
+            'Уберите ненужные в архив.'
+        )
+
+
+def _has_values(field):
+    return BoardCardFieldValue.objects.filter(field=field).exists()
+
+
+def create_field(board, *, actor, name, kind, show_on_tile=True, options=()):
+    """A new field at the end of the board's fields.
+
+    `options` — `(label, colour)` pairs — only for a list (`SELECT`): any
+    other kind takes none. At most `MAX_FIELDS` live fields per board and
+    `MAX_OPTIONS` options per field.
+    """
+    with transaction.atomic():
+        board = _fields_board(board.pk, 'create_field', actor=actor)
+        name = _clean_field_name(board, name)
+        kind = _clean_kind(kind)
+        options = [tuple(option) for option in options or ()]
+        if options and kind != BoardField.Kind.SELECT:
+            raise BoardError('Варианты бывают только у поля вида «Список».')
+        if len(options) > MAX_OPTIONS:
+            raise BoardError(f'У поля может быть не больше {MAX_OPTIONS} вариантов.')
+        cleaned = []
+        for label, color in options:
+            cleaned.append((
+                _clean_option_label(label, [item[0] for item in cleaned]),
+                _clean_color(color),
+            ))
+        _refuse_field_limit(board, 'create_field', actor=actor)
+        last = BoardField.objects.filter(board=board).aggregate(last=Max('position'))['last'] or 0
+        field = BoardField.objects.create(
+            board=board, name=name, kind=kind, position=last + 1, show_on_tile=bool(show_on_tile),
+        )
+        BoardFieldOption.objects.bulk_create([
+            BoardFieldOption(field=field, label=label, color=color, position=index)
+            for index, (label, color) in enumerate(cleaned, start=1)
+        ])
+        _fields_changed(board, 'board.field_created', actor=actor, field_id=field.pk)
+    return field
+
+
+def update_field(field, *, actor, name, show_on_tile, kind=None):
+    """A field's name, whether its tile shows it, and — while no card holds a
+    value of it — its kind. `kind=None` keeps the kind.
+
+    A list turned into another kind loses its options (none can be used: the
+    field has no values). The same values store and publish nothing.
+    """
+    with transaction.atomic():
+        board = _fields_board(field.board_id, 'update_field', actor=actor)
+        field = _field_of(board, field, operation='update_field', actor=actor)
+        name = _clean_field_name(board, name, exclude_pk=field.pk)
+        kind = field.kind if kind in (None, '') else _clean_kind(kind)
+        show_on_tile = bool(show_on_tile)
+        if kind != field.kind and _has_values(field):
+            _rejected('update_field', 'kind_with_values', actor=actor, board_id=board.pk)
+            raise BoardError(
+                f'В карточках уже есть значения поля «{field.name}» — его вид менять нельзя.'
+            )
+        changed = [
+            attribute for attribute, value in (('name', name), ('kind', kind), ('show_on_tile', show_on_tile))
+            if getattr(field, attribute) != value
+        ]
+        if not changed:
+            return field
+        if 'kind' in changed and field.kind == BoardField.Kind.SELECT:
+            BoardFieldOption.objects.filter(field=field).delete()
+        field.name, field.kind, field.show_on_tile = name, kind, show_on_tile
+        field.save(update_fields=[*changed, 'updated_at'])
+        _fields_changed(board, 'board.field_updated', actor=actor, field_id=field.pk)
+    return field
+
+
+def move_field(field, *, actor, direction):
+    """One place towards the start (`'left'`) or the end (`'right'`)."""
+    with transaction.atomic():
+        board = _fields_board(field.board_id, 'move_field', actor=actor)
+        field = _field_of(board, field, operation='move_field', actor=actor)
+        rows = _step(list(BoardField.objects.filter(board=board).order_by('position', 'pk')), field, direction)
+        if rows is None:
+            _rejected('move_field', 'edge', actor=actor, board_id=board.pk)
+            raise BoardError('Поле уже первое.' if direction == 'left' else 'Поле уже последнее.')
+        _renumber_rows(rows)
+        _fields_changed(board, 'board.field_moved', actor=actor, field_id=field.pk)
+    return field
+
+
+def archive_field(field, *, actor):
+    """«В архив»: no longer offered on a card or drawn on a tile; the values
+    the cards hold stay and «Описание» shows them marked «(в архиве)»."""
+    return _set_field_archived(field, actor=actor, archived=True)
+
+
+def restore_field(field, *, actor):
+    """«Вернуть»: live again, within `MAX_FIELDS`."""
+    return _set_field_archived(field, actor=actor, archived=False)
+
+
+def _set_field_archived(field, *, actor, archived):
+    operation = 'archive_field' if archived else 'restore_field'
+    with transaction.atomic():
+        board = _fields_board(field.board_id, operation, actor=actor)
+        field = _field_of(board, field, operation=operation, actor=actor)
+        if field.is_archived == archived:
+            return field
+        if not archived:
+            _refuse_field_limit(board, operation, actor=actor)
+        field.is_archived = archived
+        field.save(update_fields=['is_archived', 'updated_at'])
+        _fields_changed(
+            board, 'board.field_archived' if archived else 'board.field_restored',
+            actor=actor, field_id=field.pk,
+        )
+    return field
+
+
+def delete_field(field, *, actor):
+    """Remove a field no card holds a value of, with its options.
+
+    One with values is refused: it can only be archived, so the values stay.
+    """
+    with transaction.atomic():
+        board = _fields_board(field.board_id, 'delete_field', actor=actor)
+        field = _field_of(board, field, operation='delete_field', actor=actor)
+        if _has_values(field):
+            _rejected('delete_field', 'has_values', actor=actor, board_id=board.pk)
+            raise BoardError(
+                f'В карточках есть значения поля «{field.name}» — его можно только убрать в архив.'
+            )
+        field_id = field.pk
+        field.delete()
+        _renumber_rows(list(BoardField.objects.filter(board=board).order_by('position', 'pk')))
+        _fields_changed(board, 'board.field_deleted', actor=actor, field_id=field_id)
+
+
+def _select_field(board, field, *, operation, actor):
+    field = _field_of(board, field, operation=operation, actor=actor)
+    if field.kind != BoardField.Kind.SELECT:
+        _rejected(operation, 'not_a_list', actor=actor, board_id=board.pk)
+        raise BoardError('Варианты бывают только у поля вида «Список».')
+    return field
+
+
+def create_option(field, *, actor, label, color):
+    """A new option at the end of a list field's options."""
+    with transaction.atomic():
+        board = _fields_board(field.board_id, 'create_option', actor=actor)
+        field = _select_field(board, field, operation='create_option', actor=actor)
+        options = list(BoardFieldOption.objects.filter(field=field))
+        label = _clean_option_label(label, [option.label for option in options], field_name=field.name)
+        color = _clean_color(color)
+        _refuse_option_limit(field, 'create_option', actor=actor)
+        option = BoardFieldOption.objects.create(
+            field=field, label=label, color=color,
+            position=max((other.position for other in options), default=0) + 1,
+        )
+        _fields_changed(board, 'board.option_created', actor=actor, field_id=field.pk, option_id=option.pk)
+    return option
+
+
+def update_option(option, *, actor, label, color):
+    """An option's label and colour; the same pair stores and publishes nothing."""
+    with transaction.atomic():
+        board = _fields_board(option.field.board_id, 'update_option', actor=actor)
+        option = _option_of(board, option, operation='update_option', actor=actor)
+        taken = BoardFieldOption.objects.filter(field_id=option.field_id).exclude(pk=option.pk)
+        label = _clean_option_label(
+            label, taken.values_list('label', flat=True), field_name=option.field.name,
+        )
+        color = _clean_color(color)
+        if (label, color) == (option.label, option.color):
+            return option
+        option.label, option.color = label, color
+        option.save(update_fields=['label', 'color'])
+        _fields_changed(board, 'board.option_updated', actor=actor, option_id=option.pk)
+    return option
+
+
+def move_option(option, *, actor, direction):
+    """One place up (`'left'`) or down (`'right'`) among the field's options."""
+    with transaction.atomic():
+        board = _fields_board(option.field.board_id, 'move_option', actor=actor)
+        option = _option_of(board, option, operation='move_option', actor=actor)
+        rows = _step(
+            list(BoardFieldOption.objects.filter(field_id=option.field_id).order_by('position', 'pk')),
+            option, direction,
+        )
+        if rows is None:
+            _rejected('move_option', 'edge', actor=actor, board_id=board.pk)
+            raise BoardError('Вариант уже первый.' if direction == 'left' else 'Вариант уже последний.')
+        _renumber_rows(rows)
+        _fields_changed(board, 'board.option_moved', actor=actor, option_id=option.pk)
+    return option
+
+
+def archive_option(option, *, actor):
+    """No longer offered; the cards that chose it keep it, shown «(в архиве)»."""
+    return _set_option_archived(option, actor=actor, archived=True)
+
+
+def restore_option(option, *, actor):
+    return _set_option_archived(option, actor=actor, archived=False)
+
+
+def _set_option_archived(option, *, actor, archived):
+    operation = 'archive_option' if archived else 'restore_option'
+    with transaction.atomic():
+        board = _fields_board(option.field.board_id, operation, actor=actor)
+        option = _option_of(board, option, operation=operation, actor=actor)
+        if option.is_archived == archived:
+            return option
+        if not archived:
+            _refuse_option_limit(option.field, operation, actor=actor)
+        option.is_archived = archived
+        option.save(update_fields=['is_archived'])
+        _fields_changed(
+            board, 'board.option_archived' if archived else 'board.option_restored',
+            actor=actor, option_id=option.pk,
+        )
+    return option
+
+
+def delete_option(option, *, actor):
+    """Remove an option no card has chosen; one in use can only be archived."""
+    with transaction.atomic():
+        board = _fields_board(option.field.board_id, 'delete_option', actor=actor)
+        option = _option_of(board, option, operation='delete_option', actor=actor)
+        if BoardCardFieldValue.objects.filter(option=option).exists():
+            _rejected('delete_option', 'has_values', actor=actor, board_id=board.pk)
+            raise BoardError(
+                f'Вариант «{option.label}» выбран в карточках — его можно только убрать в архив.'
+            )
+        option_id, field_id = option.pk, option.field_id
+        option.delete()
+        _renumber_rows(list(BoardFieldOption.objects.filter(field_id=field_id).order_by('position', 'pk')))
+        _fields_changed(board, 'board.option_deleted', actor=actor, option_id=option_id)
+
+
+# -- values -----------------------------------------------------------------
+
+
+def _is_empty(raw):
+    return raw is None or (isinstance(raw, str) and not raw.strip())
+
+
+def _parse_text(field, raw):
+    text = str(raw).strip()
+    if len(text) > FIELD_TEXT_MAX_LENGTH:
+        raise FieldValueError(field, f'не длиннее {FIELD_TEXT_MAX_LENGTH} символов.')
+    return text
+
+
+def _parse_number(field, raw):
+    """A `Decimal` from «12», «-3,5», «1 234.25»: a comma or a point, spaces
+    between digit groups allowed; at most 14 digits before the comma and 4
+    after — what `DecimalField(18, 4)` holds. No exponent, no «NaN»."""
+    if isinstance(raw, bool):
+        raise FieldValueError(field, 'введите число, например 12 или 3,5.')
+    text = _NUMBER_SPACES.sub('', str(raw)).replace(',', '.')
+    if not _NUMBER.match(text):
+        raise FieldValueError(field, 'введите число, например 12 или 3,5.')
+    integer, _, fraction = text.lstrip('+-').partition('.')
+    if len(integer.lstrip('0')) > NUMBER_INTEGER_DIGITS:
+        raise FieldValueError(field, f'не больше {NUMBER_INTEGER_DIGITS} цифр до запятой.')
+    if len(fraction.rstrip('0')) > NUMBER_DECIMAL_PLACES:
+        raise FieldValueError(field, f'не больше {NUMBER_DECIMAL_PLACES} цифр после запятой.')
+    value = Decimal(text)
+    return Decimal(0) if value == 0 else value
+
+
+def _parse_date(field, raw):
+    if isinstance(raw, datetime.datetime):
+        raw = raw.date()
+    if isinstance(raw, datetime.date):
+        return raw
+    text = str(raw).strip()
+    try:
+        if not _ISO_DATE.match(text):
+            raise ValueError(text)
+        return datetime.date.fromisoformat(text)
+    except ValueError as exc:
+        raise FieldValueError(field, 'дата в формате ГГГГ-ММ-ДД.') from exc
+
+
+def _parse_option(field, raw, current_option_id):
+    """A live option of this very field — or the archived one the card
+    already holds, sent back unchanged by its edit form."""
+    try:
+        option_id = int(getattr(raw, 'pk', raw))
+    except (TypeError, ValueError):
+        option_id = None
+    option = next((option for option in field.options.all() if option.pk == option_id), None)
+    if option is None:
+        raise FieldValueError(field, 'выберите вариант из списка.')
+    if option.is_archived and option.pk != current_option_id:
+        raise FieldValueError(field, f'вариант «{option.label}» убран в архив — выберите другой.')
+    return option
+
+
+def _parse_value(field, raw, current_row):
+    """The stored form of `raw` for `field`, or `None` for an empty value."""
+    if _is_empty(raw):
+        return None
+    if field.kind == BoardField.Kind.TEXT:
+        return _parse_text(field, raw)
+    if field.kind == BoardField.Kind.NUMBER:
+        return _parse_number(field, raw)
+    if field.kind == BoardField.Kind.DATE:
+        return _parse_date(field, raw)
+    return _parse_option(field, raw, getattr(current_row, 'option_id', None))
+
+
+def _clean_field_values(board, field_values, current_rows):
+    """`{field: parsed value or None}` for the fields `field_values` names.
+
+    Every key must be a field of `board` (an id or an object) — another
+    board's, or one deleted meanwhile, is refused. An archived field is left
+    out: its value is not touched, whatever the form sent. Read under the
+    board lock, the fields with their options in two queries.
+    """
+    if not field_values:
+        return {}
+    fields = {
+        field.pk: field
+        for field in BoardField.objects.filter(board=board).prefetch_related('options')
+    }
+    parsed = {}
+    for key, raw in field_values.items():
+        try:
+            field_id = int(getattr(key, 'pk', key))
+        except (TypeError, ValueError):
+            field_id = None
+        field = fields.get(field_id)
+        if field is None:
+            raise BoardError('Поле карточки не найдено на этой доске — возможно, его удалили. Обновите страницу.')
+        if field.is_archived:
+            continue
+        parsed[field] = _parse_value(field, raw, current_rows.get(field.pk))
+    return parsed
+
+
+def _stored_value(row):
+    column = BoardCardFieldValue.KIND_COLUMNS[row.field.kind]
+    return row.option_id if column == 'option' else getattr(row, column)
+
+
+def _field_value_changes(parsed, current_rows):
+    """The fields whose value really changes, in the fields' order: `[(field, value)]`."""
+    changes = []
+    for field, value in parsed.items():
+        row = current_rows.get(field.pk)
+        if value is None:
+            if row is not None:
+                changes.append((field, None))
+            continue
+        new = value.pk if field.kind == BoardField.Kind.SELECT else value
+        if row is None or _stored_value(row) != new:
+            changes.append((field, value))
+    changes.sort(key=lambda change: (change[0].position, change[0].pk))
+    return changes
+
+
+def _write_field_values(card, changes, current_rows):
+    """Store `changes`: a row created or rewritten, or deleted for an empty value."""
+    for field, value in changes:
+        row = current_rows.get(field.pk)
+        if value is None:
+            row.delete()
+            continue
+        if row is None:
+            row = BoardCardFieldValue(card=card, field=field)
+        row.card, row.field = card, field
+        row.value_text = row.value_number = row.value_date = row.option = None
+        column = BoardCardFieldValue.KIND_COLUMNS[field.kind]
+        setattr(row, column, value)
+        row.clean()
+        row.save()
 
 
 # --------------------------------------------------------------------------

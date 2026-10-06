@@ -1,0 +1,239 @@
+{% extends 'boards/layout.html' %}
+{% load static %}
+
+{% block title %}Поля карточек · {{ board.name }}{% endblock %}
+
+{% block board_main_label %}Поля карточек · {{ board.name }}{% endblock %}
+
+{% block board_main %}
+{% comment %}
+«Поля карточек»: the board's own fields, shared by every sub-board, in order —
+name, kind, whether the tile shows it, how many cards hold a value. A list
+field shows its options as coloured chips. Every reader of the board reads
+the page; whoever manages it (`can_manage`: the owner or an administrator,
+never on an archived board) also gets the forms — rename, kind (only while no
+card holds a value), «Показывать на плитке», ← →, «В архив» / «Вернуть»,
+«Удалить» (only while unused, through the shared confirmation modal) and the
+same for each option — and «+ Поле» at the end. Ordinary POST forms: it all
+works without JavaScript; `board_fields.js` only adds and removes option rows
+of «+ Поле» in place and hides them for a kind that is not a list. Every
+route asks the right again, and a refusal is a message on this page.
+{% endcomment %}
+<header class="board-head">
+    <div class="board-head__title">
+        <h1 class="user-text text-ellipsis" title="{{ board.name }}">Поля карточек · {{ board.name }}</h1>
+        {% if board.is_archived %}<span class="status-badge status-badge--archived">В архиве</span>{% endif %}
+    </div>
+    <div class="board-head__actions">
+        <a class="link-button link-button--secondary" href="{% url 'boards:detail' board.pk %}">К доске</a>
+    </div>
+</header>
+
+<div class="board-scroll">
+<p class="board-form__hint board-fields__intro">
+    Поля общие для всех поддосок доски: значения вводят в карточке, на плитке видны до четырёх полей с пометкой «на плитке».
+    Поле или вариант, у которых есть значения, удалить нельзя — их убирают в архив, а значения в карточках остаются.
+    Живых полей: {{ live_count }} из {{ max_fields }}.
+</p>
+
+{% if rows %}
+<ol class="board-fields">
+    {% for row in rows %}{% with field=row.field %}
+    <li class="board-field{% if field.is_archived %} board-field--archived{% endif %}" id="field-{{ field.pk }}">
+        <div class="board-field__head">
+            <h2 class="board-field__name user-text">{{ field.name }}</h2>
+            {% if field.is_archived %}<span class="status-badge status-badge--archived">В архиве</span>{% endif %}
+            <dl class="board-field__facts">
+                <div><dt>Вид</dt><dd>{{ field.get_kind_display }}</dd></div>
+                <div><dt>На плитке</dt><dd>{% if field.show_on_tile %}да{% else %}нет{% endif %}</dd></div>
+                <div><dt>Карточек со значением</dt><dd>{{ field.value_count }}</dd></div>
+            </dl>
+            {% if can_manage %}
+                <div class="board-field__tools">
+                    {% if row.can_move_left %}
+                        <form method="post" action="{% url 'boards:field_move' board.pk field.pk %}">
+                            {% csrf_token %}<input type="hidden" name="direction" value="left">
+                            <button class="link-button link-button--secondary link-button--compact" type="submit" title="Раньше" aria-label="Поле «{{ field.name }}» раньше">←</button>
+                        </form>
+                    {% endif %}
+                    {% if row.can_move_right %}
+                        <form method="post" action="{% url 'boards:field_move' board.pk field.pk %}">
+                            {% csrf_token %}<input type="hidden" name="direction" value="right">
+                            <button class="link-button link-button--secondary link-button--compact" type="submit" title="Позже" aria-label="Поле «{{ field.name }}» позже">→</button>
+                        </form>
+                    {% endif %}
+                    {% if field.is_archived %}
+                        <form method="post" action="{% url 'boards:field_restore' board.pk field.pk %}">
+                            {% csrf_token %}<button class="link-button link-button--secondary link-button--compact" type="submit">Вернуть</button>
+                        </form>
+                    {% else %}
+                        <form method="post" action="{% url 'boards:field_archive' board.pk field.pk %}">
+                            {% csrf_token %}<button class="link-button link-button--secondary link-button--compact" type="submit">В архив</button>
+                        </form>
+                    {% endif %}
+                    {% if not field.value_count %}
+                        <form id="board-field-delete-{{ field.pk }}" method="post" action="{% url 'boards:field_delete' board.pk field.pk %}">
+                            {% csrf_token %}
+                            <button class="link-button link-button--danger link-button--compact" type="submit"
+                                    data-confirm
+                                    data-confirm-form="board-field-delete-{{ field.pk }}"
+                                    data-confirm-title="Удалить поле «{{ field.name }}»?"
+                                    data-confirm-text="Ни в одной карточке нет его значения. Поле исчезнет из формы карточки{% if field.kind == 'SELECT' %} вместе с вариантами{% endif %}."
+                                    data-confirm-label="Удалить"
+                                    data-confirm-variant="danger">Удалить</button>
+                        </form>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+
+        {% if field.kind == 'SELECT' %}
+            <div class="board-field__options">
+                {% for item in row.options %}
+                    <span class="board-chip board-chip--{{ item.option.color }}{% if item.option.is_archived %} board-chip--archived{% endif %}" title="{{ item.option.get_color_display }}{% if item.option.value_count %} · карточек: {{ item.option.value_count }}{% endif %}">{{ item.option.label }}{% if item.option.is_archived %} (в архиве){% endif %}</span>
+                {% empty %}
+                    <span class="board-form__hint">Вариантов пока нет.</span>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if can_manage %}
+            <details class="board-field__edit">
+                <summary class="link-button link-button--secondary link-button--compact">Изменить</summary>
+                <div class="board-field__edit-body">
+                    <form class="board-field__form" method="post" action="{% url 'boards:field_update' board.pk field.pk %}">
+                        {% csrf_token %}
+                        <label>
+                            <span>Название</span>
+                            <input type="text" name="name" value="{{ field.name }}" maxlength="60" required>
+                        </label>
+                        {% if field.value_count %}
+                            <p class="board-form__hint">Вид — «{{ field.get_kind_display }}»: в карточках есть значения, поэтому вид не меняется.</p>
+                        {% else %}
+                            <label>
+                                <span>Вид</span>
+                                <select name="kind">
+                                    {% for value, label in kinds %}<option value="{{ value }}"{% if value == field.kind %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                                </select>
+                            </label>
+                        {% endif %}
+                        <label class="board-field__check"><input type="checkbox" name="show_on_tile" value="1"{% if field.show_on_tile %} checked{% endif %}> Показывать на плитке</label>
+                        <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                    </form>
+
+                    {% if field.kind == 'SELECT' %}
+                        <div class="board-field__option-list">
+                            <h3>Варианты</h3>
+                            {% for item in row.options %}{% with option=item.option %}
+                                <div class="board-option-row{% if option.is_archived %} board-option-row--archived{% endif %}">
+                                    <form class="board-option-row__form" method="post" action="{% url 'boards:option_update' board.pk field.pk option.pk %}">
+                                        {% csrf_token %}
+                                        <span class="board-chip board-chip--{{ option.color }}" aria-hidden="true">●</span>
+                                        <input type="text" name="label" value="{{ option.label }}" maxlength="60" required aria-label="Подпись варианта">
+                                        <select name="color" aria-label="Цвет варианта «{{ option.label }}»">
+                                            {% for value, label in colors %}<option class="board-option board-option--{{ value }}" value="{{ value }}"{% if value == option.color %} selected{% endif %}>● {{ label }}</option>{% endfor %}
+                                        </select>
+                                        <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                                    </form>
+                                    {% if item.can_move_left %}
+                                        <form method="post" action="{% url 'boards:option_move' board.pk field.pk option.pk %}">
+                                            {% csrf_token %}<input type="hidden" name="direction" value="left">
+                                            <button class="link-button link-button--secondary link-button--compact" type="submit" title="Раньше" aria-label="Вариант «{{ option.label }}» раньше">←</button>
+                                        </form>
+                                    {% endif %}
+                                    {% if item.can_move_right %}
+                                        <form method="post" action="{% url 'boards:option_move' board.pk field.pk option.pk %}">
+                                            {% csrf_token %}<input type="hidden" name="direction" value="right">
+                                            <button class="link-button link-button--secondary link-button--compact" type="submit" title="Позже" aria-label="Вариант «{{ option.label }}» позже">→</button>
+                                        </form>
+                                    {% endif %}
+                                    {% if option.is_archived %}
+                                        <form method="post" action="{% url 'boards:option_restore' board.pk field.pk option.pk %}">
+                                            {% csrf_token %}<button class="link-button link-button--secondary link-button--compact" type="submit">Вернуть</button>
+                                        </form>
+                                    {% else %}
+                                        <form method="post" action="{% url 'boards:option_archive' board.pk field.pk option.pk %}">
+                                            {% csrf_token %}<button class="link-button link-button--secondary link-button--compact" type="submit">В архив</button>
+                                        </form>
+                                    {% endif %}
+                                    {% if not option.value_count %}
+                                        <form id="board-option-delete-{{ option.pk }}" method="post" action="{% url 'boards:option_delete' board.pk field.pk option.pk %}">
+                                            {% csrf_token %}
+                                            <button class="link-button link-button--danger link-button--compact" type="submit"
+                                                    data-confirm
+                                                    data-confirm-form="board-option-delete-{{ option.pk }}"
+                                                    data-confirm-title="Удалить вариант «{{ option.label }}»?"
+                                                    data-confirm-text="Ни одна карточка его не выбрала."
+                                                    data-confirm-label="Удалить"
+                                                    data-confirm-variant="danger">Удалить</button>
+                                        </form>
+                                    {% endif %}
+                                </div>
+                            {% endwith %}{% endfor %}
+                            {% if row.live_options < max_options %}
+                                <form class="board-option-row__form board-option-row__form--new" method="post" action="{% url 'boards:option_create' board.pk field.pk %}">
+                                    {% csrf_token %}
+                                    <input type="text" name="label" maxlength="60" required placeholder="Новый вариант" aria-label="Подпись нового варианта">
+                                    <select name="color" aria-label="Цвет нового варианта">
+                                        {% for value, label in colors %}<option class="board-option board-option--{{ value }}" value="{{ value }}">● {{ label }}</option>{% endfor %}
+                                    </select>
+                                    <button class="link-button link-button--compact" type="submit">+ Вариант</button>
+                                </form>
+                            {% else %}
+                                <p class="board-form__hint">У поля {{ max_options }} вариантов — больше нельзя.</p>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            </details>
+        {% endif %}
+    </li>
+    {% endwith %}{% endfor %}
+</ol>
+{% else %}
+    <p class="board-form__hint">Полей пока нет.{% if can_manage %} Добавьте первое ниже — например «Номер заявки» или «Приоритет».{% endif %}</p>
+{% endif %}
+
+{% if can_manage %}
+    {% if can_add_field %}
+        <form class="form-card board-form board-field-new" method="post" action="{% url 'boards:field_create' board.pk %}" data-board-field-form>
+            {% csrf_token %}
+            <h2>+ Поле</h2>
+            {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors }}</div>{% endif %}
+            <div class="board-field-new__identity">
+                <label>
+                    <span>Название</span>
+                    <input type="text" name="name" value="{{ form.name.value|default:'' }}" maxlength="60" required placeholder="Например, Номер заявки">
+                    {{ form.name.errors }}
+                </label>
+                <label>
+                    <span>Вид</span>
+                    <select name="kind" data-board-field-kind>
+                        {% for value, label in kinds %}<option value="{{ value }}"{% if value == form.kind.value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                    {{ form.kind.errors }}
+                </label>
+            </div>
+            <fieldset class="board-field-new__options" data-board-field-options>
+                <legend>Варианты списка</legend>
+                <p class="board-form__hint">Только для вида «Список»: подпись и цвет, по строке на вариант. Пустые строки не сохраняются.</p>
+                <div class="board-field-new__rows" data-option-rows>
+                    {% for option_row in option_rows %}{% include 'boards/includes/option_row.html' %}{% endfor %}
+                </div>
+                <template data-option-row-template>{% include 'boards/includes/option_row.html' with option_row=None %}</template>
+                <button class="link-button link-button--secondary link-button--compact" type="submit" name="add_option_row" value="1" formnovalidate data-add-option-row>+ Вариант</button>
+            </fieldset>
+            <div class="form-actions">
+                <button class="link-button" type="submit">Добавить поле</button>
+            </div>
+        </form>
+    {% else %}
+        <p class="board-form__hint">На доске {{ max_fields }} живых полей — больше нельзя. Уберите ненужное в архив, чтобы добавить новое.</p>
+    {% endif %}
+{% endif %}
+</div>
+{% endblock %}
+
+{% block board_scripts %}
+<script src="{% static 'js/board_fields.js' %}?v=20261015-1" defer></script>
+{% endblock %}

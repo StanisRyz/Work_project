@@ -48,6 +48,36 @@ urlpatterns = [
         '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/delete/',
         views.column_delete, name='column_delete',
     ),
+    # «Поля карточек»: the board's own card fields. Read by every reader of
+    # the board, changed by whoever manages it.
+    path('<int:pk>/fields/', views.board_fields_page, name='fields'),
+    path('<int:pk>/fields/create/', views.field_create, name='field_create'),
+    path('<int:pk>/fields/<int:field_pk>/update/', views.field_update, name='field_update'),
+    path('<int:pk>/fields/<int:field_pk>/move/', views.field_move, name='field_move'),
+    path('<int:pk>/fields/<int:field_pk>/archive/', views.field_archive, name='field_archive'),
+    path('<int:pk>/fields/<int:field_pk>/restore/', views.field_restore, name='field_restore'),
+    path('<int:pk>/fields/<int:field_pk>/delete/', views.field_delete, name='field_delete'),
+    path('<int:pk>/fields/<int:field_pk>/options/create/', views.option_create, name='option_create'),
+    path(
+        '<int:pk>/fields/<int:field_pk>/options/<int:option_pk>/update/',
+        views.option_update, name='option_update',
+    ),
+    path(
+        '<int:pk>/fields/<int:field_pk>/options/<int:option_pk>/move/',
+        views.option_move, name='option_move',
+    ),
+    path(
+        '<int:pk>/fields/<int:field_pk>/options/<int:option_pk>/archive/',
+        views.option_archive, name='option_archive',
+    ),
+    path(
+        '<int:pk>/fields/<int:field_pk>/options/<int:option_pk>/restore/',
+        views.option_restore, name='option_restore',
+    ),
+    path(
+        '<int:pk>/fields/<int:field_pk>/options/<int:option_pk>/delete/',
+        views.option_delete, name='option_delete',
+    ),
     # Cards: created on a sub-board, then addressed by board and card; every
     # redirect after a POST goes to the card's own sub-board.
     path('<int:pk>/<int:sub_pk>/cards/create/', views.card_create, name='card_create'),

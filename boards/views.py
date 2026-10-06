@@ -57,12 +57,26 @@ from .forms import (
     BoardNameForm,
     CardForm,
     ColumnNameForm,
+    FieldForm,
+    FieldUpdateForm,
+    OptionForm,
     ColumnPinsForm,
     DirectionForm,
     MoveCardForm,
     SubBoardNameForm,
+    custom_field_name,
 )
-from .models import Board, BoardCard, BoardColumn, BoardMember, SubBoard
+from .models import (
+    Board,
+    BoardCard,
+    BoardCardFieldValue,
+    BoardColumn,
+    BoardField,
+    BoardFieldColor,
+    BoardFieldOption,
+    BoardMember,
+    SubBoard,
+)
 from .permissions import (
     can_cancel_card,
     can_comment_card,
@@ -73,19 +87,36 @@ from .permissions import (
     can_work_on_board,
 )
 from .selectors import (
+    board_fields,
     build_board_nav,
     build_board_state,
     column_counts,
     first_sub_board,
     member_preview,
+    number_input,
     parse_board_filters,
     resolve_new_column,
 )
 from .services import (
+    MAX_FIELDS,
+    MAX_OPTIONS,
     BoardCodeError,
     BoardError,
+    FieldValueError,
     StaleCardError,
     add_board_members,
+    archive_field,
+    archive_option,
+    create_field,
+    create_option,
+    delete_field,
+    delete_option,
+    move_field,
+    move_option,
+    restore_field,
+    restore_option,
+    update_field,
+    update_option,
     archive_board,
     cancel_card,
     change_board_code,
@@ -269,14 +300,41 @@ def board_create(request):
 # --------------------------------------------------------------------------
 
 
-def _card_initial(item):
-    return {
+def _card_initial(item, fields):
+    initial = {
         'title': item['card'].title,
         'description': item['card'].description,
         'due_date': item['due_date'],
         'assignees': [user.pk for user in item['assignees']],
         'version': item['card'].version,
     }
+    for field in fields:
+        row = item['field_rows'].get(field.pk)
+        if row is None or field.is_archived:
+            continue
+        if field.kind == BoardField.Kind.SELECT:
+            value = str(row.option_id)
+        elif field.kind == BoardField.Kind.NUMBER:
+            value = number_input(row.value_number)
+        elif field.kind == BoardField.Kind.DATE:
+            value = row.value_date
+        else:
+            value = row.value_text
+        initial[custom_field_name(field)] = value
+    return initial
+
+
+def _current_field_rows(card):
+    """`{field id: value row}` of a card — what its edit form offers again."""
+    return {row.field_id: row for row in BoardCardFieldValue.objects.filter(card=card)}
+
+
+def _field_error(form, exc):
+    """A refused field value beside its own input; anything else for the panel."""
+    if isinstance(exc, FieldValueError) and custom_field_name(exc.field_id) in form.fields:
+        form.add_error(custom_field_name(exc.field_id), str(exc))
+        return ''
+    return str(exc)
 
 
 TABS_TEMPLATE = 'boards/includes/tabs.html'
@@ -359,9 +417,12 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         submitted = form.data.get('column') if form is not None else ''
         new_column = resolve_new_column(columns, submitted) or state['first_working_column']
     if panel == 'edit' and form is None:
-        form = CardForm(board=board, initial=_card_initial(item))
+        form = CardForm(
+            board=board, fields=state['fields'], field_rows=item['field_rows'],
+            initial=_card_initial(item, state['fields']),
+        )
     if panel == 'new' and form is None:
-        form = CardForm(board=board, initial={'column': new_column.pk})
+        form = CardForm(board=board, fields=state['fields'], initial={'column': new_column.pk})
     if panel == 'view' and can_edit_card and move_form is None:
         move_form = MoveCardForm(
             initial={'column_id': item['column'].pk if item['column'] else None},
@@ -672,9 +733,12 @@ def card_create(request, pk, sub_pk):
                 description=form.cleaned_data['description'],
                 due_date=form.cleaned_data['due_date'],
                 assignee_ids=[user.pk for user in form.cleaned_data['assignees']],
+                field_values=form.field_values(),
             )
         except BoardError as exc:
-            return _render_board(request, board, sub_board, panel='new', form=form, error=str(exc))
+            return _render_board(
+                request, board, sub_board, panel='new', form=form, error=_field_error(form, exc),
+            )
         return redirect(_card_url(board, card, request))
     return _render_board(request, board, sub_board, panel='new', form=form)
 
@@ -686,7 +750,7 @@ def card_update(request, pk, card_pk):
     card = get_object_or_404(BoardCard, pk=card_pk, board=board)
     if request.method != 'POST':
         return redirect(_card_url(board, card, request))
-    form = CardForm(request.POST, board=board)
+    form = CardForm(request.POST, board=board, field_rows=_current_field_rows(card))
     if form.is_valid():
         try:
             update_card(
@@ -697,13 +761,14 @@ def card_update(request, pk, card_pk):
                 due_date=form.cleaned_data['due_date'],
                 assignee_ids=[user.pk for user in form.cleaned_data['assignees']],
                 expected_version=form.cleaned_data['version'],
+                field_values=form.field_values(),
             )
         except BoardError as exc:
             # A stale version keeps the typed values in the edit panel and
             # offers the current card in another tab, so nothing typed is lost.
             return _render_board(
                 request, board, card.sub_board, card_id=card.pk, panel='edit', form=form,
-                error=str(exc), version_conflict=isinstance(exc, StaleCardError),
+                error=_field_error(form, exc), version_conflict=isinstance(exc, StaleCardError),
             )
         return redirect(_card_url(board, card, request))
     return _render_board(request, board, card.sub_board, card_id=card.pk, panel='edit', form=form)
@@ -1216,3 +1281,245 @@ def member_remove(request, pk, user_pk):
     else:
         messages.success(request, 'Участник исключён.')
     return redirect('boards:members', pk=board.pk)
+
+
+# --------------------------------------------------------------------------
+# «Поля карточек»
+# --------------------------------------------------------------------------
+#
+# `/work/boards/<board>/fields/`: the board's own card fields, in order, with
+# their options. Every reader of the board reads the page; whoever manages it
+# (`can_manage_board()`: the owner or an administrator, never an archived
+# board) also gets the forms. Every route below asks that right before the
+# method (a 403), answers a GET by going back to the page and changing nothing,
+# and comes back with a message: the service's refusal or what was done.
+
+
+def _fields_url(board, anchor=''):
+    url = reverse('boards:fields', args=[board.pk])
+    return f'{url}#{anchor}' if anchor else url
+
+
+def _render_fields(request, board, *, form=None, option_rows=None):
+    """The page: the fields with how many cards hold a value of each (and of
+    each option), and for a manager the forms. Three queries for the list,
+    whatever its length."""
+    from django.db.models import Count, Prefetch
+
+    can_manage = can_manage_board(request.user, board)
+    fields = list(
+        BoardField.objects.filter(board=board).order_by('position', 'pk')
+        .annotate(value_count=Count('values'))
+        .prefetch_related(Prefetch(
+            'options',
+            queryset=BoardFieldOption.objects.order_by('position', 'pk').annotate(value_count=Count('values')),
+        ))
+    )
+    rows = []
+    for index, field in enumerate(fields):
+        options = list(field.options.all())
+        rows.append({
+            'field': field,
+            'options': [
+                {
+                    'option': option,
+                    'can_move_left': position > 0,
+                    'can_move_right': position < len(options) - 1,
+                }
+                for position, option in enumerate(options)
+            ],
+            'live_options': sum(not option.is_archived for option in options),
+            'can_move_left': index > 0,
+            'can_move_right': index < len(fields) - 1,
+        })
+    if form is None:
+        form = FieldForm()
+    if option_rows is None:
+        option_rows = form.option_rows or [{'label': '', 'color': BoardFieldColor.GRAY}]
+    live = sum(not field.is_archived for field in fields)
+    return render(request, 'boards/fields.html', {
+        **_frame(request, board),
+        'header_title': f'Поля карточек · {board.name}',
+        'board': board,
+        'rows': rows,
+        'can_manage': can_manage,
+        'form': form,
+        'option_rows': option_rows,
+        'kinds': BoardField.Kind.choices,
+        'colors': BoardFieldColor.choices,
+        'live_count': live,
+        'can_add_field': live < MAX_FIELDS,
+        'max_fields': MAX_FIELDS,
+        'max_options': MAX_OPTIONS,
+    })
+
+
+@login_required
+def board_fields_page(request, pk):
+    board = _board_or_404(pk)
+    _require(can_view_board(request.user, board))
+    return _render_fields(request, board)
+
+
+@login_required
+def field_create(request, pk):
+    """«+ Поле»: `create_field()`. «+ Вариант» without JavaScript posts the
+    same form back with one more option row, writing nothing; a refusal
+    comes back as the page with what was typed and the message."""
+    board = _board_or_404(pk)
+    _require(can_manage_board(request.user, board))
+    if request.method != 'POST':
+        return redirect(_fields_url(board))
+    form = FieldForm(request.POST)
+    if 'add_option_row' in request.POST:
+        rows = form.option_rows + [{'label': '', 'color': BoardFieldColor.GRAY}]
+        return _render_fields(
+            request, board,
+            form=FieldForm(initial={'name': request.POST.get('name', ''), 'kind': request.POST.get('kind', '')}),
+            option_rows=rows,
+        )
+    if form.is_valid():
+        try:
+            field = create_field(
+                board, actor=request.user,
+                name=form.cleaned_data['name'], kind=form.cleaned_data['kind'],
+                options=form.options(),
+            )
+        except BoardError as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(request, f'Поле «{field.name}» добавлено.')
+            return redirect(_fields_url(board, f'field-{field.pk}'))
+    return _render_fields(request, board, form=form)
+
+
+def _field_route(request, pk, field_pk, action, *, success='', gone=False):
+    """The shape of every route on one field: the right before the method, a
+    GET back to the page, a refusal as a message. Back at the field's own
+    row — or at the top once `gone` (deleted)."""
+    board = _board_or_404(pk)
+    _require(can_manage_board(request.user, board))
+    field = get_object_or_404(BoardField, pk=field_pk, board=board)
+    anchor = f'field-{field.pk}'
+    if request.method == 'POST':
+        try:
+            action(field)
+        except BoardError as exc:
+            messages.error(request, str(exc))
+        else:
+            if success:
+                messages.success(request, success.format(name=field.name))
+            if gone:
+                anchor = ''
+    return redirect(_fields_url(board, anchor))
+
+
+@login_required
+def field_update(request, pk, field_pk):
+    def action(field):
+        form = FieldUpdateForm(request.POST)
+        if not form.is_valid():
+            raise BoardError(' '.join(error for errors in form.errors.values() for error in errors))
+        update_field(
+            field, actor=request.user, name=form.cleaned_data['name'],
+            kind=form.cleaned_data['kind'] or None, show_on_tile=form.cleaned_data['show_on_tile'],
+        )
+    return _field_route(request, pk, field_pk, action)
+
+
+@login_required
+def field_move(request, pk, field_pk):
+    def action(field):
+        form = DirectionForm(request.POST)
+        if not form.is_valid():
+            raise BoardError('Неизвестное направление.')
+        move_field(field, actor=request.user, direction=form.cleaned_data['direction'])
+    return _field_route(request, pk, field_pk, action)
+
+
+@login_required
+def field_archive(request, pk, field_pk):
+    return _field_route(
+        request, pk, field_pk, lambda field: archive_field(field, actor=request.user),
+        success='Поле «{name}» убрано в архив.',
+    )
+
+
+@login_required
+def field_restore(request, pk, field_pk):
+    return _field_route(
+        request, pk, field_pk, lambda field: restore_field(field, actor=request.user),
+        success='Поле «{name}» возвращено.',
+    )
+
+
+@login_required
+def field_delete(request, pk, field_pk):
+    return _field_route(
+        request, pk, field_pk, lambda field: delete_field(field, actor=request.user),
+        success='Поле «{name}» удалено.', gone=True,
+    )
+
+
+@login_required
+def option_create(request, pk, field_pk):
+    def action(field):
+        form = OptionForm(request.POST)
+        if not form.is_valid():
+            raise BoardError(' '.join(error for errors in form.errors.values() for error in errors))
+        create_option(field, actor=request.user, label=form.cleaned_data['label'], color=form.cleaned_data['color'])
+    return _field_route(request, pk, field_pk, action)
+
+
+def _option_route(request, pk, field_pk, option_pk, action):
+    board = _board_or_404(pk)
+    _require(can_manage_board(request.user, board))
+    field = get_object_or_404(BoardField, pk=field_pk, board=board)
+    option = get_object_or_404(BoardFieldOption, pk=option_pk, field=field)
+    if request.method == 'POST':
+        try:
+            action(option)
+        except BoardError as exc:
+            messages.error(request, str(exc))
+    return redirect(_fields_url(board, f'field-{field.pk}'))
+
+
+@login_required
+def option_update(request, pk, field_pk, option_pk):
+    def action(option):
+        form = OptionForm(request.POST)
+        if not form.is_valid():
+            raise BoardError(' '.join(error for errors in form.errors.values() for error in errors))
+        update_option(option, actor=request.user, label=form.cleaned_data['label'], color=form.cleaned_data['color'])
+    return _option_route(request, pk, field_pk, option_pk, action)
+
+
+@login_required
+def option_move(request, pk, field_pk, option_pk):
+    def action(option):
+        form = DirectionForm(request.POST)
+        if not form.is_valid():
+            raise BoardError('Неизвестное направление.')
+        move_option(option, actor=request.user, direction=form.cleaned_data['direction'])
+    return _option_route(request, pk, field_pk, option_pk, action)
+
+
+@login_required
+def option_archive(request, pk, field_pk, option_pk):
+    return _option_route(
+        request, pk, field_pk, option_pk, lambda option: archive_option(option, actor=request.user),
+    )
+
+
+@login_required
+def option_restore(request, pk, field_pk, option_pk):
+    return _option_route(
+        request, pk, field_pk, option_pk, lambda option: restore_option(option, actor=request.user),
+    )
+
+
+@login_required
+def option_delete(request, pk, field_pk, option_pk):
+    return _option_route(
+        request, pk, field_pk, option_pk, lambda option: delete_option(option, actor=request.user),
+    )
