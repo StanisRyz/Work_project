@@ -1,0 +1,21 @@
+$ python manage.py check
+System check identified no issues (0 silenced).
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test --parallel 4
+Ran 1625 tests in 124.967s
+OK (skipped=8)
+
+$ python manage.py check_documentation
+  [PASS    ] structure: Все активные документы непусты и имеют один H1.
+  [WARNING ] length: AGENTS.md: 2838 строк заметно превышает ориентир 190. Допустимо, если содержимое уникально.
+  [WARNING ] length: README.md: 651 строк заметно превышает ориентир 220. Допустимо, если содержимое уникально.
+  [WARNING ] length: docs/domain.md: 783 строк заметно превышает ориентир 350. Допустимо, если содержимое уникально.
+  [WARNING ] length: docs/realtime.md: 603 строк заметно превышает ориентир 350. Допустимо, если содержимое уникально.
+
+Документация корректна, предупреждений — 4.
+
+$ node realtime/tests/js/realtime_client_test.js
+102/102 passed

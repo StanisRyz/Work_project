@@ -1,0 +1,41 @@
+$ python manage.py migrate   # с нуля, PostgreSQL 16
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying boards.0001_initial... OK
+  Applying boards.0002_board_archive_card_version... OK
+  Applying boards.0003_board_card_comment... OK
+  Applying boards.0004_board_department_optional... OK
+  Applying boards.0005_sub_boards_and_columns... OK
+  Applying boards.0006_default_sub_boards... OK
+  Applying boards.0007_sub_board_required... OK
+  Applying boards.0008_drop_card_stage... OK
+  Applying boards.0009_board_card_event... OK
+  Applying boards.0010_backfill_card_events... OK
+  Applying boards.0011_board_code_card_number... OK
+  Applying boards.0012_backfill_codes_and_numbers... OK
+  Applying boards.0013_board_code_card_number_required... OK
+  Applying boards.0014_board_column_pins... OK
+  Applying boards.0015_board_fields... OK
+$ python manage.py shell < tasksandreports/boards/reports/stage-15/seed_demo.py
+seeded
+# поля карточек и значения через сервисы
+Номер заявки | З-1579 None None None
+Срок изготовления | None None 2026-11-30 None
+Сумма | None 99999999999999.9999 None None
+Приоритет | None None None Высокий
+IntegrityError (unique): IntegrityError
+IntegrityError (exactly one): IntegrityError
+$ python manage.py migrate boards 0014   # откат миграции этапа
+Operations to perform:
+  Target specific migration: 0014_board_column_pins, from boards
+Running migrations:
+  Rendering model states... DONE
+  Unapplying boards.0015_board_fields... OK
+таблицы полей после отката: []
+$ python manage.py migrate   # снова вперёд
+  Applying boards.0015_board_fields... OK
+таблицы полей: ['boards_boardcardfieldvalue', 'boards_boardfield', 'boards_boardfieldoption']
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+$ python manage.py test boards dashboard tasks notifications realtime --parallel 4   # на PostgreSQL
+Ran 892 tests in 166.363s
+OK (skipped=3)
