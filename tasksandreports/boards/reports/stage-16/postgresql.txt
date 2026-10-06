@@ -1,0 +1,19 @@
+$ python manage.py migrate   # с нуля, PostgreSQL 16 (миграций на этапе нет)
+применено миграций: 148
+$ python manage.py shell < tasksandreports/boards/reports/stage-16/seed_demo.py
+seeded
+seeded stage 16
+# фильтры и поиск по значениям через selectors (PostgreSQL: icontains без учёта регистра и для кириллицы)
+«Приоритет: Высокий» -> ('f_4=1', ['ZAP-1', 'ZAP-3', 'ZAP-6'], 'counts agree')
+«Срок» по 2026-11-30 и «Стоп: Да» -> ('f_3_to=2026-11-30&f_5=4', ['ZAP-1', 'ZAP-4'], 'counts agree')
+текст «энергомаш» (строчными) в «Заказ покупателя» -> ('f_2=%D1%8D%D0%BD%D0%B5%D1%80%D0%B3%D0%BE%D0%BC%D0%B0%D1%88', ['ZAP-2'], 'counts agree')
+q «энергомаш» -> ('q=%D1%8D%D0%BD%D0%B5%D1%80%D0%B3%D0%BE%D0%BC%D0%B0%D1%88', ['ZAP-2'], 'counts agree')
+q «3-1579» -> ('q=3-1579', ['ZAP-1'], 'counts agree')
+мусор -> ('', ['ZAP-1', 'ZAP-2', 'ZAP-3', 'ZAP-4', 'ZAP-5', 'ZAP-6', 'ZAP-7', 'ZAP-8'], 'counts agree')
+шапка «3-1579»: ['Задача №1 · ZAP-1']
+шапка «энергомаш»: ['Задача №2 · ZAP-2']
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+$ python manage.py test boards dashboard tasks notifications realtime --parallel 4
+Ran 930 tests in 103.576s
+OK (skipped=3)
