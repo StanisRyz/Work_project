@@ -1,0 +1,19 @@
+{% extends 'boards/layout.html' %}
+
+{% block title %}Доски · Экосистема качества{% endblock %}
+
+{% block board_main %}
+{% comment %}
+`/work/boards/` when there is no live board to go to: whoever may create one
+is offered to, anybody else is told they are on no board yet. The archive, if
+any, is still in the left panel.
+{% endcomment %}
+<div class="board-empty">
+    {% if can_create %}
+        {% include 'acts/includes/empty_state.html' with title='Досок пока нет' message='Создайте первую доску и добавьте в неё участников.' %}
+        <a class="link-button" href="{% url 'boards:create' %}">Создать доску</a>
+    {% else %}
+        {% include 'acts/includes/empty_state.html' with title='Вас пока не добавили ни на одну доску' message='Доска появится слева, как только её владелец добавит вас в участники.' %}
+    {% endif %}
+</div>
+{% endblock %}

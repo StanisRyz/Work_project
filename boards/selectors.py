@@ -1,4 +1,4 @@
-"""What the board pages show: the registry, one sub-board's columns, one card.
+"""What the board pages show: the left panel, one sub-board's columns, one card.
 
 Read only, and never a permission decision of its own — the flags returned are
 `boards.permissions` asked once. The number of queries depends neither on the
@@ -36,7 +36,8 @@ DONE_LIMIT = 50
 # them — a card discussed for months stays one query and a short list.
 COMMENTS_LIMIT = 100
 
-REGISTRY_TABS = ('my', 'all', 'archive')
+# How many member avatars the board heading draws before «+N».
+MEMBER_PREVIEW_LIMIT = 5
 
 # The longest `?q=` a board search reads; anything past it is dropped.
 SEARCH_MAX_LENGTH = 200
@@ -345,67 +346,45 @@ def column_counts(sub_board, user=None, filters=NO_FILTERS):
     return counts
 
 
-def boards_for_user(user):
-    """The boards `user` is a member of, by name."""
-    if not getattr(user, 'is_authenticated', False):
-        return Board.objects.none()
-    return (
-        Board.objects.filter(
-            pk__in=BoardMember.objects.filter(user=user).values('board_id'),
-        )
-        .select_related('department', 'owner')
+def build_board_nav(user, current_board=None):
+    """The left panel of every board page: the boards `user` reads.
+
+    One query — the readable boards (`readable_boards_q()`: every board for
+    full access, a member's own otherwise) by name — split here into the live
+    ones and the archive. `current_id` is the board the page shows, or `None`
+    («Новая доска», the empty state). Not live: a board created or archived
+    elsewhere shows on the next page.
+    """
+    boards = list(
+        Board.objects.filter(readable_boards_q(user))
+        .only('pk', 'name', 'status')
         .order_by('name', 'pk')
     )
+    return {
+        'boards': [board for board in boards if not board.is_archived],
+        'archived': [board for board in boards if board.is_archived],
+        'current_id': getattr(current_board, 'pk', None),
+    }
+
+
+def member_preview(board, limit=MEMBER_PREVIEW_LIMIT):
+    """The first `limit` members by name, for the avatars in the board heading.
+
+    One query; how many are left over is the caller's `member_count` minus
+    the length of this list.
+    """
+    return [
+        member.user
+        for member in BoardMember.objects.filter(board=board)
+        .select_related('user')
+        .order_by('user__last_name', 'user__first_name', 'user__username', 'pk')[:limit]
+    ]
 
 
 def _count_subquery(queryset, group_by):
-    """`queryset` (filtered on `OuterRef('pk')`) counted, 0 when empty."""
+    """`queryset` (filtered on an `OuterRef`) counted, 0 when empty."""
     counted = queryset.order_by().values(group_by).annotate(n=Count('pk')).values('n')
     return Coalesce(Subquery(counted, output_field=IntegerField()), Value(0))
-
-
-def _with_counts(boards):
-    """Участников and открытых карточек, as annotations of the one query.
-
-    Subqueries rather than `Count()` over joins: «Мои» already filters through
-    the membership table, and a join-based count would reuse that join and
-    count the viewer alone.
-    """
-    from tasks.models import Task
-
-    members = BoardMember.objects.filter(board=OuterRef('pk'))
-    open_cards = Task.objects.filter(
-        source_type=Task.SourceType.BOARD,
-        board_card__board=OuterRef('pk'),
-        status__code='IN_PROGRESS',
-    )
-    return boards.annotate(
-        member_count=_count_subquery(members, 'board'),
-        open_card_count=_count_subquery(open_cards, 'board_card__board'),
-    )
-
-
-def build_board_list_state(user, tab=None):
-    """The registry: «Мои» (live boards I am on), «Все» (live) and «Архив».
-
-    With no tab asked for, «Мои» — unless the user is on no live board, when
-    «Все» is the only list that says anything. «Все» and «Архив» are the
-    boards the user reads (`readable_boards_q()`): every board for full
-    access, the user's own for a member.
-    """
-    everything = (
-        Board.objects.filter(readable_boards_q(user))
-        .select_related('department', 'owner').order_by('name', 'pk')
-    )
-    lists = {
-        'my': boards_for_user(user).filter(status=Board.Status.ACTIVE),
-        'all': everything.filter(status=Board.Status.ACTIVE),
-        'archive': everything.filter(status=Board.Status.ARCHIVED),
-    }
-    tab_counts = {name: queryset.count() for name, queryset in lists.items()}
-    if tab not in REGISTRY_TABS:
-        tab = 'my' if tab_counts['my'] else 'all'
-    return {'tab': tab, 'tab_counts': tab_counts, 'boards': list(_with_counts(lists[tab]))}
 
 
 def resolve_new_column(columns, value):

@@ -219,7 +219,10 @@ class RouteTests(AccessFixture, TestCase):
 
     def test_a_member_opens_their_board(self):
         self.client.force_login(self.otk)
-        self.assertEqual(self.client.get(reverse('boards:list')).status_code, 200)
+        self.assertRedirects(
+            self.client.get(reverse('boards:list')), reverse('boards:detail', args=[self.board.pk]),
+            fetch_redirect_response=False,
+        )
         self.assertEqual(self.client.get(board_url(self.board)).status_code, 200)
         response = self.client.post(
             reverse('boards:card_move', args=[self.board.pk, self.card.pk]),
@@ -254,21 +257,26 @@ class RouteTests(AccessFixture, TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()['ok'], False)
 
-    def test_somebody_on_no_board_gets_403(self):
+    def test_somebody_on_no_board_is_told_so_and_reads_no_board(self):
         self.client.force_login(self.loner)
-        self.assertEqual(self.client.get(reverse('boards:list')).status_code, 403)
+        response = self.client.get(reverse('boards:list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Вас пока не добавили ни на одну доску')
+        self.assertNotContains(response, 'Доска ОТК')
+        self.assertNotContains(response, reverse('boards:create'))
         self.assertEqual(self.client.get(board_url(self.board)).status_code, 403)
 
-    def test_the_registry_lists_only_readable_boards(self):
+    def test_the_left_panel_lists_only_readable_boards(self):
+        # Was the registry's «Мои»/«Все»: the same answer, on every page.
         self.client.force_login(self.otk)
-        for tab in ('my', 'all'):
-            with self.subTest(tab=tab):
-                content = self.client.get(reverse('boards:list'), {'tab': tab}).content.decode()
-                self.assertIn('Доска ОТК', content)
-                self.assertNotIn('Чужая доска', content)
+        content = self.client.get(board_url(self.board)).content.decode()
+        nav = content.split('class="board-nav"', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('Доска ОТК', nav)
+        self.assertNotIn('Чужая доска', nav)
         self.client.force_login(self.admin)
-        content = self.client.get(reverse('boards:list'), {'tab': 'all'}).content.decode()
-        self.assertIn('Чужая доска', content)
+        content = self.client.get(board_url(self.board)).content.decode()
+        nav = content.split('class="board-nav"', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('Чужая доска', nav)
 
 
 class NavigationTests(AccessFixture, TestCase):

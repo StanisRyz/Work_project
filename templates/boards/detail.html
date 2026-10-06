@@ -1,22 +1,20 @@
-{% extends 'base.html' %}
+{% extends 'boards/layout.html' %}
 {% load static people %}
 
 {% block title %}{{ sub_board.name }} · {{ board.name }} · Доски{% endblock %}
 
-{% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261011-1">
-{% endblock %}
+{% block board_main_label %}{{ board.name }}{% endblock %}
 
-{% block content_class %}page-container--fill{% endblock %}
-
-{% block content %}
+{% block board_main %}
 {% comment %}
-One sub-board of a board: its tabs and columns and, beside them, the card
-panel the query string asks for. Everything comes from one
-`build_board_state()` read. The structure — tabs and columns
-(`boards/includes/columns.html`) — and the panel (`boards/includes/panel.html`)
-are rendered once by the view and printed here, next to their fingerprints —
-the same markup `boards:fragment` returns for the live client.
+One sub-board of a board, in the boards frame (`boards/layout.html`), top to
+bottom: the board's heading, its tabs, the filter row, then the columns and,
+beside them, the card panel the query string asks for. Everything comes from
+one `build_board_state()` read. The tabs (`boards/includes/tabs.html`), the
+columns (`boards/includes/columns.html`) and the panel
+(`boards/includes/panel.html`) are rendered once by the view and printed here,
+next to their fingerprints — the same markup `boards:fragment` returns for the
+live client. The heading and the filter row are the page's only.
 
 It works without JavaScript. A tile is a link to `?card=<pk>`, the panel's
 forms post to the card routes, and closing the panel is a link back to the
@@ -24,38 +22,88 @@ board. `can_work`/`can_manage`/`can_edit_card` only decide which controls are
 drawn — every route asks the same rule again, and a reader sees the board and
 the panel with no control at all.
 {% endcomment %}
-<section class="act-detail-heading board-heading">
-    <a class="act-back-link" href="{% url 'boards:list' %}{% if board.is_archived %}?tab=archive{% endif %}" aria-label="К списку досок">←</a>
-    <div class="board-heading__title">
-        <h1 class="user-text">{{ board.name }}{% if board.is_archived %} <span class="status-badge status-badge--archived">В архиве</span>{% endif %}</h1>
-        <span class="board-heading__meta">{% if board.department %}<span class="user-text">{{ board.department.name }}</span> · {% endif %}владелец {{ board.owner|person_name }}{% if board.is_archived %} · в архиве с {{ board.archived_at|date:'d.m.Y' }}{% endif %}</span>
+<header class="board-head">
+    <div class="board-head__title">
+        <h1 class="user-text text-ellipsis" title="{{ board.name }}">{{ board.name }}</h1>
+        {% if board.is_archived %}<span class="status-badge status-badge--archived" title="В архиве с {{ board.archived_at|date:'d.m.Y' }}">В архиве</span>{% endif %}
     </div>
-    <div class="board-heading__actions">
-        <a class="link-button link-button--secondary" href="{% url 'boards:members' board.pk %}">Участники ({{ member_count }})</a>
-        {% if can_manage %}
-            <button class="link-button link-button--secondary" type="button"
-                    data-confirm
-                    data-confirm-title="Убрать доску в архив?"
-                    data-confirm-text="Доска останется по тому же адресу, но станет только для чтения. Вернуть её сможет владелец или администратор."
-                    data-confirm-label="В архив"
-                    data-confirm-url="{% url 'boards:archive' board.pk %}">В архив</button>
-        {% endif %}
-        {% if can_restore %}
-            <button class="link-button" type="button"
-                    data-confirm
-                    data-confirm-title="Вернуть доску из архива?"
-                    data-confirm-text="Участники снова смогут создавать, править и переносить карточки."
-                    data-confirm-label="Вернуть из архива"
-                    data-confirm-url="{% url 'boards:restore' board.pk %}">Вернуть из архива</button>
-        {% endif %}
+    {% comment %}Up to five members by name and «+N»: a link to «Участники».{% endcomment %}
+    <a class="board-head__members" href="{% url 'boards:members' board.pk %}" title="Участники: {{ member_count }}" aria-label="Участники доски: {{ member_count }}">
+        {% for user in member_preview %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}
+        {% if member_more %}<span class="board-avatar board-avatar--more">+{{ member_more }}</span>{% endif %}
+    </a>
+    <div class="board-head__actions">
         {% if can_work and first_working_column %}<a class="link-button" href="{{ board_url }}?new={{ first_working_column.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">+ Карточка</a>{% endif %}
+        {% if can_manage or can_restore %}
+            {% comment %}
+            The board's own «⋯»: «Переименовать» (`rename_board()`), «Участники»,
+            «В архив» / «Вернуть из архива» — each its route's own right, asked
+            again by the route. `?sub=` brings the redirect back to this tab.
+            {% endcomment %}
+            <details class="board-menu board-head__menu" data-board-menu>
+                <summary class="board-menu__toggle" title="Доска: действия" aria-label="Доска «{{ board.name }}»: действия">⋯</summary>
+                <div class="board-menu__body">
+                    {% if can_manage %}
+                        <form class="board-menu__form" method="post" action="{% url 'boards:rename' board.pk %}?sub={{ sub_board.pk }}">
+                            {% csrf_token %}
+                            <label class="board-menu__label" for="board-rename">Переименовать</label>
+                            <input id="board-rename" type="text" name="name" value="{{ board.name }}" maxlength="200" required>
+                            <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                        </form>
+                    {% endif %}
+                    <a class="board-menu__link" href="{% url 'boards:members' board.pk %}">Участники ({{ member_count }})</a>
+                    {% if can_manage %}
+                        <button class="link-button link-button--secondary link-button--compact" type="button"
+                                data-confirm
+                                data-confirm-title="Убрать доску в архив?"
+                                data-confirm-text="Доска останется по тому же адресу, но станет только для чтения. Вернуть её сможет владелец или администратор."
+                                data-confirm-label="В архив"
+                                data-confirm-url="{% url 'boards:archive' board.pk %}?sub={{ sub_board.pk }}">В архив</button>
+                    {% endif %}
+                    {% if can_restore %}
+                        <button class="link-button link-button--compact" type="button"
+                                data-confirm
+                                data-confirm-title="Вернуть доску из архива?"
+                                data-confirm-text="Участники снова смогут создавать, править и переносить карточки."
+                                data-confirm-label="Вернуть из архива"
+                                data-confirm-url="{% url 'boards:restore' board.pk %}?sub={{ sub_board.pk }}">Вернуть из архива</button>
+                    {% endif %}
+                </div>
+            </details>
+        {% endif %}
     </div>
+</header>
+
+{% comment %}
+`[data-board]` is what `static/js/realtime/boards.js` reads: which board, the
+server-built fragment URL asking for this very sub-board and panel, the
+fingerprints of the four live blocks as rendered, and whether the panel
+already holds input that is not stored (a refused form, a parked draft).
+`board_dnd.js` marks it `data-board-busy` while a card is in the air or a move
+awaits the server, and takes `data-board-url` for the reload after the open
+card moved. It is a column that takes the rest of the screen: the tabs, the
+filter row and the messages keep their own height, and the columns and the
+panel take what is left — never the other way round.
+{% endcomment %}
+<div class="board-page" data-board
+     data-board-id="{{ board.pk }}"
+     data-board-url="{{ board_url }}"
+     data-board-page-url="{{ page_url }}"
+     data-board-fragment-url="{{ fragment_url }}"
+     data-tabs-revision="{{ tabs_revision }}"
+     data-columns-revision="{{ columns_revision }}"
+     data-panel-revision="{{ panel_revision }}"
+     data-comments-revision="{{ comments_revision }}"
+     data-panel-holds-input="{% if panel_holds_input %}true{% else %}false{% endif %}">
+    <div class="board-tabs-block" data-live-board-tabs>{{ tabs_html }}</div>
+
     {% comment %}
-    The board's filters: `form[data-registry-filter]` of the shared
-    `registry_tools.js` (a tick applies at once, the search after a pause),
-    «Применить» for the no-JavaScript path. Read by `parse_board_filters()` for
-    the page, its live fragment and the drag's counts alike. The open card
-    stays open; «Сбросить» drops the filter and keeps it.
+    The board's filters, one compact row under the tabs:
+    `form[data-registry-filter]` of the shared `registry_tools.js` (a tick
+    applies at once, the search after a pause), «Применить» for the
+    no-JavaScript path. Read by `parse_board_filters()` for the page, its live
+    fragment and the drag's counts alike. The open card stays open; «Сбросить»
+    — drawn only while a filter is set — drops the filter and keeps the card.
     {% endcomment %}
     <form class="board-filters" method="get" action="{{ board_url }}" data-registry-filter>
         {% if panel == 'view' and card %}<input type="hidden" name="card" value="{{ card.card.pk }}">{% endif %}
@@ -65,49 +113,31 @@ the panel with no control at all.
         <button class="link-button link-button--secondary link-button--compact" type="submit">Применить</button>
         {% if filters.is_active %}<a class="board-filters__reset" href="{{ board_url }}{% if panel == 'view' and card %}?card={{ card.card.pk }}{% endif %}">Сбросить</a>{% endif %}
     </form>
-</section>
 
-{% comment %}
-Dragging (`static/js/board_dnd.js`) reads only what this markup says: a
-tile with `data-card-movable` may be dragged, a column with
-`data-column-move` (and its `data-column-id`) takes a moved card,
-`data-column-complete` (the closing column) takes only a tile carrying a
-completion trigger, and `data-current-card` is the card the panel shows. The server decided every one of those; the routes ask again.
-Without JavaScript none of it matters — «Переместить в…» and «Завершить» in the
-panel do the same work.
-{% endcomment %}
-<div class="board-message" data-board-message role="status" aria-live="polite" hidden></div>
+    {% comment %}
+    Dragging (`static/js/board_dnd.js`) reads only what this markup says: a
+    tile with `data-card-movable` may be dragged, a column with
+    `data-column-move` (and its `data-column-id`) takes a moved card,
+    `data-column-complete` (the closing column) takes only a tile carrying a
+    completion trigger, and `data-current-card` is the card the panel shows. The server decided every one of those; the routes ask again.
+    Without JavaScript none of it matters — «Переместить в…» and «Завершить» in the
+    panel do the same work.
+    {% endcomment %}
+    <div class="board-message" data-board-message role="status" aria-live="polite" hidden></div>
 
-{% comment %}
-Shown instead of replacing the card panel when the card changed while this
-user has unsaved input in it. Nothing typed is discarded — the user reloads
-when ready, at the board's own address (never a repeated POST).
-{% endcomment %}
-<div class="act-conflict-banner" data-board-conflict-banner hidden role="alert">
-    <div>
-        <strong>Карточка изменена.</strong>
-        <p>Введённые данные остаются на странице. Скопируйте их перед обновлением — после перезагрузки несохранённый текст будет потерян.</p>
+    {% comment %}
+    Shown instead of replacing the card panel when the card changed while this
+    user has unsaved input in it. Nothing typed is discarded — the user reloads
+    when ready, at the board's own address (never a repeated POST).
+    {% endcomment %}
+    <div class="act-conflict-banner" data-board-conflict-banner hidden role="alert">
+        <div>
+            <strong>Карточка изменена.</strong>
+            <p>Введённые данные остаются на странице. Скопируйте их перед обновлением — после перезагрузки несохранённый текст будет потерян.</p>
+        </div>
+        <button class="link-button" type="button" data-board-conflict-reload>Обновить страницу</button>
     </div>
-    <button class="link-button" type="button" data-board-conflict-reload>Обновить страницу</button>
-</div>
 
-{% comment %}
-`[data-board]` is what `static/js/realtime/boards.js` reads: which board, the
-server-built fragment URL asking for this very sub-board and panel, the
-fingerprints of the three live blocks as rendered, and whether the panel already holds input that
-is not stored (a refused form, a parked draft). `board_dnd.js` marks it
-`data-board-busy` while a card is in the air or a move awaits the server, and
-takes `data-board-url` for the reload after the open card moved.
-{% endcomment %}
-<div class="fill-region" data-board
-     data-board-id="{{ board.pk }}"
-     data-board-url="{{ board_url }}"
-     data-board-page-url="{{ page_url }}"
-     data-board-fragment-url="{{ fragment_url }}"
-     data-columns-revision="{{ columns_revision }}"
-     data-panel-revision="{{ panel_revision }}"
-     data-comments-revision="{{ comments_revision }}"
-     data-panel-holds-input="{% if panel_holds_input %}true{% else %}false{% endif %}">
     <div class="board-layout{% if panel %} board-layout--with-panel{% endif %}">
         <div class="board-structure" data-live-board-columns data-current-card="{{ card.card.pk|default:'' }}">{{ columns_html }}</div>
         {% if panel %}
@@ -149,9 +179,9 @@ takes `data-board-url` for the reload after the open card moved.
 </div>
 {% endblock %}
 
-{% block scripts %}
+{% block board_scripts %}
 {# Dragging cards. The board works without it: the panel holds the same actions. #}
 <script src="{% static 'js/board_dnd.js' %}?v=20261011-1" defer></script>
-<script src="{% static 'js/board_menus.js' %}?v=20261011-1" defer></script>
+<script src="{% static 'js/board_menus.js' %}?v=20261012-1" defer></script>
 <script src="{% static 'js/board_discussion.js' %}?v=20261007-1" defer></script>
 {% endblock %}

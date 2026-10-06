@@ -9,7 +9,7 @@ from tasks.models import Task
 from tasks.services import complete_task, reopen_task
 
 from ..columns import DEFAULT_COLUMNS
-from ..selectors import boards_for_user, build_board_state
+from ..selectors import build_board_state
 from ..services import create_board, create_column, create_sub_board
 from .helpers import BoardFixtureMixin, new_card
 
@@ -153,15 +153,3 @@ class BoardStateTests(BoardFixtureMixin, TestCase):
         user = type(self.member).objects.get(pk=self.member.pk)
         with self.assertNumQueries(baseline):
             build_board_state(self.board, self.main, user)
-
-
-class BoardsForUserTests(BoardFixtureMixin, TestCase):
-    def test_only_boards_the_user_is_a_member_of(self):
-        create_board(
-            name='Другая', department=self.department, owner=self.owner, actor=self.owner,
-        )
-        self.assertEqual(list(boards_for_user(self.member)), [self.board])
-        self.assertEqual(list(boards_for_user(self.outsider)), [])
-        self.assertEqual(
-            [board.name for board in boards_for_user(self.owner)], ['Другая', 'Планирование'],
-        )

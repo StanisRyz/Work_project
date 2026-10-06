@@ -1,5 +1,9 @@
 """The board pages. They work without JavaScript: forms and links only.
 
+Every page is drawn in one frame (`boards/layout.html`): the boards this user
+reads on the left (`_frame()`), the page on the right. There is no registry —
+`/work/boards/` goes to the sub-board opened last, else to the first board.
+
 Views parse the request, ask `boards.permissions`, call `boards.services` and
 render; they decide nothing. The right is asked *before* the HTTP method, so a
 typed-in URL without it is a 403 rather than a 405, and every mutating route
@@ -14,8 +18,8 @@ renders the sub-board again with the panel open, the typed values in place
 and the error beside the form; a successful one redirects to the card's
 sub-board with the card open.
 
-Three blocks of the page are live: the structure (tabs and columns), the panel
-and the open card's messages. `boards:fragment` renders them through the very
+Four blocks of the page are live: the tabs, the columns, the panel and the
+open card's messages. `boards:fragment` renders them through the very
 same context builder and the same partials as the page, so a refreshed block
 cannot disagree with a reload.
 
@@ -46,6 +50,7 @@ from tasks.forms import TaskAttachmentForm
 from .forms import (
     AddMembersForm,
     BoardForm,
+    BoardNameForm,
     CardForm,
     ColumnNameForm,
     DirectionForm,
@@ -59,15 +64,15 @@ from .permissions import (
     can_create_board,
     can_manage_board,
     can_restore_board,
-    can_use_boards,
     can_view_board,
     can_work_on_board,
 )
 from .selectors import (
-    build_board_list_state,
+    build_board_nav,
     build_board_state,
     column_counts,
     first_sub_board,
+    member_preview,
     parse_board_filters,
     resolve_new_column,
 )
@@ -89,6 +94,7 @@ from .services import (
     move_sub_board,
     post_card_comment,
     remove_board_member,
+    rename_board,
     rename_column,
     rename_sub_board,
     restore_board,
@@ -130,16 +136,49 @@ def _require(allowed):
 # --------------------------------------------------------------------------
 
 
+# The sub-board this browser session opened last; `/work/boards/` goes back to it.
+LAST_SUB_BOARD_SESSION_KEY = 'boards_last_sub_board'
+
+
+def _frame(request, current_board=None):
+    """What `boards/layout.html` draws around every board page: the left panel.
+
+    The same list on every page (`build_board_nav()`, one query), the board
+    the page shows highlighted, and «+» only for whoever may create a board.
+    """
+    return {
+        'active_page': 'boards',
+        'board_nav': build_board_nav(request.user, current_board),
+        'can_create': can_create_board(request.user),
+    }
+
+
 @login_required
 def board_list(request):
-    _require(can_use_boards(request.user))
-    state = build_board_list_state(request.user, request.GET.get('tab'))
-    state.update({
-        'active_page': 'boards',
-        'header_title': 'Доски',
-        'can_create': can_create_board(request.user),
-    })
-    return render(request, 'boards/list.html', state)
+    """`/work/boards/`: no registry — the last sub-board opened, else the first board.
+
+    The last one is remembered in the session by every page of a sub-board,
+    and taken only while it still exists and the user still reads its board.
+    Otherwise the first live board of the left panel. With none, the frame
+    with an empty state: «Создать доску» for whoever may, otherwise «Вас пока
+    не добавили ни на одну доску». Open to every signed-in employee — it shows
+    nothing they could not see — while the menu still offers «Доски» only to
+    whoever uses boards.
+    """
+    remembered = request.session.get(LAST_SUB_BOARD_SESSION_KEY)
+    if remembered:
+        sub_board = (
+            SubBoard.objects.select_related('board').filter(pk=remembered).first()
+            if str(remembered).isdigit() else None
+        )
+        if sub_board is not None and can_view_board(request.user, sub_board.board):
+            return redirect('boards:sub_board', pk=sub_board.board_id, sub_pk=sub_board.pk)
+        request.session.pop(LAST_SUB_BOARD_SESSION_KEY, None)
+    frame = _frame(request)
+    if frame['board_nav']['boards']:
+        return redirect('boards:detail', pk=frame['board_nav']['boards'][0].pk)
+    frame['header_title'] = 'Доски'
+    return render(request, 'boards/empty.html', frame)
 
 
 def _member_picker(posted=(), *, extra_row=False, exclude=()):
@@ -199,7 +238,7 @@ def board_create(request):
     else:
         form = BoardForm(owner=request.user)
     return render(request, 'boards/create.html', {
-        'active_page': 'boards',
+        **_frame(request),
         'header_title': 'Новая доска',
         'form': form,
         **_member_picker(
@@ -223,6 +262,7 @@ def _card_initial(item):
     }
 
 
+TABS_TEMPLATE = 'boards/includes/tabs.html'
 COLUMNS_TEMPLATE = 'boards/includes/columns.html'
 PANEL_TEMPLATE = 'boards/includes/panel.html'
 COMMENTS_TEMPLATE = 'boards/includes/comments.html'
@@ -361,17 +401,18 @@ def _panel_query(item, panel, new_column, filters, *, all_comments=False):
 
 
 def _board_blocks(request, context):
-    """The three live blocks as markup, each with its fingerprint.
+    """The four live blocks as markup, each with its fingerprint.
 
-    The first is the sub-board's structure — its tabs and its columns, one
-    read-only block, so a tab or a column created, renamed, moved or deleted
-    by somebody else arrives with the cards.
+    The tabs and the columns are read-only blocks of their own (the filter row
+    stands between them on the page), so a tab or a column created, renamed,
+    moved or deleted by somebody else arrives with the cards.
 
     The messages of «Обсуждение» are a block of their own and appear in no
     other: a new message moves `comments_revision` (and the tile's counter in
     `columns_revision`), never `panel_revision`, so it cannot raise the
     conflict banner over a «Выполнение» or an edit being typed.
     """
+    tabs_html = render_to_string(TABS_TEMPLATE, context, request=request)
     columns_html = render_to_string(COLUMNS_TEMPLATE, context, request=request)
     panel_html = (
         render_to_string(PANEL_TEMPLATE, context, request=request) if context['panel'] else ''
@@ -381,6 +422,8 @@ def _board_blocks(request, context):
         if context['show_discussion'] else ''
     )
     return {
+        'tabs_html': tabs_html,
+        'tabs_revision': content_revision(tabs_html),
         'columns_html': columns_html,
         'columns_revision': content_revision(columns_html),
         'panel_html': panel_html,
@@ -413,6 +456,13 @@ def _render_board(request, board, sub_board, *, status=200, **options):
         blocks['panel_revision'] = _board_blocks(request, clean)['panel_revision']
     context.update(blocks)
     context['panel_holds_input'] = holds_input
+    # The frame and the heading are the page's only — never part of a
+    # fragment, so a live refresh never pays for them.
+    context.update(_frame(request, board))
+    members = member_preview(board)
+    context['member_preview'] = members
+    context['member_more'] = max(context['member_count'] - len(members), 0)
+    request.session[LAST_SUB_BOARD_SESSION_KEY] = sub_board.pk
     return render(request, 'boards/detail.html', context, status=status)
 
 
@@ -700,6 +750,31 @@ def _remember_draft(request, card):
 
 
 @login_required
+def board_rename(request, pk):
+    """«Переименовать» in the board's «⋯» menu: `rename_board()`."""
+    board = _board_or_404(pk)
+    _require(can_manage_board(request.user, board))
+    if request.method == 'POST':
+        form = BoardNameForm(request.POST)
+        if not form.is_valid():
+            _refused(request, form)
+        else:
+            try:
+                rename_board(board, actor=request.user, name=form.cleaned_data['name'])
+            except BoardError as exc:
+                _refused(request, str(exc))
+    return _back_to_board(request, board)
+
+
+def _back_to_board(request, board):
+    """The sub-board the form was posted from (`?sub=`), else the board."""
+    sub_pk = request.GET.get('sub')
+    if sub_pk and sub_pk.isdigit() and SubBoard.objects.filter(pk=sub_pk, board=board).exists():
+        return redirect('boards:sub_board', pk=board.pk, sub_pk=int(sub_pk))
+    return redirect('boards:detail', pk=board.pk)
+
+
+@login_required
 def board_archive(request, pk):
     """«В архив»: `archive_board()`, refused while any card is still open."""
     board = _board_or_404(pk)
@@ -711,7 +786,7 @@ def board_archive(request, pk):
             messages.error(request, str(exc))
         else:
             messages.success(request, 'Доска убрана в архив.')
-    return redirect('boards:detail', pk=board.pk)
+    return _back_to_board(request, board)
 
 
 @login_required
@@ -726,7 +801,7 @@ def board_restore(request, pk):
             messages.error(request, str(exc))
         else:
             messages.success(request, 'Доска возвращена из архива.')
-    return redirect('boards:detail', pk=board.pk)
+    return _back_to_board(request, board)
 
 
 # --------------------------------------------------------------------------
@@ -918,7 +993,7 @@ def _render_members(request, board, *, posted=(), extra_row=False):
         .order_by('user__last_name', 'user__first_name', 'user__username')
     )
     context = {
-        'active_page': 'boards',
+        **_frame(request, board),
         'header_title': f'Участники · {board.name}',
         'board': board,
         'members': members,

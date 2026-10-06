@@ -1,49 +1,18 @@
 {% comment %}
-One sub-board's structure: its tabs and its columns — the live block
-`[data-live-board-columns]`. The page and `boards:fragment` both render this
+One sub-board's columns — the live block `[data-live-board-columns]` (its tabs
+are the block beside it, `boards/includes/tabs.html`). The page and `boards:fragment` both render this
 file from the same `_board_context()`, and the client replaces the whole
 contents of the container with it — never while a card is being dragged or
 one of the menus below is open. Counts and cards are what the board's filter
 leaves (`build_board_state(filters=…)`), and every link and form keeps that
 filter (`filter_query`).
 
-For whoever manages the board (`can_manage`) the tabs and the column headers
-carry their menus — `boards/includes/structure_menu.html`, a `<details>` of
+For whoever manages the board (`can_manage`) the column headers carry their
+menus — `boards/includes/structure_menu.html`, a `<details>` of
 small POST forms, so they work without JavaScript; the deletes ask through the
 shared confirmation modal first when it is there. The `can_move_*`/`can_delete`
 flags only decide which buttons to draw; every route asks the service again.
 {% endcomment %}
-<nav class="board-tabs" aria-label="Поддоски">
-    <ul class="board-tabs__list">
-        {% for tab in sub_boards %}
-            <li class="board-tabs__item{% if tab.is_active %} board-tabs__item--active{% endif %}">
-                <a class="board-tabs__link user-text" href="{% url 'boards:sub_board' board.pk tab.sub_board.pk %}{{ filter_suffix }}"{% if tab.is_active %} aria-current="page"{% endif %}>{{ tab.sub_board.name }}</a>
-                {% if can_manage and tab.is_active %}
-                    {% url 'boards:sub_board_rename' board.pk tab.sub_board.pk as rename_url %}
-                    {% url 'boards:sub_board_move' board.pk tab.sub_board.pk as move_url %}
-                    {% url 'boards:sub_board_delete' board.pk tab.sub_board.pk as delete_url %}
-                    {% include 'boards/includes/structure_menu.html' with kind='sub_board' object=tab.sub_board name=tab.sub_board.name max_length=100 can_move_left=tab.can_move_left can_move_right=tab.can_move_right can_delete=tab.can_delete %}
-                {% endif %}
-            </li>
-        {% endfor %}
-        {% if can_manage %}
-            <li class="board-tabs__item board-tabs__item--new">
-                <details class="board-menu" data-board-menu>
-                    <summary class="board-menu__toggle board-menu__toggle--add" title="Новая поддоска" aria-label="Новая поддоска">+</summary>
-                    <div class="board-menu__body">
-                        <form class="board-menu__form" method="post" action="{% url 'boards:sub_board_create' board.pk sub_board.pk %}{{ filter_suffix }}">
-                            {% csrf_token %}
-                            <label class="board-menu__label" for="board-new-sub-board">Новая поддоска</label>
-                            <input id="board-new-sub-board" type="text" name="name" maxlength="100" required placeholder="Название поддоски">
-                            <button class="link-button link-button--compact" type="submit">Создать</button>
-                        </form>
-                    </div>
-                </details>
-            </li>
-        {% endif %}
-    </ul>
-</nav>
-
 <div class="board-columns" aria-label="Колонки поддоски «{{ sub_board.name }}»" data-board-columns>
     {% for column in columns %}
         <section class="board-column{% if column.is_done %} board-column--done{% endif %}" aria-labelledby="board-column-{{ column.pk }}"

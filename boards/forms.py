@@ -143,6 +143,12 @@ class MoveCardForm(forms.Form):
         ]
 
 
+class BoardNameForm(forms.Form):
+    """A board's new name. The service trims and asks again."""
+
+    name = forms.CharField(label='Название доски', max_length=200)
+
+
 class SubBoardNameForm(forms.Form):
     """A sub-board's name, created or renamed. The services trim and ask again."""
 

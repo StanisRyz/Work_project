@@ -1416,7 +1416,7 @@ function boardEvent(boardId, change, eventId) {
     };
 }
 
-function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments } = {}) {
+function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs } = {}) {
     const payload = {
         columns_html: `<section data-column-id="31"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
         columns_revision: columns,
@@ -1424,6 +1424,10 @@ function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comme
         panel_revision: panel,
         panel: 'view',
     };
+    if (tabs) {
+        payload.tabs_html = `<nav><a data-tab="8" data-fresh-tab>${tabs}</a></nav>`;
+        payload.tabs_revision = tabs;
+    }
     if (comments) {
         payload.comments_html = `<ol><li data-comment-id="2" data-fresh-comment>${comments}</li></ol>`;
         payload.comments_revision = comments;
@@ -1511,6 +1515,34 @@ test('an open tab or column menu holds the structure back until it closes', asyn
     await flush();
     assert.equal(boardCalls(env).length, 2, 'fetched again once the menu closed');
     assert.ok(env.live.columns.querySelector('[data-fresh-tile]'));
+    assert.equal(env.core.boardLive.isDeferred, false);
+});
+
+test('the tabs are their own block: replaced when they moved, held while a tab menu is open', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler((call) => (call.url.startsWith('/realtime/sync/') ? snapshot() : boardFragment({ tabs: 'tabs-rev-2' })));
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'structure_changed', 'tabs-1'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.tabs.querySelector('[data-fresh-tab]'), 'the tabs were replaced');
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'), 'and so were the columns');
+
+    // A tab menu left open holds both read-only blocks back until it closes.
+    env.live.tabs.innerHTML = '<nav><details data-board-menu open><input name="name"></details></nav>';
+    const menu = env.live.tabs.querySelector('[data-board-menu]');
+    env.setFetchHandler((call) => (call.url.startsWith('/realtime/sync/') ? snapshot() : boardFragment({ columns: 'columns-rev-3', tabs: 'tabs-rev-3' })));
+    env.source.emitEvent('board.updated', boardEvent(4, 'structure_changed', 'tabs-2'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.tabs.querySelector('[data-board-menu]'), 'the open menu stays');
+    assert.equal(env.core.boardLive.isDeferred, true);
+
+    menu.attributes.delete('open');
+    env.document.dispatch('toggle', { target: menu });
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.tabs.querySelector('[data-fresh-tab]'), 'replaced once the menu closed');
     assert.equal(env.core.boardLive.isDeferred, false);
 });
 

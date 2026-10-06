@@ -112,44 +112,7 @@ class AccessTests(BoardViewMixin, TestCase):
             reverse('boards:members', args=[self.board.pk]),
         ):
             with self.subTest(url=url):
-                self.assertEqual(self.client.get(url).status_code, 200)
-
-
-class RegistryTests(BoardViewMixin, TestCase):
-    def test_default_tab_is_mine_or_all(self):
-        self.client.force_login(self.member)
-        self.assertEqual(self.client.get(reverse('boards:list')).context['tab'], 'my')
-        self.client.force_login(self.outsider)
-        response = self.client.get(reverse('boards:list'))
-        self.assertEqual(response.context['tab'], 'all')
-        self.assertContains(response, 'Планирование')
-
-    def test_tabs(self):
-        create_board(name='Чужая', department=self.department, owner=self.owner, actor=self.owner)
-        self.client.force_login(self.member)
-        mine = self.client.get(reverse('boards:list'), {'tab': 'my'})
-        self.assertEqual([board.name for board in mine.context['boards']], ['Планирование'])
-        everything = self.client.get(reverse('boards:list'), {'tab': 'all'})
-        self.assertEqual([board.name for board in everything.context['boards']], ['Планирование', 'Чужая'])
-        self.assertEqual(everything.context['tab_counts'], {'my': 1, 'all': 2, 'archive': 0})
-        self.assertContains(everything, f'data-row-url="{reverse("boards:detail", args=[self.board.pk])}"')
-
-    def test_counts(self):
-        self.card('Открытая')
-        self.card('Ещё одна')
-        complete_task(task_of(self.card('Выполненная')), self.member, 'Да')
-        self.client.force_login(self.member)
-        board = self.client.get(reverse('boards:list'), {'tab': 'my'}).context['boards'][0]
-        # Owner + two members, two open cards — the viewer's own membership
-        # must not narrow the counts.
-        self.assertEqual(board.member_count, 3)
-        self.assertEqual(board.open_card_count, 2)
-
-    def test_create_button_only_for_creators(self):
-        self.client.force_login(self.owner)
-        self.assertContains(self.client.get(reverse('boards:list')), reverse('boards:create'))
-        self.client.force_login(self.member)
-        self.assertNotContains(self.client.get(reverse('boards:list')), reverse('boards:create'))
+                self.assertEqual(self.client.get(url, follow=True).status_code, 200)
 
 
 class CreateBoardViewTests(BoardViewMixin, TestCase):
@@ -432,5 +395,5 @@ class NavigationTests(BoardViewMixin, TestCase):
         response = self.client.get(reverse('dashboard:home'))
         self.assertContains(response, f'href="{reverse("boards:list")}"', count=2)
         self.assertContains(response, '#dash-icon-boards')
-        response = self.client.get(reverse('boards:list'))
+        response = self.client.get(reverse('boards:list'), follow=True)
         self.assertContains(response, 'sidebar__category sidebar__category--active" href="/work/boards/"')

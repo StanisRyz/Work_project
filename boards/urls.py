@@ -5,6 +5,8 @@ from . import views
 app_name = 'boards'
 
 urlpatterns = [
+    # No registry: the last sub-board opened, else the first board, else the
+    # empty state — the left panel of every board page lists the boards.
     path('', views.board_list, name='list'),
     path('create/', views.board_create, name='create'),
     # The board itself leads to its first sub-board (or to the tab of the
@@ -18,6 +20,7 @@ urlpatterns = [
     # Every mutating route is POST only: a GET goes back to the board and
     # changes nothing. The right is asked before the method, so a typed-in
     # URL without it is a 403.
+    path('<int:pk>/rename/', views.board_rename, name='rename'),
     path('<int:pk>/archive/', views.board_archive, name='archive'),
     path('<int:pk>/restore/', views.board_restore, name='restore'),
     path('<int:pk>/members/add/', views.members_add, name='members_add'),

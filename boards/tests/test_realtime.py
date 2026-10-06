@@ -389,9 +389,9 @@ class BoardFragmentTests(BoardFixtureMixin, TestCase):
         rename_column(column, actor=self.owner, name='Контроль')
         self.assertIn('Контроль', self.client.get(self.url()).json()['columns_html'])
         tab = create_sub_board(self.board, actor=self.owner, name='Новая вкладка')
-        self.assertIn('Новая вкладка', self.client.get(self.url()).json()['columns_html'])
+        self.assertIn('Новая вкладка', self.client.get(self.url()).json()['tabs_html'])
         delete_sub_board(tab, actor=self.owner)
-        self.assertNotIn('Новая вкладка', self.client.get(self.url()).json()['columns_html'])
+        self.assertNotIn('Новая вкладка', self.client.get(self.url()).json()['tabs_html'])
 
     def test_a_reader_gets_what_the_page_shows(self):
         self.client.force_login(self.outsider)

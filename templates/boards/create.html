@@ -1,24 +1,21 @@
-{% extends 'base.html' %}
-{% load static %}
+{% extends 'boards/layout.html' %}
 
 {% block title %}Новая доска · Экосистема качества{% endblock %}
 
-{% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261011-1">
-{% endblock %}
+{% block board_main_label %}Новая доска{% endblock %}
 
-{% block content %}
+{% block board_main %}
 {% comment %}
 A new board: its name and its members, nothing else. The owner is whoever
 submits the form — it never asks — and `create_board()` makes them a member
 too; the rows do not offer them. Members are picked «подразделение →
 сотрудник», like the protocol's participants.
 {% endcomment %}
-<section class="act-detail-heading">
-    <a class="act-back-link" href="{% url 'boards:list' %}" aria-label="К списку досок">←</a>
-    <div class="act-detail-heading__title"><h1>Новая доска</h1></div>
-</section>
+<header class="board-head">
+    <div class="board-head__title"><h1>Новая доска</h1></div>
+</header>
 
+<div class="board-scroll">
 <form class="form-card board-form" method="post" data-unsaved-guard>
     {% csrf_token %}
     {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors }}</div>{% endif %}
@@ -38,4 +35,5 @@ too; the rows do not offer them. Members are picked «подразделение
         <a class="link-button link-button--secondary" href="{% url 'boards:list' %}">Отмена</a>
     </div>
 </form>
+</div>
 {% endblock %}

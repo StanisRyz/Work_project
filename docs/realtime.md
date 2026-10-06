@@ -83,7 +83,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 `card_created`, `card_updated`, `card_moved`, `card_completed`,
 `card_cancelled`, `members_changed`, `board_archived`, `board_restored`,
 `comment_added`, `structure_changed` (поддоска или колонка создана,
-переименована, переставлена или удалена);
+переименована, переставлена или удалена, доска переименована);
 неизвестный код фабрика отклоняет. Ни заголовка карточки,
 ни описания, ни имён, ни прав: открытая доска перезапрашивает свой фрагмент.
 Задача карточки, изменённая вне доски (`tasks:complete`, возврат в работу
@@ -112,7 +112,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `cancel_card`, `post_card_comment`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `cancel_card`, `post_card_comment`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.
@@ -315,8 +315,9 @@ read-only набор авторизованного пользователя, д
 
 Фрагмент открывается по поддоске (`/work/boards/<доска>/<поддоска>/fragment/`;
 удалённая поддоска — 404, и живой клиент этой страницы останавливается) и
-отдаёт три блока сразу — `columns_html`/`columns_revision` (вкладки поддосок и
-колонки — один блок только для чтения),
+отдаёт четыре блока сразу — `tabs_html`/`tabs_revision` (вкладки поддосок),
+`columns_html`/`columns_revision` (колонки; оба блока только для чтения, между
+ними на странице стоит строка фильтров, которая ни в один блок не входит),
 `panel_html`/`panel_revision` (плюс `panel`: `view`, `edit`, `new` или пусто) и
 `comments_html`/`comments_revision` (сообщения «Обсуждения» открытой карточки,
 только в режиме просмотра) — тем же `_board_context()` и теми же частичными
@@ -409,7 +410,7 @@ polling и safety-таймер останавливаются, таймер ру
 заменить. На доске так же считается панель с черновиком «Выполнения», который
 вернула сессия после загрузки или удаления вложения.
 
-**Вкладки и колонки доски** (`[data-live-board-columns]`) ничего не вводят и
+**Вкладки и колонки доски** (`[data-live-board-tabs]`, `[data-live-board-columns]`) ничего не вводят и
 заменяются целиком, когда сдвинулся их отпечаток, — но не под жестом. Пока
 карточка в руке, перенос ждёт ответа сервера или открыто окно завершения из
 завершающей колонки, `board_dnd.js` держит на `[data-board]` атрибут

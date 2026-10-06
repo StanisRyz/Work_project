@@ -239,6 +239,32 @@ def create_board(*, name, owner, actor, member_ids=(), department=None, descript
     return board
 
 
+BOARD_NAME_MAX_LENGTH = 200
+
+
+def rename_board(board, *, actor, name):
+    """A new name for a board: its owner or an administrator, never archived.
+
+    Trimmed, required, at most `BOARD_NAME_MAX_LENGTH`. The same name changes
+    nothing and announces nothing; a new one publishes one
+    `board.updated(structure_changed)` — the name is drawn by every page of
+    the board.
+    """
+    with transaction.atomic():
+        board = _lock_board(board.pk)
+        _refuse_archived('rename_board', board, actor=actor)
+        if not can_manage_board(actor, board):
+            _rejected('rename_board', 'not_permitted', actor=actor, board_id=board.pk)
+            raise BoardError('Переименовать доску может её владелец или администратор.')
+        name = _clean_name(name, max_length=BOARD_NAME_MAX_LENGTH, what='доски')
+        if name == board.name:
+            return board
+        board.name = name
+        board.save(update_fields=['name', 'updated_at'])
+        _structure_changed(board, 'board.renamed', actor=actor)
+    return board
+
+
 def add_board_members(board, user_ids, *, actor):
     """Add active employees to the board; those already on it are skipped.
 

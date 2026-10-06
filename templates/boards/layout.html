@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261012-1">
+{% endblock %}
+
+{% block content_class %}page-container--fill{% endblock %}
+
+{% block content %}
+{% comment %}
+The frame every board page shares, as the documentation explorer does: the
+boards this user reads on the left (`selectors.build_board_nav()`, one query,
+the same list on every page), the page itself on the right. Both sit in the
+one-screen chain and scroll on their own.
+
+The panel is not live: a board created or archived elsewhere shows on the
+next page. «Свернуть» leaves a narrow strip (`static/js/board_nav.js`, a
+convenience of this browser kept in `localStorage`); without JavaScript the
+panel is always open.
+{% endcomment %}
+<div class="board-shell" data-board-shell>
+    <nav class="board-nav" id="board-nav" aria-label="Доски">
+        <div class="board-nav__head">
+            <h2 class="board-nav__title">Доски</h2>
+            {% if can_create %}
+                <a class="board-nav__add" href="{% url 'boards:create' %}" title="Новая доска" aria-label="Новая доска">+</a>
+            {% endif %}
+            <button class="board-nav__toggle" type="button" data-board-nav-toggle aria-controls="board-nav" aria-expanded="true" title="Свернуть панель" aria-label="Свернуть панель досок">
+                <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+            </button>
+        </div>
+        <div class="board-nav__body">
+            {% if board_nav.boards %}
+                <ul class="board-nav__list">
+                    {% for item in board_nav.boards %}
+                        <li><a class="board-nav__link text-ellipsis{% if item.pk == board_nav.current_id %} is-active{% endif %}" href="{% url 'boards:detail' item.pk %}" title="{{ item.name }}"{% if item.pk == board_nav.current_id %} aria-current="page"{% endif %}>{{ item.name }}</a></li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="board-nav__empty">Досок нет</p>
+            {% endif %}
+            {% if board_nav.archived %}
+                <details class="board-nav__archive"{% for item in board_nav.archived %}{% if item.pk == board_nav.current_id %} open{% endif %}{% endfor %}>
+                    <summary>Архив ({{ board_nav.archived|length }})</summary>
+                    <ul class="board-nav__list">
+                        {% for item in board_nav.archived %}
+                            <li><a class="board-nav__link text-ellipsis{% if item.pk == board_nav.current_id %} is-active{% endif %}" href="{% url 'boards:detail' item.pk %}" title="{{ item.name }}"{% if item.pk == board_nav.current_id %} aria-current="page"{% endif %}>{{ item.name }}</a></li>
+                        {% endfor %}
+                    </ul>
+                </details>
+            {% endif %}
+        </div>
+    </nav>
+
+    <section class="board-main" aria-label="{% block board_main_label %}Доска{% endblock %}">
+        {% block board_main %}{% endblock %}
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/board_nav.js' %}?v=20261012-1" defer></script>
+{% block board_scripts %}{% endblock %}
+{% endblock %}

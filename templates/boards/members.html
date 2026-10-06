@@ -1,13 +1,11 @@
-{% extends 'base.html' %}
-{% load static people %}
+{% extends 'boards/layout.html' %}
+{% load people %}
 
 {% block title %}Участники · {{ board.name }}{% endblock %}
 
-{% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261011-1">
-{% endblock %}
+{% block board_main_label %}Участники · {{ board.name }}{% endblock %}
 
-{% block content %}
+{% block board_main %}
 {% comment %}
 Who is on the board. Everybody reads the list; the owner and an
 administrator (`can_manage`) also get the add form and «Исключить», which
@@ -15,11 +13,16 @@ goes through the one confirmation modal. `remove_board_member()` refuses the
 owner and anybody still holding an open card, and that refusal comes back as
 a message on this page.
 {% endcomment %}
-<section class="act-detail-heading">
-    <a class="act-back-link" href="{% url 'boards:detail' board.pk %}" aria-label="К доске">←</a>
-    <div class="act-detail-heading__title"><h1 class="user-text">Участники · {{ board.name }}</h1></div>
-</section>
+<header class="board-head">
+    <div class="board-head__title">
+        <h1 class="user-text text-ellipsis" title="{{ board.name }}">Участники · {{ board.name }}</h1>
+    </div>
+    <div class="board-head__actions">
+        <a class="link-button link-button--secondary" href="{% url 'boards:detail' board.pk %}">К доске</a>
+    </div>
+</header>
 
+<div class="board-scroll">
 <section class="table-card">
     <table class="data-table board-members-table">
         <thead><tr><th>Сотрудник</th><th>Подразделение</th><th></th></tr></thead>
@@ -55,4 +58,5 @@ a message on this page.
         <div class="form-actions"><button class="link-button" type="submit">Добавить</button></div>
     </form>
 {% endif %}
+</div>
 {% endblock %}

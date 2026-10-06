@@ -1,47 +1,274 @@
-/* Доски: the registry, a board's sub-board — its tabs, its columns — and the
-   card panel.
+/* Доски: the frame (the boards on the left, the page on the right), a
+   board's sub-board — its heading, tabs, filters and columns — and the card
+   panel.
 
-   Tokens only (`base.css`): no control pixel values and no hex colours. The
-   board is a one-screen page (`page-container--fill` → `.fill-region`); the
-   columns row takes what is left, every column scrolls down on its own, and
-   on a narrow screen the row scrolls sideways inside itself — the page never
-   does. Above 1240px the panel stands beside the columns, below it above
-   them, and under 760px everything falls back to the ordinary flow, as the
-   registries do. */
+   Tokens only (`base.css`): no control pixel values and no hex colours. Every
+   board page is a one-screen page (`page-container--fill`): the left panel and
+   the page scroll on their own, the columns row takes what is left of the
+   page, every column scrolls down on its own, and on a narrow screen the row
+   scrolls sideways inside itself — the page never does. Above 1240px the card
+   panel stands beside the columns, below it above them, and under 760px
+   everything falls back to the ordinary flow, as the registries do. */
 
-.board-heading {
-    flex-wrap: wrap;
+/* ---- The frame ---- */
+
+.board-shell {
+    display: grid;
+    flex: 1 1 0;
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 14px;
+    min-height: 0;
 }
 
-.board-heading__title {
+.board-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    min-height: 0;
+    padding: 10px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.board-nav__head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px;
+}
+
+.board-nav__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    color: var(--color-text);
+    font-size: var(--font-size-base);
+}
+
+.board-nav__add,
+.board-nav__toggle {
+    display: inline-grid;
+    flex: 0 0 auto;
+    width: var(--control-height);
+    height: var(--control-height);
+    place-items: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.board-nav__add {
+    color: var(--color-primary);
+    font-size: 1.3em;
+}
+
+.board-nav__add:hover,
+.board-nav__add:focus-visible,
+.board-nav__toggle:hover,
+.board-nav__toggle:focus-visible {
+    border-color: var(--color-border);
+    color: var(--color-text);
+}
+
+.board-nav__toggle .ui-icon {
+    width: 18px;
+    height: 18px;
+    transition: transform 0.12s ease;
+}
+
+.board-nav__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.board-nav__list {
     display: grid;
     gap: 2px;
-    min-width: 0;
-}
-
-.board-heading__title h1 {
     margin: 0;
+    padding: 0;
+    list-style: none;
 }
 
-.board-heading__meta {
+.board-nav__link {
+    display: block;
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+.board-nav__link:hover,
+.board-nav__link:focus-visible {
+    background: var(--color-bg);
+}
+
+.board-nav__link.is-active {
+    background: var(--color-bg);
+    box-shadow: inset 3px 0 0 var(--color-primary);
+    color: var(--color-primary-dark);
+    font-weight: 600;
+}
+
+.board-nav__empty {
+    margin: 0;
+    padding: 6px 10px;
     color: var(--color-muted);
 }
 
-.board-heading__actions {
+.board-nav__archive {
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 1px solid var(--color-border);
+}
+
+.board-nav__archive > summary {
+    padding: 6px 10px;
+    color: var(--color-muted);
+    cursor: pointer;
+}
+
+/* Collapsed: a strip with the toggle only. */
+.board-shell.board-shell--collapsed {
+    grid-template-columns: calc(var(--control-height) + 18px) minmax(0, 1fr);
+}
+
+.board-shell--collapsed .board-nav__title,
+.board-shell--collapsed .board-nav__add,
+.board-shell--collapsed .board-nav__body {
+    display: none;
+}
+
+.board-shell--collapsed .board-nav__head {
+    justify-content: center;
+    padding: 0;
+}
+
+.board-shell--collapsed .board-nav__toggle .ui-icon {
+    transform: rotate(180deg);
+}
+
+/* The page on the right: a column whose last item takes what is left. */
+.board-main {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 10px;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* «Новая доска» and «Участники»: an ordinary page scrolling inside the frame. */
+.board-scroll {
+    display: grid;
+    flex: 1 1 0;
+    align-content: start;
+    gap: 14px;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.board-empty {
+    display: grid;
+    justify-items: start;
+    gap: 12px;
+}
+
+/* ---- The board heading ---- */
+
+.board-head {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+}
+
+.board-head__title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.board-head__title h1 {
+    margin: 0;
+    min-width: 0;
+}
+
+.board-head__members {
+    display: inline-flex;
+    gap: 2px;
+    text-decoration: none;
+}
+
+.board-head__members:hover .board-avatar,
+.board-head__members:focus-visible .board-avatar {
+    border-color: var(--color-primary);
+}
+
+.board-avatar--more {
+    color: var(--color-muted);
+}
+
+.board-head__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin-left: auto;
 }
 
-/* The filter row under the title: «Мои», «Просроченные», the search. Content
-   width, left-aligned, like every registry's filter row. */
+.board-head__menu .board-menu__body {
+    right: 0;
+    left: auto;
+}
+
+.board-menu__link {
+    color: var(--color-primary);
+}
+
+/* ---- The sub-board: tabs, filters, columns ----
+   `.board-page` takes the rest of the screen; inside it the tabs, the filter
+   row and the messages keep their own height (no shrinking) and the columns
+   with the card panel take what is left. Its basis is 0, never `auto`: an
+   `auto` basis is the panel's full height, and the overflow was then shared
+   with the rows above — which is how the filter row ended up under the tabs
+   when a long card was opened on a 1536×864 screen. */
+
+.board-page {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.board-page > * {
+    flex-shrink: 0;
+}
+
+.board-page > .board-layout {
+    flex: 1 1 0;
+}
+
+/* The filter row under the tabs: «Мои», «Просроченные», the search — one
+   compact row, content width, left-aligned like every registry's. */
 .board-filters {
     display: flex;
-    flex: 1 0 100%;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 14px;
+    gap: 6px 14px;
 }
 
 .board-filters__check {
@@ -72,17 +299,15 @@
 
 .board-layout {
     display: flex;
-    flex: 1 1 auto;
     gap: 14px;
     min-height: 0;
 }
 
-/* The live structure block: the tabs above, the row of columns below. */
+/* The live columns block: the row of columns. */
 .board-structure {
     display: flex;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     flex-direction: column;
-    gap: 10px;
     min-width: 0;
     min-height: 0;
 }
@@ -865,6 +1090,10 @@
 
 /* The panel above the columns once the screen is too narrow for both. */
 @media (max-width: 1240px) {
+    .board-shell {
+        grid-template-columns: 200px minmax(0, 1fr);
+    }
+
     .board-layout--with-panel {
         flex-direction: column;
     }
@@ -879,6 +1108,16 @@
 /* A phone: the ordinary flow, like every registry. The columns keep their
    own sideways scroll; each column is as tall as its cards. */
 @media (max-width: 760px) {
+    .board-shell,
+    .board-shell--collapsed {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .board-nav__body {
+        max-height: 220px;
+    }
+
     .board-layout,
     .board-layout--with-panel {
         display: grid;

@@ -509,10 +509,15 @@ function createEnvironment({
         board.setAttribute('data-board-url', '/work/boards/4/7/');
         board.setAttribute('data-board-page-url', '/work/boards/4/7/?card=9');
         board.setAttribute('data-board-fragment-url', '/work/boards/4/7/fragment/?card=9');
+        board.setAttribute('data-tabs-revision', 'tabs-rev-initial');
         board.setAttribute('data-columns-revision', 'columns-rev-initial');
         board.setAttribute('data-panel-revision', 'panel-rev-initial');
         board.setAttribute('data-comments-revision', 'comments-rev-initial');
         board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
+        // The sub-board tabs: a read-only live block of their own.
+        const tabs = new Element('div');
+        tabs.setAttribute('data-live-board-tabs', '');
+        tabs.innerHTML = '<nav><a data-tab="7">исходная вкладка</a></nav>';
         const columns = new Element('div');
         columns.setAttribute('data-live-board-columns', '');
         columns.innerHTML = '<section data-column-id="31"><ol data-column-list>'
@@ -535,7 +540,7 @@ function createEnvironment({
         const commentText = new Element('textarea');
         commentText.setAttribute('name', 'text');
         commentText.value = '';
-        board.append(columns, panel, comments, commentText);
+        board.append(tabs, columns, panel, comments, commentText);
         const conflict = new Element('div');
         conflict.setAttribute('data-board-conflict-banner', '');
         conflict.hidden = true;
@@ -544,6 +549,7 @@ function createEnvironment({
         root.append(conflict, board, modalTextarea);
         Object.assign(live, {
             board,
+            tabs,
             columns,
             panel,
             execution,

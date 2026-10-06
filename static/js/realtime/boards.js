@@ -1,12 +1,16 @@
 /**
- * The open board page — one sub-board — kept current: its tabs and columns,
+ * The open board page — one sub-board — kept current: its tabs, its columns,
  * its card panel and the open card's messages.
  *
- * Three live blocks, all fetched from `boards:fragment`, which renders the very
+ * Four live blocks, all fetched from `boards:fragment`, which renders the very
  * same partials from the very same context builder as the page — no markup is
  * built here, and nothing here is a rule:
  *
- *   [data-live-board-columns]  the structure — tabs and columns — read-only;
+ *   [data-live-board-tabs]     the sub-board tabs: read-only, replaced
+ *                              whenever its fingerprint moved — but not while
+ *                              one of its menus is open (deferred like the
+ *                              columns below);
+ *   [data-live-board-columns]  the columns — read-only;
  *                              replaced wholesale whenever its fingerprint
  *                              moved (a card, or a tab or a column created,
  *                              renamed, moved or deleted) — but never under a
@@ -56,6 +60,7 @@
         return;
     }
 
+    const tabsElement = root.querySelector('[data-live-board-tabs]');
     const columnsElement = root.querySelector('[data-live-board-columns]');
     const panelElement = root.querySelector('[data-live-board-panel]');
     const commentsElement = root.querySelector('[data-live-board-comments]');
@@ -69,6 +74,7 @@
         );
     }
 
+    let tabsRevision = root.dataset.tabsRevision || '';
     let columnsRevision = root.dataset.columnsRevision || '';
     let panelRevision = root.dataset.panelRevision || '';
     let commentsRevision = root.dataset.commentsRevision || '';
@@ -102,8 +108,9 @@
     });
 
     const isBusy = () => root.getAttribute('data-board-busy') !== null;
-    const menuOpen = () =>
-        Boolean(columnsElement && columnsElement.querySelector('details[data-board-menu][open]'));
+    const menuOpenIn = (element) =>
+        Boolean(element && element.querySelector('details[data-board-menu][open]'));
+    const menuOpen = () => menuOpenIn(tabsElement) || menuOpenIn(columnsElement);
 
     const revisionOf = (value) => (typeof value === 'string' ? value : '');
 
@@ -147,6 +154,26 @@
         columnsRevision = revision;
         if (window.qualityFragments) {
             window.qualityFragments.reinitialise(columnsElement);
+        }
+    };
+
+    const applyTabs = (payload) => {
+        if (!tabsElement || typeof payload.tabs_html !== 'string') {
+            return;
+        }
+        const revision = revisionOf(payload.tabs_revision);
+        if (revision && revision === tabsRevision) {
+            return;
+        }
+        if (menuOpen()) {
+            // A tab's menu may hold a name half typed: wait for it to close.
+            deferred = true;
+            return;
+        }
+        tabsElement.innerHTML = payload.tabs_html;
+        tabsRevision = revision;
+        if (window.qualityFragments) {
+            window.qualityFragments.reinitialise(tabsElement);
         }
     };
 
@@ -208,6 +235,7 @@
     const coordinator = core.createRefreshCoordinator({
         url: fragmentUrl,
         apply(payload) {
+            applyTabs(payload);
             applyColumns(payload);
             applyPanel(payload);
             applyComments(payload);

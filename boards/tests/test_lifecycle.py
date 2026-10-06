@@ -23,7 +23,7 @@ from ..models import Board, BoardCard
 from ..permissions import can_cancel_card, can_manage_board, can_restore_board, can_work_on_board
 from ..selectors import (
     BoardFilters,
-    build_board_list_state,
+    build_board_nav,
     build_board_state,
     column_counts,
     parse_board_filters,
@@ -306,7 +306,9 @@ class ArchiveBoardTests(BoardFixtureMixin, TestCase):
         self.assertIn(reverse('boards:restore', args=[self.board.pk]), content)
         for marker in (
             reverse('boards:archive', args=[self.board.pk]), '+ Карточка', 'data-card-movable',
-            'data-board-menu', '+ Колонка',
+            reverse('boards:rename', args=[self.board.pk]), '+ Колонка',
+            reverse('boards:sub_board_create', args=[self.board.pk, self.main.pk]),
+            reverse('boards:column_create', args=[self.board.pk, self.main.pk]),
         ):
             self.assertNotIn(marker, content)
 
@@ -323,14 +325,18 @@ class ArchiveBoardTests(BoardFixtureMixin, TestCase):
         self.client.post(reverse('boards:restore', args=[self.board.pk]))
         self.assertEqual(Board.objects.get(pk=self.board.pk).status, Board.Status.ACTIVE)
 
-    def test_registry_tabs(self):
+    def test_the_archive_is_its_own_part_of_the_left_panel(self):
+        # Was the registry's «Архив» tab: the archived board leaves the live
+        # list and is listed under «Архив (N)», still readable by its member.
         self.close_everything()
         archive_board(self.board, actor=self.owner)
-        state = build_board_list_state(self.member, 'archive')
-        self.assertEqual([board.name for board in state['boards']], ['Планирование'])
-        self.assertEqual(state['tab_counts'], {'my': 0, 'all': 0, 'archive': 1})
-        self.assertEqual(build_board_list_state(self.member, 'all')['boards'], [])
-        self.assertEqual(build_board_list_state(self.member, None)['tab'], 'all')
+        nav = build_board_nav(self.member)
+        self.assertEqual(nav['boards'], [])
+        self.assertEqual([board.name for board in nav['archived']], ['Планирование'])
+        self.client.force_login(self.member)
+        content = self.client.get(board_url(self.board)).content.decode()
+        self.assertIn('Архив (1)', content)
+        self.assertIn('<details class="board-nav__archive" open>', content)
 
 
 # --------------------------------------------------------------------------
