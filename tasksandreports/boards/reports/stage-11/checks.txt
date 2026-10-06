@@ -1,0 +1,21 @@
+$ python manage.py check
+System check identified no issues (0 silenced).
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test --parallel 4
+Found 1472 test(s).
+Ran 1472 tests in 101.970s
+OK (skipped=8)
+
+$ python manage.py check_documentation
+  [WARNING ] length: AGENTS.md: 2499 строк заметно превышает ориентир 190. Допустимо, если содержимое уникально.
+  [WARNING ] length: README.md: 651 строк заметно превышает ориентир 220. Допустимо, если содержимое уникально.
+  [WARNING ] length: docs/domain.md: 658 строк заметно превышает ориентир 350. Допустимо, если содержимое уникально.
+  [WARNING ] length: docs/realtime.md: 547 строк заметно превышает ориентир 350. Допустимо, если содержимое уникально.
+
+Документация корректна, предупреждений — 4.
+
+$ node realtime/tests/js/realtime_client_test.js
+91/91 passed

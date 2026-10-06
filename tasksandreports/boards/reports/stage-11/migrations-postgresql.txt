@@ -1,0 +1,75 @@
+$ python manage.py migrate   # PostgreSQL 16, empty database
+Operations to perform:
+  Apply all migrations: accounts, acts, admin, auth, boards, bugs, calculator, contenttypes, documents, notifications, plate_cutting, protocols, references, sessions, smk, tasks
+  Applying boards.0001_initial... OK
+  Applying boards.0002_board_archive_card_version... OK
+  Applying boards.0003_board_card_comment... OK
+  Applying boards.0004_board_department_optional... OK
+  Applying boards.0005_sub_boards_and_columns... OK
+  Applying boards.0006_default_sub_boards... OK
+  Applying boards.0007_sub_board_required... OK
+  Applying boards.0008_drop_card_stage... OK
+  Applying tasks.0021_board_task_department_free... OK
+
+$ python manage.py shell < pg_seed.py   # a board, an extra column «Упаковка», done and cancelled cards
+seeded board 1
+   title   |   column    | position |   status    
+-----------+-------------+----------+-------------
+ todo      | Сделать     |     1024 | IN_PROGRESS
+ progress  | В работе    |     1024 | IN_PROGRESS
+ review    | На проверке |     1024 | IN_PROGRESS
+ packing   | Упаковка    |     1024 | IN_PROGRESS
+ done      | В работе    |     2048 | COMPLETED
+ cancelled | На проверке |     2048 | CANCELLED
+(6 rows)
+
+$ python manage.py migrate boards 0007   # one step back
+  Unapplying boards.0008_drop_card_stage... OK
+   title   |    stage    | position 
+-----------+-------------+----------
+ todo      | TODO        |     1024
+ progress  | IN_PROGRESS |     1024
+ review    | REVIEW      |     1024
+ packing   | REVIEW      |     1024
+ done      | IN_PROGRESS |     2048
+ cancelled | REVIEW      |     2048
+(6 rows)
+
+$ python manage.py migrate boards 0005   # back past the data migration
+  Unapplying boards.0007_sub_board_required... OK
+  Unapplying boards.0006_default_sub_boards... OK
+   title   |    stage    | position | sub_board_id | column_id 
+-----------+-------------+----------+--------------+-----------
+ todo      | TODO        |     1024 |              |          
+ progress  | IN_PROGRESS |     1024 |              |          
+ review    | REVIEW      |     1024 |              |          
+ packing   | REVIEW      |     1024 |              |          
+ done      | IN_PROGRESS |     2048 |              |          
+ cancelled | REVIEW      |     2048 |              |          
+(6 rows)
+
+ sub_boards 
+------------
+          0
+(1 row)
+
+$ python manage.py migrate   # forward again
+  Apply all migrations: accounts, acts, admin, auth, boards, bugs, calculator, contenttypes, documents, notifications, plate_cutting, protocols, references, sessions, smk, tasks
+  Applying boards.0006_default_sub_boards... OK
+  Applying boards.0007_sub_board_required... OK
+  Applying boards.0008_drop_card_stage... OK
+   title   |   column    | position |   status    
+-----------+-------------+----------+-------------
+ todo      | Сделать     |     1024 | IN_PROGRESS
+ progress  | В работе    |     1024 | IN_PROGRESS
+ review    | На проверке |     1024 | IN_PROGRESS
+ packing   | На проверке |     1024 | IN_PROGRESS
+ done      | В работе    |     2048 | COMPLETED
+ cancelled | На проверке |     2048 | CANCELLED
+(6 rows)
+
+$ python manage.py migrate boards 0007 && python manage.py migrate   # one step back and forward once more
+  Unapplying boards.0008_drop_card_stage... OK
+  Apply all migrations: accounts, acts, admin, auth, boards, bugs, calculator, contenttypes, documents, notifications, plate_cutting, protocols, references, sessions, smk, tasks
+  Applying boards.0008_drop_card_stage... OK
+No changes detected
