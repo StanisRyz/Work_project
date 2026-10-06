@@ -10,7 +10,7 @@ from django.contrib import admin
 
 from ecosystem.admin import ReadOnlyAdminMixin
 
-from .models import Board, BoardCard, BoardCardEvent, BoardColumn, BoardMember, SubBoard
+from .models import Board, BoardCard, BoardCardEvent, BoardColumn, BoardColumnPin, BoardMember, SubBoard
 
 
 class BoardMemberInline(ReadOnlyAdminMixin, admin.TabularInline):
@@ -21,7 +21,7 @@ class BoardMemberInline(ReadOnlyAdminMixin, admin.TabularInline):
 
 @admin.register(Board)
 class BoardAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
-    list_display = ('pk', 'name', 'department', 'owner', 'created_at')
+    list_display = ('pk', 'name', 'code', 'department', 'owner', 'created_at')
     list_filter = ('department',)
     inlines = (BoardMemberInline,)
 
@@ -36,15 +36,21 @@ class SubBoardAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ('pk', 'board', 'name', 'position', 'created_by', 'created_at')
 
 
+class BoardColumnPinInline(ReadOnlyAdminMixin, admin.TabularInline):
+    model = BoardColumnPin
+    extra = 0
+
+
 @admin.register(BoardColumn)
 class BoardColumnAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
-    list_display = ('pk', 'sub_board', 'name', 'position', 'is_done')
-    list_filter = ('is_done',)
+    list_display = ('pk', 'sub_board', 'name', 'position', 'is_done', 'pinned_mode')
+    list_filter = ('is_done', 'pinned_mode')
+    inlines = (BoardColumnPinInline,)
 
 
 @admin.register(BoardCard)
 class BoardCardAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
-    list_display = ('pk', 'board', 'sub_board', 'column', 'position', 'created_by', 'created_at')
+    list_display = ('pk', 'board', 'number', 'sub_board', 'column', 'position', 'created_by', 'created_at')
 
 
 @admin.register(BoardCardEvent)

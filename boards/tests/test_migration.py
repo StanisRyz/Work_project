@@ -257,3 +257,82 @@ class CardJournalBackfillTests(TransactionTestCase):
             apps.get_model('boards', 'BoardCardEvent')
         apps = migrate(JOURNAL_AFTER)
         self.assertEqual(apps.get_model('boards', 'BoardCardEvent').objects.count(), 6)
+
+
+NUMBERS_BEFORE = [('boards', '0010_backfill_card_events')]
+NUMBERS_NULLABLE = [('boards', '0011_board_code_card_number')]
+NUMBERS_AFTER = [('boards', '0014_board_column_pins')]
+
+
+class CodesAndNumbersMigrationTests(TransactionTestCase):
+    """`boards.0011`–`0013`: `D<pk>` for every board, its cards numbered by
+    creation; and back."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def _boards(self, apps):
+        from datetime import datetime, timezone as dt_timezone
+
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+
+        owner = User.objects.create(username='numbers_owner')
+        boards, cards = {}, {}
+        for name in ('Первая', 'Вторая', 'Пустая'):
+            board = Board.objects.create(name=name, owner=owner)
+            sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+            column = BoardColumn.objects.create(sub_board=sub_board, name='Сделать', position=1)
+            boards[name] = (board.pk, sub_board, column)
+        # Created out of `pk` order, and two at the same moment (then by `pk`).
+        for title, board_name, day in (
+            ('late', 'Первая', 3), ('early', 'Первая', 1), ('same-a', 'Первая', 2),
+            ('same-b', 'Первая', 2), ('only', 'Вторая', 5),
+        ):
+            board_id, sub_board, column = boards[board_name]
+            card = BoardCard.objects.create(
+                board_id=board_id, sub_board=sub_board, column=column, position=1024,
+                title=title, created_by=owner,
+            )
+            BoardCard.objects.filter(pk=card.pk).update(
+                created_at=datetime(2026, 9, day, 9, 0, tzinfo=dt_timezone.utc),
+            )
+            cards[title] = card.pk
+        return {name: value[0] for name, value in boards.items()}, cards
+
+    def test_forward_codes_and_numbers_then_back(self):
+        apps = migrate(NUMBERS_BEFORE)
+        boards, cards = self._boards(apps)
+
+        apps = migrate(NUMBERS_AFTER)
+        Board = apps.get_model('boards', 'Board')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        self.assertEqual(
+            dict(Board.objects.values_list('pk', 'code')),
+            {pk: f'D{pk}' for pk in boards.values()},
+        )
+        numbers = dict(BoardCard.objects.values_list('title', 'number'))
+        self.assertEqual(numbers, {'early': 1, 'same-a': 2, 'same-b': 3, 'late': 4, 'only': 1})
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        self.assertEqual(set(BoardColumn.objects.values_list('pinned_mode', flat=True)), {'ADD'})
+
+        apps = migrate(NUMBERS_NULLABLE)
+        Board = apps.get_model('boards', 'Board')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        self.assertEqual(set(Board.objects.values_list('code', flat=True)), {None})
+        self.assertEqual(set(BoardCard.objects.values_list('number', flat=True)), {None})
+
+        apps = migrate(NUMBERS_BEFORE)
+        field_names = {field.name for field in apps.get_model('boards', 'BoardCard')._meta.get_fields()}
+        self.assertNotIn('number', field_names)
+
+        apps = migrate(NUMBERS_AFTER)
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        self.assertEqual(dict(BoardCard.objects.values_list('title', 'number'))['late'], 4)

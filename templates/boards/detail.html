@@ -26,6 +26,7 @@ the panel with no control at all.
 <header class="board-head">
     <div class="board-head__title">
         <h1 class="user-text text-ellipsis" title="{{ board.name }}">{{ board.name }}</h1>
+        <span class="board-head__code" title="Код доски: с него начинается номер каждой карточки">{{ board.code }}</span>
         {% if board.is_archived %}<span class="status-badge status-badge--archived" title="В архиве с {{ board.archived_at|date:'d.m.Y' }}">В архиве</span>{% endif %}
     </div>
     {% comment %}Up to five members by name and «+N»: a link to «Участники».{% endcomment %}
@@ -37,7 +38,8 @@ the panel with no control at all.
         {% if can_work and first_working_column %}<a class="link-button" href="{{ board_url }}?new={{ first_working_column.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">+ Карточка</a>{% endif %}
         {% if can_manage or can_restore %}
             {% comment %}
-            The board's own «⋯»: «Переименовать» (`rename_board()`), «Участники»,
+            The board's own «⋯»: «Переименовать» (`rename_board()`), «Код доски»
+            (`change_board_code()`), «Участники»,
             «В архив» / «Вернуть из архива» — each its route's own right, asked
             again by the route. `?sub=` brings the redirect back to this tab.
             {% endcomment %}
@@ -49,6 +51,13 @@ the panel with no control at all.
                             {% csrf_token %}
                             <label class="board-menu__label" for="board-rename">Переименовать</label>
                             <input id="board-rename" type="text" name="name" value="{{ board.name }}" maxlength="200" required>
+                            <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                        </form>
+                        <form class="board-menu__form" method="post" action="{% url 'boards:change_code' board.pk %}?sub={{ sub_board.pk }}">
+                            {% csrf_token %}
+                            <label class="board-menu__label" for="board-code">Код доски</label>
+                            <input id="board-code" type="text" name="code" value="{{ board.code }}" maxlength="6" required autocapitalize="characters" spellcheck="false">
+                            <span class="board-pins__hint">Номера карточек сохранятся — изменится только код перед ними.</span>
                             <button class="link-button link-button--compact" type="submit">Сохранить</button>
                         </form>
                     {% endif %}
@@ -120,7 +129,7 @@ what is left — never the other way round.
         <input type="hidden" name="tab" value="{% if panel == 'view' and card %}{{ tab }}{% endif %}" data-board-filter-tab{% if panel != 'view' or not card %} disabled{% endif %}>
         <label class="board-filters__check"><input type="checkbox" name="mine" value="1"{% if filters.mine %} checked{% endif %}> Мои</label>
         <label class="board-filters__check"><input type="checkbox" name="overdue" value="1"{% if filters.overdue %} checked{% endif %}> Просроченные</label>
-        <input class="board-filters__search" type="search" name="q" value="{{ filters.q }}" placeholder="Поиск по названию" aria-label="Поиск карточки по названию" maxlength="200" data-registry-search>
+        <input class="board-filters__search" type="search" name="q" value="{{ filters.q }}" placeholder="Название или номер, {{ board.code }}-12" aria-label="Поиск карточки по названию или номеру" maxlength="200" data-registry-search>
         <button class="link-button link-button--secondary link-button--compact" type="submit">Применить</button>
         {% if filters.is_active %}<a class="board-filters__reset" href="{{ reset_url }}" data-board-filter-reset>Сбросить</a>{% endif %}
     </form>
@@ -170,5 +179,5 @@ what is left — never the other way round.
 {# Dragging cards and the card drawer. The board works without them: links and forms do the same. #}
 <script src="{% static 'js/board_dnd.js' %}?v=20261013-1" defer></script>
 <script src="{% static 'js/board_menus.js' %}?v=20261012-1" defer></script>
-<script src="{% static 'js/board_drawer.js' %}?v=20261013-1" defer></script>
+<script src="{% static 'js/board_drawer.js' %}?v=20261014-1" defer></script>
 {% endblock %}

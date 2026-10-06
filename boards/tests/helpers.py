@@ -1,5 +1,6 @@
 """Shared fixtures for the board tests."""
 
+import itertools
 import re
 from datetime import timedelta
 from unittest import mock
@@ -14,6 +15,14 @@ from ..models import BoardColumn, SubBoard
 from ..services import create_board, create_card
 
 
+_CODES = itertools.count(1)
+
+
+def fresh_code():
+    """A board code no other board of this test run has: «T1», «T2», …"""
+    return f'T{next(_CODES)}'
+
+
 # The default columns of a sub-board by the names the old fixed stages had —
 # so a test written against «Сделать / В работе / На проверке / Готово»
 # still says what it means.
@@ -21,7 +30,7 @@ STAGE_INDEX = {'TODO': 0, 'IN_PROGRESS': 1, 'REVIEW': 2}
 
 
 def main_sub_board(board):
-    """The board's first tab — «Основная» for a board `create_board()` made."""
+    """The board's first tab — «Основная» for a board `create_board(code=fresh_code(), )` made."""
     return SubBoard.objects.filter(board=board).order_by('position', 'pk').first()
 
 
@@ -176,6 +185,7 @@ class BoardFixtureMixin(WidenedBoardAccess):
         cls.outsider = make_user('outsider', UserProfile.Role.OTK)
         cls.admin = make_user('admin_user', UserProfile.Role.ADMIN)
         cls.board = create_board(
+            code=fresh_code(),
             name='Планирование',
             department=cls.department,
             owner=cls.owner,

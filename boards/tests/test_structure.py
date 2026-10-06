@@ -33,6 +33,7 @@ from ..services import (
     rename_sub_board,
 )
 from .helpers import (
+    fresh_code,
     BoardFixtureMixin,
     board_url,
     column_of,
@@ -112,7 +113,7 @@ class StructureRightsTests(BoardFixtureMixin, TestCase):
         self.assertEqual((tab_names(self.board), names(self.main)), before)
 
     def test_an_archived_board_refuses_everyone(self):
-        board = create_board(name='Пустая', owner=self.owner, actor=self.owner)
+        board = create_board(code=fresh_code(), name='Пустая', owner=self.owner, actor=self.owner)
         tab = board.sub_boards.get()
         archive_board(board, actor=self.owner)
         for actor in (self.owner, self.admin):
@@ -143,7 +144,7 @@ class SubBoardTests(BoardFixtureMixin, TestCase):
             with self.subTest(name=name[:20]), self.assertRaisesMessage(BoardError, message):
                 create_sub_board(self.board, actor=self.owner, name=name)
         # Another board may have the same name.
-        other = create_board(name='Другая', owner=self.owner, actor=self.owner)
+        other = create_board(code=fresh_code(), name='Другая', owner=self.owner, actor=self.owner)
         create_sub_board(other, actor=self.owner, name='Цех')
         create_sub_board(self.board, actor=self.owner, name='Цех')
 
@@ -327,20 +328,23 @@ class CardPlacementTests(BoardFixtureMixin, TestCase):
         self.assertEqual((card.board, card.sub_board, card.column), (self.board, tab, column_of(self.board, 'TODO', tab)))
 
     def test_a_sub_board_of_another_board_is_refused(self):
-        other = create_board(name='Другая', owner=self.owner, actor=self.owner, member_ids=[self.member.pk])
+        other = create_board(code=fresh_code(), name='Другая', owner=self.owner, actor=self.owner, member_ids=[self.member.pk])
         card = create_card(
             other.sub_boards.get(), actor=self.member, title='Там', due_date=due(),
             assignee_ids=[self.member.pk],
         )
         self.assertEqual(card.board, other)
 
-    def test_move_never_leaves_the_sub_board(self):
+    def test_move_never_leaves_the_board(self):
         card = self.card('Карточка')
         tab = create_sub_board(self.board, actor=self.owner, name='Цех')
-        with self.assertRaisesMessage(BoardError, 'не найдена на этой поддоске'):
-            move_card(card, actor=self.member, column=column_of(self.board, 'IN_PROGRESS', tab))
+        other = create_board(code=fresh_code(), name='Чужая', owner=self.owner, actor=self.owner)
+        with self.assertRaisesMessage(BoardError, 'не найдена на этой доске'):
+            move_card(card, actor=self.member, column=column_of(other, 'IN_PROGRESS'))
         with self.assertRaisesMessage(BoardError, 'завершите задачу'):
             move_card(card, actor=self.member, column=done_column_of(self.board))
+        with self.assertRaisesMessage(BoardError, 'завершите задачу'):
+            move_card(card, actor=self.member, column=done_column_of(self.board, tab))
         self.assertEqual(stage_of(card), 'TODO')
         self.assertEqual(card.sub_board, self.main)
 
@@ -353,7 +357,7 @@ class CardPlacementTests(BoardFixtureMixin, TestCase):
         card.column = done_column_of(self.board)
         with self.assertRaises(ValidationError):
             card.clean()
-        other = create_board(name='Другая', owner=self.owner, actor=self.owner)
+        other = create_board(code=fresh_code(), name='Другая', owner=self.owner, actor=self.owner)
         card.refresh_from_db()
         card.sub_board = other.sub_boards.get()
         with self.assertRaises(ValidationError):
@@ -469,7 +473,7 @@ class AddressTests(BoardFixtureMixin, TestCase):
         self.assertRedirects(response, f'{board_url(self.board, tab)}?card={card.pk}&q=x', fetch_redirect_response=False)
 
     def test_a_tab_of_another_board_is_404(self):
-        other = create_board(name='Другая', owner=self.owner, actor=self.owner)
+        other = create_board(code=fresh_code(), name='Другая', owner=self.owner, actor=self.owner)
         self.client.force_login(self.member)
         url = reverse('boards:sub_board', args=[self.board.pk, other.sub_boards.get().pk])
         self.assertEqual(self.client.get(url).status_code, 404)

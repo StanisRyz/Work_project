@@ -46,14 +46,19 @@ and `list_query` (`tab=files`) brings an upload back to this tab.
     {% if can_edit_card or card.can_cancel %}
         <div class="board-drawer__tools">
             {% if can_edit_card %}
-                <a class="link-button link-button--secondary link-button--compact" href="{{ board_url }}?card={{ card.card.pk }}&amp;edit=1{% if filter_query %}&amp;{{ filter_query }}{% endif %}">Редактировать</a>
+                <a class="link-button link-button--secondary" href="{{ board_url }}?card={{ card.card.pk }}&amp;edit=1{% if filter_query %}&amp;{{ filter_query }}{% endif %}">Редактировать</a>
+                {% comment %}
+                «Переместить в…»: every working column of the board, grouped
+                by sub-board (`<optgroup>`, this one first) — a column of
+                another sub-board moves the card there, to the end. The label
+                is the select's `aria-label`, and the buttons are full-size
+                `.link-button`s, so the row is one line of controls of one
+                height (`--control-height`).
+                {% endcomment %}
                 <form class="board-drawer__move" method="post" action="{% url 'boards:card_move' board.pk card.card.pk %}{{ filter_suffix }}">
                     {% csrf_token %}
-                    <label>
-                        <span>{{ move_form.column_id.label }}</span>
-                        {{ move_form.column_id }}
-                    </label>
-                    <button class="link-button link-button--secondary link-button--compact" type="submit">Переместить</button>
+                    {{ move_form.column_id }}
+                    <button class="link-button link-button--secondary" type="submit">Переместить</button>
                 </form>
             {% endif %}
             {% comment %}
@@ -63,10 +68,10 @@ and `list_query` (`tab=files`) brings an upload back to this tab.
             `cancellation_reason`.
             {% endcomment %}
             {% if card.can_cancel %}
-                <button class="link-button link-button--danger link-button--compact" type="button"
+                <button class="link-button link-button--danger" type="button"
                         data-confirm
                         data-confirm-title="Отменить карточку «{{ card.card.title }}»?"
-                        data-confirm-text="Задача №{{ card.task.pk }} будет закрыта без выполнения и уйдёт с доски. Исполнители получат уведомление в колокольчике."
+                        data-confirm-text="Карточка {{ card.card.code }} (задача №{{ card.task.pk }}) будет закрыта без выполнения и уйдёт с доски. Исполнители получат уведомление в колокольчике."
                         data-confirm-label="Отменить карточку"
                         data-confirm-cancel-label="Не отменять"
                         data-confirm-variant="danger"

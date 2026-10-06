@@ -5,6 +5,8 @@ through :func:`build_task_list_state`. The builder separates the assigned work
 queue from the global authenticated read scope on the server.
 """
 
+import re
+
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -33,6 +35,31 @@ SORT_ORDERS = {
 }
 
 
+# «ZAP-12», «zap-12», «ПДО-7»: a board's code, a dash, the card's number.
+_CARD_CODE = re.compile(r'^\s*([0-9A-Za-zА-Яа-яЁё]+)\s*-\s*(\d+)\s*$')
+
+
+def board_card_code_filter(term, prefix=''):
+    """A `BOARD` task by its card's code («ZAP-12», any case) — or `None`.
+
+    `None` when the term is not shaped like a code, so the caller adds
+    nothing. Codes are stored upper case (`boards.services.clean_board_code()`),
+    so the term is upper-cased here and compared exactly — on SQLite too, whose
+    `UPPER()` would not fold Cyrillic. `prefix` walks from another model to the
+    task's card: the board's own filter runs over tasks as well, so it passes
+    nothing. Visibility is the caller's queryset; this only narrows it.
+    """
+    match = _CARD_CODE.match(term or '')
+    if match is None:
+        return None
+    code, number = match.group(1).upper(), int(match.group(2))
+    return Q(**{
+        f'{prefix}board_card__board__code': code,
+        f'{prefix}board_card__number': number,
+        f'{prefix}source_type': Task.SourceType.BOARD,
+    })
+
+
 def _source_search_filter(term):
     """Find a task by the number of the act or protocol behind it.
 
@@ -44,9 +71,12 @@ def _source_search_filter(term):
     type series of its own to narrow by.
     """
     head, separator, tail = term.partition('№')
-    # A board task is found by the name of its board — the label its «Источник»
-    # column shows.
+    # A board task is found by the name of its board or its card's code
+    # («ZAP-12») — what its «Источник» column shows.
     criteria = Q(act__number__icontains=term) | Q(board_card__board__name__icontains=term)
+    card_code = board_card_code_filter(term)
+    if card_code is not None:
+        criteria |= card_code
     smk = Q()
     if separator:
         name, number = head.strip(), tail.strip()

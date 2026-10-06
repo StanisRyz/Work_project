@@ -13,7 +13,7 @@ from tasks.models import Task, TaskAttachment
 from tasks.services import add_task_attachment, complete_task
 
 from ..services import create_board
-from .helpers import BoardFixtureMixin, board_url, done_column_of, new_card
+from .helpers import BoardFixtureMixin, board_url, done_column_of, fresh_code, new_card
 
 
 def task_of(card):
@@ -243,7 +243,10 @@ class RegistryTests(PanelTestMixin, TestCase):
         self.client.force_login(self.member)
         response = self.client.get(reverse('tasks:list'), {'tab': 'all'})
         row = next(row for row in response.context['rows'] if row['task'].pk == self.task.pk)
-        self.assertEqual(row['source'], {'label': 'Планирование', 'url': self.card_url})
+        self.assertEqual(
+            row['source'], {'label': f'Доска «Планирование» · {self.board.code}-1', 'url': self.card_url},
+        )
+        self.assertContains(response, f'Доска «Планирование» · {self.board.code}-1')
         self.assertContains(response, f'href="{self.card_url}"')
 
     def test_row_click_opens_the_card(self):
@@ -255,6 +258,7 @@ class RegistryTests(PanelTestMixin, TestCase):
 
     def test_search_by_board_name(self):
         other = create_board(
+            code=fresh_code(),
             name='Отгрузки', department=self.department, owner=self.owner, actor=self.owner,
         )
         foreign = new_card(other, self.owner, 'Чужая', assignees=[self.owner])

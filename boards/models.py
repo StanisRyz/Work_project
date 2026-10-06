@@ -17,6 +17,8 @@ in while open and returns to when reopened. Nothing here writes itself —
 every mutation goes through `boards/services.py`.
 """
 
+import re
+
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -24,8 +26,15 @@ from django.db import models
 from accounts.models import Department
 
 
+# A board's code: «ZAP», «ПДО», «D7». Two to six letters (Latin or Cyrillic)
+# and digits, upper case — the form `services.clean_board_code()` stores.
+BOARD_CODE_MIN_LENGTH = 2
+BOARD_CODE_MAX_LENGTH = 6
+BOARD_CODE_PATTERN = re.compile(r'^[0-9A-ZА-ЯЁ]{2,6}$')
+
+
 class Board(models.Model):
-    """One board: a name, an owner and the people allowed to work on it."""
+    """One board: a name, a code, an owner and the people allowed to work on it."""
 
     class Status(models.TextChoices):
         """A shelf, not a workflow — like `smk.SmkSource.Status`.
@@ -40,6 +49,11 @@ class Board(models.Model):
         ARCHIVED = 'ARCHIVED', 'В архиве'
 
     name = models.CharField('Название', max_length=200)
+    # The short code every card number of the board starts with — «ZAP» in
+    # «ZAP-12». Two to six letters (Latin or Cyrillic) and digits, stored in
+    # upper case, so the plain unique constraint is uniqueness whatever the
+    # case was typed in: `services.clean_board_code()` is the one normaliser.
+    code = models.CharField('Код', max_length=BOARD_CODE_MAX_LENGTH)
     description = models.TextField('Описание', blank=True)
     # Kept only for the boards that already carry one: a board is shared work
     # of people from any number of departments, so a new board names none and
@@ -78,6 +92,11 @@ class Board(models.Model):
         ordering = ['name', 'pk']
         verbose_name = 'Доска'
         verbose_name_plural = 'Доски'
+        constraints = [
+            # Stored upper case (`services.clean_board_code()`), so this is
+            # uniqueness without regard to case.
+            models.UniqueConstraint(fields=['code'], name='unique_board_code'),
+        ]
 
     def __str__(self):
         return self.name
@@ -176,6 +195,10 @@ class BoardColumn(models.Model):
     card — and a drop there is a completion with its result.
     """
 
+    class PinnedMode(models.TextChoices):
+        ADD = 'ADD', 'Добавить к исполнителям'
+        REPLACE = 'REPLACE', 'Заменить исполнителей'
+
     sub_board = models.ForeignKey(
         SubBoard,
         on_delete=models.PROTECT,
@@ -187,6 +210,22 @@ class BoardColumn(models.Model):
     # the closing column is always the last.
     position = models.PositiveIntegerField('Позиция')
     is_done = models.BooleanField('Завершающая', default=False)
+    # «Закреплённые исполнители»: board members a card gets when it is created
+    # in this column or moved into it — added to its исполнители (`ADD`) or
+    # put in their place (`REPLACE`). A working column's only; the cards
+    # already standing here when the pins change keep their people.
+    # `services.set_column_pins()` writes them, `services._apply_pins()` uses
+    # them, `remove_board_member()` drops a removed member's.
+    pinned_assignees = models.ManyToManyField(
+        User,
+        through='BoardColumnPin',
+        related_name='pinned_board_columns',
+        verbose_name='Закреплённые исполнители',
+        blank=True,
+    )
+    pinned_mode = models.CharField(
+        'Режим закрепления', max_length=8, choices=PinnedMode.choices, default=PinnedMode.ADD,
+    )
     created_at = models.DateTimeField('Создана', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлена', auto_now=True)
 
@@ -206,6 +245,34 @@ class BoardColumn(models.Model):
 
     def __str__(self):
         return f'{self.sub_board}: {self.name}'
+
+
+class BoardColumnPin(models.Model):
+    """One person pinned to a working column (`BoardColumn.pinned_assignees`)."""
+
+    column = models.ForeignKey(
+        BoardColumn,
+        on_delete=models.CASCADE,
+        related_name='pins',
+        verbose_name='Колонка',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_column_pins',
+        verbose_name='Сотрудник',
+    )
+
+    class Meta:
+        ordering = ['column', 'pk']
+        verbose_name = 'Закреплённый исполнитель колонки'
+        verbose_name_plural = 'Закреплённые исполнители колонок'
+        constraints = [
+            models.UniqueConstraint(fields=['column', 'user'], name='unique_board_column_pin'),
+        ]
+
+    def __str__(self):
+        return f'{self.column}: {self.user}'
 
 
 class BoardCard(models.Model):
@@ -246,6 +313,11 @@ class BoardCard(models.Model):
     # usually writes one row; the column is renumbered only when two
     # neighbours have no gap left between them.
     position = models.PositiveIntegerField('Позиция')
+    # The card's number on its board — «12» in «ZAP-12». `create_card()` gives
+    # the next one under the board lock (the largest so far plus one), and it
+    # is never reused: a cancelled card keeps its number, and no card is ever
+    # deleted. Moving the card between sub-boards keeps it too.
+    number = models.PositiveIntegerField('Номер')
     title = models.CharField('Заголовок', max_length=200)
     description = models.TextField('Описание', blank=True)
     # Grows by one with every edit that stored something (`update_card()`), and
@@ -273,9 +345,21 @@ class BoardCard(models.Model):
                 name='board_card_place',
             ),
         ]
+        constraints = [
+            models.UniqueConstraint(fields=['board', 'number'], name='unique_board_card_number'),
+        ]
 
     def __str__(self):
         return f'Карточка #{self.pk}: {self.title[:60]}'
+
+    @property
+    def code(self):
+        """«ZAP-12»: the board's code and the card's number — how people name it.
+
+        Reads `self.board`; a listing attaches the board it already holds, so
+        this costs no query per card.
+        """
+        return f'{self.board.code}-{self.number}'
 
     def clean(self):
         """The card's board, sub-board and column must agree.

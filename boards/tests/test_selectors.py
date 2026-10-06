@@ -11,7 +11,7 @@ from tasks.services import complete_task, reopen_task
 from ..columns import DEFAULT_COLUMNS
 from ..selectors import build_board_state
 from ..services import create_board, create_column, create_sub_board
-from .helpers import BoardFixtureMixin, new_card
+from .helpers import BoardFixtureMixin, column_of, fresh_code, new_card
 
 
 def task_of(card):
@@ -92,16 +92,25 @@ class BoardStateTests(BoardFixtureMixin, TestCase):
     def test_panel_card_is_only_a_card_of_this_board(self):
         card = self.card('Своя')
         other = create_board(
+            code=fresh_code(),
             name='Другая', department=self.department, owner=self.owner, actor=self.owner,
         )
         foreign = new_card(other, self.owner, 'Чужая', assignees=[self.owner])
         second = create_sub_board(self.board, actor=self.owner, name='Вторая')
         other_tab = new_card(self.board, self.member, 'На другой вкладке', assignees=[self.member],
                              sub_board=second)
-        self.assertEqual(build_board_state(self.board, self.main, self.member, card_id=card.pk)['card']['card'], card)
-        for value in (foreign.pk, other_tab.pk, 999999, 'abc', ''):
+        own = build_board_state(self.board, self.main, self.member, card_id=card.pk)['card']
+        self.assertEqual(own['card'], card)
+        self.assertIsNone(own['moved_to'])
+        for value in (foreign.pk, 999999, 'abc', ''):
             with self.subTest(value=value):
                 self.assertIsNone(build_board_state(self.board, self.main, self.member, card_id=value)['card'])
+        # A card of another tab of the same board — moved there while a page
+        # had it open — is shown with where it stands now.
+        moved = build_board_state(self.board, self.main, self.member, card_id=other_tab.pk)['card']
+        self.assertEqual(moved['card'], other_tab)
+        self.assertEqual(moved['moved_to'], second)
+        self.assertEqual(moved['column'], column_of(self.board, 'TODO', second))
 
     def test_panel_finds_a_cancelled_card(self):
         card = self.card('Отменённая')

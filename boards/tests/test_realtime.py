@@ -46,6 +46,7 @@ from ..services import (
     update_card,
 )
 from .helpers import (
+    fresh_code,
     CSRF_INPUT,
     LIVE_BLOCKS,
     BoardFixtureMixin,
@@ -364,7 +365,7 @@ class BoardFragmentTests(BoardFixtureMixin, TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json(), {'error': 'not_found'})
-        other = create_board(name='Другая', owner=self.owner, actor=self.owner, member_ids=[self.member.pk])
+        other = create_board(code=fresh_code(), name='Другая', owner=self.owner, actor=self.owner, member_ids=[self.member.pk])
         foreign_tab = other.sub_boards.get()
         self.assertEqual(
             self.client.get(reverse('boards:fragment', args=[self.board.pk, foreign_tab.pk])).status_code,
@@ -443,7 +444,8 @@ class BoardFragmentTests(BoardFixtureMixin, TestCase):
     def test_the_panel_follows_the_query(self):
         self.client.force_login(self.member)
         view = self.client.get(self.url(card=self.a.pk)).json()
-        self.assertIn('Карточка №', view['panel_html'])
+        self.a.refresh_from_db()
+        self.assertIn(f'Карточка {self.a.code}', view['panel_html'])
         self.assertIn('id="board-complete-result"', view['panel_html'])
         self.assertIn('data-board-tab-body="description"', view['card_html'])
         self.assertIn('data-board-tab-body="files"', view['card_html'])

@@ -2031,6 +2031,48 @@ test('without real-time the drawer still opens, and a moved open card is drawn a
     assert.equal(env.callsTo('/work/boards/4/7/fragment/').pop().url, '/work/boards/4/7/fragment/?card=12&tab=description&mine=1');
 });
 
+test('another card opens on the tab the drawer shows; «Описание» adds nothing', async () => {
+    const env = load({ page: 'board' });
+    drawerHandler(env);
+    loadDrawer(env);
+
+    // Card 9 is open on «Описание»: the tile's own address, as before.
+    click(env, tileOf(env, 12));
+    await flush();
+    assert.equal(env.callsTo('/work/boards/4/7/fragment/').pop().url, '/work/boards/4/7/fragment/?card=12&mine=1');
+
+    // On «Лог», the next card opens on «Лог» too.
+    click(env, env.live.drawer.querySelector('[data-board-tab-link="log"]'));
+    assert.equal(env.live.drawer.getAttribute('data-board-tab'), 'log');
+    click(env, tileOf(env, 9));
+    await flush();
+    const opened = env.callsTo('/work/boards/4/7/fragment/').pop().url;
+    assert.equal(new URL(opened, 'http://quality.test').searchParams.get('tab'), 'log');
+    assert.equal(new URL(opened, 'http://quality.test').searchParams.get('card'), '9');
+});
+
+test('«Карточка ZAP-9» copies the link to the card, no dialog, no navigation', async () => {
+    const env = load({ page: 'board' });
+    drawerHandler(env);
+    loadDrawer(env);
+    const written = [];
+    env.context.navigator.clipboard = { writeText: (text) => { written.push(text); return Promise.resolve(); } };
+    env.window.isSecureContext = true;
+    const link = new Element('a');
+    link.setAttribute('href', '/work/boards/4/?card=9');
+    link.setAttribute('data-board-card-link', 'ZAP-9');
+    env.live.panel.append(link);
+
+    assert.equal(click(env, link), true, 'the click is the copy, not a navigation');
+    await flush();
+    assert.deepEqual(written, ['http://quality.test/work/boards/4/?card=9']);
+    const message = env.live.board.querySelector('[data-board-message]');
+    assert.equal(message.hidden, false);
+    assert.equal(message.textContent, 'Ссылка на карточку ZAP-9 скопирована.');
+    assert.deepEqual(env.window.location.assigned, []);
+    assert.equal(env.live.drawer.hidden, false, 'the drawer stays open');
+});
+
 // --------------------------------------------------------------------------
 
 (async () => {

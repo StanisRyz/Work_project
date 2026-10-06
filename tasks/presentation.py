@@ -75,7 +75,10 @@ def describe_task_source(task):
     if task.source_type == Task.SourceType.BOARD:
         if task.board_card_id is None:
             return {'label': '', 'url': ''}
-        return {'label': task.board_card.board.name, 'url': board_card_url(task)}
+        # «Доска «Запуск заказов» · ZAP-12»: the board, and the card the way
+        # people name it (`BoardCard.code`).
+        card = task.board_card
+        return {'label': f'Доска «{card.board.name}» · {card.code}', 'url': board_card_url(task)}
     if task.protocol_id is None:
         return {'label': '', 'url': ''}
     return {

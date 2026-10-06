@@ -20,7 +20,7 @@ from ..services import (
     remove_board_member,
     update_card,
 )
-from .helpers import BoardFixtureMixin, done_column_of, due, make_user, new_card, stage_of
+from .helpers import BoardFixtureMixin, done_column_of, due, fresh_code, make_user, new_card, stage_of
 
 
 def task_of(card):
@@ -30,6 +30,7 @@ def task_of(card):
 class CreateBoardTests(BoardFixtureMixin, TestCase):
     def test_owner_is_always_a_member(self):
         board = create_board(
+            code=fresh_code(),
             name='Продажи', department=self.department, owner=self.owner, actor=self.owner,
         )
         self.assertEqual(
@@ -37,7 +38,7 @@ class CreateBoardTests(BoardFixtureMixin, TestCase):
         )
 
     def test_a_new_board_has_one_sub_board_with_the_default_columns(self):
-        board = create_board(name='Продажи', owner=self.owner, actor=self.owner)
+        board = create_board(code=fresh_code(), name='Продажи', owner=self.owner, actor=self.owner)
         sub_boards = list(board.sub_boards.all())
         self.assertEqual([(sub.name, sub.position) for sub in sub_boards], [('Основная', 1)])
         self.assertEqual(
@@ -48,6 +49,7 @@ class CreateBoardTests(BoardFixtureMixin, TestCase):
     def test_refused_without_the_right(self):
         with self.assertRaises(BoardError):
             create_board(
+                code=fresh_code(),
                 name='Чужая', department=self.department, owner=self.member, actor=self.member,
             )
         self.assertFalse(Board.objects.filter(name='Чужая').exists())
@@ -58,6 +60,7 @@ class CreateBoardTests(BoardFixtureMixin, TestCase):
         inactive.save()
         with self.assertRaises(BoardError):
             create_board(
+                code=fresh_code(),
                 name='Продажи', department=self.department, owner=self.owner,
                 actor=self.owner, member_ids=[inactive.pk],
             )
@@ -244,6 +247,7 @@ class MoveCardTests(BoardFixtureMixin, TestCase):
     def test_refused_for_a_foreign_or_missing_before_card(self):
         card = self.card()
         other_board = create_board(
+            code=fresh_code(),
             name='Другая', department=self.department, owner=self.owner, actor=self.owner,
             member_ids=[self.member.pk],
         )

@@ -44,7 +44,7 @@ from ..services import (
     create_board,
     post_card_comment,
 )
-from .helpers import board_url, department, fragment_url, make_user, new_card, stage_of
+from .helpers import board_url, department, fragment_url, fresh_code, make_user, new_card, stage_of
 
 
 def task_of(card):
@@ -74,10 +74,12 @@ class AccessFixture:
         cls.pdo = make_user('access_pdo', UserProfile.Role.PDO)
         cls.loner = make_user('access_loner', UserProfile.Role.TO)
         cls.board = create_board(
+            code=fresh_code(),
             name='Доска ОТК', owner=cls.admin, actor=cls.admin, member_ids=[cls.otk.pk],
         )
         cls.card = new_card(cls.board, cls.admin, 'Карточка ОТК', assignees=[cls.otk])
         cls.foreign = create_board(
+            code=fresh_code(),
             name='Чужая доска', owner=cls.admin, actor=cls.admin, member_ids=[cls.pdo.pk],
         )
         cls.foreign_card = new_card(cls.foreign, cls.admin, 'Карточка ПДО', assignees=[cls.pdo])
@@ -163,6 +165,7 @@ class RightsTests(AccessFixture, TestCase):
 
     def test_an_archived_board_is_read_the_same_way(self):
         board = create_board(
+            code=fresh_code(),
             name='Архивная', owner=self.admin, actor=self.admin, member_ids=[self.otk.pk],
         )
         archive_board(board, actor=self.admin)
@@ -174,7 +177,7 @@ class RightsTests(AccessFixture, TestCase):
         self.assertFalse(can_restore_board(fresh(self.otk), board))
 
     def test_an_owner_without_full_access_still_keeps_the_board(self):
-        board = Board.objects.create(name='Старая', owner=self.otk)
+        board = Board.objects.create(name='Старая', code=fresh_code(), owner=self.otk)
         BoardMember.objects.create(board=board, user=self.otk)
         self.assertTrue(can_manage_board(self.otk, board))
 
@@ -352,6 +355,7 @@ class TaskVisibilityTests(AccessFixture, TestCase):
         baseline = self._registry_queries()
         for index in range(3):
             board = create_board(
+                code=fresh_code(),
                 name=f'Ещё {index}', owner=self.admin, actor=self.admin,
                 member_ids=[self.otk.pk, self.pdo.pk],
             )
@@ -378,7 +382,7 @@ class MembershipTests(AccessFixture, TestCase):
         with self.assertRaises(BoardError):
             add_board_members(self.board, [inactive.pk], actor=self.admin)
         with self.assertRaises(BoardError):
-            create_board(name='Новая', owner=self.admin, actor=self.admin, member_ids=[inactive.pk])
+            create_board(code=fresh_code(), name='Новая', owner=self.admin, actor=self.admin, member_ids=[inactive.pk])
 
     def test_a_new_card_task_names_no_department(self):
         self.assertIsNone(task_of(self.card).department)
@@ -405,8 +409,8 @@ class BoardFormTests(AccessFixture, TestCase):
         # The owner is never offered in the rows.
         self.assertIn(f'data-employee-picker-exclude="{self.admin.pk}"', form)
 
-    def test_a_name_alone_creates_a_board(self):
-        response = self.post({'name': 'Только название'})
+    def test_a_name_and_a_code_create_a_board(self):
+        response = self.post({'name': 'Только название', 'code': 'only'})
         board = Board.objects.get(name='Только название')
         self.assertRedirects(
             response, reverse('boards:detail', args=[board.pk]), fetch_redirect_response=False,
@@ -419,6 +423,7 @@ class BoardFormTests(AccessFixture, TestCase):
         UserProfile.objects.filter(user=self.pdo).update(department=other_department())
         response = self.post({
             'name': 'Сводная',
+            'code': 'СВД',
             # Two departments, a repeat, an empty row and the creator himself.
             'members': [str(self.otk.pk), str(self.pdo.pk), str(self.otk.pk), '', str(self.admin.pk)],
         })

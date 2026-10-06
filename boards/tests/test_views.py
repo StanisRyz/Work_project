@@ -13,6 +13,7 @@ from tasks.services import complete_task
 from ..models import Board, BoardCard, BoardMember
 from ..services import create_board, create_sub_board
 from .helpers import (
+    fresh_code,
     BoardFixtureMixin,
     board_url,
     card_create_url,
@@ -120,7 +121,7 @@ class CreateBoardViewTests(BoardViewMixin, TestCase):
         self.client.force_login(self.owner)
         self.assertEqual(self.client.get(reverse('boards:create')).status_code, 200)
         response = self.client.post(reverse('boards:create'), {
-            'name': 'Продажи', 'members': [self.member.pk],
+            'name': 'Продажи', 'code': 'zap', 'members': [self.member.pk],
         })
         board = Board.objects.get(name='Продажи')
         self.assertRedirects(
@@ -219,6 +220,7 @@ class PanelTests(BoardViewMixin, TestCase):
         self.assertEqual(response.context['panel'], 'view')
         self.assertContains(response, 'Подробности')
         other = create_board(
+            code=fresh_code(),
             name='Другая', department=self.department, owner=self.owner, actor=self.owner,
         )
         foreign = new_card(other, self.owner, 'Чужая', assignees=[self.owner])
@@ -339,6 +341,7 @@ class CardRouteTests(BoardViewMixin, TestCase):
 
     def test_card_of_another_board_is_404(self):
         other = create_board(
+            code=fresh_code(),
             name='Другая', department=self.department, owner=self.owner, actor=self.owner,
             member_ids=[self.member.pk],
         )

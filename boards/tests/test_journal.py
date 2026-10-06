@@ -39,6 +39,10 @@ from .helpers import (
 )
 
 
+# A sub-board page with a card open, for a member of the board who is an
+# исполнитель of it (`test_query_count_does_not_grow_with_entries_messages_or_files`).
+PAGE_QUERIES = 34
+
 MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-journal-'))
 
 
@@ -315,7 +319,7 @@ class DrawerTabsTests(BoardFixtureMixin, TestCase):
         order = [
             log.index(text) for text in (
                 'Задача выполнена', 'Добавлен файл «схема.pdf»', 'Перенос: «Сделать» → «В работе»',
-                'Карточка создана в колонке «Сделать»',
+                f'Карточка {self.card_obj.code} создана в колонке «Сделать»',
             )
         ]
         self.assertEqual(order, sorted(order))
@@ -339,3 +343,8 @@ class DrawerTabsTests(BoardFixtureMixin, TestCase):
         for tab in self.TABS:
             self.assertEqual(self._queries(tab), baseline[tab], tab)
         self.assertEqual(len(set(baseline.values())), 1, 'the tab changes no query')
+        # Stage 14 brought it from 56 down: the seven live blocks no longer run
+        # the context processors (the bell's two queries) each, the open card
+        # reuses the исполнители the columns already read, and the rights
+        # asked of them come from that same prefetch. No check was removed.
+        self.assertEqual(baseline['description'], PAGE_QUERIES)

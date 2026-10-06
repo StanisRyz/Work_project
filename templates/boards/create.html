@@ -6,7 +6,9 @@
 
 {% block board_main %}
 {% comment %}
-A new board: its name and its members, nothing else. The owner is whoever
+A new board: its name, its code and its members, nothing else. The code
+(«ZAP») starts the number of every card of the board — «ZAP-12»; the service
+upper-cases it and refuses a taken one, and its refusal lands beside the field. The owner is whoever
 submits the form — it never asks — and `create_board()` makes them a member
 too; the rows do not offer them. Members are picked «подразделение →
 сотрудник», like the protocol's participants.
@@ -19,11 +21,19 @@ too; the rows do not offer them. Members are picked «подразделение
 <form class="form-card board-form" method="post" data-unsaved-guard>
     {% csrf_token %}
     {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors }}</div>{% endif %}
-    <label class="board-form__name">
-        <span>{{ form.name.label }}</span>
-        {{ form.name }}
-        {{ form.name.errors }}
-    </label>
+    <div class="board-form__identity">
+        <label class="board-form__name">
+            <span>{{ form.name.label }}</span>
+            {{ form.name }}
+            {{ form.name.errors }}
+        </label>
+        <label class="board-form__code">
+            <span>{{ form.code.label }}</span>
+            {{ form.code }}
+            {{ form.code.errors }}
+        </label>
+        <p class="board-form__hint">{{ form.code.help_text }}</p>
+    </div>
     <fieldset class="board-form__members">
         <legend>{{ form.members.label }}</legend>
         <p class="board-form__hint">Вы станете владельцем и участником доски сами.</p>

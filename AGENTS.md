@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`), `BoardCard` (`sub_board`, a working `column`, `position`, title, description); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|files|log`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`, the task's own attachment routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?q`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat and its log) and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
+| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|files|log`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`, the task's own attachment routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?q`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat and its log) and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -1709,8 +1709,8 @@ tasks never live inside `acts`.
 ### Boards (`boards`)
 
 - **A card is a `BoardCard` plus exactly one `tasks.Task`.** The card holds what
-  only the board needs — its sub-board, its working column, `position`, title,
-  description — and
+  only the board needs — its sub-board, its working column, `position`, its
+  `number`, title, description — and
   the task (`source_type=BOARD`, `Task.board_card`, `unique_board_card_task`) is
   the work: исполнители, срок, status, completion. `create_card()` writes both
   in one `atomic()` block through `tasks.services.create_board_card_task()`;
@@ -1736,6 +1736,66 @@ tasks never live inside `acts`.
   `REVIEW`). `BoardCard.board` stays and is always `sub_board.board`;
   `BoardCard.column` (`SET_NULL`) only ever names a *working* column of its own
   sub-board — `clean()` and the services check both.
+- **A card is named «ZAP-12»: the board's code and the card's number.**
+  `Board.code` is two to six letters (Latin or Cyrillic) and digits, stored
+  upper case by `services.clean_board_code()` — the one normaliser, Python's
+  `str.upper()`, which folds Cyrillic where SQLite's `UPPER()` would not — so
+  the plain `unique_board_code` is uniqueness whatever the case. «Новая доска»
+  asks for it beside the name (`BoardForm.code`; a refusal —
+  `BoardCodeError` — lands on the field), and the board's «⋯» changes it
+  (`change_board_code()`: `can_manage_board()` under the board lock, never an
+  archived board, the same code stores and publishes nothing, a new one bumps
+  the sub-boards' `updated_at` for the sync revision and publishes one
+  `board.updated(structure_changed)`; `boards:change_code`, the right before
+  the method). `BoardCard.number` is given by `create_card()` under the board
+  lock as the board's largest plus one (`_next_number()`) and never reused —
+  a cancelled card keeps its number and no card is deleted;
+  `unique_board_card_number` is the database's word. Moving a card between
+  sub-boards keeps it. `BoardCard.code` (a property) is
+  `f'{board.code}-{number}'`; listings attach the board they hold, so it costs
+  no query per tile. Shown on the tile (instead of the task's number, which
+  moves to its `title`), as «Карточка ZAP-12» in the drawer's heading — a link
+  to `boards:detail?card=` that `board_drawer.js` copies on a plain click
+  (async clipboard or the selection fallback, the message in
+  `[data-board-message]`, never a dialog; without JavaScript an ordinary link)
+  beside «задача №N» — in the «Создание» entry of «Лог», in the board
+  notifications' texts and context, and in «Задачи»' «Источник» as «Доска
+  «X» · ZAP-12». Found by it: the board's `q` (`selectors.card_search_q()`:
+  the title, «ZAP-12» in any case, or a bare number «12»/«№12»), the
+  registry's «Источник» search and the topbar search
+  (`tasks.selectors.board_card_code_filter()`, the one parse of «<code>-<n>»,
+  upper-cased and compared exactly) — always inside the caller's own readable
+  queryset, so a card of a board one is not on is never found by its code.
+  `boards.0011`–`0013` added both nullable, gave every board `D<pk>` and its
+  cards 1, 2, 3, … by `created_at`, `pk`, then made them required and unique;
+  `0012`'s reverse empties them again.
+- **«Закреплённые исполнители» are a working column's, and act on arrival.**
+  `BoardColumn.pinned_assignees` (through `BoardColumnPin`, column `CASCADE`,
+  user `PROTECT`, `unique_board_column_pin`) and `pinned_mode` — `ADD` (the
+  default: put them beside the card's исполнители) or `REPLACE` (put them in
+  their place). A card **created** in the column or **moved** into it — a
+  drag, «Переместить в…» or from another sub-board — gets them, inside that
+  same transaction, through `services._apply_pins()` →
+  `tasks.services.replace_task_assignees()`: only active members of the board
+  count, a `REPLACE` that would leave nobody (every pinned person gone)
+  changes nothing, and a result equal to the current people writes nothing.
+  A change is one `EDITED` journal entry with `fields=['assignees']` and
+  `details.by_column` (the column's name then) — «Исполнители по колонке
+  «Запуск в работу»» — and `BOARD_TASK_ASSIGNED` to the people added
+  (`exclude_actor`); on a move it also raises `BoardCard.version`, so an edit
+  form drawn before cannot silently put the old people back. `create_card()`
+  applies them before it notifies, so the card's final исполнители are told
+  once and a person replaced before the card existed is not told at all. A
+  reorder within the column, a drop in place and the cards already standing
+  in a column when its pins change are untouched. `set_column_pins()` is the
+  manager's (`can_manage_board()`, one board lock, never an archived board,
+  never the closing column, only active members, an empty list unpins; no
+  change, no event; otherwise one `board.updated(structure_changed)`), posted
+  by the column's «⋯» («Закреплённые исполнители»: the members as tick boxes,
+  the mode, an ordinary form to `boards:column_pins`, the right before the
+  method); the header shows up to `PIN_PREVIEW_LIMIT` (3) avatars and «+N».
+  `remove_board_member()` drops the person's pins in every column of the
+  board in its own transaction.
 - **The closing column is derived, never stored, and it is configurable.**
   `boards/columns.py` holds `card_column(card, task, columns)` — the
   sub-board's closing column exactly when the task is `COMPLETED`, no column
@@ -1756,13 +1816,23 @@ tasks never live inside `acts`.
   `create_board_card_task()`, `update_board_card_task()` (an `IN_PROGRESS`
   `BOARD` task only, `updated_at` listed) and the existing
   `replace_task_assignees()`; `complete_card()` is `complete_task()` and does
-  not touch `column`. `create_card(sub_board, column=…)` and
-  `move_card(card, column=…)` take a working column of that very sub-board
-  (`None` on create is its first): the closing column is refused — it is
-  reached by completing — and so is a column deleted meanwhile or of another
-  sub-board; a card never leaves its sub-board. Every исполнитель is an active
-  member, and a member who is the исполнитель of an open card, or the owner,
-  cannot be removed.
+  not touch `column`. `create_card(sub_board, column=…)` takes a working
+  column of that very sub-board (`None` is its first); `move_card(card,
+  column=…)` a working column of **any sub-board of the card's own board**
+  (`_board_working_column()`): the closing column is refused — it is reached
+  by completing — and so is a column deleted meanwhile or of another board. A
+  column of another sub-board moves the card there — `sub_board`, `column`
+  and `position` (the end, unless `before_card_id` names a card of that
+  column), the number unchanged — and its `MOVED` entry adds
+  `from_sub_board`/`to_sub_board` (ids and names then): «Перенос: «Основная /
+  Сделать» → «Цех ПиР / В работе»». The drawer's «Переместить в…» offers
+  every working column of the board in `<optgroup>`s by sub-board, this one
+  first (`build_board_state()['move_choices']`), and a success goes to the
+  card's new sub-board with the drawer open; a drag only ever reaches its own
+  sub-board's columns, but the route and `MoveCardForm` do not tell the two
+  sources apart. Moving a card to another *board* does not exist. Every
+  исполнитель is an active member, and a member who is the исполнитель of an
+  open card, or the owner, cannot be removed.
 - **The structure is the manager's, one board lock each.**
   `create_sub_board()` (last, with the default columns), `rename_sub_board()`,
   `move_sub_board(direction='left'|'right')` and `delete_sub_board()`;
@@ -1829,19 +1899,33 @@ tasks never live inside `acts`.
   «An active employee» — an active account with an active profile — is
   `is_active_employee()` for one user and `active_employee_q(prefix)` as a
   filter; the services filter with the latter and never restate it.
-- **`build_board_state(board, sub_board, user)` is one read**: the tabs and
-  the columns one query each, the open cards with their tasks and statuses in
-  one query, the newest `done_limit` (`DONE_LIMIT`, 50) completed ones in
-  another plus a count for «и ещё N», the исполнители in one prefetch each,
-  and the card `card_id` names in one more — so its query count grows neither
-  with the cards nor with the columns or tabs. Cards in a working column are in
-  `position` order, the closing column newest completion first. The panel card
-  is found only on this sub-board (a foreign, missing or non-numeric id is no
-  panel, never a 404 — `boards:detail?card=` leads to the card's own tab), and
-  a cancelled card is found too, read-only.
+- **`build_board_state(board, sub_board, user)` is one read**: the tabs one
+  query, the columns of *every* sub-board of the board one query (the
+  drawer's «Переместить в…» offers them all) and this sub-board's pins one
+  prefetch, the open cards with their tasks and statuses in one query, the
+  newest `done_limit` (`DONE_LIMIT`, 50) completed ones in another plus a
+  count for «и ещё N», the исполнители in one prefetch each (`TaskAssignee`
+  with its user joined — a tile draws no profile), the active members for
+  the pin menus only for a manager, and the card `card_id` names in one more —
+  whose исполнители are taken from the columns' own prefetch when it is among
+  them, so `tasks.permissions.can_complete_task()` (and through it the upload
+  and per-file delete rights) answers from those rows instead of asking the
+  database three times; writing in «Чат» is `can_work`, already asked for the
+  page (`can_comment_card()` *is* `can_work_on_board()`). Its query count
+  grows neither with the cards nor with the columns or tabs. Cards in a
+  working column are in `position` order, the closing column newest
+  completion first. The panel card is any card of this board (a foreign,
+  missing or non-numeric id is no panel, never a 404 — `boards:detail?card=`
+  leads to the card's own tab); one standing on another sub-board — moved
+  there while this page had it open — carries `moved_to`, and the heading
+  says «Карточка перенесена на поддоску «…»» with a link there, the drawer
+  staying where it is. A cancelled card is found too, read-only. A
+  sub-board page with a card open was 56 queries before stage 14 and is 34
+  (`boards/tests/test_journal.py`, `PAGE_QUERIES`).
 - **The card drawer is where a `BOARD` task is worked — and the only place.**
   Its heading (`boards/includes/panel.html`, fixed while the tab below
-  scrolls) is «Карточка №N», the title (`.user-text`), the status («В работе»
+  scrolls) is «Карточка ZAP-12» (the copying link above) and «задача №N»,
+  the title (`.user-text`), the status («В работе»
   / «Выполнена» / «Отменена») and on the right: «Завершить» — a
   `<details data-board-menu>` holding a required «Результат»
   (`#board-complete-result`, `name="execution_comment"`) in a
@@ -1859,8 +1943,9 @@ tasks never live inside `acts`.
   `tasks.permissions`, carried on the panel card by `build_board_state()`. A
   completed card shows the result and who finished it on «Описание» and
   download-only files; a cancelled one shows the reason and no action.
-  `describe_task_source()` names the board and links to the card, and the
-  registry search finds a task by its board's name.
+  `describe_task_source()` names the board and the card («Доска «X» ·
+  ZAP-12») and links to the card, and the registry search finds a task by its
+  board's name or its card's code.
 - **`reopen_card()` is the board's «Вернуть в работу».** Board → card → task
   locks, `_refuse_archived()` (an archived board stays as shelved), then
   `tasks.services.reopen_task()` — whose `can_reopen_task()` (an
@@ -1911,15 +1996,21 @@ tasks never live inside `acts`.
   (column, исполнители with avatars, срок through `includes/due_date.html`,
   who created it and when), the result or the reason, then «Редактировать»
   (`&edit=1`, the form on this same tab), «Переместить в…» and «Отменить
-  карточку»; «Чат» the messages with the form pinned below; «Файлы» the task
+  карточку» — one line of full-size controls of `--control-height`, the
+  select's label on its `aria-label`; «Чат» the messages with the form pinned below; «Файлы» the task
   page's `attachments.html`; «Лог» the journal. `page_url`, `fragment_url`
   and every redirect name the tab where it matters: a message lands on
-  `tab=chat`, a file on `tab=files` (through `tasks:detail?tab=files`).
+  `tab=chat`, a file on `tab=files` (through `tasks:detail?tab=files`). A tile
+  clicked while a card is open opens the new card on the tab shown now —
+  `board_drawer.js` adds the drawer's `tab` to the tile's own query (nothing
+  for «Описание»); without JavaScript a tile opens «Описание».
 - **`BoardCardEvent` is a card's journal — «Лог».** `card` (`PROTECT`,
   `related_name='events'`), `actor` (`PROTECT`), `kind` — `CREATED`,
   `EDITED` (`details.fields`: which of title, description, due date,
-  assignees), `MOVED` (`from_column`/`to_column` with their ids, the names
-  *as they were*), `COMPLETED`, `REOPENED` (the column it returns to),
+  assignees; `by_column` when a column's pins changed them), `MOVED`
+  (`from_column`/`to_column` with their ids, the names *as they were*, and
+  `from_sub_board`/`to_sub_board` when the move crossed sub-boards),
+  `COMPLETED`, `REOPENED` (the column it returns to),
   `CANCELLED` — `details` (identifiers and column names only, never the
   card's text, a reason or a message) and `created_at`, indexed on `(card,
   created_at)`. Append-only, written by `services._record()` alone, inside the
@@ -1940,9 +2031,12 @@ tasks never live inside `acts`.
   `notify_board_task_assigned()` is `TASK`-sourced, keyed `task:<pk>` and
   `exclude_actor=True` — putting a card on yourself tells nobody. `create_card()`
   calls it for every исполнитель and `update_card()` for the added ones only,
-  inside the card's transaction after the task and its исполнители exist. One
+  inside the card's transaction after the task and its исполнители exist —
+  and `move_card()` for the people a column's pins added. One
   notification per assignment, email-eligible, its link `tasks:detail` (→ the
-  card); the source reads «Доска «<name>»», never the `BOARD` code.
+  card); the text names the card («Назначена карточка ZAP-12 на доске
+  «<name>»») and the source reads «Доска «<name>» · карточка ZAP-12», never
+  the `BOARD` code.
 - **Cards are dragged by `static/js/board_dnd.js`, and the browser decides
   nothing.** Loaded on the board page only; Pointer Events (mouse, finger,
   pen — not HTML5 drag and drop, which a touchscreen does not have), every
@@ -1989,8 +2083,10 @@ tasks never live inside `acts`.
   not do, a browser form POST already accepts `*/*` — gets `200 {"ok": true,
   "column_id", "counts": {column id: number}}` (`selectors.column_counts()`,
   the closing column under its own id), `400 {"ok": false, "error"}` when
-  `MoveCardForm` or `move_card()` refuses (the closing column, a column of
-  another sub-board or one deleted meanwhile among them), and
+  `MoveCardForm` or `move_card()` refuses (a closing column, a column of
+  another board or one deleted meanwhile among them — a column of another
+  sub-board of the same board is accepted, as «Переместить в…» does, and the
+  counts are then the new sub-board's), and
   `403 {"ok": false, "error"}` without the right, still asked before the
   method. Identifiers, counts and the service's sentence only — never
   markup, card text or rights. Without the header the route behaves exactly as
@@ -2072,7 +2168,10 @@ tasks never live inside `acts`.
   drawer's heading, `panel.html`) and `[data-live-board-card]` («Описание» and
   «Файлы», `card.html`, `display: contents`) — `panel_revision` over both,
   `[data-live-board-comments]` (`comments.html`) and `[data-live-board-log]`
-  (`log.html`). The fragment adds `chat_count`/`files_count`, `drawer_html`
+  (`log.html`). The blocks are rendered by `views._render_block()` — the
+  context plus `request`, `user` and the CSRF token, **without** the context
+  processors (a `RequestContext` per block ran the bell's two queries seven
+  times); only the page around them is rendered with them. The fragment adds `chat_count`/`files_count`, `drawer_html`
   (`drawer.html`: the drawer around those blocks, with the tab strip and the
   chat's form), and `panel`, `card_id`, `task_id`, `tab`, `page_url`,
   `fragment_url`, `reset_url` — what `board_drawer.js` opens a card with. The
@@ -2101,7 +2200,12 @@ tasks never live inside `acts`.
   address the page no longer shows and fetches again, and on
   `quality:board-drawer` resets its dirty flag and refreshes. A tile carries
   `data-task-id` and the heading its task's id, so a `task.*` event refetches
-  only a board that shows that task.
+  only a board that shows that task. A card moved to another sub-board is a
+  `board.updated(card_moved)` of the board, so the readers of both sub-boards
+  refetch: it leaves the old one's columns and appears in the new one's, and
+  an old page holding it open redraws its heading with «Карточка перенесена
+  на поддоску «…»» and a link — the guarded rule as ever (clean → replaced,
+  unsaved input → the banner), the drawer never navigating by itself.
 - **A wrong card is cancelled, never deleted.** `cancel_card()` locks board →
   card → task, asks `can_cancel_card()` after the locks and calls
   `tasks.services.cancel_board_card_task()`: a `BOARD` task in `IN_PROGRESS`
@@ -2539,7 +2643,7 @@ tasks never live inside `acts`.
   `card_updated`, `card_moved`, `card_completed`, `card_reopened`, `card_cancelled`,
   `members_changed`, `board_archived`, `board_restored`, `comment_added`,
   `structure_changed` — a sub-board or a column created, renamed, moved or
-  deleted), through
+  deleted, a column's pins set, the board's code changed), through
   `emit_board_updated()` from `boards/services.py` alone — inside the write's
   `atomic()` block, once per successful write that stored something. A refusal,
   a rollback, an edit that changes nothing and a drop where the card already

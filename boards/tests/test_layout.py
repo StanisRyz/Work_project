@@ -26,7 +26,7 @@ from ..services import (
     rename_board,
 )
 from ..views import LAST_SUB_BOARD_SESSION_KEY
-from .helpers import BoardFixtureMixin, board_url, fragment_url, main_sub_board, make_user
+from .helpers import BoardFixtureMixin, board_url, fragment_url, fresh_code, main_sub_board, make_user
 
 
 def task_of(card):
@@ -62,8 +62,8 @@ class LeftPanelTests(BoardFixtureMixin, TestCase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.second = create_board(name='Агрегаты', owner=cls.owner, actor=cls.owner)
-        cls.shelved = create_board(name='Старая', owner=cls.owner, actor=cls.owner)
+        cls.second = create_board(code=fresh_code(), name='Агрегаты', owner=cls.owner, actor=cls.owner)
+        cls.shelved = create_board(code=fresh_code(), name='Старая', owner=cls.owner, actor=cls.owner)
         archive_board(cls.shelved, actor=cls.owner)
 
     def test_live_boards_by_name_and_the_archive_apart(self):
@@ -126,8 +126,8 @@ class LeftPanelTests(BoardFixtureMixin, TestCase):
         self.client.force_login(self.member)
         baseline = page_queries()
         for index in range(4):
-            create_board(name=f'Ещё {index}', owner=self.owner, actor=self.owner, member_ids=[self.member.pk])
-        archive_board(create_board(name='В архив', owner=self.owner, actor=self.owner), actor=self.owner)
+            create_board(code=fresh_code(), name=f'Ещё {index}', owner=self.owner, actor=self.owner, member_ids=[self.member.pk])
+        archive_board(create_board(code=fresh_code(), name='В архив', owner=self.owner, actor=self.owner), actor=self.owner)
         self.assertEqual(page_queries(), baseline)
 
 
@@ -145,7 +145,7 @@ class BoardsAddressTests(BoardFixtureMixin, TestCase):
         self.assertEqual(self.client.session[LAST_SUB_BOARD_SESSION_KEY], tab.pk)
 
     def test_without_one_the_first_board_of_the_panel(self):
-        other = create_board(name='Агрегаты', owner=self.owner, actor=self.owner, member_ids=[self.member.pk])
+        other = create_board(code=fresh_code(), name='Агрегаты', owner=self.owner, actor=self.owner, member_ids=[self.member.pk])
         self.client.force_login(self.member)
         response = self.client.get(self.url)
         self.assertRedirects(response, reverse('boards:detail', args=[other.pk]), fetch_redirect_response=False)
@@ -162,7 +162,7 @@ class BoardsAddressTests(BoardFixtureMixin, TestCase):
     def test_a_board_no_longer_read_falls_back_to_the_first_board(self):
         from unittest import mock
 
-        other = create_board(name='Агрегаты', owner=self.owner, actor=self.owner, member_ids=[self.colleague.pk])
+        other = create_board(code=fresh_code(), name='Агрегаты', owner=self.owner, actor=self.owner, member_ids=[self.colleague.pk])
         with mock.patch('boards.permissions.BOARD_ACCESS_ROLES', frozenset({UserProfile.Role.ADMIN})):
             self.client.force_login(self.colleague)
             self.client.get(board_url(other))
@@ -192,7 +192,7 @@ class EmptyStateTests(TestCase):
     def test_anybody_else_is_told_they_are_on_no_board(self):
         owner = make_user('empty_owner', UserProfile.Role.ADMIN)
         member = make_user('empty_member', UserProfile.Role.OTK)
-        board = create_board(name='Закрытая', owner=owner, actor=owner, member_ids=[member.pk])
+        board = create_board(code=fresh_code(), name='Закрытая', owner=owner, actor=owner, member_ids=[member.pk])
         archive_board(board, actor=owner)
         self.client.force_login(member)
         response = self.client.get(reverse('boards:list'))
@@ -225,7 +225,7 @@ class RenameBoardTests(BoardFixtureMixin, TestCase):
         self.assertEqual(Board.objects.get(pk=self.board.pk).updated_at, before)
 
     def test_refusals_publish_nothing(self):
-        archived = create_board(name='Архивная', owner=self.owner, actor=self.owner)
+        archived = create_board(code=fresh_code(), name='Архивная', owner=self.owner, actor=self.owner)
         archive_board(archived, actor=self.owner)
         for actor, board, name, message in (
             (self.member, self.board, 'Чужое', 'владелец или администратор'),

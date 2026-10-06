@@ -14,6 +14,7 @@ What people type, and what it finds:
 - «Качество 4», «Качество №4», «№4» → protocols by type and number, and any
   protocol whose повестка mentions the words;
 - «12», «задача 12», «обучение» → tasks by number or wording;
+- «ZAP-12», «zap-12» → the task of that board card;
 - «СМК 3», «СМК №3» → the СМК record.
 """
 
@@ -27,8 +28,10 @@ from acts.models import Act
 from acts.permissions import get_visible_acts_filter
 from protocols.selectors import get_readable_protocols_queryset
 from smk.models import SmkSource
+from tasks.models import Task
 from tasks.permissions import get_readable_tasks_queryset
 from tasks.presentation import describe_task_type
+from tasks.selectors import board_card_code_filter
 
 MIN_LENGTH = 2
 GROUP_LIMIT = 8
@@ -100,13 +103,20 @@ def _tasks(user, term):
     # «№12», «задача 12». «Качество 4» must not find task №4.
     if number is not None and prefix in ('', 'задача'):
         criteria |= Q(pk=number)
+    card_code = board_card_code_filter(term)
+    if card_code is not None:
+        criteria |= card_code
     tasks = (
         get_readable_tasks_queryset(user).filter(criteria).select_related('status')
         .order_by('status__is_final', 'due_date', 'pk')[:GROUP_LIMIT]
     )
     return [
         Hit(
-            title=f'Задача №{task.pk}',
+            title=(
+                f'Задача №{task.pk} · {task.board_card.code}'
+                if task.source_type == Task.SourceType.BOARD and task.board_card_id
+                else f'Задача №{task.pk}'
+            ),
             subtitle=f'{task.task_text[:90]} · {describe_task_type(task)} · {task.status}',
             url=reverse('tasks:detail', args=[task.pk]),
         )

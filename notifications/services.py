@@ -665,7 +665,7 @@ def _task_source_context(task):
     from tasks.models import Task
 
     if task.source_type == Task.SourceType.BOARD and task.board_card_id:
-        return f'Доска «{task.board_card.board.name}»'
+        return f'Доска «{task.board_card.board.name}» · карточка {task.board_card.code}'
     if task.source_type == Task.SourceType.ACT_REJECTION and task.act_id:
         return f'Брак по акту {task.act.number}'
     if task.smk_source_id:
@@ -831,27 +831,12 @@ def _task_event_text(event_type, task):
             f'Вы назначены исполнителем корректирующего мероприятия по записи {label}.',
             'Ознакомьтесь с задачей в системе',
         )
-    if event_type == Notification.EventType.BOARD_TASK_ASSIGNED:
-        name = task.board_card.board.name
-        return NotificationText(
-            f'Назначена задача на доске «{name}»',
-            f'Вы назначены исполнителем карточки на доске «{name}».',
-            'Откройте карточку на доске.',
-        )
-    if event_type == Notification.EventType.BOARD_TASK_CANCELLED:
-        name = task.board_card.board.name
-        return NotificationText(
-            f'Карточка отменена на доске «{name}»',
-            f'Карточка, где вы исполнитель, отменена на доске «{name}». Задача закрыта без выполнения.',
-            'Причина отмены — на карточке. Дополнительных действий не требуется.',
-        )
-    if event_type == Notification.EventType.BOARD_CARD_COMMENT:
-        name = task.board_card.board.name
-        return NotificationText(
-            f'Новое сообщение в карточке на доске «{name}»',
-            f'В обсуждении карточки №{task.pk} на доске «{name}» появилось новое сообщение.',
-            'Откройте карточку, чтобы прочитать обсуждение.',
-        )
+    if event_type in (
+        Notification.EventType.BOARD_TASK_ASSIGNED,
+        Notification.EventType.BOARD_TASK_CANCELLED,
+        Notification.EventType.BOARD_CARD_COMMENT,
+    ):
+        return _board_event_text(event_type, task)
     label = _protocol_label(task.protocol)
     return {
         Notification.EventType.PROTOCOL_TASK_ASSIGNED: NotificationText(
@@ -860,6 +845,30 @@ def _task_event_text(event_type, task):
             'Ознакомьтесь с задачей в системе',
         ),
     }[event_type]
+
+
+def _board_event_text(event_type, task):
+    """A board card's notification: the board and the card's code («ZAP-12»)."""
+    name = task.board_card.board.name
+    code = task.board_card.code
+    if event_type == Notification.EventType.BOARD_TASK_ASSIGNED:
+        return NotificationText(
+            f'Назначена карточка {code} на доске «{name}»',
+            f'Вы назначены исполнителем карточки {code} на доске «{name}».',
+            'Откройте карточку на доске.',
+        )
+    if event_type == Notification.EventType.BOARD_TASK_CANCELLED:
+        return NotificationText(
+            f'Карточка {code} отменена на доске «{name}»',
+            f'Карточка {code}, где вы исполнитель, отменена на доске «{name}». '
+            'Задача закрыта без выполнения.',
+            'Причина отмены — на карточке. Дополнительных действий не требуется.',
+        )
+    return NotificationText(
+        f'Новое сообщение в карточке {code} на доске «{name}»',
+        f'В обсуждении карточки {code} (задача №{task.pk}) на доске «{name}» появилось новое сообщение.',
+        'Откройте карточку, чтобы прочитать обсуждение.',
+    )
 
 
 def _event_text(event_type, source_type, source):

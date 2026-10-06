@@ -30,12 +30,19 @@ cancelled. A write that stored nothing records nothing, and a rollback takes
 the entry with it. Completing and reopening a card's task go through
 `complete_card()`/`reopen_card()` only — `tasks:complete` and `tasks:reopen`
 refuse a `BOARD` task — so the journal misses none of them.
+
+A card is named by its board's code and its own number («ZAP-12»):
+`clean_board_code()` is the one normaliser of a code, `create_card()` gives
+the next number under the board lock. A working column may carry pinned
+people (`set_column_pins()`), whom a card created in it or moved into it gets
+through `_apply_pins()` in the same transaction; `move_card()` takes a
+working column of any sub-board of the card's own board.
 """
 
 import logging
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Max, Q
 from django.utils import timezone
 
@@ -57,11 +64,15 @@ from realtime.events import (
 
 from .columns import DEFAULT_COLUMNS, MAX_COLUMNS
 from .models import (
+    BOARD_CODE_MAX_LENGTH,
+    BOARD_CODE_MIN_LENGTH,
+    BOARD_CODE_PATTERN,
     Board,
     BoardCard,
     BoardCardComment,
     BoardCardEvent,
     BoardColumn,
+    BoardColumnPin,
     BoardMember,
     SubBoard,
 )
@@ -100,6 +111,10 @@ class BoardError(Exception):
 
 class StaleCardError(BoardError):
     """The card was edited by somebody else after this edit form was drawn."""
+
+
+class BoardCodeError(BoardError):
+    """A board code refused: badly formed, or taken by another board."""
 
 
 def _rejected(operation, reason, *, actor, board_id=None, card_id=None):
@@ -226,10 +241,44 @@ def _column_snapshot(prefix, column):
     return {f'{prefix}_id': column.pk, prefix: column.name}
 
 
-def create_board(*, name, owner, actor, member_ids=(), department=None, description=''):
+def clean_board_code(code):
+    """A board's code as it is stored: trimmed, upper case, checked.
+
+    Two to six letters (Latin or Cyrillic) and digits — «zap» becomes «ZAP».
+    The one normaliser: storing upper case is what makes the plain unique
+    constraint uniqueness whatever the case was typed in (`str.upper()` folds
+    Cyrillic everywhere, unlike SQLite's `UPPER()`).
+    """
+    code = (code or '').strip().upper()
+    if not code:
+        raise BoardCodeError('Укажите код доски.')
+    if not BOARD_CODE_PATTERN.match(code):
+        raise BoardCodeError(
+            f'Код доски — от {BOARD_CODE_MIN_LENGTH} до {BOARD_CODE_MAX_LENGTH} '
+            'букв (латиница или кириллица) и цифр, без пробелов и знаков.'
+        )
+    return code
+
+
+def _refuse_taken_code(code, *, exclude_pk=None, operation, actor):
+    others = Board.objects.filter(code=code)
+    if exclude_pk is not None:
+        others = others.exclude(pk=exclude_pk)
+    if others.exists():
+        _rejected(operation, 'code_taken', actor=actor, board_id=exclude_pk)
+        raise _code_taken_error(code)
+
+
+def _code_taken_error(code):
+    return BoardCodeError(f'Код «{code}» уже занят другой доской.')
+
+
+def create_board(*, name, code, owner, actor, member_ids=(), department=None, description=''):
     """A new board; its owner is always one of its members.
 
     It starts with one sub-board, «Основная», and its `DEFAULT_COLUMNS`.
+    `code` («ZAP») is required — `clean_board_code()` — and unique among all
+    boards whatever the case; every card number of the board starts with it.
 
     `department` and `description` are kept for the boards that carry them;
     the form asks for neither, and a new board names no department.
@@ -242,6 +291,8 @@ def create_board(*, name, owner, actor, member_ids=(), department=None, descript
         raise BoardError('Укажите название доски.')
     if len(name) > 200:
         raise BoardError('Название доски — не длиннее 200 символов.')
+    code = clean_board_code(code)
+    _refuse_taken_code(code, operation='create_board', actor=actor)
     requested = {owner.pk, *(int(getattr(value, 'pk', value)) for value in member_ids)}
     users = _active_users(requested)
     if owner.pk not in users:
@@ -249,17 +300,23 @@ def create_board(*, name, owner, actor, member_ids=(), department=None, descript
     if set(requested) - set(users):
         _rejected('create_board', 'ineligible_member', actor=actor)
         raise BoardError('Участниками доски могут быть только активные сотрудники.')
-    with transaction.atomic():
-        board = Board.objects.create(
-            name=name,
-            description=(description or '').strip(),
-            department=department,
-            owner=owner,
-        )
-        BoardMember.objects.bulk_create(
-            [BoardMember(board=board, user_id=user_id, added_by=actor) for user_id in sorted(users)]
-        )
-        _create_sub_board_rows(board, DEFAULT_SUB_BOARD_NAME, position=1, actor=actor)
+    try:
+        with transaction.atomic():
+            board = Board.objects.create(
+                name=name,
+                code=code,
+                description=(description or '').strip(),
+                department=department,
+                owner=owner,
+            )
+            BoardMember.objects.bulk_create(
+                [BoardMember(board=board, user_id=user_id, added_by=actor) for user_id in sorted(users)]
+            )
+            _create_sub_board_rows(board, DEFAULT_SUB_BOARD_NAME, position=1, actor=actor)
+    except IntegrityError as exc:
+        # Taken by a board created at the same moment: `unique_board_code`.
+        _rejected('create_board', 'code_taken', actor=actor)
+        raise _code_taken_error(code) from exc
     log_event(
         logger,
         'INFO',
@@ -295,6 +352,38 @@ def rename_board(board, *, actor, name):
         board.name = name
         board.save(update_fields=['name', 'updated_at'])
         _structure_changed(board, 'board.renamed', actor=actor)
+    return board
+
+
+def change_board_code(board, *, actor, code):
+    """A new code for a board: its owner or an administrator, never archived.
+
+    `clean_board_code()`, unique among all boards whatever the case. Every
+    card of the board is named by it, so «ZAP-12» reads «ZAK-12» afterwards —
+    the numbers stay. The same code changes nothing and announces nothing; a
+    new one publishes one `board.updated(structure_changed)`.
+    """
+    try:
+        with transaction.atomic():
+            board = _lock_board(board.pk)
+            _refuse_archived('change_board_code', board, actor=actor)
+            if not can_manage_board(actor, board):
+                _rejected('change_board_code', 'not_permitted', actor=actor, board_id=board.pk)
+                raise BoardError('Код доски меняет её владелец или администратор.')
+            code = clean_board_code(code)
+            if code == board.code:
+                return board
+            _refuse_taken_code(code, exclude_pk=board.pk, operation='change_board_code', actor=actor)
+            board.code = code
+            board.save(update_fields=['code', 'updated_at'])
+            # Every tile of every sub-board draws the code: the `boards` sync
+            # revision reads the sub-boards' `updated_at`, so a reader who
+            # missed the event still redraws.
+            SubBoard.objects.filter(board=board).update(updated_at=timezone.now())
+            _structure_changed(board, 'board.code_changed', actor=actor)
+    except IntegrityError as exc:
+        _rejected('change_board_code', 'code_taken', actor=actor, board_id=board.pk)
+        raise _code_taken_error(code) from exc
     return board
 
 
@@ -345,6 +434,10 @@ def remove_board_member(board, user, *, actor):
     Never the owner, and never someone who is still an исполнитель of an open
     card here — that card would be left with a person who may no longer work
     on the board. Reassign it first.
+
+    Their pins (`BoardColumn.pinned_assignees`) go with them, in every column
+    of the board and in the same transaction: a column must never put a card
+    on somebody who is no longer on the board.
     """
     from tasks.models import Task
 
@@ -373,6 +466,13 @@ def remove_board_member(board, user, *, actor):
                 'Сначала переназначьте карточку.'
             )
         membership.delete()
+        pins = BoardColumnPin.objects.filter(column__sub_board__board=board, user=user)
+        pinned_columns = list(pins.values_list('column_id', flat=True))
+        if pinned_columns:
+            pins.delete()
+            # The column headers draw the pins: the `boards` sync revision
+            # reads the columns' `updated_at`.
+            BoardColumn.objects.filter(pk__in=pinned_columns).update(updated_at=timezone.now())
         board.save(update_fields=['updated_at'])
         emit_board_updated(board.pk, BOARD_CHANGE_MEMBERS_CHANGED)
     log_event(
@@ -487,13 +587,68 @@ def _sub_board_of(board, sub_board, *, operation, actor):
     return found
 
 
+def _pinned_ids(column, board):
+    """The column's pinned people who are still active members of `board`."""
+    return set(
+        BoardColumnPin.objects.filter(
+            active_employee_q('user__'),
+            column=column,
+            user__board_memberships__board=board,
+        ).values_list('user_id', flat=True)
+    )
+
+
+def _apply_pins(card, task, column, board, *, actor, current_ids):
+    """Give the card the people pinned to `column`, if that changes anything.
+
+    `ADD` puts them beside `current_ids`, `REPLACE` in their place. Only active
+    members of the board count; a `REPLACE` whose pinned people are all gone
+    would leave the card with nobody, so it changes nothing. A change goes
+    through `tasks.services.replace_task_assignees()` and is one journal entry
+    «Исполнители по колонке «…»» (`EDITED`, `fields=['assignees']`,
+    `by_column` the column's name as it is now). Returns the card's
+    исполнители afterwards and those added (sorted ids): the caller tells the
+    people concerned, inside its own transaction.
+    """
+    from tasks.services import TaskWorkflowError, replace_task_assignees
+
+    current = set(current_ids)
+    pinned = _pinned_ids(column, board)
+    if not pinned:
+        return sorted(current), []
+    target = pinned if column.pinned_mode == BoardColumn.PinnedMode.REPLACE else current | pinned
+    if target == current:
+        return sorted(current), []
+    try:
+        replace_task_assignees(task, sorted(target), actor=actor)
+    except TaskWorkflowError as exc:
+        raise BoardError(str(exc)) from exc
+    _record(
+        card, BoardCardEvent.Kind.EDITED, actor=actor,
+        fields=['assignees'], by_column_id=column.pk, by_column=column.name,
+    )
+    return sorted(target), sorted(target - current)
+
+
+def _next_number(board):
+    """The next card number of `board` — read under the board lock.
+
+    The largest ever given plus one: no card is deleted and a cancelled one
+    keeps its number, so a number is never handed out twice.
+    """
+    return (BoardCard.objects.filter(board=board).aggregate(last=Max('number'))['last'] or 0) + 1
+
+
 def create_card(
     sub_board, *, actor, title, due_date, assignee_ids, description='', column=None,
 ):
     """A new card at the end of a working column of `sub_board`, and its task.
 
     `column` (an object or an id) must be a working column of this very
-    sub-board; `None` is its first working column.
+    sub-board; `None` is its first working column. The card takes the board's
+    next number (`_next_number()`, under the board lock) and the people pinned
+    to its column (`_apply_pins()`); every исполнитель it ends up with is told
+    once.
     """
     from notifications.services import notify_board_task_assigned
     from tasks.services import TaskWorkflowError, create_board_card_task
@@ -518,6 +673,7 @@ def create_card(
             sub_board=sub_board,
             column=column,
             position=_end_position(column),
+            number=_next_number(board),
             title=title,
             description=description,
             created_by=actor,
@@ -537,10 +693,12 @@ def create_card(
             )
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
-        # Inside the transaction and after the task and its исполнители exist,
-        # so a rollback leaves no notification about a card that never was.
-        notify_board_task_assigned(task, actor, _users(ids))
         _record(card, BoardCardEvent.Kind.CREATED, actor=actor, **_column_snapshot('column', column))
+        ids, _ = _apply_pins(card, task, column, board, actor=actor, current_ids=ids)
+        # Inside the transaction and after the task and its исполнители exist,
+        # so a rollback leaves no notification about a card that never was —
+        # and only the people the card really ended up with.
+        notify_board_task_assigned(task, actor, _users(ids))
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_CREATED, card.pk)
     log_event(
         logger,
@@ -650,23 +808,61 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
     return card
 
 
-def move_card(card, *, actor, column, before_card_id=None):
-    """Put a live card in a working column of its own sub-board: at the end,
-    or before another card.
+def _board_working_column(board, column, *, operation, actor, card_id=None):
+    """`column` (an object or an id) as a working column of any sub-board of `board`.
 
-    `column` is an object or an id; the closing column, a column deleted
-    meanwhile and a column of another sub-board are refused — a card never
-    leaves its sub-board. `before_card_id` must name another card standing in
-    the target column. Positions are spaced by `POSITION_STEP`; when the gap
-    is gone the whole column is renumbered under the same board lock.
+    Refused when it is a closing column — reached only by completing the task
+    — or not a column of this board at all: deleted meanwhile, or of another
+    board, which a card never moves to.
+    """
+    column_id = getattr(column, 'pk', column)
+    try:
+        column_id = int(column_id)
+    except (TypeError, ValueError):
+        column_id = None
+    found = (
+        BoardColumn.objects.select_related('sub_board')
+        .filter(pk=column_id, sub_board__board=board).first()
+        if column_id is not None else None
+    )
+    if found is None:
+        _rejected(operation, 'unknown_column', actor=actor, board_id=board.pk, card_id=card_id)
+        raise BoardError('Колонка не найдена на этой доске — возможно, её удалили. Обновите страницу.')
+    if found.is_done:
+        _rejected(operation, 'done_column', actor=actor, board_id=board.pk, card_id=card_id)
+        raise BoardError(
+            f'В колонку «{found.name}» карточка попадает, когда её задача выполнена: '
+            'завершите задачу с результатом.'
+        )
+    return found
+
+
+def move_card(card, *, actor, column, before_card_id=None):
+    """Put a live card in a working column of its board: at the end, or before
+    another card.
+
+    `column` is an object or an id, a working column of any sub-board of the
+    card's own board; a closing column, a column deleted meanwhile and a
+    column of another board are refused. A column of another sub-board moves
+    the card there (`sub_board` follows the column; the panel's «Переместить
+    в…» puts it at the end, and its number stays). `before_card_id` must name
+    another card standing in the target column. Positions are spaced by
+    `POSITION_STEP`; when the gap is gone the whole column is renumbered under
+    the same board lock.
 
     A card whose task is closed is refused: the closing column is reached by
     completing the task, and left only by an administrator reopening it
     (`reopen_card()`).
 
     A move to where the card already stands — its own column, between the
-    same neighbours — writes nothing and announces nothing.
+    same neighbours — writes nothing and announces nothing. A move into
+    another column records one `MOVED` entry (the columns' names as they are
+    now, and the sub-boards' when it changes them) and gives the card the
+    people pinned to the new column (`_apply_pins()`); those added are told.
     """
+    from notifications.services import notify_board_task_assigned
+    from tasks.models import TaskAssignee
+
     with transaction.atomic():
         board = _lock_board(card.board_id)
         card = _lock_card(card, board)
@@ -675,15 +871,15 @@ def move_card(card, *, actor, column, before_card_id=None):
         if not can_work_on_board(actor, board):
             _rejected('move_card', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
             raise BoardError('Работа с карточками этой доски недоступна.')
-        sub_board = card.sub_board
-        target = _working_column(sub_board, column, operation='move_card', actor=actor, card_id=card.pk)
+        target = _board_working_column(board, column, operation='move_card', actor=actor, card_id=card.pk)
         if task.status.is_final:
             _rejected('move_card', 'task_final', actor=actor, board_id=board.pk, card_id=card.pk)
             raise BoardError(
                 'Задача карточки закрыта. Вернуть её в работу может только администратор.'
             )
-        first_working_id = _first_working_id(sub_board)
-        previous_column_id = card.column_id or first_working_id
+        previous_sub_board_id = card.sub_board_id
+        crosses = target.sub_board_id != previous_sub_board_id
+        previous_column_id = card.column_id or _first_working_id(previous_sub_board_id)
         cards = _column(target, exclude_card_id=card.pk)
         if before_card_id is None:
             index = len(cards)
@@ -715,23 +911,42 @@ def move_card(card, *, actor, column, before_card_id=None):
             position = lower + POSITION_STEP if lower + POSITION_STEP <= MAX_POSITION else None
         renumbered = position is None
         card.column = target
+        card.sub_board = target.sub_board
         card.clean()
         if renumbered:
             # No gap left: respace the whole column with the card in its new
             # place. Every card write happens under the board lock held here.
             _renumber(cards[:index] + [card] + cards[index:])
-            card.save(update_fields=['column', 'updated_at'])
+            card.save(update_fields=['column', 'sub_board', 'updated_at'])
         else:
             card.position = position
-            card.save(update_fields=['column', 'position', 'updated_at'])
+            card.save(update_fields=['column', 'sub_board', 'position', 'updated_at'])
         if target.pk != previous_column_id:
             # A reorder within a column is a move of the tile, not of the
-            # work: the journal records where the card went, by name.
-            previous = BoardColumn.objects.filter(pk=previous_column_id).first()
-            _record(
-                card, BoardCardEvent.Kind.MOVED, actor=actor,
-                **_column_snapshot('from_column', previous), **_column_snapshot('to_column', target),
-            )
+            # work: the journal records where the card went, by name — and,
+            # across sub-boards, on which tab.
+            previous = BoardColumn.objects.select_related('sub_board').filter(pk=previous_column_id).first()
+            details = {
+                **_column_snapshot('from_column', previous),
+                **_column_snapshot('to_column', target),
+            }
+            if crosses:
+                details.update({
+                    'from_sub_board_id': previous_sub_board_id,
+                    'from_sub_board': previous.sub_board.name if previous is not None else '',
+                    'to_sub_board_id': target.sub_board_id,
+                    'to_sub_board': target.sub_board.name,
+                })
+            _record(card, BoardCardEvent.Kind.MOVED, actor=actor, **details)
+            current_ids = sorted(TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True))
+            final_ids, added = _apply_pins(card, task, target, board, actor=actor, current_ids=current_ids)
+            if final_ids != current_ids:
+                # The edit form holds the исполнители: one drawn before this
+                # move must not put the old ones back silently.
+                card.version += 1
+                card.save(update_fields=['version'])
+            if added:
+                notify_board_task_assigned(task, actor, _users(added))
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_MOVED, card.pk)
     log_event(
         logger,
@@ -739,6 +954,7 @@ def move_card(card, *, actor, column, before_card_id=None):
         'board.card_moved',
         board_id=board.pk,
         sub_board_id=card.sub_board_id,
+        previous_sub_board_id=previous_sub_board_id,
         board_card_id=card.pk,
         previous_column_id=previous_column_id,
         column_id=target.pk,
@@ -1148,6 +1364,53 @@ def delete_column(column, *, actor):
             board, 'board.column_deleted', actor=actor,
             sub_board_id=sub_board_id, column_id=column_id,
         )
+
+
+def set_column_pins(column, *, actor, user_ids, mode):
+    """«Закреплённые исполнители» of a working column: who, and `ADD` or `REPLACE`.
+
+    The manager's, like every other part of the structure: one board lock,
+    never an archived board, never a closing column. Everyone pinned is an
+    active member of the board; an empty list unpins everybody. The cards
+    already standing in the column keep their people — a pin acts on the
+    next card created in the column or moved into it (`_apply_pins()`).
+    The same people and mode change nothing and announce nothing; a change
+    publishes one `board.updated(structure_changed)`.
+    """
+    with transaction.atomic():
+        board = _manageable_board(column.sub_board.board_id, 'set_column_pins', actor=actor)
+        column = _column_of(board, column, operation='set_column_pins', actor=actor)
+        if column.is_done:
+            _rejected('set_column_pins', 'done_column', actor=actor, board_id=board.pk)
+            raise BoardError(
+                'В завершающую колонку карточка попадает выполненной — закреплять '
+                'за ней исполнителей незачем.'
+            )
+        if mode not in BoardColumn.PinnedMode.values:
+            raise BoardError('Неизвестный режим закрепления.')
+        requested = {int(getattr(value, 'pk', value)) for value in user_ids or ()}
+        members = set(
+            BoardMember.objects.filter(
+                active_employee_q('user__'), board=board, user_id__in=requested,
+            ).values_list('user_id', flat=True)
+        )
+        if requested - members:
+            _rejected('set_column_pins', 'not_a_member', actor=actor, board_id=board.pk)
+            raise BoardError('Закрепить за колонкой можно только активных участников доски.')
+        current = set(BoardColumnPin.objects.filter(column=column).values_list('user_id', flat=True))
+        if current == requested and column.pinned_mode == mode:
+            return column
+        BoardColumnPin.objects.filter(column=column, user_id__in=current - requested).delete()
+        BoardColumnPin.objects.bulk_create(
+            [BoardColumnPin(column=column, user_id=user_id) for user_id in sorted(requested - current)]
+        )
+        column.pinned_mode = mode
+        column.save(update_fields=['pinned_mode', 'updated_at'])
+        _structure_changed(
+            board, 'board.column_pins_changed', actor=actor,
+            column_id=column.pk, pinned_count=len(requested),
+        )
+    return column
 
 
 # --------------------------------------------------------------------------

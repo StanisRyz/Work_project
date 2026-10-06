@@ -38,6 +38,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.middleware.csrf import get_token
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
@@ -51,10 +52,12 @@ from tasks.permissions import can_reopen_task
 
 from .forms import (
     AddMembersForm,
+    BoardCodeForm,
     BoardForm,
     BoardNameForm,
     CardForm,
     ColumnNameForm,
+    ColumnPinsForm,
     DirectionForm,
     MoveCardForm,
     SubBoardNameForm,
@@ -79,11 +82,13 @@ from .selectors import (
     resolve_new_column,
 )
 from .services import (
+    BoardCodeError,
     BoardError,
     StaleCardError,
     add_board_members,
     archive_board,
     cancel_card,
+    change_board_code,
     complete_card,
     create_board,
     create_card,
@@ -101,6 +106,7 @@ from .services import (
     rename_sub_board,
     reopen_card,
     restore_board,
+    set_column_pins,
     update_card,
 )
 
@@ -226,15 +232,21 @@ def board_create(request):
         if 'add_member_row' in request.POST:
             # «+ Добавить участника» without JavaScript: the same form again
             # with one more row, nothing written and no errors shown.
-            form = BoardForm(initial={'name': request.POST.get('name', '')}, owner=request.user)
+            form = BoardForm(
+                initial={'name': request.POST.get('name', ''), 'code': request.POST.get('code', '')},
+                owner=request.user,
+            )
         elif form.is_valid():
             try:
                 board = create_board(
                     name=form.cleaned_data['name'],
+                    code=form.cleaned_data['code'],
                     owner=request.user,
                     actor=request.user,
                     member_ids=[user.pk for user in form.cleaned_data['members']],
                 )
+            except BoardCodeError as exc:
+                form.add_error('code', str(exc))
             except BoardError as exc:
                 form.add_error(None, str(exc))
             else:
@@ -355,10 +367,9 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
             initial={'column_id': item['column'].pk if item['column'] else None},
         )
     if move_form is not None:
-        # The select offers this sub-board's working columns.
-        move_form.fields['column_id'].widget.choices = [
-            (column.pk, column.name) for column in columns if not column.is_done
-        ]
+        # The select offers the working columns of every sub-board of the
+        # board, grouped by sub-board, this one first.
+        move_form.fields['column_id'].widget.choices = state['move_choices']
     if item is not None and item['can_complete'] and execution_comment is None:
         execution_comment = item['task'].execution_comment
     tab = parse_panel_tab(request.GET.get('tab'))
@@ -458,6 +469,24 @@ def _panel_query(item, panel, new_column, filters, *, all_comments=False, tab=DE
     return f'?{encoded}' if encoded else ''
 
 
+def _render_block(template, context, request):
+    """One live block's markup — without running the context processors again.
+
+    `render_to_string(…, request=request)` builds a `RequestContext`, which
+    runs every context processor of the project — the bell's two queries
+    among them — for each of the seven blocks of a sub-board, although no
+    block draws the bell or the menu. The blocks need only what a request
+    gives a template: `request`, `user` and the CSRF token their forms carry;
+    the page itself is rendered once, with the processors, around them.
+    """
+    return render_to_string(template, {
+        **context,
+        'request': request,
+        'user': request.user,
+        'csrf_token': get_token(request),
+    })
+
+
 def _board_blocks(request, context):
     """The live blocks as markup, each with its fingerprint, and the drawer.
 
@@ -479,14 +508,14 @@ def _board_blocks(request, context):
     the chat's form included — which the client inserts once when it opens a
     card without reloading the page.
     """
-    tabs_html = render_to_string(TABS_TEMPLATE, context, request=request)
-    columns_html = render_to_string(COLUMNS_TEMPLATE, context, request=request)
+    tabs_html = _render_block(TABS_TEMPLATE, context, request)
+    columns_html = _render_block(COLUMNS_TEMPLATE, context, request)
     panel = context['panel']
-    panel_html = render_to_string(PANEL_TEMPLATE, context, request=request) if panel else ''
-    card_html = render_to_string(CARD_TEMPLATE, context, request=request) if panel else ''
+    panel_html = _render_block(PANEL_TEMPLATE, context, request) if panel else ''
+    card_html = _render_block(CARD_TEMPLATE, context, request) if panel else ''
     discussion = context['show_discussion']
-    comments_html = render_to_string(COMMENTS_TEMPLATE, context, request=request) if discussion else ''
-    log_html = render_to_string(LOG_TEMPLATE, context, request=request) if discussion else ''
+    comments_html = _render_block(COMMENTS_TEMPLATE, context, request) if discussion else ''
+    log_html = _render_block(LOG_TEMPLATE, context, request) if discussion else ''
     item = context['card']
     blocks = {
         'tabs_html': tabs_html,
@@ -504,7 +533,7 @@ def _board_blocks(request, context):
         'files_count': len(item['attachments']) if discussion else 0,
     }
     blocks['drawer_html'] = (
-        render_to_string(DRAWER_TEMPLATE, {**context, **blocks}, request=request) if panel else ''
+        _render_block(DRAWER_TEMPLATE, {**context, **blocks}, request) if panel else ''
     )
     return blocks
 
@@ -530,9 +559,7 @@ def _render_board(request, board, sub_board, *, status=200, **options):
         )
         blocks['panel_revision'] = _board_blocks(request, clean)['panel_revision']
         # The drawer printed on the page carries the bound form, not the clean one.
-        blocks['drawer_html'] = render_to_string(
-            DRAWER_TEMPLATE, {**context, **blocks}, request=request,
-        )
+        blocks['drawer_html'] = _render_block(DRAWER_TEMPLATE, {**context, **blocks}, request)
     context.update(blocks)
     context['panel_holds_input'] = holds_input
     # The frame and the heading are the page's only — never part of a
@@ -863,6 +890,23 @@ def board_rename(request, pk):
     return _back_to_board(request, board)
 
 
+@login_required
+def board_change_code(request, pk):
+    """«Код доски» in the board's «⋯» menu: `change_board_code()`."""
+    board = _board_or_404(pk)
+    _require(can_manage_board(request.user, board))
+    if request.method == 'POST':
+        form = BoardCodeForm(request.POST)
+        if not form.is_valid():
+            _refused(request, form)
+        else:
+            try:
+                change_board_code(board, actor=request.user, code=form.cleaned_data['code'])
+            except BoardError as exc:
+                _refused(request, str(exc))
+    return _back_to_board(request, board)
+
+
 def _back_to_board(request, board):
     """The sub-board the form was posted from (`?sub=`), else the board."""
     sub_pk = request.GET.get('sub')
@@ -1048,6 +1092,33 @@ def column_move(request, pk, sub_pk, column_pk):
                 move_column(column, actor=request.user, direction=form.cleaned_data['direction'])
             except BoardError as exc:
                 _refused(request, str(exc))
+    return _back(board, sub_board.pk, request)
+
+
+@login_required
+def column_pins(request, pk, sub_pk, column_pk):
+    """«Закреплённые исполнители» in a column's «⋯» menu: `set_column_pins()`.
+
+    The manager's right, asked before the method like every structure route;
+    a refusal (somebody not on the board, the closing column, an archived
+    board) is a message on the sub-board.
+    """
+    board, sub_board = _structure_request(request, pk, sub_pk)
+    column = _column_or_404(sub_board, column_pk)
+    if request.method == 'POST':
+        form = ColumnPinsForm(request.POST)
+        if not form.is_valid():
+            _refused(request, form)
+        else:
+            try:
+                set_column_pins(
+                    column, actor=request.user,
+                    user_ids=form.cleaned_data['users'], mode=form.cleaned_data['mode'],
+                )
+            except BoardError as exc:
+                _refused(request, str(exc))
+            else:
+                messages.success(request, f'Закреплённые исполнители колонки «{column.name}» сохранены.')
     return _back(board, sub_board.pk, request)
 
 

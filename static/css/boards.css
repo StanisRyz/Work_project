@@ -897,26 +897,35 @@
 .board-drawer__tools {
     display: flex;
     flex-wrap: wrap;
-    align-items: end;
-    gap: 10px;
+    align-items: center;
+    /* 8px: at 1536×864 the drawer is ≈590px wide, and the four controls fit
+       on one line with this gap and not with 10px. */
+    gap: 8px;
     padding-top: 12px;
     border-top: 1px solid var(--color-border);
 }
 
+/* «Редактировать · [колонка ▾] Переместить · Отменить карточку»: one line of
+   controls of one height (`--control-height`: the select, and full-size
+   buttons rather than compact ones), the select's label on its `aria-label`
+   rather than above it — a label over the select is what threw the buttons
+   beside it off the line. */
 .board-drawer__move {
     display: flex;
     flex-wrap: wrap;
-    align-items: end;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
 }
 
-.board-drawer__move label {
-    display: grid;
-    gap: 6px;
-    color: var(--color-muted);
+.board-drawer__tools .link-button {
+    margin-top: 0;
 }
 
 .board-drawer__move select {
+    max-width: 260px;
+    min-width: 0;
+    height: var(--control-height);
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -1333,5 +1342,116 @@
 
     .board-column__cards {
         overflow-y: visible;
+    }
+}
+
+/* ---- Card numbers (`ZAP-12`) and pinned people ---- */
+
+.board-head__code {
+    flex: 0 0 auto;
+    padding: 1px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.board-tile__number {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* «Карточка ZAP-12» in the panel's heading: a link that copies itself. */
+.board-drawer__code {
+    color: var(--color-primary);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.board-drawer__code:hover,
+.board-drawer__code:focus-visible {
+    text-decoration: underline;
+}
+
+/* The card was moved to another sub-board while this panel showed it. */
+.board-drawer__moved {
+    margin: 0;
+    padding: var(--cell-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.board-drawer__moved a {
+    color: var(--color-primary);
+    font-weight: 700;
+}
+
+/* Up to three pinned people in a column's header, before «+», «⋯». */
+.board-column__pins {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 2px;
+}
+
+.board-avatar--small {
+    width: 22px;
+    height: 22px;
+    font-size: 10px;
+}
+
+.board-pins__hint {
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-pins__list {
+    display: grid;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.board-pins__person,
+.board-pins__mode label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-pins__mode {
+    display: grid;
+    gap: 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--color-border);
+}
+
+/* The column menu holds the pins form too: a little wider than a rename. */
+.board-column__actions .board-menu__body {
+    width: 280px;
+}
+
+/* «Новая доска»: the name and the code on one line, the hint under them. */
+.board-form__identity {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 140px;
+    gap: 4px 12px;
+}
+
+.board-form__identity .board-form__hint {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+.board-form__code input {
+    text-transform: uppercase;
+}
+
+@media (max-width: 560px) {
+    .board-form__identity {
+        grid-template-columns: minmax(0, 1fr);
     }
 }

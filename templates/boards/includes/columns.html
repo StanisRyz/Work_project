@@ -1,4 +1,4 @@
-{% comment %}
+{% load people %}{% comment %}
 One sub-board's columns — the live block `[data-live-board-columns]` (its tabs
 are the block beside it, `boards/includes/tabs.html`). The page and `boards:fragment` both render this
 file from the same `_board_context()`, and the client replaces the whole
@@ -12,6 +12,11 @@ menus — `boards/includes/structure_menu.html`, a `<details>` of
 small POST forms, so they work without JavaScript; the deletes ask through the
 shared confirmation modal first when it is there. The `can_move_*`/`can_delete`
 flags only decide which buttons to draw; every route asks the service again.
+
+A working column with people pinned to it («Закреплённые исполнители»: a card
+created here or moved here gets them) shows up to three of them in its header
+and «+N»; the full list is on the group's `title`. The manager sets them in the
+column's «⋯» menu.
 {% endcomment %}
 <div class="board-columns" aria-label="Колонки поддоски «{{ sub_board.name }}»" data-board-columns>
     {% for column in columns %}
@@ -20,6 +25,12 @@ flags only decide which buttons to draw; every route asks the service again.
             <header class="board-column__header">
                 <h2 id="board-column-{{ column.pk }}" class="user-text">{{ column.name }}</h2>
                 <span class="tab-count" data-column-count>{{ column.count }}</span>
+                {% if column.pinned %}
+                    <span class="board-column__pins" title="Закреплённые исполнители ({% if column.column.pinned_mode == 'REPLACE' %}заменяют{% else %}добавляются{% endif %}): {% for person in column.pinned_all %}{{ person|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}" aria-label="Закреплённые исполнители: {{ column.pinned_all|length }}">
+                        {% for person in column.pinned %}<span class="board-avatar board-avatar--small" aria-hidden="true">{{ person|person_initials }}</span>{% endfor %}
+                        {% if column.pinned_more %}<span class="board-avatar board-avatar--small board-avatar--more" aria-hidden="true">+{{ column.pinned_more }}</span>{% endif %}
+                    </span>
+                {% endif %}
                 <span class="board-column__actions">
                     {% if can_work and not column.is_done %}
                         <a class="board-column__add" href="{{ board_url }}?new={{ column.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" title="Новая карточка в колонке «{{ column.name }}»" aria-label="Новая карточка в колонке «{{ column.name }}»">+</a>
@@ -28,7 +39,8 @@ flags only decide which buttons to draw; every route asks the service again.
                         {% url 'boards:column_rename' board.pk sub_board.pk column.pk as rename_url %}
                         {% url 'boards:column_move' board.pk sub_board.pk column.pk as move_url %}
                         {% url 'boards:column_delete' board.pk sub_board.pk column.pk as delete_url %}
-                        {% include 'boards/includes/structure_menu.html' with kind='column' object=column.column name=column.name max_length=60 can_move_left=column.can_move_left can_move_right=column.can_move_right can_delete=column.can_delete %}
+                        {% url 'boards:column_pins' board.pk sub_board.pk column.pk as pins_url %}
+                        {% include 'boards/includes/structure_menu.html' with kind='column' object=column.column name=column.name max_length=60 can_move_left=column.can_move_left can_move_right=column.can_move_right can_delete=column.can_delete pin_row=column %}
                     {% endif %}
                 </span>
             </header>

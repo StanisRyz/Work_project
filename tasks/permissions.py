@@ -83,6 +83,19 @@ def get_readable_tasks_queryset(user):
     return _without_boards_unless_allowed(_tasks_queryset(), user)
 
 
+def _is_assignee(task, user):
+    """Whether `user` is one of the task's assignees.
+
+    The same `TaskAssignee` rows either way: read from the task's prefetched
+    `assignees` when the caller already loaded them (a board reads every
+    card's исполнители in one query), asked of the database otherwise.
+    """
+    prefetched = getattr(task, '_prefetched_objects_cache', {}).get('assignees')
+    if prefetched is not None:
+        return any(assignee.user_id == user.pk for assignee in prefetched)
+    return task.assignees.filter(user=user).exists()
+
+
 def can_complete_task(task, user):
     """Who may finish this task through the ordinary completion flow.
 
@@ -95,7 +108,7 @@ def can_complete_task(task, user):
     if task.is_routing_task:
         return False
     return task.status.code == 'IN_PROGRESS' and (
-        is_act_admin(user) or task.assignees.filter(user=user).exists()
+        is_act_admin(user) or _is_assignee(task, user)
     )
 
 

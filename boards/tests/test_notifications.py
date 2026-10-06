@@ -57,7 +57,7 @@ class BoardNotificationTests(BoardFixtureMixin, TestCase):
     def test_email_is_queued_and_never_says_board_code(self):
         self.colleague.email = 'colleague@example.com'
         self.colleague.save()
-        self.card('Подготовить КП', actor=self.owner, assignees=[self.colleague])
+        card = self.card('Подготовить КП', actor=self.owner, assignees=[self.colleague])
         note = board_notifications().get()
         self.assertIn(Notification.EventType.BOARD_TASK_ASSIGNED, EMAIL_ELIGIBLE_EVENTS)
         self.assertTrue(
@@ -66,8 +66,11 @@ class BoardNotificationTests(BoardFixtureMixin, TestCase):
             ).exists()
         )
         source = describe_notification_source(note)
-        self.assertEqual(source['context'], 'Доска «Планирование»')
+        self.assertEqual(source['context'], f'Доска «Планирование» · карточка {card.code}')
         self.assertIn('«Планирование»', note.title)
+        # The card is named the way people name it: «T1-1», not by the task.
+        self.assertIn(card.code, note.title)
+        self.assertIn(card.code, note.message)
         for text in (note.title, note.message, source['label'], source['context']):
             self.assertNotIn('BOARD', text)
 

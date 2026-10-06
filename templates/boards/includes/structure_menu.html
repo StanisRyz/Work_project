@@ -1,10 +1,16 @@
-{% comment %}
+{% load people %}{% comment %}
 The «⋯» menu of a tab (`kind='sub_board'`) or a column (`kind='column'`):
 «Переименовать», ← →, «Удалить». A `<details>` of ordinary POST forms — it
 opens and posts without JavaScript; `board_menus.js` only closes it on a click
 elsewhere or Esc. «Удалить» is a submit button that, with JavaScript, asks the
 shared confirmation modal first (`data-confirm-form` names its own form). The
 closing column (`object.is_done`) offers «Переименовать» only.
+
+A working column's menu also holds «Закреплённые исполнители» (`pin_row`, the
+column's row of `build_board_state()`, and `pins_url`): the board's active
+members as tick boxes and the mode — «Добавить к исполнителям» or «Заменить
+исполнителей» — one ordinary POST form to `boards:column_pins`. The cards
+already standing in the column keep their people.
 
 Takes `object`, `name`, `max_length`, `rename_url`, `move_url`, `delete_url`,
 `can_move_left`, `can_move_right`, `can_delete`; every action keeps the
@@ -37,6 +43,23 @@ board's filter (`filter_suffix`).
                         </form>
                     {% endif %}
                 </div>
+            {% endif %}
+            {% if pin_row and members %}
+                <form class="board-menu__form board-pins" method="post" action="{{ pins_url }}{{ filter_suffix }}">
+                    {% csrf_token %}
+                    <span class="board-menu__label">Закреплённые исполнители</span>
+                    <span class="board-pins__hint">Карточка, созданная в колонке или перенесённая в неё, получит их.</span>
+                    <span class="board-pins__list">
+                        {% for person in members %}
+                            <label class="board-pins__person"><input type="checkbox" name="users" value="{{ person.pk }}"{% if person.pk in pin_row.pinned_ids %} checked{% endif %}> <span class="user-text">{{ person|person_name }}</span></label>
+                        {% endfor %}
+                    </span>
+                    <span class="board-pins__mode" role="radiogroup" aria-label="Как закреплять">
+                        <label><input type="radio" name="mode" value="ADD"{% if pin_row.column.pinned_mode != 'REPLACE' %} checked{% endif %}> Добавить к исполнителям</label>
+                        <label><input type="radio" name="mode" value="REPLACE"{% if pin_row.column.pinned_mode == 'REPLACE' %} checked{% endif %}> Заменить исполнителей</label>
+                    </span>
+                    <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                </form>
             {% endif %}
             {% if can_delete %}
                 <form id="board-delete-{{ kind }}-{{ object.pk }}" method="post" action="{{ delete_url }}{{ filter_suffix }}">

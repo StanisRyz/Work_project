@@ -16,7 +16,14 @@
  *   fragment's URL become the tab link's own, server-built ones, through
  *   `history.replaceState`. The attribute is outside every block the live
  *   client replaces, so a replacement never changes the tab;
- * - «×», Esc and a click on the dimmed part of the board close it.
+ * - «×», Esc and a click on the dimmed part of the board close it;
+ * - a tile clicked while a card is open opens the new card on the tab the
+ *   drawer shows now («Лог» stays «Лог»); without JavaScript a tile opens
+ *   «Описание», as its address says;
+ * - «Карточка ZAP-12» in the heading copies the link to the card (the async
+ *   clipboard, or the selection fallback on plain HTTP — never a browser
+ *   dialog) and says so in `[data-board-message]`; with a modifier key, or
+ *   without this script, it is an ordinary link.
  *
  * Unsaved input is never thrown away by any of this: while the page holds
  * some (`qualityUnsavedGuard`, the live client's own dirty flag), a tile, «×»
@@ -61,6 +68,43 @@
         if (message) {
             message.textContent = text;
             message.hidden = false;
+        }
+    };
+
+    // -- «Карточка ZAP-12»: copy the link ------------------------------------
+
+    /**
+     * Copy `link` and say so. The plant's intranet is often plain HTTP, where
+     * the async clipboard does not exist; the selection-copy fallback works
+     * there, and if even that fails the link is shown to copy by hand.
+     */
+    const copyLink = (link, code) => {
+        const done = () => showMessage(`Ссылка на карточку ${code} скопирована.`);
+        const fallback = () => {
+            const area = document.createElement('textarea');
+            area.value = link;
+            area.setAttribute('readonly', '');
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            let copied = false;
+            try {
+                copied = document.execCommand('copy');
+            } catch (error) {
+                copied = false;
+            }
+            area.remove();
+            if (copied) {
+                done();
+            } else {
+                showMessage(`Ссылка на карточку ${code}: ${link}`);
+            }
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(link).then(done, fallback);
+        } else {
+            fallback();
         }
     };
 
@@ -298,6 +342,13 @@
             return;
         }
 
+        const cardLink = target.closest('[data-board-card-link]');
+        if (cardLink && drawer.contains(cardLink)) {
+            event.preventDefault();
+            copyLink(new URL(cardLink.getAttribute('href'), window.location.href).href, cardLink.dataset.boardCardLink);
+            return;
+        }
+
         const closer = target.closest('[data-board-drawer-close]');
         if (closer && drawer.contains(closer)) {
             if (!hasUnsaved()) {
@@ -313,9 +364,16 @@
                 return;
             }
             const url = new URL(tile.href, window.location.href);
+            // Another card opens on the tab this one shows: the tile's own
+            // address names none, so the drawer's current tab is added.
+            const tab = isOpen() && root.dataset.boardPanel !== 'new'
+                ? drawer.getAttribute('data-board-tab') : '';
+            if (tab && tab !== 'description' && drawer.querySelector(`[data-board-tab-link="${tab}"]`)) {
+                url.searchParams.set('tab', tab);
+            }
             event.preventDefault();
             opener = tile;
-            open(url.search, { fallback: tile.href });
+            open(url.search, { fallback: url.href });
             return;
         }
 

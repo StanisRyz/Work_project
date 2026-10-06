@@ -15,6 +15,7 @@ from tasks.services import complete_task
 from ..models import BoardCard
 from ..services import create_board, create_sub_board, delete_column
 from .helpers import (
+    fresh_code,
     BoardFixtureMixin,
     board_url,
     column_of,
@@ -88,13 +89,23 @@ class FetchMoveTests(BoardFixtureMixin, TestCase):
         self.assertIn('завершите задачу', response.json()['error'])
         self.assertEqual(order(self.board, 'TODO'), ['A', 'B'])
 
-    def test_column_of_another_sub_board_is_400(self):
+    def test_column_of_another_sub_board_moves_the_card_there(self):
+        # The page only ever offers its own columns to a drag, but the route
+        # is the panel's «Переместить в…» too: both accept any working column
+        # of the card's own board.
         other_tab = create_sub_board(self.board, actor=self.owner, name='Вторая')
-        response = self.client.post(
-            self.url(self.a), {'column_id': column_of(self.board, 'TODO', other_tab).pk}, **FETCH,
-        )
+        target = column_of(self.board, 'TODO', other_tab)
+        response = self.client.post(self.url(self.a), {'column_id': target.pk}, **FETCH)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['column_id'], target.pk)
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.sub_board, other_tab)
+
+    def test_column_of_another_board_is_400(self):
+        other = create_board(code=fresh_code(), name='Чужая', owner=self.owner, actor=self.owner)
+        response = self.client.post(self.url(self.a), {'column_id': column_of(other, 'TODO').pk}, **FETCH)
         self.assertEqual(response.status_code, 400)
-        self.assertIn('не найдена на этой поддоске', response.json()['error'])
+        self.assertIn('не найдена на этой доске', response.json()['error'])
         self.a.refresh_from_db()
         self.assertEqual(self.a.sub_board, self.main)
 
@@ -114,6 +125,7 @@ class FetchMoveTests(BoardFixtureMixin, TestCase):
 
     def test_foreign_before_card_is_refused(self):
         other = create_board(
+            code=fresh_code(),
             name='Другая', department=self.department, owner=self.owner, actor=self.owner,
             member_ids=[self.member.pk],
         )

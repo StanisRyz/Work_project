@@ -3,8 +3,14 @@ The card panel's heading — the first container of the guarded live block
 (`[data-live-board-panel]`; the second is `boards/includes/card.html`, with one
 fingerprint over both). It stays put while the tab below it scrolls.
 
-«Карточка №N», the title and the task's status, and on the right what may be
-done with the work as a whole:
+«Карточка ZAP-12» — the card's code, a link to the card (`boards:detail`
+with `?card=`, which leads to whatever sub-board it stands on): a plain
+click copies that link (`board_drawer.js`, the async clipboard or the
+selection fallback, never a browser dialog), and without JavaScript it is an
+ordinary link — then the task's own number, the title and the task's status.
+A card moved to another sub-board while this panel was open
+(`card.moved_to`) says where it is now, with a link there; the panel does not
+go there by itself. On the right, what may be done with the work as a whole:
 - «Завершить» (`card.can_complete`, i.e. `can_complete_task()`): a
   `<details>` holding the result field and its button — an ordinary form
   posted to `boards:card_complete`, so it works without JavaScript; a refused
@@ -23,7 +29,8 @@ the route.
             <p class="board-drawer__meta user-text">Колонка «{{ new_column.name }}»</p>
         {% else %}
             <p class="board-drawer__meta">
-                Карточка №{{ card.task.pk }}{% if panel == 'edit' %} · редактирование{% endif %}
+                <a class="board-drawer__code" href="{% url 'boards:detail' board.pk %}?card={{ card.card.pk }}" data-board-card-link="{{ card.card.code }}" title="Скопировать ссылку на карточку {{ card.card.code }}">Карточка {{ card.card.code }}</a>
+                <span>задача №{{ card.task.pk }}{% if panel == 'edit' %} · редактирование{% endif %}</span>
                 {% if card.task.is_cancelled %}<span class="status-badge status-badge--archived">Отменена</span>
                 {% elif card.task.status.code == 'COMPLETED' %}<span class="status-badge status-badge--completed">Выполнена</span>
                 {% else %}<span class="status-badge status-badge--in_progress">В работе</span>{% endif %}
@@ -58,6 +65,12 @@ the route.
         <a class="board-drawer__close" href="{{ close_url }}" data-board-drawer-close aria-label="Закрыть карточку" title="Закрыть (Esc)">×</a>
     </div>
 </div>
+{% if card.moved_to and panel != 'new' %}
+    <div class="board-drawer__moved" role="status">
+        Карточка перенесена на поддоску «<span class="user-text">{{ card.moved_to.name }}</span>».
+        <a href="{% url 'boards:sub_board' board.pk card.moved_to.pk %}?card={{ card.card.pk }}&amp;tab={{ tab }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">Открыть там</a>
+    </div>
+{% endif %}
 {% if panel_error %}<div class="form-error">{{ panel_error }}</div>{% endif %}
 {% comment %}A refused completion by somebody with no «Завершить» to show it beside.{% endcomment %}
 {% if execution_error and not card.can_complete %}<div class="form-error">{{ execution_error }}</div>{% endif %}

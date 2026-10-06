@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 
 from accounts.templatetags.people import person_name
 
-from .models import BoardCard
+from .models import BOARD_CODE_MAX_LENGTH, BoardCard, BoardColumn
 from .permissions import active_employee_q
 
 
@@ -62,7 +62,10 @@ def active_members(board):
 
 
 class BoardForm(forms.Form):
-    """A new board: its name and its members — nothing else.
+    """A new board: its name, its code and its members — nothing else.
+
+    The code («ZAP») is checked — format, upper case, uniqueness — by
+    `services.create_board()`, whose refusal lands on the form.
 
     The owner is whoever submits it, so it is not asked; the rows do not offer
     them (they become a member anyway), and if they are posted all the same
@@ -70,6 +73,12 @@ class BoardForm(forms.Form):
     """
 
     name = forms.CharField(label='Название', max_length=200)
+    code = forms.CharField(
+        label='Код',
+        max_length=BOARD_CODE_MAX_LENGTH,
+        help_text='2–6 букв или цифр — начало номера каждой карточки, например ZAP-12.',
+        widget=forms.TextInput(attrs={'autocapitalize': 'characters', 'spellcheck': 'false'}),
+    )
     members = EmployeeRowsField(
         label='Участники',
         queryset=get_user_model().objects.none(),
@@ -124,12 +133,19 @@ class MoveCardForm(forms.Form):
     """«Переместить в…» in the panel, and a drag on the board.
 
     `column_id` is a number, not a choice: a column deleted or never part of
-    the card's sub-board is `move_card()`'s refusal, in its own words, so a
-    drag into a column somebody has just removed puts the tile back with a
-    sentence that says why. The select offers the sub-board's working columns.
+    the card's board is `move_card()`'s refusal, in its own words, so a drag
+    into a column somebody has just removed puts the tile back with a
+    sentence that says why. The panel's select offers the working columns of
+    every sub-board of the board, grouped; a drag only ever reaches this
+    sub-board's. Both are the same route and the same service, which accepts
+    a working column of any sub-board of the card's own board — the form does
+    not tell the two sources apart.
     """
 
-    column_id = forms.IntegerField(label='Переместить в', min_value=1, widget=forms.Select)
+    column_id = forms.IntegerField(
+        label='Переместить в', min_value=1,
+        widget=forms.Select(attrs={'aria-label': 'Переместить в колонку', 'title': 'Переместить в колонку'}),
+    )
     # Where in the column: before this card, or — empty — at the end. Only
     # dragging sends it; the panel's «Переместить в…» always means the end.
     # Whether the card really is on this board and in that column is
@@ -147,6 +163,35 @@ class BoardNameForm(forms.Form):
     """A board's new name. The service trims and asks again."""
 
     name = forms.CharField(label='Название доски', max_length=200)
+
+
+class IdListField(forms.Field):
+    """Several ids posted under one name, as a list of numbers."""
+
+    widget = forms.MultipleHiddenInput
+
+    def to_python(self, value):
+        values = [str(item).strip() for item in value or () if str(item).strip()]
+        if not all(item.isdigit() for item in values):
+            raise forms.ValidationError('Неверный выбор сотрудников.')
+        return sorted({int(item) for item in values})
+
+
+class BoardCodeForm(forms.Form):
+    """A board's new code. `services.change_board_code()` normalises and checks it."""
+
+    code = forms.CharField(label='Код доски', max_length=BOARD_CODE_MAX_LENGTH)
+
+
+class ColumnPinsForm(forms.Form):
+    """«Закреплённые исполнители» of a column: the people ticked and the mode.
+
+    Ids, not a choice of members: whether each is an active member of the
+    board is `services.set_column_pins()`'s question, in its own words.
+    """
+
+    users = IdListField(required=False)
+    mode = forms.ChoiceField(choices=BoardColumn.PinnedMode.choices)
 
 
 class SubBoardNameForm(forms.Form):

@@ -21,6 +21,7 @@ urlpatterns = [
     # changes nothing. The right is asked before the method, so a typed-in
     # URL without it is a 403.
     path('<int:pk>/rename/', views.board_rename, name='rename'),
+    path('<int:pk>/code/', views.board_change_code, name='change_code'),
     path('<int:pk>/archive/', views.board_archive, name='archive'),
     path('<int:pk>/restore/', views.board_restore, name='restore'),
     path('<int:pk>/members/add/', views.members_add, name='members_add'),
@@ -38,6 +39,10 @@ urlpatterns = [
     path(
         '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/move/',
         views.column_move, name='column_move',
+    ),
+    path(
+        '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/pins/',
+        views.column_pins, name='column_pins',
     ),
     path(
         '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/delete/',
