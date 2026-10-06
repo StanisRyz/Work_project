@@ -348,8 +348,12 @@
 }
 
 .board-filters__search {
-    width: 280px;
-    max-width: 100%;
+    /* A basis below its width: the row breaks by the basis, so the search
+       gives up width before «Применить» goes to a second line, and grows
+       back to 280px where there is room. */
+    flex: 1 1 180px;
+    width: auto;
+    max-width: 280px;
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -2029,4 +2033,169 @@
 
 .board-field-new__row .link-button[hidden] {
     display: none;
+}
+
+/* ---- Time in the column and «Застой» (stage 17) ----
+   An open tile says how long it has stood in its column; one past the
+   column's threshold takes the warning colours — the orange pair of the
+   option tokens above, no new hex. The column header names the threshold. */
+
+.board-tile__age {
+    justify-self: start;
+    color: var(--color-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.board-tile__age--stale {
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    background: var(--board-color-orange-bg);
+    color: var(--board-color-orange-text);
+    font-weight: 700;
+}
+
+.board-tile.board-tile--stale {
+    border-color: var(--board-color-orange-text);
+    box-shadow: inset 3px 0 0 var(--board-color-orange-text);
+}
+
+.board-tile.board-tile--stale.board-tile--open {
+    box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.board-column__stale {
+    flex: 0 0 auto;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.board-stale__row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-stale__days {
+    width: 96px;
+}
+
+/* ---- «Доска | Таблица» and «Excel» of the filter row ---- */
+
+.board-view-switch {
+    display: inline-flex;
+    flex: 0 0 auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.board-view-switch__link {
+    display: inline-flex;
+    align-items: center;
+    height: calc(var(--control-height) - 2px);
+    padding: 0 12px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+.board-view-switch__link + .board-view-switch__link {
+    border-left: 1px solid var(--color-border);
+}
+
+.board-view-switch__link:hover,
+.board-view-switch__link:focus-visible {
+    background: var(--color-bg);
+}
+
+.board-view-switch__link.is-active {
+    background: var(--color-primary);
+    color: var(--color-surface);
+    font-weight: 600;
+}
+
+/* ---- «Таблица» ----
+   One screen like every registry: the table card takes what is left under
+   the filter row and scrolls on its own — down and, with many fields,
+   sideways — with its header stuck to the top. Columns are as wide as their
+   content up to a cap: the title and a text value wrap within it, everything
+   else stays on one line. */
+
+.board-page--table > .board-table-region {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.board-table-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-table-meta a {
+    color: var(--color-primary);
+}
+
+.act-table-card .board-table {
+    width: max-content;
+    min-width: 100%;
+}
+
+.board-table th {
+    white-space: nowrap;
+}
+
+.board-table td {
+    white-space: nowrap;
+}
+
+.board-table td .user-text {
+    display: block;
+    min-width: 120px;
+    max-width: 280px;
+}
+
+.board-table td .board-table__title-text {
+    min-width: 200px;
+    max-width: 360px;
+}
+
+.board-table__people-list {
+    display: grid;
+    gap: 2px;
+}
+
+.board-table__number {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.board-table__days--stale {
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    background: var(--board-color-orange-bg);
+    color: var(--board-color-orange-text);
+    font-weight: 700;
+}
+
+.board-table__row--closed td {
+    color: var(--color-muted);
+}
+
+.board-table .board-chip {
+    white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+    .board-page--table > .board-table-region {
+        display: block;
+    }
 }

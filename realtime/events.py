@@ -90,8 +90,8 @@ BOARD_CHANGE_BOARD_ARCHIVED = 'board_archived'
 BOARD_CHANGE_BOARD_RESTORED = 'board_restored'
 BOARD_CHANGE_COMMENT_ADDED = 'comment_added'
 # A sub-board or a column created, renamed, moved or deleted, a column's pins
-# set, the board renamed or its code changed, or its card fields («Поля
-# карточек») or their options set up.
+# or its «Застой» threshold set, the board renamed or its code changed, or its
+# card fields («Поля карточек») or their options set up.
 BOARD_CHANGE_STRUCTURE_CHANGED = 'structure_changed'
 
 BOARD_CHANGES = frozenset(

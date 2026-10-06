@@ -12,6 +12,10 @@ members as tick boxes and the mode — «Добавить к исполните�
 исполнителей» — one ordinary POST form to `boards:column_pins`. The cards
 already standing in the column keep their people.
 
+A working column's menu holds «Застой» as well (`stale_url`): «подсвечивать
+через N дней», 1–365, empty to switch it off — one ordinary POST form to
+`boards:column_stale`.
+
 Takes `object`, `name`, `max_length`, `rename_url`, `move_url`, `delete_url`,
 `can_move_left`, `can_move_right`, `can_delete`; every action keeps the
 board's filter (`filter_suffix`).
@@ -58,6 +62,18 @@ board's filter (`filter_suffix`).
                         <label><input type="radio" name="mode" value="ADD"{% if pin_row.column.pinned_mode != 'REPLACE' %} checked{% endif %}> Добавить к исполнителям</label>
                         <label><input type="radio" name="mode" value="REPLACE"{% if pin_row.column.pinned_mode == 'REPLACE' %} checked{% endif %}> Заменить исполнителей</label>
                     </span>
+                    <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                </form>
+            {% endif %}
+            {% if kind == 'column' and stale_url %}
+                <form class="board-menu__form board-stale" method="post" action="{{ stale_url }}{{ filter_suffix }}">
+                    {% csrf_token %}
+                    <label class="board-menu__label" for="board-stale-{{ object.pk }}">Застой: подсвечивать через N дней</label>
+                    <span class="board-stale__row">
+                        <input id="board-stale-{{ object.pk }}" class="board-stale__days" type="number" name="days" min="1" max="365" step="1" inputmode="numeric" value="{{ object.stale_after_days|default_if_none:'' }}" placeholder="выкл.">
+                        <span class="board-pins__hint">дн.</span>
+                    </span>
+                    <span class="board-pins__hint">Карточка, простоявшая в колонке столько дней, подсвечивается. Пусто — не отслеживать.</span>
                     <button class="link-button link-button--compact" type="submit">Сохранить</button>
                 </form>
             {% endif %}

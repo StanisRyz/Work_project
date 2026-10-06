@@ -186,6 +186,11 @@ class SubBoard(models.Model):
         return f'{self.board}: {self.name}'
 
 
+# «Застой» of a working column: a threshold of 1 to 365 calendar days.
+STALE_DAYS_MIN = 1
+STALE_DAYS_MAX = 365
+
+
 class BoardColumn(models.Model):
     """One column of a sub-board, named by its owner.
 
@@ -226,6 +231,13 @@ class BoardColumn(models.Model):
     pinned_mode = models.CharField(
         'Режим закрепления', max_length=8, choices=PinnedMode.choices, default=PinnedMode.ADD,
     )
+    # «Застой»: a working column's threshold in calendar days — a card that has
+    # stood here at least this long is highlighted on its tile, and «Застрявшие»
+    # (`?stale=1`) finds it. NULL is off. 1–365, never on the closing column:
+    # `services.set_column_stale_days()` writes it, a check constraint says so.
+    stale_after_days = models.PositiveSmallIntegerField(
+        'Застой: подсвечивать через, дней', null=True, blank=True,
+    )
     created_at = models.DateTimeField('Создана', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлена', auto_now=True)
 
@@ -234,6 +246,15 @@ class BoardColumn(models.Model):
         verbose_name = 'Колонка доски'
         verbose_name_plural = 'Колонки досок'
         constraints = [
+            # A threshold is 1–365 days, and only ever a working column's.
+            models.CheckConstraint(
+                condition=models.Q(stale_after_days__isnull=True) | models.Q(
+                    stale_after_days__gte=STALE_DAYS_MIN,
+                    stale_after_days__lte=STALE_DAYS_MAX,
+                    is_done=False,
+                ),
+                name='board_column_stale_days_valid',
+            ),
             # At most one closing column per sub-board; the services create
             # it with the sub-board and never delete it, so there is exactly one.
             models.UniqueConstraint(

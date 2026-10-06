@@ -19,7 +19,9 @@ from decimal import Decimal
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Exists, IntegerField, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models import (
+    Count, DateTimeField, Exists, F, IntegerField, Max, OuterRef, Prefetch, Q, Subquery, Value,
+)
 from django.db.models import prefetch_related_objects
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -140,9 +142,9 @@ class FieldFilter:
 
 @dataclass(frozen=True)
 class BoardFilters:
-    """What the board shows: `?mine=1`, `?overdue=1`, `?q=<text>` and the
-    filters of the board's own card fields (`fields`, `FieldFilter`s in the
-    fields' order).
+    """What the board shows: `?mine=1`, `?overdue=1`, `?stale=1`, `?q=<text>`
+    and the filters of the board's own card fields (`fields`, `FieldFilter`s
+    in the fields' order).
 
     Parsed once by `parse_board_filters()` for the page, its fragment and the
     drag's JSON counts alike, so the three can never filter differently.
@@ -150,26 +152,29 @@ class BoardFilters:
 
     mine: bool = False
     overdue: bool = False
+    stale: bool = False
     q: str = ''
     fields: tuple = ()
 
     @property
     def is_active(self):
-        return self.mine or self.overdue or bool(self.q) or bool(self.fields)
+        return self.mine or self.overdue or self.stale or bool(self.q) or bool(self.fields)
 
     @property
     def query(self):
         """The filter as a query string without `?` — `''` when none is set.
 
-        Always in the same order — `mine`, `overdue`, `q`, then the fields by
-        their position — so an address never changes by itself, and parsing
-        it gives this very filter back.
+        Always in the same order — `mine`, `overdue`, `stale`, `q`, then the
+        fields by their position — so an address never changes by itself, and
+        parsing it gives this very filter back.
         """
         params = []
         if self.mine:
             params.append(('mine', '1'))
         if self.overdue:
             params.append(('overdue', '1'))
+        if self.stale:
+            params.append(('stale', '1'))
         if self.q:
             params.append(('q', self.q))
         for field_filter in self.fields:
@@ -257,6 +262,7 @@ def parse_board_filters(params, fields=()):
     return BoardFilters(
         mine=params.get('mine') == '1',
         overdue=params.get('overdue') == '1',
+        stale=params.get('stale') == '1',
         q=(params.get('q') or '').strip()[:SEARCH_MAX_LENGTH],
         fields=tuple(
             field_filter
@@ -305,14 +311,89 @@ def card_search_q(q):
     return condition
 
 
-def _filtered(tasks, filters, user, *, open_work):
-    """`tasks` narrowed by `filters`; `overdue` only ever narrows open work.
+# The journal entries that put a card where it stands: created in a column,
+# moved into one, returned to one. A reorder within a column writes no entry,
+# so it does not restart the clock.
+IN_COLUMN_EVENT_KINDS = (
+    BoardCardEvent.Kind.CREATED,
+    BoardCardEvent.Kind.MOVED,
+    BoardCardEvent.Kind.REOPENED,
+)
+
+
+def in_column_since():
+    """«В колонке с»: when the task's card came into the column it stands in.
+
+    The latest `CREATED`/`MOVED`/`REOPENED` entry of its journal, one
+    correlated subquery of the tasks' own query — never a query per tile —
+    and the card's own `created_at` for a card with no entry at all (none
+    exists after `boards.0010`, but the answer must not be empty).
+    """
+    latest = (
+        BoardCardEvent.objects.filter(card=OuterRef('board_card'), kind__in=IN_COLUMN_EVENT_KINDS)
+        .order_by().values('card').annotate(at=Max('created_at')).values('at')
+    )
+    return Coalesce(Subquery(latest, output_field=DateTimeField()), F('board_card__created_at'))
+
+
+def days_in_column(since, today=None):
+    """Calendar days since `since` by the local date: today 0, yesterday 1.
+
+    Weekends count — the clock of a stuck order does not stop for them — and
+    the answer is a date difference, never seconds, so it moves once a day.
+    """
+    if since is None:
+        return None
+    today = today or timezone.localdate()
+    return max((today - timezone.localtime(since).date()).days, 0)
+
+
+def _start_of_day(day):
+    """The first moment of `day` in the current time zone."""
+    return timezone.make_aware(datetime.datetime.combine(day, datetime.time.min))
+
+
+def stale_condition(columns, today=None):
+    """«Застрявшие» as a condition on the tasks: an open card standing at least
+    its column's threshold (`BoardColumn.stale_after_days`) in that column.
+
+    `columns` are the columns already read (of one sub-board or of the whole
+    board), so the condition is one `OR` over the working columns that have a
+    threshold — no query of its own. A card whose column was deleted while it
+    was closed stands in the first working column of its sub-board
+    (`columns.card_column()`), and is judged by that one. «At least N days» is
+    `localdate(since) <= today - N`, i.e. `since` before the start of day
+    `today - N + 1`. No threshold anywhere keeps no card.
+    """
+    today = today or timezone.localdate()
+    first_working = {}
+    for column in columns:
+        if not column.is_done:
+            first_working.setdefault(column.sub_board_id, column.pk)
+    condition = Q(pk__isnull=True)  # nothing: no column has a threshold
+    for column in columns:
+        days = column.stale_after_days
+        if column.is_done or not days:
+            continue
+        place = Q(board_card__column_id=column.pk)
+        if first_working.get(column.sub_board_id) == column.pk:
+            place |= Q(board_card__column__isnull=True, board_card__sub_board_id=column.sub_board_id)
+        threshold = _start_of_day(today - datetime.timedelta(days=days - 1))
+        condition |= place & Q(stale_since__lt=threshold)
+    return condition
+
+
+def _filtered(tasks, filters, user, *, open_work, columns=()):
+    """`tasks` narrowed by `filters`; `overdue` and `stale` only ever narrow
+    open work.
 
     «Мои» is «I am an исполнитель» (`TaskAssignee`, one row per person, so the
     join adds no duplicates); `q` is a substring of the card's title, its
     code or a text field's value (`card_search_q()`); each field filter is
     one `Exists()` of the same query (`FieldFilter.condition()`), so neither
-    the number of filters nor the number of fields adds a query.
+    the number of filters nor the number of fields adds a query. «Застрявшие»
+    is `stale_condition()` over `columns` — the columns the caller has read
+    already — on the same journal subquery the tiles read (`in_column_since()`).
     """
     if filters.mine:
         tasks = tasks.filter(assignees__user=user)
@@ -322,6 +403,8 @@ def _filtered(tasks, filters, user, *, open_work):
         tasks = tasks.filter(field_filter.condition())
     if filters.overdue and open_work:
         tasks = tasks.filter(due_date__lt=timezone.localdate())
+    if filters.stale and open_work:
+        tasks = tasks.alias(stale_since=in_column_since()).filter(stale_condition(columns))
     return tasks
 
 
@@ -343,10 +426,13 @@ def _all_board_tasks():
 
 
 def _tasks_with_cards(tasks):
-    """`tasks` with what a tile reads: status, card, исполнители, messages.
+    """`tasks` with what a tile reads: status, card, исполнители, messages,
+    and since when the card stands in its column.
 
     The исполнители are one prefetch query with their accounts joined — a
-    tile draws a name and initials, nothing of the profile.
+    tile draws a name and initials, nothing of the profile. The message count
+    and «В колонке с» (`in_column_since()`) are subquery annotations of the
+    same query.
     """
     from tasks.models import TaskAssignee
 
@@ -354,7 +440,7 @@ def _tasks_with_cards(tasks):
     return (
         tasks.select_related('status', 'board_card')
         .prefetch_related(Prefetch('assignees', queryset=TaskAssignee.objects.select_related('user')))
-        .annotate(comment_count=_count_subquery(comments, 'card'))
+        .annotate(comment_count=_count_subquery(comments, 'card'), in_column_since=in_column_since())
     )
 
 
@@ -366,13 +452,20 @@ def _item(task, board):
     """
     card = task.board_card
     card.board = board
+    is_closed = task.status.is_final
+    since = getattr(task, 'in_column_since', None) if not is_closed else None
     return {
         'card': card,
         'task': task,
         'assignees': [assignee.user for assignee in task.assignees.all()],
         'due_date': task.due_date,
-        'is_closed': task.status.is_final,
+        'is_closed': is_closed,
         'comment_count': getattr(task, 'comment_count', 0),
+        # «В колонке с» and the days since — for open work only: a completed
+        # or cancelled card stands nowhere it could be stuck.
+        'in_column_since': since,
+        'in_column_days': days_in_column(since),
+        'is_stale': False,
     }
 
 
@@ -855,7 +948,9 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
         queryset=get_user_model().objects.order_by('last_name', 'first_name', 'username', 'pk'),
     ))
     tasks = _board_tasks(sub_board)
-    open_tasks = list(_filtered(tasks.filter(status__is_final=False), filters, user, open_work=True))
+    open_tasks = list(
+        _filtered(tasks.filter(status__is_final=False), filters, user, open_work=True, columns=columns)
+    )
     done_tasks = _filtered(tasks.filter(status__code='COMPLETED'), filters, user, open_work=False)
     completable = completable_task_ids([task.pk for task in open_tasks], user)
     cards_by_column = {column.pk: [] for column in columns}
@@ -865,6 +960,7 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
             item = _item(task, board)
             item['is_movable'] = can_work
             item['can_complete'] = task.pk in completable
+            item['is_stale'] = is_stale(item['in_column_days'], column)
             cards_by_column[column.pk].append(item)
     for cards in cards_by_column.values():
         cards.sort(key=lambda item: (item['card'].position, item['card'].pk))
@@ -973,7 +1069,7 @@ def column_counts(sub_board, user=None, filters=NO_FILTERS):
     first_working_id = working[0].pk if working else None
     tasks = Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__sub_board=sub_board)
     open_cards = (
-        _filtered(tasks.filter(status__is_final=False), filters, user, open_work=True)
+        _filtered(tasks.filter(status__is_final=False), filters, user, open_work=True, columns=columns)
         .order_by()
         .values('board_card__column_id')
         .annotate(n=Count('pk'))
@@ -1025,6 +1121,13 @@ def member_preview(board, limit=MEMBER_PREVIEW_LIMIT):
     ]
 
 
+def is_stale(days, column):
+    """Whether an open card `days` in `column` is stuck: at least the column's
+    threshold, not a day earlier. A column without one never says so."""
+    threshold = getattr(column, 'stale_after_days', None)
+    return bool(threshold) and days is not None and days >= threshold
+
+
 def _count_subquery(queryset, group_by):
     """`queryset` (filtered on an `OuterRef`) counted, 0 when empty."""
     counted = queryset.order_by().values(group_by).annotate(n=Count('pk')).values('n')
@@ -1045,3 +1148,219 @@ def resolve_new_column(columns, value):
         (column for column in columns if column.pk == column_id and not column.is_done),
         None,
     )
+
+
+# --------------------------------------------------------------------------
+# «Таблица»: the sub-board — or the whole board — as rows
+# --------------------------------------------------------------------------
+
+# `?sort=` of the table → how a row is ordered. A key outside this list (and
+# outside `field_<id>` of a live field of the board) is ignored: the rows are
+# ordered in Python by these keys alone, so nothing the address says ever
+# reaches `order_by()`.
+TABLE_SORTS = ('code', 'title', 'column', 'due', 'days', 'created', 'completed')
+TABLE_FIELD_SORT_PREFIX = 'field_'
+
+# The words the table and its Excel use for a task's state.
+TABLE_STATUS_LABELS = {
+    'IN_PROGRESS': 'В работе',
+    'COMPLETED': 'Выполнена',
+    'CANCELLED': 'Отменена',
+}
+
+
+def _table_field_key(field, row):
+    """What a field's value is ordered by: a list option by its place among
+    the options, a number and a date as such, a text whatever the case."""
+    if field.kind == BoardField.Kind.SELECT:
+        option = next((option for option in field.options.all() if option.pk == row.option_id), None)
+        return None if option is None else (option.position, option.pk)
+    if field.kind == BoardField.Kind.NUMBER:
+        return row.value_number
+    if field.kind == BoardField.Kind.DATE:
+        return row.value_date
+    return row.value_text.casefold() if row.value_text else None
+
+
+def _table_cell(field, row):
+    """One field's cell: `value` as the board words it (`describe_field_value()`,
+    or `None`), `raw` as Excel takes it — a list option's label («(в архиве)»
+    after an archived one), a `Decimal`, a `date`, a text — and `key`, what
+    the column is ordered by."""
+    if row is None:
+        return {'value': None, 'raw': None, 'key': None}
+    value = describe_field_value(field, row)
+    if value is None:
+        return {'value': None, 'raw': None, 'key': None}
+    if field.kind == BoardField.Kind.SELECT:
+        raw = f'{value["text"]} (в архиве)' if value['is_archived'] else value['text']
+    elif field.kind == BoardField.Kind.NUMBER:
+        raw = row.value_number
+    elif field.kind == BoardField.Kind.DATE:
+        raw = row.value_date
+    else:
+        raw = row.value_text
+    return {'value': value, 'raw': raw, 'key': _table_field_key(field, row)}
+
+
+def parse_table_sort(value, fields):
+    """The `?sort=` the table accepts — `''` for anything it does not know."""
+    value = (value or '').strip()
+    name = value[1:] if value.startswith('-') else value
+    if name in TABLE_SORTS:
+        return value
+    if name.startswith(TABLE_FIELD_SORT_PREFIX):
+        field_id = name[len(TABLE_FIELD_SORT_PREFIX):]
+        if field_id.isdigit() and any(
+            field.pk == int(field_id) and not field.is_archived for field in fields
+        ):
+            return value
+    return ''
+
+
+def _sorted_rows(rows, sort):
+    """`rows` (already in the board's own order) ordered by the accepted
+    `sort`: ascending, or descending with a leading «-»; rows with no value
+    always last, in the board's order — a stable sort keeps every tie so."""
+    if not sort:
+        return rows
+    descending = sort.startswith('-')
+    name = sort.lstrip('-')
+    if name.startswith(TABLE_FIELD_SORT_PREFIX):
+        field_id = int(name[len(TABLE_FIELD_SORT_PREFIX):])
+
+        def key_of(row):
+            return row['field_keys'].get(field_id)
+    else:
+        def key_of(row):
+            return row['sort_keys'][name]
+    present = [row for row in rows if key_of(row) is not None]
+    missing = [row for row in rows if key_of(row) is None]
+    return sorted(present, key=key_of, reverse=descending) + missing
+
+
+def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', cancelled=False,
+                      whole_board=False, fields=None):
+    """Everything «Таблица» shows — and exactly what its Excel holds.
+
+    The cards of `sub_board` — or of every sub-board of the board under
+    `whole_board` (`?scope=board`) — one per row: the open ones and **every**
+    completed one (no `DONE_LIMIT`), the cancelled ones only under
+    `cancelled` (`?cancelled=1`). The board's filters apply as on the board
+    (`_filtered()`): «Мои», the search and the field filters to every row;
+    «Просроченные» and «Застрявшие» describe open work, so under either the
+    table holds the open cards that match — a completed card is neither late
+    nor stuck.
+
+    Each row is `{'card', 'task', 'sub_board', 'column', 'column_label',
+    'status', 'status_label', 'assignees', 'due_date', 'is_closed',
+    'in_column_days', 'is_stale', 'cells', 'created', 'completed'}`: `column`
+    is where the board shows the card (`columns.card_column()` — the closing
+    column for a completed one), `column_label` its name or «Отменена»;
+    `cells` one per live field of the board, in order (`_table_cell()`);
+    `created`/`completed` local dates. `field_columns` are those live fields.
+
+    The order is the board's — sub-board, column, place in it, the closing
+    column newest completion first, the cancelled last — unless `sort`
+    (already accepted by `parse_table_sort()`) names another, applied in
+    Python by `_sorted_rows()`. Queries: the tabs, the columns of the board,
+    the tasks with their cards and statuses, their исполнители, and the
+    values of every row — none of them grows with the rows, the fields or the
+    values; `fields` read by the caller (to parse the field filters) are not
+    read again.
+    """
+    tabs = list(SubBoard.objects.filter(board=board).order_by('position', 'pk'))
+    tab_of = {tab.pk: tab for tab in tabs}
+    columns_of = {}
+    all_columns = list(BoardColumn.objects.filter(sub_board__board=board).order_by('position', 'pk'))
+    for column in all_columns:
+        columns_of.setdefault(column.sub_board_id, []).append(column)
+    if fields is None:
+        fields = board_fields(board)
+    live_fields = [field for field in fields if not field.is_archived]
+
+    scope = {'board_card__board': board} if whole_board else {'board_card__sub_board': sub_board}
+    tasks = _tasks_with_cards(_all_board_tasks().filter(**scope))
+    shown_columns = all_columns if whole_board else columns_of.get(sub_board.pk, [])
+    if filters.overdue or filters.stale:
+        tasks = _filtered(
+            tasks.filter(status__is_final=False), filters, user, open_work=True, columns=shown_columns,
+        )
+    else:
+        codes = ['IN_PROGRESS', 'COMPLETED'] + (['CANCELLED'] if cancelled else [])
+        tasks = _filtered(
+            tasks.filter(Q(status__is_final=False) | Q(status__code__in=codes)),
+            filters, user, open_work=False,
+        )
+    tasks = list(tasks)
+    field_rows = card_field_rows(live_fields, [task.board_card_id for task in tasks])
+
+    rows = []
+    for task in tasks:
+        item = _item(task, board)
+        card = item['card']
+        own_columns = columns_of.get(card.sub_board_id, [])
+        column = card_column(card, task, own_columns)
+        tab = tab_of.get(card.sub_board_id)
+        card.sub_board = tab
+        status = task.status.code
+        item.update({
+            'sub_board': tab,
+            'column': column,
+            'column_label': column.name if column is not None else TABLE_STATUS_LABELS['CANCELLED'],
+            'status': status,
+            'status_label': TABLE_STATUS_LABELS.get(status, task.status.name),
+            'is_stale': is_stale(item['in_column_days'], column) if not item['is_closed'] else False,
+            'created': timezone.localtime(card.created_at).date(),
+            'completed': (
+                timezone.localtime(task.completed_at).date()
+                if status == 'COMPLETED' and task.completed_at else None
+            ),
+        })
+        values = field_rows.get(card.pk, {})
+        cells = [_table_cell(field, values.get(field.pk)) for field in live_fields]
+        item['cells'] = cells
+        item['field_keys'] = {field.pk: cell['key'] for field, cell in zip(live_fields, cells)}
+        place = (
+            tab.position if tab is not None else 0,
+            column.position if column is not None else MAX_COLUMNS + 1,
+        )
+        if status == 'COMPLETED':
+            # The closing column draws the newest completion first.
+            within = (-(task.completed_at.timestamp() if task.completed_at else 0), card.pk)
+        elif status == 'CANCELLED':
+            within = (-(task.cancelled_at.timestamp() if task.cancelled_at else 0), card.pk)
+        else:
+            within = (card.position, card.pk)
+        item['board_order'] = (*place, *within)
+        item['sort_keys'] = {
+            'code': card.number,
+            'title': card.title.casefold(),
+            'column': item['board_order'] if column is not None else None,
+            'due': task.due_date,
+            'days': item['in_column_days'],
+            'created': card.created_at,
+            'completed': task.completed_at if status == 'COMPLETED' else None,
+        }
+        rows.append(item)
+    rows.sort(key=lambda row: row['board_order'])
+    rows = _sorted_rows(rows, sort)
+    return {
+        'board': board,
+        'sub_board': sub_board,
+        'sub_boards': [{'sub_board': tab, 'is_active': tab.pk == sub_board.pk} for tab in tabs],
+        'rows': rows,
+        'first_working_column': next(
+            (column for column in columns_of.get(sub_board.pk, []) if not column.is_done), None,
+        ),
+        'field_columns': live_fields,
+        # The same fields as the table's headers, each with its `?sort=` key.
+        'table_fields': [
+            {'field': field, 'sort_key': f'{TABLE_FIELD_SORT_PREFIX}{field.pk}'} for field in live_fields
+        ],
+        'fields': fields,
+        'sort': sort,
+        'filters': filters,
+        'cancelled': cancelled,
+        'whole_board': whole_board,
+    }

@@ -15,12 +15,17 @@ task from any other. The tile names the card by its code («ZAP-12»,
 query) — the task's own number is on its `title`. Under the title, up to four values
 of the board's own fields marked «на плитке» (`item.tile_values`): a list
 option as its coloured chip, anything else «Имя: значение», cut to one line
-with the whole on `title`. Every URL here carries the
+with the whole on `title`. An open card says how long it has stood in its
+column — «в колонке сегодня», «в колонке 3 дн.» (`item.in_column_days`,
+calendar days from the journal, `selectors.in_column_since()`), the date on
+`title`; one past its column's «Застой» threshold (`item.is_stale`) is
+`board-tile--stale` with the line highlighted. A completed or cancelled card
+says nothing of the kind. Every URL here carries the
 board's filter, so the panel,
 the drag's counts and the redirect after completion stay filtered.
 {% endcomment %}
 <li class="board-column__item" data-card-id="{{ item.card.pk }}" data-task-id="{{ item.task.pk }}"{% if item.is_movable %} data-card-movable data-card-move-url="{% url 'boards:card_move' board.pk item.card.pk %}{{ filter_suffix }}"{% endif %}>
-    <a class="board-tile{% if card and card.card.pk == item.card.pk %} board-tile--open{% endif %}" href="{{ board_url }}?card={{ item.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" draggable="false">
+    <a class="board-tile{% if card and card.card.pk == item.card.pk %} board-tile--open{% endif %}{% if item.is_stale %} board-tile--stale{% endif %}" href="{{ board_url }}?card={{ item.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" draggable="false">
         <span class="board-tile__title user-text text-clamp-2" title="{{ item.card.title }}">{{ item.card.title }}</span>
         {% if item.tile_values %}
             <span class="board-tile__fields">
@@ -29,6 +34,9 @@ the drag's counts and the redirect after completion stay filtered.
                     {% else %}<span class="board-tile__field text-ellipsis" title="{{ value.name }}: {{ value.text }}">{{ value.name }}: {{ value.text }}</span>{% endif %}
                 {% endfor %}
             </span>
+        {% endif %}
+        {% if not item.is_closed and item.in_column_days is not None %}
+            <span class="board-tile__age{% if item.is_stale %} board-tile__age--stale{% endif %}" title="В колонке с {{ item.in_column_since|date:'d.m.Y' }}{% if item.is_stale %} — дольше порога «Застой»{% endif %}">{% if item.in_column_days %}в колонке {{ item.in_column_days }} дн.{% else %}в колонке сегодня{% endif %}</span>
         {% endif %}
         <span class="board-tile__footer">
             <span class="board-tile__number" title="Задача №{{ item.task.pk }}">{{ item.card.code }}</span>

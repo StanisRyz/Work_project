@@ -45,6 +45,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from accounts.directory import get_employee_directory
+from accounts.templatetags.people import person_name
+from ecosystem.templatetags.registry import plural_ru
+from ecosystem.xlsx import xlsx_response
 from realtime.auth import realtime_login_required
 from realtime.fragments import content_revision
 from tasks.forms import TaskAttachmentForm
@@ -61,6 +64,7 @@ from .forms import (
     FieldUpdateForm,
     OptionForm,
     ColumnPinsForm,
+    ColumnStaleForm,
     DirectionForm,
     MoveCardForm,
     SubBoardNameForm,
@@ -87,9 +91,11 @@ from .permissions import (
     can_work_on_board,
 )
 from .selectors import (
+    NO_FILTERS,
     board_fields,
     build_board_nav,
     build_board_state,
+    build_board_table,
     column_counts,
     describe_field_filters,
     first_sub_board,
@@ -97,6 +103,7 @@ from .selectors import (
     names_field_filter,
     number_input,
     parse_board_filters,
+    parse_table_sort,
     resolve_new_column,
 )
 from .services import (
@@ -140,6 +147,7 @@ from .services import (
     reopen_card,
     restore_board,
     set_column_pins,
+    set_column_stale_days,
     update_card,
 )
 
@@ -492,6 +500,9 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     state['fragment_base'] = fragment_base
     state['fragment_url'] = fragment_base + query
     state['page_url'] = board_url + query
+    # «Доска | Таблица» and «Excel» of the filter row: the table of this
+    # sub-board under the same filter, and its spreadsheet.
+    state.update(_view_switch(board_url, filters.query))
     # Closing the panel: the sub-board under the same filter.
     state['close_url'] = board_url + state['filter_suffix']
     state['close_fragment_url'] = fragment_base + state['filter_suffix']
@@ -668,6 +679,183 @@ def _render_board(request, board, sub_board, *, status=200, **options):
     return render(request, 'boards/detail.html', context, status=status)
 
 
+# --------------------------------------------------------------------------
+# «Таблица» and its Excel
+# --------------------------------------------------------------------------
+#
+# `?view=table` on a sub-board's own address: the same cards as rows, every
+# live field of the board a column, sortable by a whitelist
+# (`selectors.parse_table_sort()`), filtered by the board's own filters;
+# `&export=xlsx` is that very state as a spreadsheet. Read only: reading the
+# board is the right, and nothing here writes. Not live — «Обновить» is a link.
+
+TABLE_VIEW = 'table'
+
+
+def _view_switch(board_url, filter_query):
+    """The addresses of «Доска | Таблица» and «Excel» under `filter_query`."""
+    table_query = '&'.join(part for part in (f'view={TABLE_VIEW}', filter_query) if part)
+    return {
+        'board_view_url': f'{board_url}?{filter_query}' if filter_query else board_url,
+        'table_view_url': f'{board_url}?{table_query}',
+        'export_url': f'{board_url}?{table_query}&export=xlsx',
+    }
+
+
+def _table_query(filters, *, cancelled, whole_board, sort):
+    """The table's own query string, without `?`: the view, the board's
+    filters, «Отменённые», «Все поддоски» and the order — in a fixed order."""
+    params = [('view', TABLE_VIEW)]
+    query = filters.query
+    if cancelled:
+        params.append(('cancelled', '1'))
+    if whole_board:
+        params.append(('scope', 'board'))
+    if sort:
+        params.append(('sort', sort))
+    encoded = urlencode(params)
+    return '&'.join(part for part in (encoded, query) if part)
+
+
+def _table_options(request):
+    """«Отменённые» and «Все поддоски» as the address says them."""
+    return {
+        'cancelled': request.GET.get('cancelled') == '1',
+        'whole_board': request.GET.get('scope') == 'board',
+    }
+
+
+def _render_table(request, board, sub_board):
+    """The table of a sub-board (or of the whole board), or its `.xlsx`."""
+    fields = board_fields(board)
+    filters = parse_board_filters(request.GET, fields)
+    options = _table_options(request)
+    sort = parse_table_sort(request.GET.get('sort'), fields)
+    state = build_board_table(
+        board, sub_board, request.user, filters=filters, sort=sort, fields=fields, **options,
+    )
+    if request.GET.get('export') == 'xlsx':
+        return _export_table(state)
+    board_url = _sub_board_url(board, sub_board.pk)
+    query = _table_query(filters, sort=sort, **options)
+    members = member_preview(board)
+    member_count = BoardMember.objects.filter(board=board).count()
+    context = {
+        **state,
+        **_frame(request, board),
+        **_view_switch(board_url, filters.query),
+        'active_page': 'boards',
+        'header_title': board.name,
+        'view': TABLE_VIEW,
+        'board_url': board_url,
+        'filter_query': filters.query,
+        'filter_suffix': f'?{filters.query}' if filters.query else '',
+        # The tabs lead to the other sub-boards' tables, the same options kept.
+        'tab_suffix': f'?{query}',
+        'refresh_url': f'{board_url}?{query}',
+        # «Сбросить» drops the board's filters and keeps the table's own
+        # options — «Отменённые», «Все поддоски» and the order.
+        'reset_url': f'{board_url}?{_table_query(NO_FILTERS, sort=sort, **options)}',
+        'generated_at': timezone.localtime(),
+        'rows_label': f"{len(state['rows'])} "
+                      f"{plural_ru(len(state['rows']), 'карточка', 'карточки', 'карточек')}",
+        'field_filters': describe_field_filters(fields, filters),
+        'field_filter_count': len(filters.fields),
+        'can_work': can_work_on_board(request.user, board),
+        'can_manage': can_manage_board(request.user, board),
+        'can_restore': can_restore_board(request.user, board),
+        'member_preview': members,
+        'member_count': member_count,
+        'member_more': max(member_count - len(members), 0),
+        'panel': None,
+    }
+    for row in context['field_filters']:
+        if row['filter'] is not None:
+            rest = _table_query(filters.without_field(row['field'].pk), sort=sort, **options)
+            row['remove_url'] = f'{board_url}?{rest}'
+    request.session[LAST_SUB_BOARD_SESSION_KEY] = sub_board.pk
+    return render(request, 'boards/table.html', context)
+
+
+def table_headers(state):
+    """The header row of the table's spreadsheet."""
+    return [
+        'Код',
+        *(['Поддоска'] if state['whole_board'] else []),
+        'Название',
+        'Колонка',
+        'Статус',
+        'Исполнители',
+        'Срок',
+        'В колонке, дн.',
+        *(field.name for field in state['field_columns']),
+        'Создана',
+        'Завершена',
+    ]
+
+
+def table_cells(state, row):
+    """One row of the spreadsheet: values as Excel takes them, `None` for empty."""
+    return [
+        row['card'].code,
+        *([row['sub_board'].name if row['sub_board'] else None] if state['whole_board'] else []),
+        row['card'].title,
+        row['column_label'],
+        row['status_label'],
+        ', '.join(person_name(user) for user in row['assignees']) or None,
+        row['due_date'],
+        row['in_column_days'],
+        *(cell['raw'] for cell in row['cells']),
+        row['created'],
+        row['completed'],
+    ]
+
+
+# Russian letters as they are spelled in Latin in a file name: the name of a
+# download stays ASCII («ZAP-Osnovnaya-2026-10-06.xlsx»), as `ecosystem.xlsx`
+# asks — an encoded Cyrillic name is what older browsers mangle.
+_TRANSLIT = dict(zip(
+    'абвгдеёжзийклмнопрстуфхцчшщъыьэюя',
+    ['a', 'b', 'v', 'g', 'd', 'e', 'e', 'zh', 'z', 'i', 'y', 'k', 'l', 'm', 'n', 'o', 'p',
+     'r', 's', 't', 'u', 'f', 'kh', 'ts', 'ch', 'sh', 'shch', '', 'y', '', 'e', 'yu', 'ya'],
+))
+
+
+def safe_file_part(text):
+    """`text` as a piece of a file name: Latin letters, digits and «-» only."""
+    spelled = []
+    for char in text:
+        lower = char.lower()
+        if lower in _TRANSLIT:
+            latin = _TRANSLIT[lower]
+            spelled.append(latin.capitalize() if char != lower else latin)
+        elif char.isascii() and char.isalnum():
+            spelled.append(char)
+        else:
+            spelled.append('-')
+    return '-'.join(part for part in ''.join(spelled).split('-') if part)
+
+
+def export_filename_stem(board, sub_board, *, whole_board):
+    """`<код доски>-<поддоска>` — or `<код доски>-vse-poddoski` for the whole board."""
+    second = 'vse-poddoski' if whole_board else safe_file_part(sub_board.name)
+    return '-'.join(part for part in (safe_file_part(board.code), second) if part) or 'board'
+
+
+def _export_table(state):
+    """The table exactly as shown — the same rows, the same order, the same
+    filters — as `<код доски>-<поддоска>-<дата>.xlsx`."""
+    board, sub_board = state['board'], state['sub_board']
+    return xlsx_response(
+        export_filename_stem(board, sub_board, whole_board=state['whole_board']),
+        board.name if state['whole_board'] else f'{board.code} {sub_board.name}',
+        table_headers(state),
+        [table_cells(state, row) for row in state['rows']],
+        stamp_separator='-',
+        typed_dates=True,
+    )
+
+
 @login_required
 def board_detail(request, pk):
     """`/work/boards/<board>/`: the board's first tab, the query string kept.
@@ -694,6 +882,8 @@ def sub_board_detail(request, pk, sub_pk):
     board = _board_or_404(pk)
     _require(can_view_board(request.user, board))
     sub_board = _sub_board_or_404(board, sub_pk)
+    if request.GET.get('view') == TABLE_VIEW:
+        return _render_table(request, board, sub_board)
     return _render_board(
         request, board, sub_board,
         card_id=request.GET.get('card'),
@@ -1219,6 +1409,34 @@ def column_pins(request, pk, sub_pk, column_pk):
                 _refused(request, str(exc))
             else:
                 messages.success(request, f'Закреплённые исполнители колонки «{column.name}» сохранены.')
+    return _back(board, sub_board.pk, request)
+
+
+@login_required
+def column_stale(request, pk, sub_pk, column_pk):
+    """«Застой» in a column's «⋯» menu: `set_column_stale_days()`.
+
+    The manager's right, asked before the method like every structure route;
+    an empty number switches it off. A refusal (out of 1–365, the closing
+    column, an archived board) is a message on the sub-board.
+    """
+    board, sub_board = _structure_request(request, pk, sub_pk)
+    column = _column_or_404(sub_board, column_pk)
+    if request.method == 'POST':
+        form = ColumnStaleForm(request.POST)
+        if not form.is_valid():
+            _refused(request, 'Застой задаётся целым числом дней или не задаётся вовсе.')
+        else:
+            try:
+                updated = set_column_stale_days(column, actor=request.user, days=form.cleaned_data['days'])
+            except BoardError as exc:
+                _refused(request, str(exc))
+            else:
+                messages.success(
+                    request,
+                    f'Колонка «{column.name}»: застой — через {updated.stale_after_days} дн.'
+                    if updated.stale_after_days else f'Колонка «{column.name}»: застой не отслеживается.',
+                )
     return _back(board, sub_board.pk, request)
 
 

@@ -279,6 +279,17 @@ class ColumnPinsForm(forms.Form):
     mode = forms.ChoiceField(choices=BoardColumn.PinnedMode.choices)
 
 
+class ColumnStaleForm(forms.Form):
+    """«Застой» of a column: a number of days, or empty to switch it off.
+
+    Only that it is a whole number is checked here; the range and that the
+    column is a working one are `services.set_column_stale_days()`'s, in its
+    own words.
+    """
+
+    days = forms.IntegerField(label='Застой: подсвечивать через, дней', required=False)
+
+
 class SubBoardNameForm(forms.Form):
     """A sub-board's name, created or renamed. The services trim and ask again."""
 

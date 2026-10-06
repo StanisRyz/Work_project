@@ -1,5 +1,6 @@
 """`boards.0006`–`0008`: the four fixed columns become «Основная» and back;
-`boards.0010`: the journal of cards stored before it.
+`boards.0010`: the journal of cards stored before it; `boards.0015`: the card
+fields; `boards.0016`: «Застой» of a column.
 
 Run through `MigrationExecutor` on the test database: the board app is taken
 back to `0005` (sub-boards exist, `stage` still rules), cards are written the
@@ -394,3 +395,56 @@ class BoardFieldsMigrationTests(TransactionTestCase):
         # Back with the rows in place: the tables simply go.
         migrate(FIELDS_BEFORE)
         self.assertFalse(tables & _tables())
+
+
+STALE_BEFORE = [('boards', '0015_board_fields')]
+STALE_AFTER = [('boards', '0016_column_stale_days')]
+
+
+def _column_names(table):
+    with connection.cursor() as cursor:
+        return {column.name for column in connection.introspection.get_table_description(cursor, table)}
+
+
+class ColumnStaleDaysMigrationTests(TransactionTestCase):
+    """`boards.0016`: a nullable `stale_after_days` with its check; and back."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_forward_nullable_with_its_check_then_back(self):
+        from django.db import IntegrityError, transaction
+
+        apps = migrate(STALE_BEFORE)
+        self.assertNotIn('stale_after_days', _column_names('boards_boardcolumn'))
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        owner = User.objects.create(username='stale_migration_owner')
+        board = Board.objects.create(name='Доска', code='SM', owner=owner)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+        working = BoardColumn.objects.create(sub_board=sub_board, name='Сделать', position=1)
+        done = BoardColumn.objects.create(sub_board=sub_board, name='Готово', position=2, is_done=True)
+
+        apps = migrate(STALE_AFTER)
+        self.assertIn('stale_after_days', _column_names('boards_boardcolumn'))
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        # Every existing column is «off».
+        self.assertEqual(
+            set(BoardColumn.objects.filter(pk__in=[working.pk, done.pk]).values_list('stale_after_days', flat=True)),
+            {None},
+        )
+        BoardColumn.objects.filter(pk=working.pk).update(stale_after_days=3)
+        for pk, days in ((working.pk, 0), (working.pk, 366), (done.pk, 3)):
+            with self.subTest(pk=pk, days=days), self.assertRaises(IntegrityError), transaction.atomic():
+                BoardColumn.objects.filter(pk=pk).update(stale_after_days=days)
+
+        # Back with a threshold set: the column simply goes, the rows stay.
+        apps = migrate(STALE_BEFORE)
+        self.assertNotIn('stale_after_days', _column_names('boards_boardcolumn'))
+        self.assertEqual(apps.get_model('boards', 'BoardColumn').objects.filter(sub_board_id=sub_board.pk).count(), 2)

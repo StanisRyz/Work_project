@@ -74,6 +74,8 @@ from realtime.events import (
 
 from .columns import DEFAULT_COLUMNS, MAX_COLUMNS
 from .models import (
+    STALE_DAYS_MAX,
+    STALE_DAYS_MIN,
     BOARD_CODE_MAX_LENGTH,
     BOARD_CODE_MIN_LENGTH,
     BOARD_CODE_PATTERN,
@@ -1449,6 +1451,48 @@ def set_column_pins(column, *, actor, user_ids, mode):
         _structure_changed(
             board, 'board.column_pins_changed', actor=actor,
             column_id=column.pk, pinned_count=len(requested),
+        )
+    return column
+
+
+def set_column_stale_days(column, *, actor, days):
+    """«Застой» of a working column: highlight a card standing in it `days`
+    calendar days or more; `None` (or an empty value) switches it off.
+
+    The manager's, like every other part of the structure: one board lock,
+    never an archived board, never the closing column (a completed card is not
+    stuck), 1 to `STALE_DAYS_MAX` days. The same threshold again stores and
+    announces nothing; a change publishes one `board.updated(structure_changed)`
+    and touches the column's `updated_at` (the `boards` sync revision).
+    """
+    if days in (None, ''):
+        days = None
+    else:
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            raise BoardError('Укажите число дней или оставьте поле пустым.') from None
+    with transaction.atomic():
+        board = _manageable_board(column.sub_board.board_id, 'set_column_stale_days', actor=actor)
+        column = _column_of(board, column, operation='set_column_stale_days', actor=actor)
+        if column.is_done:
+            _rejected('set_column_stale_days', 'done_column', actor=actor, board_id=board.pk)
+            raise BoardError(
+                'В завершающей колонке работа уже выполнена — застоя в ней не бывает.'
+            )
+        if days is not None and not STALE_DAYS_MIN <= days <= STALE_DAYS_MAX:
+            _rejected('set_column_stale_days', 'out_of_range', actor=actor, board_id=board.pk)
+            raise BoardError(
+                f'Застой задаётся числом дней от {STALE_DAYS_MIN} до {STALE_DAYS_MAX} '
+                'или не задаётся вовсе.'
+            )
+        if column.stale_after_days == days:
+            return column
+        column.stale_after_days = days
+        column.save(update_fields=['stale_after_days', 'updated_at'])
+        _structure_changed(
+            board, 'board.column_stale_days_changed', actor=actor,
+            column_id=column.pk, stale_after_days=days,
         )
     return column
 

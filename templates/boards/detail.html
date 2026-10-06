@@ -23,68 +23,7 @@ is a link back to the board. `can_work`/`can_manage`/`can_edit_card` only decide
 drawn — every route asks the same rule again, and a reader sees the board and
 the panel with no control at all.
 {% endcomment %}
-<header class="board-head">
-    <div class="board-head__title">
-        <h1 class="user-text text-ellipsis" title="{{ board.name }}">{{ board.name }}</h1>
-        <span class="board-head__code" title="Код доски: с него начинается номер каждой карточки">{{ board.code }}</span>
-        {% if board.is_archived %}<span class="status-badge status-badge--archived" title="В архиве с {{ board.archived_at|date:'d.m.Y' }}">В архиве</span>{% endif %}
-    </div>
-    {% comment %}Up to five members by name and «+N»: a link to «Участники».{% endcomment %}
-    <a class="board-head__members" href="{% url 'boards:members' board.pk %}" title="Участники: {{ member_count }}" aria-label="Участники доски: {{ member_count }}">
-        {% for user in member_preview %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}
-        {% if member_more %}<span class="board-avatar board-avatar--more">+{{ member_more }}</span>{% endif %}
-    </a>
-    <div class="board-head__actions">
-        {% if can_work and first_working_column %}<a class="link-button" href="{{ board_url }}?new={{ first_working_column.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">+ Карточка</a>{% endif %}
-        {% if can_manage or can_restore %}
-            {% comment %}
-            The board's own «⋯»: «Переименовать» (`rename_board()`), «Код доски»
-            (`change_board_code()`), «Участники», «Поля карточек» (the
-            manager's — the page itself is read by every reader),
-            «В архив» / «Вернуть из архива» — each its route's own right, asked
-            again by the route. `?sub=` brings the redirect back to this tab.
-            {% endcomment %}
-            <details class="board-menu board-head__menu" data-board-menu>
-                <summary class="board-menu__toggle" title="Доска: действия" aria-label="Доска «{{ board.name }}»: действия">⋯</summary>
-                <div class="board-menu__body">
-                    {% if can_manage %}
-                        <form class="board-menu__form" method="post" action="{% url 'boards:rename' board.pk %}?sub={{ sub_board.pk }}">
-                            {% csrf_token %}
-                            <label class="board-menu__label" for="board-rename">Переименовать</label>
-                            <input id="board-rename" type="text" name="name" value="{{ board.name }}" maxlength="200" required>
-                            <button class="link-button link-button--compact" type="submit">Сохранить</button>
-                        </form>
-                        <form class="board-menu__form" method="post" action="{% url 'boards:change_code' board.pk %}?sub={{ sub_board.pk }}">
-                            {% csrf_token %}
-                            <label class="board-menu__label" for="board-code">Код доски</label>
-                            <input id="board-code" type="text" name="code" value="{{ board.code }}" maxlength="6" required autocapitalize="characters" spellcheck="false">
-                            <span class="board-pins__hint">Номера карточек сохранятся — изменится только код перед ними.</span>
-                            <button class="link-button link-button--compact" type="submit">Сохранить</button>
-                        </form>
-                    {% endif %}
-                    <a class="board-menu__link" href="{% url 'boards:members' board.pk %}">Участники ({{ member_count }})</a>
-                    {% if can_manage %}<a class="board-menu__link" href="{% url 'boards:fields' board.pk %}">Поля карточек</a>{% endif %}
-                    {% if can_manage %}
-                        <button class="link-button link-button--secondary link-button--compact" type="button"
-                                data-confirm
-                                data-confirm-title="Убрать доску в архив?"
-                                data-confirm-text="Доска останется по тому же адресу, но станет только для чтения. Вернуть её сможет владелец или администратор."
-                                data-confirm-label="В архив"
-                                data-confirm-url="{% url 'boards:archive' board.pk %}?sub={{ sub_board.pk }}">В архив</button>
-                    {% endif %}
-                    {% if can_restore %}
-                        <button class="link-button link-button--compact" type="button"
-                                data-confirm
-                                data-confirm-title="Вернуть доску из архива?"
-                                data-confirm-text="Участники снова смогут создавать, править и переносить карточки."
-                                data-confirm-label="Вернуть из архива"
-                                data-confirm-url="{% url 'boards:restore' board.pk %}?sub={{ sub_board.pk }}">Вернуть из архива</button>
-                    {% endif %}
-                </div>
-            </details>
-        {% endif %}
-    </div>
-</header>
+{% include 'boards/includes/head.html' %}
 
 {% comment %}
 `[data-board]` is what the board's scripts read: which board, the
@@ -116,75 +55,7 @@ what is left — never the other way round.
      data-panel-holds-input="{% if panel_holds_input %}true{% else %}false{% endif %}">
     <div class="board-tabs-block" data-live-board-tabs>{{ tabs_html }}</div>
 
-    {% comment %}
-    The board's filters, one compact row under the tabs:
-    `form[data-registry-filter]` of the shared `registry_tools.js` (a tick
-    applies at once, the search after a pause), «Применить» for the
-    no-JavaScript path. Read by `parse_board_filters()` for the page, its live
-    fragment and the drag's counts alike. The open card and its tab stay
-    open (the two hidden fields, kept current by `board_drawer.js` and
-    disabled while empty); «Сбросить» — drawn only while a filter is set —
-    drops the filter and keeps the card.
-
-    «Поля» — only while the board has a live field — is a `<details>` of the
-    same form (`describe_field_filters()`): a list's options as tick boxes
-    with their colour chips and «не задано», a date's «с»/«по», a number's
-    «от»/«до», a text's search, each named as `parse_board_filters()` reads
-    it (`f_<id>`, `f_<id>_from`, …). A tick and a date apply at once, a
-    number and a text after a pause (`data-registry-delayed`); «Применить»
-    inside it is the no-JavaScript path. The button counts the fields that
-    filter, and the chips under the row name them, each «×» the same address
-    without that field.
-    {% endcomment %}
-    <form class="board-filters" method="get" action="{{ board_url }}" data-registry-filter>
-        <input type="hidden" name="card" value="{% if panel == 'view' and card %}{{ card.card.pk }}{% endif %}" data-board-filter-card{% if panel != 'view' or not card %} disabled{% endif %}>
-        <input type="hidden" name="tab" value="{% if panel == 'view' and card %}{{ tab }}{% endif %}" data-board-filter-tab{% if panel != 'view' or not card %} disabled{% endif %}>
-        <label class="board-filters__check"><input type="checkbox" name="mine" value="1"{% if filters.mine %} checked{% endif %}> Мои</label>
-        <label class="board-filters__check"><input type="checkbox" name="overdue" value="1"{% if filters.overdue %} checked{% endif %}> Просроченные</label>
-        <input class="board-filters__search" type="search" name="q" value="{{ filters.q }}" placeholder="Название, {{ board.code }}-12 или значение поля" aria-label="Поиск карточки по названию, номеру или значению текстового поля" maxlength="200" data-registry-search data-registry-omit-empty>
-        {% if field_filters %}
-            <details class="board-menu board-filters__fields" data-board-menu data-board-menu-keep-focus data-registry-keep-open>
-                <summary class="board-filters__fields-toggle{% if field_filter_count %} board-filters__fields-toggle--active{% endif %}" title="Фильтр по полям карточек">Поля{% if field_filter_count %} · {{ field_filter_count }}{% endif %}</summary>
-                <div class="board-menu__body board-field-filters">
-                    {% for row in field_filters %}
-                        <fieldset class="board-field-filter">
-                            <legend class="board-menu__label user-text">{{ row.field.name }}</legend>
-                            {% if row.kind == 'SELECT' %}
-                                <div class="board-field-filter__options">
-                                    {% for choice in row.options %}
-                                        <label class="board-field-filter__option"><input type="checkbox" name="{{ row.key }}" value="{{ choice.option.pk }}"{% if choice.checked %} checked{% endif %}> <span class="board-chip board-chip--{{ choice.option.color }}{% if choice.option.is_archived %} board-chip--archived{% endif %}"{% if choice.option.is_archived %} title="Вариант в архиве"{% endif %}>{{ choice.option.label }}</span></label>
-                                    {% endfor %}
-                                    <label class="board-field-filter__option board-field-filter__option--none"><input type="checkbox" name="{{ row.key }}" value="none"{% if row.none %} checked{% endif %}> не задано</label>
-                                </div>
-                            {% elif row.kind == 'DATE' %}
-                                <div class="board-field-filter__range">
-                                    <label>с <input type="date" name="{{ row.key }}_from" value="{{ row.date_from }}" aria-label="{{ row.field.name }}: с" data-registry-omit-empty></label>
-                                    <label>по <input type="date" name="{{ row.key }}_to" value="{{ row.date_to }}" aria-label="{{ row.field.name }}: по" data-registry-omit-empty></label>
-                                </div>
-                            {% elif row.kind == 'NUMBER' %}
-                                <div class="board-field-filter__range">
-                                    <label>от <input class="board-field-filter__number" type="text" inputmode="decimal" name="{{ row.key }}_min" value="{{ row.number_min }}" aria-label="{{ row.field.name }}: от" autocomplete="off" data-registry-delayed data-registry-omit-empty></label>
-                                    <label>до <input class="board-field-filter__number" type="text" inputmode="decimal" name="{{ row.key }}_max" value="{{ row.number_max }}" aria-label="{{ row.field.name }}: до" autocomplete="off" data-registry-delayed data-registry-omit-empty></label>
-                                </div>
-                            {% else %}
-                                <input class="board-field-filter__text" type="search" name="{{ row.key }}" value="{{ row.text }}" maxlength="200" aria-label="{{ row.field.name }}: содержит" placeholder="содержит…" autocomplete="off" data-registry-delayed data-registry-omit-empty>
-                            {% endif %}
-                        </fieldset>
-                    {% endfor %}
-                    <button class="link-button link-button--compact" type="submit">Применить</button>
-                </div>
-            </details>
-        {% endif %}
-        <button class="link-button link-button--secondary link-button--compact" type="submit">Применить</button>
-        {% if filters.is_active %}<a class="board-filters__reset" href="{{ reset_url }}" data-board-filter-reset>Сбросить</a>{% endif %}
-    </form>
-    {% if field_filter_count %}
-        <ul class="board-filter-chips" aria-label="Фильтры по полям">
-            {% for row in field_filters %}{% if row.filter %}
-                <li class="board-filter-chip"><span class="user-text">{{ row.chip }}</span><a class="board-filter-chip__remove" href="{{ row.remove_url }}" data-board-filter-chip title="Убрать фильтр" aria-label="Убрать фильтр «{{ row.field.name }}»">×</a></li>
-            {% endif %}{% endfor %}
-        </ul>
-    {% endif %}
+    {% include 'boards/includes/filters.html' %}
 
     {% comment %}
     Dragging (`static/js/board_dnd.js`) reads only what this markup says: a

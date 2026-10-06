@@ -12,6 +12,8 @@ urlpatterns = [
     # The board itself leads to its first sub-board (or to the tab of the
     # card `?card=` names); a sub-board is the page.
     path('<int:pk>/', views.board_detail, name='detail'),
+    # `?view=table` is the same sub-board as rows («Таблица», read only), and
+    # `&export=xlsx` that table as a spreadsheet.
     path('<int:pk>/<int:sub_pk>/', views.sub_board_detail, name='sub_board'),
     path('<int:pk>/members/', views.board_members, name='members'),
     # The live structure, card panel and messages of one sub-board (JSON, GET
@@ -43,6 +45,10 @@ urlpatterns = [
     path(
         '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/pins/',
         views.column_pins, name='column_pins',
+    ),
+    path(
+        '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/stale/',
+        views.column_stale, name='column_stale',
     ),
     path(
         '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/delete/',

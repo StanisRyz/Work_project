@@ -1,0 +1,68 @@
+{% load people %}{% comment %}
+The heading of a board page — its sub-board («Доска») and its table
+(«Таблица») alike: the name, the code, «В архиве», up to five member avatars and
+«+N» (a link to «Участники»), «+ Карточка», and the board's «⋯» for whoever
+manages or may restore it. The page's own, never part of a live block.
+{% endcomment %}
+<header class="board-head">
+    <div class="board-head__title">
+        <h1 class="user-text text-ellipsis" title="{{ board.name }}">{{ board.name }}</h1>
+        <span class="board-head__code" title="Код доски: с него начинается номер каждой карточки">{{ board.code }}</span>
+        {% if board.is_archived %}<span class="status-badge status-badge--archived" title="В архиве с {{ board.archived_at|date:'d.m.Y' }}">В архиве</span>{% endif %}
+    </div>
+    {% comment %}Up to five members by name and «+N»: a link to «Участники».{% endcomment %}
+    <a class="board-head__members" href="{% url 'boards:members' board.pk %}" title="Участники: {{ member_count }}" aria-label="Участники доски: {{ member_count }}">
+        {% for user in member_preview %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}
+        {% if member_more %}<span class="board-avatar board-avatar--more">+{{ member_more }}</span>{% endif %}
+    </a>
+    <div class="board-head__actions">
+        {% if can_work and first_working_column %}<a class="link-button" href="{{ board_url }}?new={{ first_working_column.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">+ Карточка</a>{% endif %}
+        {% if can_manage or can_restore %}
+            {% comment %}
+            The board's own «⋯»: «Переименовать» (`rename_board()`), «Код доски»
+            (`change_board_code()`), «Участники», «Поля карточек» (the
+            manager's — the page itself is read by every reader),
+            «В архив» / «Вернуть из архива» — each its route's own right, asked
+            again by the route. `?sub=` brings the redirect back to this tab.
+            {% endcomment %}
+            <details class="board-menu board-head__menu" data-board-menu>
+                <summary class="board-menu__toggle" title="Доска: действия" aria-label="Доска «{{ board.name }}»: действия">⋯</summary>
+                <div class="board-menu__body">
+                    {% if can_manage %}
+                        <form class="board-menu__form" method="post" action="{% url 'boards:rename' board.pk %}?sub={{ sub_board.pk }}">
+                            {% csrf_token %}
+                            <label class="board-menu__label" for="board-rename">Переименовать</label>
+                            <input id="board-rename" type="text" name="name" value="{{ board.name }}" maxlength="200" required>
+                            <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                        </form>
+                        <form class="board-menu__form" method="post" action="{% url 'boards:change_code' board.pk %}?sub={{ sub_board.pk }}">
+                            {% csrf_token %}
+                            <label class="board-menu__label" for="board-code">Код доски</label>
+                            <input id="board-code" type="text" name="code" value="{{ board.code }}" maxlength="6" required autocapitalize="characters" spellcheck="false">
+                            <span class="board-pins__hint">Номера карточек сохранятся — изменится только код перед ними.</span>
+                            <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                        </form>
+                    {% endif %}
+                    <a class="board-menu__link" href="{% url 'boards:members' board.pk %}">Участники ({{ member_count }})</a>
+                    {% if can_manage %}<a class="board-menu__link" href="{% url 'boards:fields' board.pk %}">Поля карточек</a>{% endif %}
+                    {% if can_manage %}
+                        <button class="link-button link-button--secondary link-button--compact" type="button"
+                                data-confirm
+                                data-confirm-title="Убрать доску в архив?"
+                                data-confirm-text="Доска останется по тому же адресу, но станет только для чтения. Вернуть её сможет владелец или администратор."
+                                data-confirm-label="В архив"
+                                data-confirm-url="{% url 'boards:archive' board.pk %}?sub={{ sub_board.pk }}">В архив</button>
+                    {% endif %}
+                    {% if can_restore %}
+                        <button class="link-button link-button--compact" type="button"
+                                data-confirm
+                                data-confirm-title="Вернуть доску из архива?"
+                                data-confirm-text="Участники снова смогут создавать, править и переносить карточки."
+                                data-confirm-label="Вернуть из архива"
+                                data-confirm-url="{% url 'boards:restore' board.pk %}?sub={{ sub_board.pk }}">Вернуть из архива</button>
+                    {% endif %}
+                </div>
+            </details>
+        {% endif %}
+    </div>
+</header>

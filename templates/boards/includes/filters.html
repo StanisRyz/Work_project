@@ -1,0 +1,93 @@
+{% comment %}
+The board's filters, one compact row under the tabs — of the sub-board
+(«Доска») and of its table («Таблица», `view == 'table'`) alike:
+`form[data-registry-filter]` of the shared `registry_tools.js` (a tick
+applies at once, the search after a pause), «Применить» for the
+no-JavaScript path. Read by `parse_board_filters()` for the page, its live
+fragment and the drag's counts alike. The open card and its tab stay
+open (the two hidden fields, kept current by `board_drawer.js` and
+disabled while empty); «Сбросить» — drawn only while a filter is set —
+drops the filter and keeps the card.
+
+«Поля» — only while the board has a live field — is a `<details>` of the
+same form (`describe_field_filters()`): a list's options as tick boxes
+with their colour chips and «не задано», a date's «с»/«по», a number's
+«от»/«до», a text's search, each named as `parse_board_filters()` reads
+it (`f_<id>`, `f_<id>_from`, …). A tick and a date apply at once, a
+number and a text after a pause (`data-registry-delayed`); «Применить»
+inside it is the no-JavaScript path. The button counts the fields that
+filter, and the chips under the row name them, each «×» the same address
+without that field.
+
+«Застрявшие» (`stale=1`) keeps the open cards that have stood in their column
+at least its «Застой» threshold. «Доска | Таблица» are two links to the same
+sub-board under the same filter, and «Excel» is the table of it as a
+spreadsheet (`?view=table&export=xlsx`): what the table shows, with every
+option of the address. The table adds «Отменённые» (`cancelled=1`) and «Все
+поддоски» (`scope=board`) to the form and carries its order (`sort`) and the
+view in hidden fields; the board carries the open card and its tab instead.
+{% endcomment %}
+<form class="board-filters" method="get" action="{{ board_url }}" data-registry-filter>
+    <nav class="board-view-switch" aria-label="Вид поддоски">
+        <a class="board-view-switch__link{% if view != 'table' %} is-active{% endif %}" href="{{ board_view_url }}"{% if view != 'table' %} aria-current="page"{% endif %}>Доска</a>
+        <a class="board-view-switch__link{% if view == 'table' %} is-active{% endif %}" href="{{ table_view_url }}"{% if view == 'table' %} aria-current="page"{% endif %}>Таблица</a>
+    </nav>
+    <a class="link-button link-button--secondary link-button--compact" href="{% if view == 'table' %}{{ refresh_url }}&amp;export=xlsx{% else %}{{ export_url }}{% endif %}" title="Выгрузить таблицу поддоски в Excel — с теми же фильтрами" download>Excel</a>
+    {% if view == 'table' %}
+        <input type="hidden" name="view" value="table">
+        {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    {% else %}
+        <input type="hidden" name="card" value="{% if panel == 'view' and card %}{{ card.card.pk }}{% endif %}" data-board-filter-card{% if panel != 'view' or not card %} disabled{% endif %}>
+        <input type="hidden" name="tab" value="{% if panel == 'view' and card %}{{ tab }}{% endif %}" data-board-filter-tab{% if panel != 'view' or not card %} disabled{% endif %}>
+    {% endif %}
+    <label class="board-filters__check"><input type="checkbox" name="mine" value="1"{% if filters.mine %} checked{% endif %}> Мои</label>
+    <label class="board-filters__check"><input type="checkbox" name="overdue" value="1"{% if filters.overdue %} checked{% endif %}> Просроченные</label>
+    <label class="board-filters__check" title="Открытые карточки, простоявшие в своей колонке не меньше её порога «Застой»"><input type="checkbox" name="stale" value="1"{% if filters.stale %} checked{% endif %}> Застрявшие</label>
+    <input class="board-filters__search" type="search" name="q" value="{{ filters.q }}" placeholder="Название, {{ board.code }}-12 или значение поля" aria-label="Поиск карточки по названию, номеру или значению текстового поля" maxlength="200" data-registry-search data-registry-omit-empty>
+    {% if field_filters %}
+        <details class="board-menu board-filters__fields" data-board-menu data-board-menu-keep-focus data-registry-keep-open>
+            <summary class="board-filters__fields-toggle{% if field_filter_count %} board-filters__fields-toggle--active{% endif %}" title="Фильтр по полям карточек">Поля{% if field_filter_count %} · {{ field_filter_count }}{% endif %}</summary>
+            <div class="board-menu__body board-field-filters">
+                {% for row in field_filters %}
+                    <fieldset class="board-field-filter">
+                        <legend class="board-menu__label user-text">{{ row.field.name }}</legend>
+                        {% if row.kind == 'SELECT' %}
+                            <div class="board-field-filter__options">
+                                {% for choice in row.options %}
+                                    <label class="board-field-filter__option"><input type="checkbox" name="{{ row.key }}" value="{{ choice.option.pk }}"{% if choice.checked %} checked{% endif %}> <span class="board-chip board-chip--{{ choice.option.color }}{% if choice.option.is_archived %} board-chip--archived{% endif %}"{% if choice.option.is_archived %} title="Вариант в архиве"{% endif %}>{{ choice.option.label }}</span></label>
+                                {% endfor %}
+                                <label class="board-field-filter__option board-field-filter__option--none"><input type="checkbox" name="{{ row.key }}" value="none"{% if row.none %} checked{% endif %}> не задано</label>
+                            </div>
+                        {% elif row.kind == 'DATE' %}
+                            <div class="board-field-filter__range">
+                                <label>с <input type="date" name="{{ row.key }}_from" value="{{ row.date_from }}" aria-label="{{ row.field.name }}: с" data-registry-omit-empty></label>
+                                <label>по <input type="date" name="{{ row.key }}_to" value="{{ row.date_to }}" aria-label="{{ row.field.name }}: по" data-registry-omit-empty></label>
+                            </div>
+                        {% elif row.kind == 'NUMBER' %}
+                            <div class="board-field-filter__range">
+                                <label>от <input class="board-field-filter__number" type="text" inputmode="decimal" name="{{ row.key }}_min" value="{{ row.number_min }}" aria-label="{{ row.field.name }}: от" autocomplete="off" data-registry-delayed data-registry-omit-empty></label>
+                                <label>до <input class="board-field-filter__number" type="text" inputmode="decimal" name="{{ row.key }}_max" value="{{ row.number_max }}" aria-label="{{ row.field.name }}: до" autocomplete="off" data-registry-delayed data-registry-omit-empty></label>
+                            </div>
+                        {% else %}
+                            <input class="board-field-filter__text" type="search" name="{{ row.key }}" value="{{ row.text }}" maxlength="200" aria-label="{{ row.field.name }}: содержит" placeholder="содержит…" autocomplete="off" data-registry-delayed data-registry-omit-empty>
+                        {% endif %}
+                    </fieldset>
+                {% endfor %}
+                <button class="link-button link-button--compact" type="submit">Применить</button>
+            </div>
+        </details>
+    {% endif %}
+    {% if view == 'table' %}
+        <label class="board-filters__check" title="Показать и отменённые карточки"><input type="checkbox" name="cancelled" value="1"{% if cancelled %} checked{% endif %}> Отменённые</label>
+        <label class="board-filters__check" title="Строки всех поддосок доски, со столбцом «Поддоска»"><input type="checkbox" name="scope" value="board"{% if whole_board %} checked{% endif %}> Все поддоски</label>
+    {% endif %}
+    <button class="link-button link-button--secondary link-button--compact" type="submit">Применить</button>
+    {% if filters.is_active %}<a class="board-filters__reset" href="{{ reset_url }}"{% if view != 'table' %} data-board-filter-reset{% endif %}>Сбросить</a>{% endif %}
+</form>
+{% if field_filter_count %}
+    <ul class="board-filter-chips" aria-label="Фильтры по полям">
+        {% for row in field_filters %}{% if row.filter %}
+            <li class="board-filter-chip"><span class="user-text">{{ row.chip }}</span><a class="board-filter-chip__remove" href="{{ row.remove_url }}" data-board-filter-chip title="Убрать фильтр" aria-label="Убрать фильтр «{{ row.field.name }}»">×</a></li>
+        {% endif %}{% endfor %}
+    </ul>
+{% endif %}

@@ -1,0 +1,88 @@
+{% extends 'boards/layout.html' %}
+{% load static people registry %}
+
+{% block title %}Таблица · {{ sub_board.name }} · {{ board.name }} · Доски{% endblock %}
+
+{% block board_main_label %}{{ board.name }}: таблица{% endblock %}
+
+{% block board_main %}
+{% comment %}
+«Таблица» of a sub-board — `?view=table` on its own address — in the boards
+frame, under the same heading, tabs and filter row as the board. One
+`selectors.build_board_table()` read: the cards as rows (the open ones and
+every completed one, the cancelled ones under «Отменённые»; every sub-board's
+under «Все поддоски», with a «Поддоска» column right after the code), every
+live field of the board a column of its own, sorted by a whitelisted
+`sortable_th` header. «Excel» in the filter row is this very state as a
+spreadsheet.
+
+Read only and not live: nothing here writes, and «Обновить» is a link to this
+same address. A row opens its card on the board (`data-row-url`, the shared
+`clickable_rows.js`); the code is a real link to the same place. The tabs lead
+to the other sub-boards' tables and carry no menus — the structure is managed
+on the board.
+{% endcomment %}
+{% include 'boards/includes/head.html' %}
+
+<div class="board-page board-page--table">
+    <div class="board-tabs-block">{% include 'boards/includes/tabs.html' with can_manage=False filter_suffix=tab_suffix %}</div>
+
+    {% include 'boards/includes/filters.html' %}
+
+    <p class="board-table-meta">
+        <span>{% if whole_board %}Все поддоски{% else %}Поддоска «{{ sub_board.name }}»{% endif %}: {{ rows_label }}</span>
+        <span>Обновлено {{ generated_at|time:'H:i' }}</span>
+        <a href="{{ refresh_url }}">Обновить</a>
+    </p>
+
+    <div class="fill-region board-table-region">
+        {% if rows %}
+        <section class="table-card act-table-card board-table-card">
+            <table class="data-table board-table">
+                <thead>
+                    <tr>
+                        {% sortable_th 'Код' 'code' sort 'board-table__code' %}
+                        {% if whole_board %}<th class="board-table__sub-board">Поддоска</th>{% endif %}
+                        {% sortable_th 'Название' 'title' sort 'board-table__title' %}
+                        {% sortable_th 'Колонка' 'column' sort 'board-table__column' %}
+                        <th class="board-table__people">Исполнители</th>
+                        {% sortable_th 'Срок' 'due' sort 'board-table__due' %}
+                        {% sortable_th 'В колонке' 'days' sort 'board-table__days' %}
+                        {% for column in table_fields %}
+                            {% sortable_th column.field.name column.sort_key sort 'board-table__field' %}
+                        {% endfor %}
+                        {% sortable_th 'Создана' 'created' sort 'board-table__date' %}
+                        {% sortable_th 'Завершена' 'completed' sort 'board-table__date' %}
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in rows %}
+                    {% url 'boards:sub_board' board.pk row.card.sub_board_id as card_board_url %}
+                    <tr class="{% if row.is_closed %}board-table__row--closed{% endif %}{% if row.is_stale %} board-table__row--stale{% endif %}" data-row-url="{{ card_board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">
+                        <td><a class="table-link" href="{{ card_board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" title="Задача №{{ row.task.pk }}">{{ row.card.code }}</a></td>
+                        {% if whole_board %}<td><span class="user-text">{{ row.sub_board.name }}</span></td>{% endif %}
+                        <td><span class="user-text text-clamp-2 board-table__title-text" title="{{ row.card.title }}">{{ row.card.title }}</span></td>
+                        <td>{% if row.status == 'CANCELLED' %}<span class="status-badge status-badge--archived">{{ row.column_label }}</span>{% elif row.status == 'COMPLETED' %}<span class="status-badge status-badge--completed">{{ row.column_label }}</span>{% else %}<span class="user-text">{{ row.column_label }}</span>{% endif %}</td>
+                        <td>{% if row.assignees %}<span class="board-table__people-list">{% for user in row.assignees %}<span class="board-table__person">{{ user|person_name }}</span>{% endfor %}</span>{% else %}—{% endif %}</td>
+                        <td>{% if row.due_date %}{% include 'includes/due_date.html' with date=row.due_date done=row.is_closed %}{% else %}—{% endif %}</td>
+                        <td class="board-table__number">{% if row.in_column_days is not None %}<span class="board-table__days{% if row.is_stale %} board-table__days--stale{% endif %}" title="В колонке с {{ row.in_column_since|date:'d.m.Y' }}">{% if row.in_column_days %}{{ row.in_column_days }} дн.{% else %}сегодня{% endif %}</span>{% else %}—{% endif %}</td>
+                        {% for cell in row.cells %}
+                            <td{% if cell.value.kind == 'NUMBER' %} class="board-table__number"{% endif %}>{% if cell.value %}{% if cell.value.color %}<span class="board-chip board-chip--{{ cell.value.color }}{% if cell.value.is_archived %} board-chip--archived{% endif %}"{% if cell.value.is_archived %} title="Вариант в архиве"{% endif %}>{{ cell.value.text }}</span>{% else %}<span class="user-text text-clamp-2" title="{{ cell.value.text }}">{{ cell.value.text }}</span>{% endif %}{% else %}—{% endif %}</td>
+                        {% endfor %}
+                        <td>{{ row.created|date:'d.m.Y' }}</td>
+                        <td>{% if row.completed %}{{ row.completed|date:'d.m.Y' }}{% else %}—{% endif %}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        {% else %}
+            {% include 'acts/includes/empty_state.html' with title='Карточки не найдены' message='Измените фильтры или откройте другую поддоску.' %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block board_scripts %}
+<script src="{% static 'js/board_menus.js' %}?v=20261016-1" defer></script>
+{% endblock %}
