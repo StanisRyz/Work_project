@@ -1,0 +1,50 @@
+$ python manage.py migrate   # с нуля, PostgreSQL 16
+  Applying boards.0001_initial... OK
+  Applying boards.0002_board_archive_card_version... OK
+  Applying boards.0003_board_card_comment... OK
+  Applying boards.0004_board_department_optional... OK
+  Applying boards.0005_sub_boards_and_columns... OK
+  Applying boards.0006_default_sub_boards... OK
+  Applying boards.0007_sub_board_required... OK
+  Applying boards.0008_drop_card_stage... OK
+  Applying boards.0009_board_card_event... OK
+  Applying boards.0010_backfill_card_events... OK
+  Applying boards.0011_board_code_card_number... OK
+  Applying boards.0012_backfill_codes_and_numbers... OK
+  Applying boards.0013_board_code_card_number_required... OK
+  Applying boards.0014_board_column_pins... OK
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-14/seed_demo.py
+seeded
+
+# коды досок и номера карточек после seed (сервис):
+
+[(1, 'ZAP'), (2, 'OTG')]
+[(1, 1), (1, 2), (1, 3), (1, 4), (2, 1)]
+
+$ python manage.py migrate boards 0010   # откат миграций этапа
+  Target specific migration: 0010_backfill_card_events, from boards
+  Unapplying boards.0014_board_column_pins... OK
+  Unapplying boards.0013_board_code_card_number_required... OK
+  Unapplying boards.0012_backfill_codes_and_numbers... OK
+  Unapplying boards.0011_board_code_card_number... OK
+
+boards_board.code после отката: []
+boards_boardcolumnpin после отката: None
+
+$ python manage.py migrate   # снова вперёд: доски получают D<pk>, карточки — номера по порядку создания
+  Apply all migrations: accounts, acts, admin, auth, boards, bugs, calculator, contenttypes, documents, notifications, plate_cutting, protocols, references, sessions, smk, tasks
+  Applying boards.0011_board_code_card_number... OK
+  Applying boards.0012_backfill_codes_and_numbers... OK
+  Applying boards.0013_board_code_card_number_required... OK
+  Applying boards.0014_board_column_pins... OK
+
+[(1, 'D1'), (2, 'D2')]
+[(1, 1), (1, 2), (1, 3), (1, 4), (2, 1)]
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test boards dashboard tasks notifications --parallel 4   # PostgreSQL 16
+Ran 526 tests in 84.177s
+OK
