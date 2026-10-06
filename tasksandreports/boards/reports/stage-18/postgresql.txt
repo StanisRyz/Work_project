@@ -1,0 +1,58 @@
+$ python manage.py migrate   # с нуля, PostgreSQL 16
+  Applying boards.0016_column_stale_days... OK
+  Applying boards.0017_checklist_subscriptions_mentions... OK
+  Applying notifications.0011_board_cancel_and_comment_events... OK
+  Applying notifications.0012_board_mention_and_completed_events... OK
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-18/seed_demo.py
+seeded
+seeded stage 16
+seeded stage 17
+seeded stage 18
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-18/pg_checks.py
+
+чек-лист ZAP-1 (сделано, всего): (2, 5)
+после отметки и переноса: (3, 5) ['Согласовать спецификацию', 'Проверить наличие металла', 'Передать заказ в цех МП', 'Принять партию ОТК', 'Запустить партию в работу']
+журнал: ['Чек-лист: добавлен пункт (0/1)', 'Чек-лист: добавлен пункт (0/2)', 'Чек-лист: добавлен пункт (0/3)', 'Чек-лист: добавлен пункт (0/4)', 'Чек-лист: добавлен пункт (0/5)', 'Чек-лист: отмечен пункт (1/5)', 'Чек-лист: отмечен пункт (2/5)', 'Чек-лист: отмечен пункт (3/5)']
+201 символ: Пункт чек-листа — не длиннее 200 символов.
+таблица, «Чек-лист»: {'ZAP-1': '3/5', 'ZAP-2': '', 'ZAP-7': '', 'ZAP-8': '', 'ZAP-3': '', 'ZAP-5': '', 'ZAP-4': '', 'ZAP-6': ''}
+подписка admin1: True
+упомянуты: ['petrova']
+подписчики: ['admin1', 'petrova']
+аудитория (один запрос, DISTINCT): ['admin1', 'ivanov', 'petrova']
+BOARD_CARD_MENTION ['petrova'] писем: 1
+BOARD_CARD_COMMENT ['admin1'] писем: 0
+выделение: <span class="board-mention">@Мария Петрова</span>, сроки?
+BoardCardSubscription: IntegrityError (UniqueViolation)
+BoardCardCommentMention: IntegrityError (UniqueViolation)
+BOARD_CARD_COMPLETED: ['admin1', 'admin1', 'petrova', 'petrova']
+
+$ python manage.py migrate boards 0016   # откат миграции этапа
+Operations to perform:
+  Target specific migration: 0016_column_stale_days, from boards
+Running migrations:
+  Rendering model states... DONE
+  Unapplying boards.0017_checklist_subscriptions_mentions... OK
+$ python manage.py migrate notifications 0011
+Operations to perform:
+  Target specific migration: 0011_board_cancel_and_comment_events, from notifications
+Running migrations:
+  Rendering model states... DONE
+  Unapplying notifications.0012_board_mention_and_completed_events... OK
+
+# после отката: таблиц этапа нет, карточки, сообщения и журнал на месте
+
+таблицы этапа: []
+карточек: 10 сообщений: 1 записей CHECKLIST в журнале: 8
+
+$ python manage.py migrate   # вперёд
+  Applying boards.0017_checklist_subscriptions_mentions... OK
+  Applying notifications.0012_board_mention_and_completed_events... OK
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test boards dashboard tasks notifications realtime --parallel 4
+Ran 1050 tests in 136.049s
+OK (skipped=3)

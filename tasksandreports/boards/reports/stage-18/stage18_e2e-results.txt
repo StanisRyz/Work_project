@@ -1,0 +1,69 @@
+
+=== 1920×1080 ===
+PASS  «Чек-лист 2/5» in the panel  — 2/5
+PASS  five items, two struck through
+PASS  «☑ 2/5» on the tile  — ☑ 2/5
+PASS  who ticked it is on the item  — Отметил Иван Иванов, 07.10.2026 00:07
+PASS  the checklist sits right under the description, above the facts  — (357.6875, 411.6875, 645.6875)
+PASS  no sideways scroll of the page
+PASS  ivanov ticks the third without a reload
+PASS  ivanov: «3/5» at once  — ('3/5', '☑ 3/5')
+PASS  admin1 sees «3/5» in the panel and on the tile without a reload  — ('3/5', '☑ 3/5')
+PASS  ivanov ticks the fourth
+PASS  under the open edit form «4/5» arrives  — ('4/5', '☑ 4/5')
+PASS  no «Карточка изменена» banner
+PASS  the typed title stays
+PASS  the leave prompt was the unsaved guard's, once
+PASS  «Следить» in the heading  — Следить
+PASS  now «Вы следите»  — Вы следите
+PASS  «Подписчики» on «Описание» with the avatar «ОА»  — ['Подписчики\nОА']
+PASS  «Упомянуть» is replaced by «@» with JavaScript
+PASS  «@» lists the board's readers  — ['Олег Админов', 'Мария Петрова', 'Анна Сотрудников', 'Борис Сотрудников', 'Вера Сотрудников', 'Глеб Сотрудников']
+PASS  «@Мар» narrows it to Мария Петрова  — ['Мария Петрова']
+PASS  Enter writes «@Мария Петрова »  — Мария, посмотрите сроки, пожалуйста: @Мария Петрова 
+PASS  and one hidden mention
+PASS  the chat after sending  — http://127.0.0.1:8765/work/boards/1/1/?card=1&tab=chat
+PASS  the name is highlighted in the message
+PASS  petrova: «Вас упомянули в карточке ZAP-1 на доске «Запуск заказов»» in the bell  — ['Вас упомянули в карточке ZAP-1 на доске «Запуск заказов»\nВас упомянули в обсуждении карточки ZAP-1 (задача №1) на доске «Запуск заказов».\n07.10.2026 00:21']
+PASS  the link opens the card on «Чат»  — http://127.0.0.1:8765/work/boards/1/1/?card=1&tab=chat
+PASS  the drawer shows «Чат»
+PASS  her name highlighted
+PASS  mentioned → she follows the card  — Вы следите
+PASS  «Чек-лист» after «В колонке»  — ['Код', 'Название', 'Колонка', 'Исполнители', 'Срок', 'В колонке', 'Чек-лист', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена']
+PASS  ZAP-1 «4/5», the others «—»  — {'ZAP-1': '4/5', 'ZAP-2': '—', 'ZAP-7': '—', 'ZAP-8': '—', 'ZAP-3': '—', 'ZAP-5': '—', 'ZAP-4': '—', 'ZAP-6': '—'}
+
+=== 1536×864 ===
+PASS  «Чек-лист 2/5» in the panel  — 2/5
+PASS  five items, two struck through
+PASS  «☑ 2/5» on the tile  — ☑ 2/5
+PASS  who ticked it is on the item  — Отметил Иван Иванов, 07.10.2026 00:07
+PASS  the checklist sits right under the description, above the facts  — (357.6875, 411.6875, 645.6875)
+PASS  no sideways scroll of the page
+PASS  ivanov ticks the third without a reload
+PASS  ivanov: «3/5» at once  — ('3/5', '☑ 3/5')
+PASS  admin1 sees «3/5» in the panel and on the tile without a reload  — ('3/5', '☑ 3/5')
+PASS  ivanov ticks the fourth
+PASS  under the open edit form «4/5» arrives  — ('4/5', '☑ 4/5')
+PASS  no «Карточка изменена» banner
+PASS  the typed title stays
+PASS  the leave prompt was the unsaved guard's, once
+PASS  «Следить» in the heading  — Следить
+PASS  now «Вы следите»  — Вы следите
+PASS  «Подписчики» on «Описание» with the avatar «ОА»  — ['Подписчики\nОА']
+PASS  «Упомянуть» is replaced by «@» with JavaScript
+PASS  «@» lists the board's readers  — ['Олег Админов', 'Мария Петрова', 'Анна Сотрудников', 'Борис Сотрудников', 'Вера Сотрудников', 'Глеб Сотрудников']
+PASS  «@Мар» narrows it to Мария Петрова  — ['Мария Петрова']
+PASS  Enter writes «@Мария Петрова »  — Мария, посмотрите сроки, пожалуйста: @Мария Петрова 
+PASS  and one hidden mention
+PASS  the chat after sending  — http://127.0.0.1:8765/work/boards/1/1/?card=1&tab=chat
+PASS  the name is highlighted in the message
+PASS  petrova: «Вас упомянули в карточке ZAP-1 на доске «Запуск заказов»» in the bell  — ['Вас упомянули в карточке ZAP-1 на доске «Запуск заказов»\nВас упомянули в обсуждении карточки ZAP-1 (задача №1) на доске «Запуск заказов».\n07.10.2026 00:21']
+PASS  the link opens the card on «Чат»  — http://127.0.0.1:8765/work/boards/1/1/?card=1&tab=chat
+PASS  the drawer shows «Чат»
+PASS  her name highlighted
+PASS  mentioned → she follows the card  — Вы следите
+PASS  «Чек-лист» after «В колонке»  — ['Код', 'Название', 'Колонка', 'Исполнители', 'Срок', 'В колонке', 'Чек-лист', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена']
+PASS  ZAP-1 «4/5», the others «—»  — {'ZAP-1': '4/5', 'ZAP-2': '—', 'ZAP-7': '—', 'ZAP-8': '—', 'ZAP-3': '—', 'ZAP-5': '—', 'ZAP-4': '—', 'ZAP-6': '—'}
+PASS  no JavaScript errors and no browser dialogs
+
+63/63 PASS
