@@ -58,8 +58,16 @@ class BoardTaskShapeTests(BoardFixtureMixin, TestCase):
     def test_board_card_is_required(self):
         self._assert_rejected(self._task(board_card=None), 'board_card')
 
-    def test_department_is_required(self):
-        self._assert_rejected(self._task(department=None), 'department')
+    def test_department_is_free(self):
+        # A board is shared work of several departments: a new card names
+        # none, and a task saved before that keeps the one it has.
+        for department in (None, self.department):
+            with self.subTest(department=department):
+                Task.objects.filter(board_card=self.free_card).delete()
+                task = self._task(department=department)
+                task.clean()
+                task.save()
+                self.assertEqual(Task.objects.get(pk=task.pk).department, department)
 
     def test_every_foreign_relation_is_refused(self):
         for name in FORBIDDEN_IDS:

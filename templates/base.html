@@ -62,6 +62,12 @@
     {% endcomment %}
     <script src="{% static 'js/attachment_upload.js' %}?v=20260904-3"></script>
     {% comment %}
+    The one «Подразделение | Сотрудник» picker (`[data-employee-pair]`,
+    `[data-employee-picker]`): протоколы, СМК and boards share it, and the page
+    scripts that keep their own exclusion rules take `syncPair()` from it.
+    {% endcomment %}
+    <script src="{% static 'js/employee_picker.js' %}?v=20261006-1"></script>
+    {% comment %}
     Whole-row navigation for every `[data-row-url]` table; delegated, so it
     also covers rows that arrive with a live fragment replacement.
     {% endcomment %}

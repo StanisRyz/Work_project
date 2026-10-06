@@ -91,7 +91,9 @@ class BoardTargetsTests(BoardFixtureMixin, TestCase):
         root = User.objects.create_superuser(username='rt_board_root', password='x')
         UserProfile.objects.filter(user=root).delete()
 
-        keys = target_keys(board_targets())
+        # The board tests run with full access widened to every role, so
+        # every active account reads this board.
+        keys = target_keys(board_targets(self.board))
         for user in (self.owner, self.member, self.colleague, self.outsider, self.admin, root):
             self.assertIn(f'user:{user.pk}', keys)
         for user in (inactive, dormant):

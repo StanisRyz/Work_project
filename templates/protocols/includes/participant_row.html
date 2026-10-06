@@ -8,7 +8,7 @@ here — the author card is fixed and lives directly in the editor.
             <span>Подразделение</span>
             <select name="participants-{{ row.index }}-department" data-department-select required>
                 <option value="">Выберите подразделение</option>
-                {% include 'protocols/includes/department_options.html' with selected=row.department %}
+                {% include 'includes/department_options.html' with selected=row.department %}
             </select>
             {% if row.errors.department %}<span class="field-error">{{ row.errors.department }}</span>{% endif %}
         </label>
@@ -16,7 +16,7 @@ here — the author card is fixed and lives directly in the editor.
             <span>Сотрудник</span>
             <select name="participants-{{ row.index }}-user" data-employee-select data-participant-user required>
                 <option value="">Выберите сотрудника</option>
-                {% include 'protocols/includes/employee_options.html' with selected=row.user %}
+                {% include 'includes/employee_options.html' with selected=row.user %}
             </select>
             {% if row.errors.user %}<span class="field-error">{{ row.errors.user }}</span>{% endif %}
         </label>

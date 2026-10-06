@@ -441,9 +441,11 @@ class Task(models.Model):
                         bug_report__isnull=True,
                         workflow_stage='',
                     )
-                    # A board card: the card alone and the board's department,
-                    # nothing from any quality document, and one shared task —
-                    # a card is one piece of work, never split.
+                    # A board card: the card alone, the department free (a
+                    # board is shared work of people from any department — new
+                    # cards name none, older tasks keep theirs), nothing from
+                    # any quality document, and one shared task — a card is
+                    # one piece of work, never split.
                     | Q(
                         source_type='BOARD',
                         board_card__isnull=False,
@@ -457,7 +459,6 @@ class Task(models.Model):
                         smk_action__isnull=True,
                         bug_report__isnull=True,
                         individual_assignee__isnull=True,
-                        department__isnull=False,
                         workflow_stage='',
                     )
                 ),
@@ -766,11 +767,13 @@ class Task(models.Model):
                 errors['workflow_stage'] = f'Недопустимо для источника «{source_name}».'
             # Every real work item names a department — except a bug report,
             # whose assignees are chosen by an individual flag and may sit in
-            # any number of departments. `BUG` already forbids it above, so it
-            # is only excluded from the *required* half here.
+            # any number of departments (`BUG` already forbids it above, so it
+            # is only excluded from the *required* half here), a document task,
+            # and a board card, the shared work of a board's members from any
+            # number of departments, where it is free.
             if (
                 required
-                and self.source_type != self.SourceType.BUG
+                and self.source_type not in (self.SourceType.BUG, self.SourceType.BOARD)
                 and not self.is_document_task
                 and self.department_id is None
             ):

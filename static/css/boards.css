@@ -506,15 +506,103 @@
 
 /* ---- Other pages ---- */
 
-.board-form {
+/* Two classes: `text.css`, loaded last, pins every `.form-card` to
+   `max-width: 100%`, and a name and a pair of person selects do not need a
+   1920 px line. */
+.form-card.board-form {
     max-width: 760px;
 }
 
-.board-form select[multiple] {
+.board-form__members {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.board-form__members legend {
+    margin-bottom: 4px;
+    padding: 0;
+    color: var(--color-muted);
+}
+
+/* «Подразделение | Сотрудник» rows — the protocol participant's pair, drawn
+   with this page's tokens. */
+.board-member-picker {
+    display: grid;
+    gap: 8px;
+    justify-items: start;
+}
+
+.board-member-picker__list {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+}
+
+.board-member-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 6px 12px;
+}
+
+.board-member-row label {
+    display: grid;
+    gap: 4px;
+    color: var(--color-muted);
+}
+
+.board-member-row select {
+    width: 100%;
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
+    color: var(--color-text);
     font: inherit;
+    font-size: var(--control-font-size);
+}
+
+.board-member-row__remove {
+    width: var(--control-height);
+    height: var(--control-height);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 1.3em;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.board-member-row__remove:hover,
+.board-member-row__remove:focus-visible {
+    border-color: var(--color-text);
+    color: var(--color-text);
+}
+
+/* A chosen employee who no longer matches the department beside them. */
+.board-member-row__warning {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.board-member-row__warning[hidden] {
+    display: none;
+}
+
+@media (max-width: 560px) {
+    .board-member-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .board-member-row label:first-child {
+        grid-column: 1 / -1;
+    }
 }
 
 .board-form__hint {

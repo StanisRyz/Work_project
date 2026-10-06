@@ -96,7 +96,7 @@ class CreateCardTests(BoardFixtureMixin, TestCase):
         self.assertEqual(task.source_type, Task.SourceType.BOARD)
         self.assertEqual(task.task_text, 'Согласовать график\n\nС цехом МП')
         self.assertEqual(task.due_date, deadline)
-        self.assertEqual(task.department, self.department)
+        self.assertIsNone(task.department)
         self.assertEqual(task.status.code, 'IN_PROGRESS')
         self.assertFalse(task.requires_attachment)
         self.assertIsNone(task.individual_assignee_id)

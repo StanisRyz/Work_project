@@ -4,7 +4,7 @@
 {% block title %}Участники · {{ board.name }}{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261008-1">
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261009-2">
 {% endblock %}
 
 {% block content %}
@@ -48,16 +48,11 @@ a message on this page.
 {% if can_manage %}
     <form class="form-card board-form" method="post" action="{% url 'boards:members_add' board.pk %}">
         {% csrf_token %}
-        {% if add_form.fields.users.queryset.exists %}
-            <label>
-                <span>{{ add_form.users.label }}</span>
-                {{ add_form.users }}
-                <small class="board-form__hint">Несколько человек выбираются с Ctrl.</small>
-            </label>
-            <div class="form-actions"><button class="link-button" type="submit">Добавить</button></div>
-        {% else %}
-            <p class="board-form__hint">Все активные сотрудники уже на доске.</p>
-        {% endif %}
+        <fieldset class="board-form__members">
+            <legend>Добавить участников</legend>
+            {% include 'boards/includes/member_picker.html' with field_name='users' rows=member_rows exclude=picker_exclude %}
+        </fieldset>
+        <div class="form-actions"><button class="link-button" type="submit">Добавить</button></div>
     </form>
 {% endif %}
 {% endblock %}

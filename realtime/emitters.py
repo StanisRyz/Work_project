@@ -247,5 +247,5 @@ def emit_board_updated(board_id, change, card_id=None):
     if not realtime_enabled():
         return None
     event = board_updated_event(board_id, change, card_id)
-    publish_after_commit(event, board_targets())
+    publish_after_commit(event, board_targets(board_id))
     return event

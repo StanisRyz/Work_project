@@ -22,6 +22,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from accounts.directory import get_employee_directory
 from ecosystem.xlsx import xlsx_response
 
 from .forms import SmkSourceForm
@@ -35,7 +36,6 @@ from .permissions import (
 from .selectors import (
     build_confirmation_summary,
     build_smk_list_state,
-    get_editor_directory,
     get_source_detail,
     resolve_detail_tab,
 )
@@ -106,7 +106,7 @@ def _form_context(form, confirmation=None, *, source=None):
             'split_for_assignees': False, 'assignees': [], 'errors': {},
         },
         'empty_assignee': {'user': '', 'department': ''},
-        **get_editor_directory(),
+        **get_employee_directory(),
     }
 
 

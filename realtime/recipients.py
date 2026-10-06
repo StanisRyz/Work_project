@@ -161,24 +161,23 @@ def workup_targets():
     return _every_reader_targets()
 
 
-def board_targets(board=None):
-    """Every active account with board access — whom `can_view_board` lets in.
+def board_targets(board):
+    """Whom `boards.permissions.can_view_board` lets onto this board.
 
-    Boards are open only to `boards.permissions.BOARD_ACCESS_ROLES` and genuine
-    superusers, so the audience is those accounts, resolved by the database
-    through `board_access_q()` — the board's own rule as a filter, never
-    restated — with the usual active-account and active-profile conditions
-    (`active_employee_q()`; a superuser without a profile is kept, as in
-    `_every_reader_targets()`). Nobody else receives `board.updated`. `board`
-    keeps the signature uniform with the other recipient functions.
+    Every active account with full board access (`full_board_access_q()`, a
+    superuser without a profile kept, as in `_every_reader_targets()`) plus
+    the active members of *this* board — the board's own rule as a filter,
+    never restated. Resolved by the database in one query.
     """
-    from boards.permissions import board_access_q
+    from boards.models import BoardMember
+    from boards.permissions import full_board_access_q
 
+    members = BoardMember.objects.filter(board_id=getattr(board, 'pk', board)).values('user_id')
     return user_targets(
         get_user_model()
         .objects.filter(
-            board_access_q(),
-            Q(userprofile__is_active=True) | Q(is_superuser=True),
+            (full_board_access_q() & (Q(userprofile__is_active=True) | Q(is_superuser=True)))
+            | Q(pk__in=members, userprofile__is_active=True),
             is_active=True,
         )
         .distinct()

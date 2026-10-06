@@ -46,48 +46,12 @@
     };
 
     /**
-     * Employee options are filtered by the department chosen next to them.
-     *
-     * A selection that is already there is never cleared: an employee moved to
-     * another department keeps their row, visible and selected, and the row
-     * warns instead. Changing it is the author's own explicit action — the
-     * same protection `protocol_editor.js` applies for the same reason.
+     * Employee options are filtered by the department chosen next to them —
+     * the shared `employee_picker.js`, which never clears a selection that is
+     * already there and warns on the row instead, exactly as in the protocol
+     * editor.
      */
-    const syncPair = (pair) => {
-        const department = pair.querySelector('[data-department-select]');
-        const employee = pair.querySelector('[data-employee-select]');
-        if (!department || !employee) return;
-        const departmentId = department.value;
-        const selected = employee.value;
-        // A disabled `<select>` is left out of the POST entirely, so a row that
-        // already names someone keeps its field enabled.
-        employee.disabled = !departmentId && !selected;
-        let mismatched = '';
-        [...employee.options].forEach((option) => {
-            if (!option.value) return;
-            if (option.value === selected) {
-                option.hidden = false;
-                option.disabled = false;
-                if (option.dataset.departmentId !== departmentId) {
-                    mismatched = option.textContent.trim();
-                }
-                return;
-            }
-            const available = option.dataset.departmentId === departmentId;
-            option.hidden = !available;
-            option.disabled = !available;
-        });
-        const warning = pair.querySelector('[data-pair-warning]');
-        if (!warning) return;
-        warning.hidden = !mismatched;
-        warning.textContent = mismatched
-            ? (departmentId
-                ? `«${mismatched}» больше не относится к выбранному подразделению. `
-                    + 'Выбор сохранён — измените подразделение или выберите другого сотрудника.'
-                : `Подразделение сотрудника «${mismatched}» недоступно. `
-                    + 'Выбор сохранён — укажите подразделение или выберите другого сотрудника.')
-            : '';
-    };
+    const { syncPair } = window.qualityEmployeePicker;
 
     /**
      * Rebuild every «Связано с несоответствием» selector from the findings

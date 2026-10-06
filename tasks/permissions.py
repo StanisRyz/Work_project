@@ -1,5 +1,14 @@
+from django.db.models import Q
+
 from acts.permissions import has_full_act_access, is_act_admin
-from boards.permissions import can_use_boards
+# The one `tasks` module that asks `boards`; `tasks.selectors` takes
+# `can_use_boards` from here.
+from boards.permissions import (  # noqa: F401 — can_use_boards is re-exported
+    can_use_boards,
+    can_view_board,
+    has_full_board_access,
+    readable_board_ids,
+)
 
 from .models import ROUTING_SOURCE_TYPES, Task
 
@@ -29,10 +38,12 @@ _SOURCE_AWARE_SELECT_RELATED = (
 
 
 def can_view_task(task, user):
-    """Every authenticated user — except a `BOARD` task without board access."""
+    """Every authenticated user — a `BOARD` task only for a reader of its board."""
     if not getattr(user, 'is_authenticated', False):
         return False
-    return task.source_type != Task.SourceType.BOARD or can_use_boards(user)
+    if task.source_type != Task.SourceType.BOARD:
+        return True
+    return can_view_board(user, task.board_card.board)
 
 
 def _tasks_queryset():
@@ -42,16 +53,21 @@ def _tasks_queryset():
 
 
 def _without_boards_unless_allowed(tasks, user):
-    """A `BOARD` task is a board's work: shown only to whoever may use boards.
+    """A `BOARD` task is a board's work: shown only to whoever reads that board.
 
-    The board's own rule (`boards.permissions.can_use_boards()`), asked once
-    per queryset, never restated — so the registry with every tab and its
-    Excel, the task page, the quick search, «Мои задачи», the dashboard counts
-    and the `tasks` sync revision all follow it.
+    Full board access reads them all; anybody else the tasks of the boards
+    they are a member of (`boards.permissions.readable_board_ids()`, one
+    subquery, never restated) — so the registry with every tab and its Excel,
+    the task page, the quick search, «Мои задачи», the dashboard counts and the
+    `tasks` sync revision all follow it. `board_card` is a forward foreign key,
+    so the condition repeats no row.
     """
-    if can_use_boards(user):
+    if has_full_board_access(user):
         return tasks
-    return tasks.exclude(source_type=Task.SourceType.BOARD)
+    return tasks.filter(
+        ~Q(source_type=Task.SourceType.BOARD)
+        | Q(board_card__board_id__in=readable_board_ids(user))
+    )
 
 
 def get_visible_tasks_queryset(user):

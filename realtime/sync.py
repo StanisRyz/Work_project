@@ -316,15 +316,14 @@ def _protocols_revision(user):
 
 
 def _boards_revision(user):
-    """Every board and every open board page, in one token.
+    """The boards `user` reads and every open board page of theirs, in one token.
 
-    Boards are read by whoever has board access
-    (`boards.permissions.can_use_boards()`), and such a reader reads every
-    board, so — exactly like `_protocols_revision()` — the token takes no
-    per-board filter. Without access the key is still there but constant — a
-    token of the same shape built from no data: the client compares the same
-    set of keys for every user, nothing about boards reaches somebody who may
-    not open one, and no query is spent on it.
+    Full board access reads every board, so — like `_protocols_revision()` —
+    the token is then built over everything; a member's token over their own
+    boards only (`boards.permissions.readable_boards_q()`), so another board
+    moving never touches it. A user who reads no board gets a constant — a
+    token of the same shape built from no data, no query spent: the client
+    compares the same set of keys for every user.
 
     Four aggregates, no rows loaded:
 
@@ -339,16 +338,24 @@ def _boards_revision(user):
       their count and the newest `created_at` say everything.
     """
     from boards.models import BoardCard, BoardCardComment, BoardMember
-    from boards.permissions import can_use_boards
+    from boards.permissions import can_use_boards, readable_boards_q
     from tasks.models import Task
 
     if not can_use_boards(user):
         return _token('b', 'no-access')
-    cards = BoardCard.objects.aggregate(total=Count('pk'), last_updated=Max('updated_at'))
-    board_tasks = Task.objects.filter(source_type=Task.SourceType.BOARD)
+    cards = BoardCard.objects.filter(readable_boards_q(user, 'board_id')).aggregate(
+        total=Count('pk'), last_updated=Max('updated_at'),
+    )
+    board_tasks = Task.objects.filter(
+        readable_boards_q(user, 'board_card__board_id'), source_type=Task.SourceType.BOARD,
+    )
     tasks = board_tasks.aggregate(total=Count('pk'), last_updated=Max('updated_at'))
-    members = BoardMember.objects.aggregate(total=Count('pk'), last_added=Max('added_at'))
-    comments = BoardCardComment.objects.aggregate(total=Count('pk'), last=Max('created_at'))
+    members = BoardMember.objects.filter(readable_boards_q(user, 'board_id')).aggregate(
+        total=Count('pk'), last_added=Max('added_at'),
+    )
+    comments = BoardCardComment.objects.filter(readable_boards_q(user, 'card__board_id')).aggregate(
+        total=Count('pk'), last=Max('created_at'),
+    )
     return _token(
         'b',
         cards['total'],

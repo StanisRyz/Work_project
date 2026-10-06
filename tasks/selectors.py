@@ -9,10 +9,8 @@ from django.db.models import Case, IntegerField, Q, Value, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from boards.permissions import can_use_boards
-
 from .models import Task
-from .permissions import get_readable_tasks_queryset, get_visible_tasks_queryset
+from .permissions import can_use_boards, get_readable_tasks_queryset, get_visible_tasks_queryset
 from .presentation import describe_task
 
 
@@ -204,7 +202,7 @@ def build_task_list_state(user, query_params):
         # with its source label, link and real state. Building it here is what
         # keeps the full page and the live fragment identical.
         'rows': [describe_task(task) for task in tasks],
-        # «Доска» only for whoever may see a board's tasks — presentation; the
+        # «Доска» only for whoever uses boards — presentation; the
         # rows themselves already come from the permission-checked queryset.
         'source_type_options': [
             (value, label) for value, label in Task.SourceType.choices

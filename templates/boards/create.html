@@ -4,13 +4,15 @@
 {% block title %}Новая доска · Экосистема качества{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261008-1">
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261009-2">
 {% endblock %}
 
 {% block content %}
 {% comment %}
-A new board. The owner is whoever submits the form — it never asks — and
-`create_board()` makes them a member too.
+A new board: its name and its members, nothing else. The owner is whoever
+submits the form — it never asks — and `create_board()` makes them a member
+too; the rows do not offer them. Members are picked «подразделение →
+сотрудник», like the protocol's participants.
 {% endcomment %}
 <section class="act-detail-heading">
     <a class="act-back-link" href="{% url 'boards:list' %}" aria-label="К списку досок">←</a>
@@ -20,27 +22,17 @@ A new board. The owner is whoever submits the form — it never asks — and
 <form class="form-card board-form" method="post" data-unsaved-guard>
     {% csrf_token %}
     {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors }}</div>{% endif %}
-    <label>
+    <label class="board-form__name">
         <span>{{ form.name.label }}</span>
         {{ form.name }}
         {{ form.name.errors }}
     </label>
-    <label>
-        <span>{{ form.description.label }}</span>
-        {{ form.description }}
-        {{ form.description.errors }}
-    </label>
-    <label>
-        <span>{{ form.department.label }}</span>
-        {{ form.department }}
-        {{ form.department.errors }}
-    </label>
-    <label>
-        <span>{{ form.members.label }}</span>
-        {{ form.members }}
-        <small class="board-form__hint">{{ form.members.help_text }} Несколько человек выбираются с Ctrl.</small>
+    <fieldset class="board-form__members">
+        <legend>{{ form.members.label }}</legend>
+        <p class="board-form__hint">Вы станете владельцем и участником доски сами.</p>
+        {% include 'boards/includes/member_picker.html' with field_name='members' rows=member_rows exclude=picker_exclude %}
         {{ form.members.errors }}
-    </label>
+    </fieldset>
     <div class="form-actions">
         <button class="link-button" type="submit">Создать доску</button>
         <a class="link-button link-button--secondary" href="{% url 'boards:list' %}">Отмена</a>

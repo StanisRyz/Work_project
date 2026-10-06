@@ -4,7 +4,6 @@ Reads only — every write stays in `smk/services.py`, and every permission in
 `smk/permissions.py`.
 """
 
-from django.contrib.auth.models import User
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -228,23 +227,6 @@ def build_smk_list_state(params):
                 (source, _registry_tasks(source)) for source in sources
             )
         ],
-    }
-
-
-def get_editor_directory():
-    """The department/employee options the form's selectors are built from.
-
-    The same mechanism the protocol editor and the ТО analysis form use: the
-    page renders every active employee once, tagged with `data-department-id`,
-    and the browser only filters what is already there. No directory endpoint
-    is involved, and the server re-checks the department of every submitted
-    employee anyway.
-    """
-    return {
-        'departments': Department.objects.filter(is_active=True),
-        'employees': User.objects.filter(is_active=True, userprofile__is_active=True)
-        .select_related('userprofile__department')
-        .order_by('last_name', 'first_name', 'username'),
     }
 
 

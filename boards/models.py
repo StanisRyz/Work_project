@@ -36,14 +36,17 @@ class Board(models.Model):
 
     name = models.CharField('Название', max_length=200)
     description = models.TextField('Описание', blank=True)
-    # Organisational metadata, like every `Department` reference: it says whose
-    # board this is and becomes the `department` of every task the board
-    # creates. It grants nothing — `boards/permissions.py` never reads it.
+    # Kept only for the boards that already carry one: a board is shared work
+    # of people from any number of departments, so a new board names none and
+    # its tasks name none either. It grants nothing — `boards/permissions.py`
+    # never reads it — and a page shows nothing where it is empty.
     department = models.ForeignKey(
         Department,
         on_delete=models.PROTECT,
         related_name='boards',
         verbose_name='Подразделение',
+        null=True,
+        blank=True,
     )
     owner = models.ForeignKey(
         User,

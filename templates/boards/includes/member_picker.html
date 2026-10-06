@@ -1,0 +1,21 @@
+{% comment %}
+«Подразделение | Сотрудник» rows for «Новая доска» and «Участники» — the shared
+picker (`static/js/employee_picker.js`, `[data-employee-picker]`), the same
+pair the protocol editor uses. Every row posts its employee under `field_name`;
+the department beside it only filters the list and is never posted. `exclude`
+names who is never offered (the owner, the current members), and a person
+chosen in one row is hidden in the others. Without JavaScript every row offers
+the full list, and «+ Добавить участника» posts the form back for one more row
+(`add_member_row`), writing nothing.
+{% endcomment %}
+<div class="board-member-picker" data-employee-picker data-employee-picker-exclude="{{ exclude }}">
+    <div class="board-member-picker__list" data-employee-picker-list>
+        {% for row in rows %}
+            {% include 'boards/includes/member_row.html' %}
+        {% endfor %}
+    </div>
+    <template data-employee-picker-template>
+        {% include 'boards/includes/member_row.html' with row=empty_member_row %}
+    </template>
+    <button class="link-button link-button--secondary link-button--compact" type="submit" name="add_member_row" value="1" formnovalidate data-employee-picker-add>+ Добавить участника</button>
+</div>

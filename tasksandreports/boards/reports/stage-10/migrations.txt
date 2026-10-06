@@ -1,0 +1,28 @@
+$ migrate (from zero, PostgreSQL 16)
+  Applying boards.0004_board_department_optional... OK
+  Applying tasks.0021_board_task_department_free... OK
+exit=0
+$ migrate tasks 0020 (one step back)
+  Rendering model states... DONE
+  Unapplying tasks.0021_board_task_department_free... OK
+exit=0
+$ migrate boards 0003 (one step back)
+  Rendering model states... DONE
+  Unapplying boards.0004_board_department_optional... OK
+exit=0
+$ migrate (again)
+Running migrations:
+  Applying boards.0004_board_department_optional... OK
+  Applying tasks.0021_board_task_department_free... OK
+exit=0
+$ makemigrations --check --dry-run
+No changes detected
+$ SQLite: migrate (from zero)
+  Applying boards.0004_board_department_optional... OK
+  Applying tasks.0021_board_task_department_free... OK
+$ migrate tasks 0020; migrate boards 0003
+  Unapplying tasks.0021_board_task_department_free... OK
+  Unapplying boards.0004_board_department_optional... OK
+$ migrate (again)
+  Applying boards.0004_board_department_optional... OK
+  Applying tasks.0021_board_task_department_free... OK

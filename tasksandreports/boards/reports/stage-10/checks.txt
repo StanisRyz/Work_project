@@ -1,0 +1,27 @@
+### check
+System check identified no issues (0 silenced).
+exit=0
+### makemigrations --check --dry-run
+No changes detected
+exit=0
+### check_documentation
+Проверка документации
+
+  [PASS    ] documents: Активных документов — 10, архивных — 5.
+  [PASS    ] links: Все относительные ссылки разрешаются (15 документов).
+  [PASS    ] stage_markers: Активные документы не содержат маркеров этапов.
+  [PASS    ] archive_notice: Все архивные документы (5) помечены.
+  [PASS    ] commands: Все упомянутые management-команды существуют.
+  [PASS    ] structure: Все активные документы непусты и имеют один H1.
+  [WARNING ] length: AGENTS.md: 2431 строк заметно превышает ориентир 190. Допустимо, если содержимое уникально.
+  [WARNING ] length: README.md: 651 строк заметно превышает ориентир 220. Допустимо, если содержимое уникально.
+  [WARNING ] length: docs/domain.md: 629 строк заметно превышает ориентир 350. Допустимо, если содержимое уникально.
+  [WARNING ] length: docs/realtime.md: 534 строк заметно превышает ориентир 350. Допустимо, если содержимое уникально.
+
+Документация корректна, предупреждений — 4.
+exit=0
+### test --parallel 4
+Ran 1425 tests in 96.896s
+OK (skipped=8)
+### node
+90/90 passed

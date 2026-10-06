@@ -4,7 +4,7 @@
 {% block title %}{{ board.name }} · Доски{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261008-1">
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261009-2">
 {% endblock %}
 
 {% block content_class %}page-container--fill{% endblock %}
@@ -28,7 +28,7 @@ the panel with no control at all.
     <a class="act-back-link" href="{% url 'boards:list' %}{% if board.is_archived %}?tab=archive{% endif %}" aria-label="К списку досок">←</a>
     <div class="board-heading__title">
         <h1 class="user-text">{{ board.name }}{% if board.is_archived %} <span class="status-badge status-badge--archived">В архиве</span>{% endif %}</h1>
-        <span class="board-heading__meta"><span class="user-text">{{ board.department.name }}</span> · владелец {{ board.owner|person_name }}{% if board.is_archived %} · в архиве с {{ board.archived_at|date:'d.m.Y' }}{% endif %}</span>
+        <span class="board-heading__meta">{% if board.department %}<span class="user-text">{{ board.department.name }}</span> · {% endif %}владелец {{ board.owner|person_name }}{% if board.is_archived %} · в архиве с {{ board.archived_at|date:'d.m.Y' }}{% endif %}</span>
     </div>
     <div class="board-heading__actions">
         <a class="link-button link-button--secondary" href="{% url 'boards:members' board.pk %}">Участники ({{ member_count }})</a>

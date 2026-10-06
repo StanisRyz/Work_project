@@ -37,14 +37,15 @@ ALL_ROLES = frozenset(UserProfile.Role.values)
 
 
 class WidenedBoardAccess:
-    """Board access open to every role for the whole test class.
+    """Full board access open to every role for the whole test class.
 
-    Boards are admitted to administrators only for now
-    (`boards.permissions.BOARD_ACCESS_ROLES`); the board tests keep ПДО, ОТК
-    and ТО as owners and members, so they run with the admission widened —
-    which is also what keeps the behaviour after widening covered. Patched
-    before `setUpTestData()`, which already creates boards.
-    `boards/tests/test_access.py` runs with the real constant.
+    Full access — every board, creating one — is the administrator's only for
+    now (`boards.permissions.BOARD_ACCESS_ROLES`); the board tests keep ПДО as
+    a creator and owner and read boards as an outsider, so they run with full
+    access widened — which is also what keeps the behaviour after widening
+    covered. Patched before `setUpTestData()`, which already creates boards.
+    `boards/tests/test_access.py` runs with the real constant: full access and
+    reading by membership.
     """
 
     @classmethod

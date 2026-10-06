@@ -539,13 +539,14 @@ def create_bug_report_task(report, assignee_ids, *, created_by, due_date):
 # --------------------------------------------------------------------------
 
 
-def create_board_card_task(card, assignee_ids, *, created_by, due_date, task_text, department):
+def create_board_card_task(card, assignee_ids, *, created_by, due_date, task_text, department=None):
     """The one task a board card is the work of.
 
     Shared, never split: a card is one piece of work, and whoever finishes it
     finishes it for the rest. The wording is composed by
-    `boards.services.compose_task_text()` and the department is the board's,
-    both passed in so this module owns the task and not the board's rules.
+    `boards.services.compose_task_text()` and the department — none for a new
+    card, a board being shared work of several departments — is passed in, so
+    this module owns the task and not the board's rules.
     «One task per card» is `unique_board_card_task`, not a check here.
     """
     task = Task(

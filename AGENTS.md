@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards, for now used only by employees with board access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `can_use_boards()`): `Board` (name, department as a label, owner), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_list_state()`/`boards_for_user()` in `boards/selectors.py`; the pages under `/work/boards/` (registry, «Новая доска», the board with its card panel `?card=<pk>` / `&edit=1` / `?new=<stage>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript; the card panel is where a `BOARD` task is worked (`boards:card_complete`, the task's own attachment and reopen routes). Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?q`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns the board's three live blocks (columns, card panel, messages) for `static/js/realtime/boards.js` |
+| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, owner; a department only on the boards that already had one), `BoardMember`, `BoardCard` (column `stage`, `position`, title, description); the four columns in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_list_state()`/`boards_for_user()` in `boards/selectors.py`; the pages under `/work/boards/` (registry, «Новая доска», the board with its card panel `?card=<pk>` / `&edit=1` / `?new=<stage>`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript; the card panel is where a `BOARD` task is worked (`boards:card_complete`, the task's own attachment and reopen routes). Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?q`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns the board's three live blocks (columns, card panel, messages) for `static/js/realtime/boards.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -69,9 +69,9 @@ plus Документация — a first-level item that is a plain link to `/d
 has no submenu, and is drawn for whoever `can_view_documents()` admits — every
 signed-in employee (`documents.context_processors.documentation_access` →
 `can_view_documentation`) — and, after it, Доски: the same first-level plain
-link, to `/work/boards/`, drawn only for whoever has board access
-(`boards.context_processors.boards_access` → `can_use_boards`;
-`active_page == 'boards'`). Only leaf items are links; categories are buttons, one submenu open at a time,
+link, to `/work/boards/`, drawn only for whoever uses boards — full access or
+a member of at least one board (`boards.context_processors.boards_access` →
+`can_use_boards`; `active_page == 'boards'`). Only leaf items are links; categories are buttons, one submenu open at a time,
 and the panel and the profile menu are never open together. All of that state
 lives in `static/js/app.js`.
 
@@ -450,7 +450,7 @@ tasks never live inside `acts`.
   non-whitespace execution result; assignee changes go only through
   `tasks.services.replace_task_assignees()`. Every authenticated user may read
   every task through `all`, `archive` and task detail — except a `BOARD` task,
-  which only an employee with board access reads (below); only active assigned
+  which only a reader of its board reads (below); only active assigned
   tasks appear in `my`, and read access never grants completion rights.
 - **`TaskStatus` has three codes, and «закрыта» is `is_final`, never a code
   list.** `IN_PROGRESS`, `COMPLETED` and `CANCELLED` (`references.0004`,
@@ -487,13 +487,14 @@ tasks never live inside `acts`.
   | `SMK` | `smk_source`, `smk_action`, `department` | `act`, `root_analysis`, `source_action`, `protocol`, `protocol_action`, `workflow_stage` |
   | `BUG` | `bug_report` | everything else, `department` and `individual_assignee` included |
   | `DOCUMENT_ACK`, `DOCUMENT_APPROVAL`, `DOCUMENT_REVIEW` | `document_version`, `individual_assignee` | every act, protocol, СМК and bug relation, `workflow_stage`; `department` free (the owning подразделение when the card names one) |
-  | `BOARD` | `board_card`, `department` | every act, protocol, СМК, bug and document relation, `individual_assignee`, `workflow_stage` |
+  | `BOARD` | `board_card` | every act, protocol, СМК, bug and document relation, `individual_assignee`, `workflow_stage`; `department` free (a new card names none — a board is shared work of several departments — and older tasks keep theirs) |
 
   The act relations are nullable *only* so the other shapes can exist; for an
   `ACT` task all three stay required. `department` is nullable for the same
-  reason and for two sources only — an `ACT_WORKFLOW` entry belongs to a *role*
-  and a `BUG` one to the accounts flagged «Ответственный за ошибки», and neither
-  has a single department to name — so the constraint states
+  reason: an `ACT_WORKFLOW` entry belongs to a *role* and a `BUG` one to the
+  accounts flagged «Ответственный за ошибки», and neither has a single
+  department to name (it is free on the document and `BOARD` branches) — so
+  the constraint states
   `department IS NOT NULL` explicitly on the other branches rather than
   leaving it to the column, and `IS NULL` on the `BUG` branch. `smk_source`/`smk_action` are stated `IS NULL` on
   every non-`SMK` branch for the same reason: a relation outside a shape must
@@ -908,14 +909,18 @@ tasks never live inside `acts`.
   branch of `tasks/views.py` draws `tasks/detail.html` for it — a refused
   `tasks:complete` or upload puts its message in `messages`, parks the draft
   and redirects to the card. `tasks` names the route and reads
-  `Task.board_card`; its one import from `boards` is
-  `boards.permissions.can_use_boards()`: `get_readable_tasks_queryset()` and
-  `get_visible_tasks_queryset()` exclude `source_type=BOARD` for a user without
-  board access (so «Задачи» with every tab and its Excel, `tasks:detail` — a
-  404 — the quick search, «Мои задачи», the menu counts and the `tasks` sync
-  revision all follow), `can_view_task()` says the same per task, and the
-  registry's «Тип задачи» offers «Доска» only with access (presentation). No
-  cycle: `boards.permissions` depends on `accounts` and `acts.permissions` only.
+  `Task.board_card`; its one module that asks `boards` is `tasks.permissions`
+  (`tasks.selectors` takes `can_use_boards` from it):
+  `get_readable_tasks_queryset()` and `get_visible_tasks_queryset()` keep a
+  `BOARD` task only for a reader of its board — all of them for full access
+  (`has_full_board_access()`), otherwise `~Q(source_type=BOARD) |
+  Q(board_card__board_id__in=readable_board_ids(user))`, one subquery and no
+  repeated row — so «Задачи» with every tab and its Excel, `tasks:detail` (a
+  404), the quick search, «Мои задачи», the menu counts and the `tasks` sync
+  revision all follow; `can_view_task()` asks `can_view_board()`, and the
+  registry's «Тип задачи» offers «Доска» only to whoever uses boards
+  (presentation). No cycle: `boards.permissions` depends on `accounts`,
+  `acts.permissions` and its own models only.
 - **An «Исполнители» row is avatar · name · подразделение, sized by class.**
   `.task-detail-assignee-avatar` never shrinks, `.task-detail-assignee-name`
   takes what is left (`flex: 1 1 auto` **and** `min-width: 0` — without the
@@ -1208,10 +1213,16 @@ tasks never live inside `acts`.
   restructuring changed markup only, never the form contract or a rule.
 - **The editor never clears a selection the author did not clear.** The
   department selector next to a person filters the employee list, but
-  `syncPair()` in `protocol_editor.js` leaves an already stored employee
+  `syncPair()` — the shared `static/js/employee_picker.js`, loaded once in
+  `base.html` and used by the protocol editor, the СМК form and the board
+  forms alike (each page keeps only its own rule of whom a pair hides,
+  `excludeUsers`) — leaves an already stored employee
   visible, enabled and selected however badly it matches — an employee moved
   to another department after the draft was saved, or a department since
-  deactivated and therefore absent from `get_editor_directory()`. The row
+  deactivated and therefore absent from the directory
+  (`accounts.directory.get_employee_directory()`, the one builder of the
+  «подразделения + сотрудники» options every such form renders through
+  `templates/includes/department_options.html`/`employee_options.html`). The row
   raises `[data-pair-warning]` instead, and changing or removing the person is
   the author's own explicit action. This covers both `[data-employee-pair]`
   blocks — участники and the исполнители of a protocol decision — because a
@@ -1447,7 +1458,8 @@ tasks never live inside `acts`.
   role check written outside `*/permissions.py`. The one right any of them
   holds so far is `OPR` creating a board, by being listed in
   `boards.permissions.BOARD_CREATOR_ROLES` — and it does not apply yet, because
-  boards are admitted to administrators only (`BOARD_ACCESS_ROLES`). The same-named `Department`
+  creating needs full board access, today the administrator's alone
+  (`BOARD_ACCESS_ROLES`); as a board member any of them works on that board. The same-named `Department`
   rows (`accounts.0008`) are separate organisational metadata; no check keys on
   a department code except the ПДО lookup in `tasks/services.py`.
 - **Reading the journal stays open to every authenticated user**: the calculator
@@ -1692,7 +1704,9 @@ tasks never live inside `acts`.
   the work: исполнители, срок, status, completion. `create_card()` writes both
   in one `atomic()` block through `tasks.services.create_board_card_task()`;
   `Task.task_text` is `compose_task_text(title, description)` and nothing else,
-  and `Task.department` is the board's. A `BOARD` task is shared, never split,
+  and `Task.department` is empty — a board is shared work of people from any
+  department, so the `BOARD` shape leaves it free (tasks issued before keep
+  theirs). A `BOARD` task is shared, never split,
   and never `requires_attachment`. It shows in «Задачи» like any task; tasks of
   other sources never reach a board.
 - **«Готово» is derived, never stored.** `BoardCard.Stage` is `TODO`,
@@ -1713,29 +1727,41 @@ tasks never live inside `acts`.
   `replace_task_assignees()`; `complete_card()` is `complete_task()` and does
   not touch `stage`. Every исполнитель is an active member, and a member who is
   the исполнитель of an open card, or the owner, cannot be removed.
-- **`boards/permissions.py` is the whole rule, and board access comes first.**
-  `BOARD_ACCESS_ROLES` (today `{ADMIN}`) is a temporary admission for the
-  pilot, not a model of rights: `can_use_boards()` is a genuine superuser or a
-  holder of one of those roles through `accounts.roles`, and
-  `board_access_q(prefix)` is the same rule as a filter (the caller adds
-  `active_employee_q()` and `.distinct()`). Every right starts with it —
-  `can_view_board()`, `can_create_board()`, `_keeps_board()` (so
-  `can_manage_board()`/`can_restore_board()`), `can_cancel_card()`,
-  `can_work_on_board()` (so `can_comment_card()`) — and answers False without
-  it, to an owner and a member too; the constant is read at call time, so
-  widening boards is adding roles to it and the board tests run with it
-  widened (`boards/tests/helpers.WidenedBoardAccess`), while
-  `boards/tests/test_access.py` keeps the real one. Only an active employee
-  with access becomes a member (`BoardForm`/`AddMembersForm` offer
-  `active_employee_q() & board_access_q()`, `create_board()`/
-  `add_board_members()` refuse anybody else) or an исполнитель
-  (`_clean_assignees()` asks it of the membership row too, so a row older than
-  the admission carries no work); such rows are never deleted. Every board
-  route answers 403 without it, before the method — JSON for `fragment` and a
-  fetch `card_move`. An archived board is
+- **`boards/permissions.py` is the whole rule: full access or membership.**
+  `BOARD_ACCESS_ROLES` (today `{ADMIN}`) is *full* access, a temporary
+  admission for the pilot, widened by adding roles: `has_full_board_access()`
+  is a genuine superuser or a holder of one of those roles through
+  `accounts.roles`, `full_board_access_q(prefix)` the same as a filter on users
+  (the caller adds `active_employee_q()` and `.distinct()`). Full access reads
+  every board and creates boards within `BOARD_CREATOR_ROLES`. Anybody else
+  reads a board by being an active member of it. `can_view_board()` is that
+  union, archived boards included, and every other right — `_keeps_board()`
+  (so `can_manage_board()`/`can_restore_board()`), `can_cancel_card()`,
+  `can_work_on_board()` (so `can_comment_card()`) — starts with it.
+  `can_use_boards()` only says whether the section is shown — full access or a
+  member of at least one board, one `EXISTS` kept on the user object for the
+  request, since the menu asks it on every page. `readable_board_ids(user)` /
+  `readable_boards_q(user, field)` are `can_view_board()` as a filter (no
+  condition at all for full access) and serve the registry, the `BOARD` tasks
+  and the `boards` sync revision. The constant is read at call time, so the
+  board tests run with full access widened to every role
+  (`boards/tests/helpers.WidenedBoardAccess`) while
+  `boards/tests/test_access.py` keeps the real one. **Any active employee may
+  be a member and an исполнитель**: `BoardForm`/`AddMembersForm` offer
+  `active_employee_q()`, and `create_board()`/`add_board_members()` refuse
+  only an inactive account sent by hand. «Новая доска» asks for a name and
+  members, nothing else: members are «Подразделение | Сотрудник» rows
+  (`boards/includes/member_picker.html`, `[data-employee-picker]`), one
+  `members` value per row, blanks and repeats collapsed by `EmployeeRowsField`,
+  the creator dropped (they are the owner and a member anyway); «Участники»
+  adds through the same rows. Without JavaScript every row offers every
+  active employee and «+ Добавить участника» posts the form back with one
+  more row (`add_member_row`), writing nothing. Every board route answers 403
+  to a non-reader, before the method — JSON for `fragment` and a fetch
+  `card_move`. An archived board is
   read-only for everybody — `can_work_on_board()`, `can_manage_board()` and
   `can_cancel_card()` answer False on it, and the one right left is
-  `can_restore_board()`. Reading is every employee with board access;
+  `can_restore_board()`. Reading is full access or membership;
   creating is `BOARD_CREATOR_ROLES` (ПДО, Отдел продаж, руководитель,
   администратор, through `accounts.roles`, so a lent role counts) or a genuine
   superuser; managing members is the owner while still an active employee, or
@@ -2306,11 +2332,13 @@ tasks never live inside `acts`.
   stood (`move_card()` detects it and writes nothing) publish nothing. A board
   task changed elsewhere — `tasks:complete`, `reopen_task()`, attachments — is
   its own `task.*` and never a `board.updated`. The audience is
-  `board_targets()`: every active account with board access, resolved through
-  `boards.permissions.board_access_q()` (a superuser without a profile kept,
-  as in `_every_reader_targets()`), because `can_view_board` is exactly that.
-  `/realtime/sync/` carries, for a user with board access, a
-  `boards` revision from four unfiltered aggregates — cards (count, max
+  `board_targets(board)`: every active account with full access
+  (`boards.permissions.full_board_access_q()`, a superuser without a profile
+  kept, as in `_every_reader_targets()`) plus the active members of *that*
+  board, one query, because `can_view_board` is exactly that.
+  `/realtime/sync/` carries, for a user who uses boards, a
+  `boards` revision from four aggregates over the boards they read
+  (`readable_boards_q()`: everything for full access, a member's own boards) — cards (count, max
   `updated_at`), `BOARD` tasks (count, max `updated_at`, status mix),
   memberships (count, max `added_at`) and «Обсуждение» messages (count, max
   `created_at`) — which is how a reader who is no

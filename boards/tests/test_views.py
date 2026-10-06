@@ -147,8 +147,7 @@ class CreateBoardViewTests(BoardViewMixin, TestCase):
         self.client.force_login(self.owner)
         self.assertEqual(self.client.get(reverse('boards:create')).status_code, 200)
         response = self.client.post(reverse('boards:create'), {
-            'name': 'Продажи', 'description': '', 'department': self.department.pk,
-            'members': [self.member.pk],
+            'name': 'Продажи', 'members': [self.member.pk],
         })
         board = Board.objects.get(name='Продажи')
         self.assertRedirects(response, reverse('boards:detail', args=[board.pk]))
@@ -159,10 +158,17 @@ class CreateBoardViewTests(BoardViewMixin, TestCase):
 
     def test_invalid_form_keeps_input(self):
         self.client.force_login(self.owner)
-        response = self.client.post(reverse('boards:create'), {'name': 'Без отдела'})
+        inactive = make_user('create_inactive')
+        inactive.is_active = False
+        inactive.save()
+        response = self.client.post(
+            reverse('boards:create'), {'name': 'С ошибкой', 'members': [self.member.pk, inactive.pk]},
+        )
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'value="Без отдела"')
-        self.assertFalse(Board.objects.filter(name='Без отдела').exists())
+        self.assertContains(response, 'value="С ошибкой"')
+        # The row keeps the employee who was picked in it.
+        self.assertContains(response, f'<option value="{self.member.pk}" data-department-id="{self.department.pk}" selected>')
+        self.assertFalse(Board.objects.filter(name='С ошибкой').exists())
 
     def test_role_without_the_right_gets_403(self):
         self.client.force_login(make_user('mas_user', UserProfile.Role.MAS))

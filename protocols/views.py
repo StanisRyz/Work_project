@@ -14,6 +14,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
+from accounts.directory import get_employee_directory
 from ecosystem.logging_utils import log_event
 from realtime.auth import realtime_login_required
 from realtime.fragments import LIVE_REVISION_PLACEHOLDER, content_revision
@@ -42,7 +43,6 @@ from .selectors import (
     get_approval_progress,
     get_approval_revision_groups,
     get_current_approval_rows,
-    get_editor_directory,
     get_protocol_attachments,
     get_protocol_comments,
     get_protocol_history_groups,
@@ -792,7 +792,7 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
     elif detail_tab == 'activities':
         context['related_tasks'] = get_related_protocol_tasks(protocol, request.user)
     if can_edit:
-        directory = get_editor_directory()
+        directory = get_employee_directory()
         context['form'] = form or ProtocolDraftForm(protocol)
         # A posted form holds the author's own input; the live client must
         # never replace it with a clean render of the stored draft.

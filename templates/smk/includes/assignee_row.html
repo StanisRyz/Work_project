@@ -11,14 +11,14 @@ this project, not one per module.
         <span>Подразделение</span>
         <select name="actions-{{ action_index }}-assignee_departments" data-department-select required>
             <option value="">Выберите подразделение</option>
-            {% include 'protocols/includes/department_options.html' with selected=assignee.department %}
+            {% include 'includes/department_options.html' with selected=assignee.department %}
         </select>
     </label>
     <label>
         <span>Исполнитель</span>
         <select name="actions-{{ action_index }}-assignees" data-employee-select required>
             <option value="">Выберите исполнителя</option>
-            {% include 'protocols/includes/employee_options.html' with selected=assignee.user %}
+            {% include 'includes/employee_options.html' with selected=assignee.user %}
         </select>
     </label>
     <button class="protocol-remove-button" type="button" data-remove-assignee aria-label="Удалить исполнителя" title="Удалить исполнителя">×</button>

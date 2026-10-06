@@ -49,7 +49,6 @@ from .columns import WORK_STAGES
 from .models import Board, BoardCard, BoardCardComment, BoardMember
 from .permissions import (
     active_employee_q,
-    board_access_q,
     can_cancel_card,
     can_comment_card,
     can_create_board,
@@ -133,17 +132,15 @@ def _lock_card_task(card):
 def _active_users(user_ids):
     """`{pk: user}` for those among `user_ids` who may be on a board at all.
 
-    An active employee with board access (`board_access_q()`): an id sent by
-    hand for anybody else is left out, and the caller refuses the request.
+    Any active employee: an id sent by hand for anybody else is left out, and
+    the caller refuses the request.
     """
     ids = {int(getattr(value, 'pk', value)) for value in user_ids}
     if not ids:
         return {}
     return {
         user.pk: user
-        for user in get_user_model().objects.filter(
-            active_employee_q() & board_access_q(), pk__in=ids,
-        ).distinct()
+        for user in get_user_model().objects.filter(active_employee_q(), pk__in=ids)
     }
 
 
@@ -161,18 +158,14 @@ def _clean_title(title):
 
 
 def _clean_assignees(board, assignee_ids):
-    """Sorted ids of the requested исполнители, each an active board member with access.
-
-    Access is asked again here because a membership row may predate it: such a
-    row grants nothing and must not carry work either.
-    """
+    """Sorted ids of the requested исполнители, each an active board member."""
     ids = sorted({int(getattr(value, 'pk', value)) for value in assignee_ids or ()})
     if not ids:
         raise BoardError('Укажите хотя бы одного исполнителя.')
     member_ids = set(
         BoardMember.objects.filter(
-            active_employee_q('user__') & board_access_q('user__'), board=board, user_id__in=ids,
-        ).values_list('user_id', flat=True).distinct()
+            active_employee_q('user__'), board=board, user_id__in=ids,
+        ).values_list('user_id', flat=True)
     )
     if set(ids) - member_ids:
         raise BoardError('Исполнителями могут быть только активные участники доски.')
@@ -196,8 +189,12 @@ def compose_task_text(title, description):
 # --------------------------------------------------------------------------
 
 
-def create_board(*, name, department, owner, actor, description='', member_ids=()):
-    """A new board; its owner is always one of its members."""
+def create_board(*, name, owner, actor, member_ids=(), department=None, description=''):
+    """A new board; its owner is always one of its members.
+
+    `department` and `description` are kept for the boards that carry them;
+    the form asks for neither, and a new board names no department.
+    """
     if not can_create_board(actor):
         _rejected('create_board', 'not_permitted', actor=actor)
         raise BoardError('Создание доски недоступно.')
@@ -206,15 +203,13 @@ def create_board(*, name, department, owner, actor, description='', member_ids=(
         raise BoardError('Укажите название доски.')
     if len(name) > 200:
         raise BoardError('Название доски — не длиннее 200 символов.')
-    if department is None:
-        raise BoardError('Укажите подразделение доски.')
     requested = {owner.pk, *(int(getattr(value, 'pk', value)) for value in member_ids)}
     users = _active_users(requested)
     if owner.pk not in users:
-        raise BoardError('Владельцем доски может быть только активный сотрудник с доступом к доскам.')
+        raise BoardError('Владельцем доски может быть только активный сотрудник.')
     if set(requested) - set(users):
         _rejected('create_board', 'ineligible_member', actor=actor)
-        raise BoardError('Участниками доски могут быть только активные сотрудники с доступом к доскам.')
+        raise BoardError('Участниками доски могут быть только активные сотрудники.')
     with transaction.atomic():
         board = Board.objects.create(
             name=name,
@@ -254,7 +249,7 @@ def add_board_members(board, user_ids, *, actor):
         users = _active_users(requested)
         if requested - set(users):
             _rejected('add_members', 'ineligible_member', actor=actor, board_id=board.pk)
-            raise BoardError('Участниками доски могут быть только активные сотрудники с доступом к доскам.')
+            raise BoardError('Участниками доски могут быть только активные сотрудники.')
         existing = set(
             BoardMember.objects.filter(board=board, user_id__in=requested)
             .values_list('user_id', flat=True)
@@ -397,7 +392,9 @@ def create_card(
                 created_by=actor,
                 due_date=due_date,
                 task_text=compose_task_text(title, description),
-                department=board.department,
+                # A board is shared work of people from any department: its
+                # tasks name none (`Task.department` is free for `BOARD`).
+                department=None,
             )
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc

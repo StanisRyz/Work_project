@@ -29,6 +29,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
+from accounts.directory import get_employee_directory
 from realtime.auth import realtime_login_required
 from realtime.fragments import content_revision
 from tasks.drafts import remember_execution_draft, take_execution_draft
@@ -107,17 +108,51 @@ def board_list(request):
     return render(request, 'boards/list.html', state)
 
 
+def _member_picker(posted=(), *, extra_row=False, exclude=()):
+    """What `boards/includes/member_picker.html` draws: the directory and the rows.
+
+    A row per posted employee (each with its own department chosen beside it,
+    so a re-rendered form reads as it was filled), plus one empty row when
+    nothing was posted or «+ Добавить участника» asked for one without
+    JavaScript. The directory is `accounts.directory.get_employee_directory()`,
+    the protocol editor's own.
+    """
+    directory = get_employee_directory()
+    employees = list(directory['employees'])
+    departments_of = {
+        str(user.pk): str(getattr(getattr(user, 'userprofile', None), 'department_id', '') or '')
+        for user in employees
+    }
+    rows = [
+        {'user': value, 'department': departments_of.get(value, '')}
+        for value in (str(item).strip() for item in posted) if value
+    ]
+    if extra_row or not rows:
+        rows.append({'user': '', 'department': ''})
+    return {
+        'departments': directory['departments'],
+        'employees': employees,
+        'member_rows': rows,
+        'empty_member_row': {'user': '', 'department': ''},
+        'picker_exclude': ','.join(str(pk) for pk in exclude),
+    }
+
+
 @login_required
 def board_create(request):
     _require(can_create_board(request.user))
+    posted = ()
     if request.method == 'POST':
+        posted = request.POST.getlist('members')
         form = BoardForm(request.POST, owner=request.user)
-        if form.is_valid():
+        if 'add_member_row' in request.POST:
+            # «+ Добавить участника» without JavaScript: the same form again
+            # with one more row, nothing written and no errors shown.
+            form = BoardForm(initial={'name': request.POST.get('name', '')}, owner=request.user)
+        elif form.is_valid():
             try:
                 board = create_board(
                     name=form.cleaned_data['name'],
-                    description=form.cleaned_data['description'],
-                    department=form.cleaned_data['department'],
                     owner=request.user,
                     actor=request.user,
                     member_ids=[user.pk for user in form.cleaned_data['members']],
@@ -133,6 +168,9 @@ def board_create(request):
         'active_page': 'boards',
         'header_title': 'Новая доска',
         'form': form,
+        **_member_picker(
+            posted, extra_row='add_member_row' in request.POST, exclude=[request.user.pk],
+        ),
     })
 
 
@@ -621,20 +659,33 @@ def board_restore(request, pk):
 def board_members(request, pk):
     board = _board_or_404(pk)
     _require(can_view_board(request.user, board))
+    return _render_members(request, board)
+
+
+def _render_members(request, board, *, posted=(), extra_row=False):
+    """«Участники»: the list, and for the owner or an administrator the picker rows.
+
+    The rows offer every active employee who is not on the board yet — the
+    current members are the picker's `exclude`.
+    """
     can_manage = can_manage_board(request.user, board)
     members = (
         BoardMember.objects.filter(board=board)
         .select_related('user__userprofile__department')
         .order_by('user__last_name', 'user__first_name', 'user__username')
     )
-    return render(request, 'boards/members.html', {
+    context = {
         'active_page': 'boards',
         'header_title': f'Участники · {board.name}',
         'board': board,
         'members': members,
         'can_manage': can_manage,
-        'add_form': AddMembersForm(board=board) if can_manage else None,
-    })
+    }
+    if can_manage:
+        context.update(_member_picker(
+            posted, extra_row=extra_row, exclude=[member.user_id for member in members],
+        ))
+    return render(request, 'boards/members.html', context)
 
 
 @login_required
@@ -643,6 +694,11 @@ def members_add(request, pk):
     _require(can_manage_board(request.user, board))
     if request.method != 'POST':
         return redirect('boards:members', pk=board.pk)
+    if 'add_member_row' in request.POST:
+        # «+ Добавить участника» without JavaScript: one more row, nothing added.
+        return _render_members(
+            request, board, posted=request.POST.getlist('users'), extra_row=True,
+        )
     form = AddMembersForm(request.POST, board=board)
     if not form.is_valid():
         for errors in form.errors.values():

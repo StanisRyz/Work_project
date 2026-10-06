@@ -20,6 +20,7 @@ from .permissions import (
     can_cancel_card,
     can_comment_card,
     can_manage_board,
+    readable_boards_q,
     can_restore_board,
     can_work_on_board,
 )
@@ -329,9 +330,14 @@ def build_board_list_state(user, tab=None):
     """The registry: «Мои» (live boards I am on), «Все» (live) and «Архив».
 
     With no tab asked for, «Мои» — unless the user is on no live board, when
-    «Все» is the only list that says anything.
+    «Все» is the only list that says anything. «Все» and «Архив» are the
+    boards the user reads (`readable_boards_q()`): every board for full
+    access, the user's own for a member.
     """
-    everything = Board.objects.select_related('department', 'owner').order_by('name', 'pk')
+    everything = (
+        Board.objects.filter(readable_boards_q(user))
+        .select_related('department', 'owner').order_by('name', 'pk')
+    )
     lists = {
         'my': boards_for_user(user).filter(status=Board.Status.ACTIVE),
         'all': everything.filter(status=Board.Status.ACTIVE),

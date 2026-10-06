@@ -1,4 +1,4 @@
-"""The two board forms: a new board, and one card.
+"""The board forms: a new board, its members, and one card.
 
 They parse and offer choices; they decide nothing. `boards/services.py` checks
 every rule again under its locks — who may do it, that every исполнитель is an
@@ -9,12 +9,11 @@ through still writes nothing wrong.
 from django import forms
 from django.contrib.auth import get_user_model
 
-from accounts.models import Department
 from accounts.templatetags.people import person_name
 
 from .columns import WORK_STAGES
 from .models import BoardCard
-from .permissions import active_employee_q, board_access_q
+from .permissions import active_employee_q
 
 
 def employee_label(user):
@@ -30,11 +29,29 @@ class EmployeeMultipleChoiceField(forms.ModelMultipleChoiceField):
         return employee_label(obj)
 
 
+class EmployeeRowsField(EmployeeMultipleChoiceField):
+    """People picked in «Подразделение | Сотрудник» rows, one value per row.
+
+    Every row posts under the same name, so an empty row is an empty value and
+    the same person in two rows is one person: blanks are dropped and repeats
+    collapsed before the ordinary choice validation, which still refuses
+    anybody outside the queryset — an inactive account sent by hand included.
+    The department beside each row is never posted.
+    """
+
+    def clean(self, value):
+        seen = []
+        for item in value or ():
+            item = str(item).strip()
+            if item and item not in seen:
+                seen.append(item)
+        return super().clean(seen)
+
+
 def active_employees():
-    """Who may be put on a board: an active employee with board access."""
+    """Who may be put on a board: any active employee."""
     return (
-        get_user_model().objects.filter(active_employee_q() & board_access_q())
-        .distinct()
+        get_user_model().objects.filter(active_employee_q())
         .select_related('userprofile__department')
         .order_by('last_name', 'first_name', 'username')
     )
@@ -46,34 +63,31 @@ def active_members(board):
 
 
 class BoardForm(forms.Form):
-    """A new board. The owner is whoever submits it, so it is not asked."""
+    """A new board: its name and its members — nothing else.
+
+    The owner is whoever submits it, so it is not asked; the rows do not offer
+    them (they become a member anyway), and if they are posted all the same
+    they are simply dropped — never an error, never a second membership.
+    """
 
     name = forms.CharField(label='Название', max_length=200)
-    description = forms.CharField(
-        label='Описание', required=False, widget=forms.Textarea(attrs={'rows': 3}),
-    )
-    department = forms.ModelChoiceField(
-        label='Подразделение',
-        queryset=Department.objects.filter(is_active=True).order_by('name'),
-        empty_label='Выберите подразделение',
-    )
-    members = EmployeeMultipleChoiceField(
+    members = EmployeeRowsField(
         label='Участники',
-        queryset=active_employees(),
+        queryset=get_user_model().objects.none(),
         required=False,
-        widget=forms.SelectMultiple(attrs={'size': 10}),
-        help_text='Вы станете владельцем и участником доски сами.',
     )
 
     def __init__(self, *args, owner=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.owner = owner
         # Querysets are evaluated per form, not once at import.
-        members = active_employees()
-        if owner is not None:
-            members = members.exclude(pk=owner.pk)
-        self.fields['members'].queryset = members
-        self.fields['department'].queryset = Department.objects.filter(is_active=True).order_by('name')
+        self.fields['members'].queryset = active_employees()
 
+    def clean_members(self):
+        members = self.cleaned_data['members']
+        if self.owner is None:
+            return members
+        return [user for user in members if user.pk != self.owner.pk]
 
 class CardForm(forms.Form):
     """One card, new or edited. `stage` matters only when creating."""
@@ -121,10 +135,11 @@ class MoveCardForm(forms.Form):
 
 
 class AddMembersForm(forms.Form):
-    users = EmployeeMultipleChoiceField(
+    """«Участники»: more people, picked in the same rows as on «Новая доска»."""
+
+    users = EmployeeRowsField(
         label='Добавить участников',
         queryset=get_user_model().objects.none(),
-        widget=forms.SelectMultiple(attrs={'size': 8}),
         error_messages={'required': 'Выберите сотрудников.'},
     )
 

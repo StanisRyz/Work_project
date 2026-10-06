@@ -5,10 +5,7 @@ visibility rule stays in `protocols/permissions.py` — this module just shapes
 what the templates render.
 """
 
-from django.contrib.auth.models import User
 from django.utils import timezone
-
-from accounts.models import Department
 
 from .models import Protocol, ProtocolApproval, ProtocolType
 
@@ -119,22 +116,6 @@ def get_protocol_history_groups(protocol):
             groups.append({'date': event_date, 'events': []})
         groups[-1]['events'].append(event)
     return groups
-
-
-def get_editor_directory():
-    """The department/employee options the editor's selectors are built from.
-
-    The same mechanism the ТО analysis form already uses: the page renders every
-    active employee once, tagged with `data-department-id`, and the browser only
-    filters what is already there. No directory endpoint is involved, and the
-    server re-checks the department of every submitted employee anyway.
-    """
-    return {
-        'departments': Department.objects.filter(is_active=True),
-        'employees': User.objects.filter(is_active=True, userprofile__is_active=True)
-        .select_related('userprofile__department')
-        .order_by('last_name', 'first_name', 'username'),
-    }
 
 
 # --------------------------------------------------------------------------

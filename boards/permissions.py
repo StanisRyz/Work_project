@@ -9,10 +9,18 @@ Nothing here decides who may *complete* a card. A card's work is a
 `tasks.Task`, and finishing it is `tasks.permissions.can_complete_task()`,
 unchanged: an assignee of the task, or an administrator.
 
-Every right below starts with board access (`can_use_boards()`): for now only
-«Администратор» and a genuine superuser use boards at all. Without access the
-answer is False, the owner's and a member's included — the boards and their
-memberships stay as they are and simply grant nothing until access widens.
+Two ways onto a board:
+
+* **full access** (`has_full_board_access()`): a holder of a
+  `BOARD_ACCESS_ROLES` role — today «Администратор» — or a genuine superuser
+  reads every board and creates boards within `BOARD_CREATOR_ROLES`;
+* **membership**: any active employee reads the boards they are a member of
+  and works on their cards.
+
+`can_view_board()` is that union, and every other right on a board starts
+with it. `can_use_boards()` says whether the section is shown at all;
+`readable_board_ids()` / `readable_boards_q()` are the same rule as a filter,
+for the registry, the `BOARD` tasks and the realtime revision.
 
 An archived board (`Board.Status.ARCHIVED`) is read-only for everybody:
 nobody works on it, nobody manages its members or cancels its cards, and the
@@ -25,16 +33,18 @@ from accounts.models import UserProfile
 from accounts.roles import has_any_role, role_holders_q
 from acts.permissions import is_act_admin
 
+from .models import Board, BoardMember
 
-# Who uses boards at all. A temporary admission for the pilot, not a model of
-# rights: boards are opened to more people by adding their roles here, and
-# every rule below — owners, members, creators, исполнители — then works for
-# them unchanged. Read at call time (`can_use_boards()`, `board_access_q()`),
-# never copied at import, so a test may widen it.
+
+# Full access: who sees every board and may create one. A temporary admission
+# for the pilot, not a model of rights — opened to more people by adding their
+# roles here. Anybody else reaches a board only by being a member of it. Read
+# at call time (`has_full_board_access()`, `full_board_access_q()`), never
+# copied at import, so a test may widen it.
 BOARD_ACCESS_ROLES = frozenset({UserProfile.Role.ADMIN})
 
-# Inside that admission: Отдел продаж and ПДО keep boards; руководитель and администратор may start one
-# for them. Every other role reads boards and works on the ones it is a member of.
+# Within full access: Отдел продаж and ПДО keep boards; руководитель and
+# администратор may start one for them.
 BOARD_CREATOR_ROLES = frozenset({
     UserProfile.Role.PDO,
     UserProfile.Role.OPR,
@@ -42,18 +52,20 @@ BOARD_CREATOR_ROLES = frozenset({
     UserProfile.Role.ADMIN,
 })
 
+# `can_use_boards()` is asked by the menu on every page; its answer is kept on
+# the user object for the rest of the request, like the lent roles are.
+_USES_BOARDS_ATTR = '_quality_uses_boards'
+
 
 def _is_authenticated(user):
     return bool(getattr(user, 'is_authenticated', False))
 
 
-def can_use_boards(user):
-    """Board access: a genuine superuser, or a holder of a `BOARD_ACCESS_ROLES` role.
+def has_full_board_access(user):
+    """A genuine superuser, or a holder of a `BOARD_ACCESS_ROLES` role.
 
     Roles are read through `accounts.roles`, so an inactive account or profile
-    holds none and a lent role would count like the profile's own. Asked first
-    by every right below, by the menu, the dashboard card and the task registry
-    (`tasks.permissions`), so a person without it never sees a board or its work.
+    holds none and a lent role would count like the profile's own.
     """
     if not _is_authenticated(user):
         return False
@@ -62,8 +74,8 @@ def can_use_boards(user):
     return has_any_role(user, BOARD_ACCESS_ROLES)
 
 
-def board_access_q(prefix=''):
-    """`can_use_boards()` as a filter on users; `prefix` walks a relation first.
+def full_board_access_q(prefix=''):
+    """`has_full_board_access()` as a filter on users; `prefix` walks a relation first.
 
     Only the access part: the caller adds `active_employee_q()` for the active
     account and profile. The substitution join can repeat a user, so a
@@ -73,6 +85,52 @@ def board_access_q(prefix=''):
     for role in BOARD_ACCESS_ROLES:
         condition |= role_holders_q(role, prefix=prefix)
     return condition
+
+
+def can_use_boards(user):
+    """Whether «Доски» is shown: full access, or a member of at least one board.
+
+    One `EXISTS` for a member, remembered on the user object for the request —
+    the menu asks it on every page. Showing the section grants nothing: each
+    board is still asked about through `can_view_board()`.
+    """
+    if not _is_authenticated(user):
+        return False
+    cached = getattr(user, _USES_BOARDS_ATTR, None)
+    if cached is not None:
+        return cached
+    answer = has_full_board_access(user) or (
+        is_active_employee(user) and BoardMember.objects.filter(user=user).exists()
+    )
+    try:
+        setattr(user, _USES_BOARDS_ATTR, answer)
+    except AttributeError:
+        pass
+    return answer
+
+
+def readable_board_ids(user):
+    """The ids of the boards `user` reads, as a subquery — `can_view_board()` as a filter.
+
+    Every board for full access, the user's own memberships for an active
+    employee, none for anybody else.
+    """
+    if has_full_board_access(user):
+        return Board.objects.values('pk')
+    if _is_authenticated(user) and is_active_employee(user):
+        return BoardMember.objects.filter(user=user).values('board_id')
+    return Board.objects.none().values('pk')
+
+
+def readable_boards_q(user, field='pk'):
+    """A filter on `field` (a board id) keeping the boards `user` reads.
+
+    Empty — no condition at all — for full access, so the common case costs no
+    subquery.
+    """
+    if has_full_board_access(user):
+        return Q()
+    return Q(**{f'{field}__in': readable_board_ids(user)})
 
 
 def active_employee_q(prefix=''):
@@ -99,17 +157,27 @@ def is_active_employee(user):
     return profile is not None and profile.pk is not None and profile.is_active
 
 
+def _is_member(user, board):
+    return is_active_employee(user) and board.members.filter(user=user).exists()
+
+
 def can_view_board(user, board):
-    """Every employee with board access (`can_use_boards()`)."""
-    return can_use_boards(user)
+    """Full access, or an active employee who is a member of this board.
+
+    An archived board is read the same way. Every other right on a board
+    starts here.
+    """
+    if not _is_authenticated(user):
+        return False
+    return has_full_board_access(user) or _is_member(user, board)
 
 
 def can_create_board(user):
     """ПДО, Отдел продаж, руководитель, администратор — or a genuine superuser.
 
-    Within board access: today that leaves the administrator and the superuser.
+    Within full access: today that leaves the administrator and the superuser.
     """
-    if not can_use_boards(user):
+    if not has_full_board_access(user):
         return False
     if getattr(user, 'is_superuser', False):
         return True
@@ -117,8 +185,8 @@ def can_create_board(user):
 
 
 def _keeps_board(user, board):
-    """The owner while still an active employee, or an administrator — with access."""
-    if not can_use_boards(user):
+    """The owner while still an active employee, or an administrator."""
+    if not can_view_board(user, board):
         return False
     if is_act_admin(user):
         return True
@@ -142,13 +210,14 @@ def can_restore_board(user, board):
 def can_cancel_card(user, card):
     """«Отменить карточку»: its author, the board's owner or an administrator.
 
-    The author and the owner only while active employees. Never merely an
-    исполнитель: the исполнитель *completes* the work, and withdrawing it is
-    the decision of whoever put it on the board. Not on an archived board.
-    Whether the task is still open is the service's question.
+    The author and the owner only while active employees and readers of the
+    board. Never merely an исполнитель: the исполнитель *completes* the work,
+    and withdrawing it is the decision of whoever put it on the board. Not on
+    an archived board. Whether the task is still open is the service's
+    question.
     """
     board = card.board
-    if not can_use_boards(user) or board.is_archived:
+    if board.is_archived or not can_view_board(user, board):
         return False
     if is_act_admin(user):
         return True
@@ -173,8 +242,8 @@ def can_work_on_board(user, board):
     An administrator may too, as everywhere else in the project. Reading the
     board grants none of it, and nobody works on an archived board.
     """
-    if not can_use_boards(user) or board.is_archived:
+    if board.is_archived or not can_view_board(user, board):
         return False
     if is_act_admin(user):
         return True
-    return is_active_employee(user) and board.members.filter(user=user).exists()
+    return _is_member(user, board)
