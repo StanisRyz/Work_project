@@ -7,16 +7,19 @@ query each, the open cards and the latest completed ones are each one query
 through their tasks, the исполнители one prefetch each, and the card the panel
 shows one more. The board's own card fields are one query with their options
 one prefetch, and the values of every card on the page — the panel's included
-— one more.
+— one more. A filter — «Мои», the search, a field's — is a condition of the
+tasks' own query (a field filter an `Exists()`), never a query of its own.
 """
 
+import datetime
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from decimal import Decimal
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
-from django.db.models import Count, IntegerField, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models import Count, Exists, IntegerField, OuterRef, Prefetch, Q, Subquery, Value
 from django.db.models import prefetch_related_objects
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -62,9 +65,84 @@ PIN_PREVIEW_LIMIT = 3
 SEARCH_MAX_LENGTH = 200
 
 
+# The parameters of a field filter all start with it: `f_<field id>`,
+# `f_<id>_from`/`_to` (a date), `f_<id>_min`/`_max` (a number).
+FIELD_PARAM_PREFIX = 'f_'
+
+# `f_<id>=none` of a list: the cards holding no value of that field.
+FIELD_NONE_VALUE = 'none'
+
+
+@dataclass(frozen=True)
+class FieldFilter:
+    """One field of the board narrowing the cards — what its `f_<id>…`
+    parameters said, already checked against the field (`parse_board_filters()`).
+
+    A list: `option_ids` (any of them, in the options' order) and/or `none`
+    (no value at all). A date: `date_from`/`date_to`, a number:
+    `number_min`/`number_max` — each bound inclusive, either may be missing.
+    A text: `text`, a substring whatever the case.
+    """
+
+    field_id: int
+    kind: str
+    option_ids: tuple = ()
+    none: bool = False
+    date_from: datetime.date | None = None
+    date_to: datetime.date | None = None
+    number_min: Decimal | None = None
+    number_max: Decimal | None = None
+    text: str = ''
+
+    @property
+    def key(self):
+        return f'{FIELD_PARAM_PREFIX}{self.field_id}'
+
+    def params(self):
+        """The filter as `(name, value)` pairs, in a fixed order: what
+        `parse_board_filters()` reads back into this very filter."""
+        key = self.key
+        if self.kind == BoardField.Kind.SELECT:
+            pairs = [(key, str(option_id)) for option_id in self.option_ids]
+            return pairs + ([(key, FIELD_NONE_VALUE)] if self.none else [])
+        if self.kind == BoardField.Kind.DATE:
+            return [
+                (f'{key}_{name}', value.isoformat())
+                for name, value in (('from', self.date_from), ('to', self.date_to)) if value is not None
+            ]
+        if self.kind == BoardField.Kind.NUMBER:
+            return [
+                (f'{key}_{name}', format(value, 'f'))
+                for name, value in (('min', self.number_min), ('max', self.number_max)) if value is not None
+            ]
+        return [(key, self.text)]
+
+    def condition(self):
+        """The cards this filter keeps, as a condition on their tasks — one
+        `Exists()` (or `~Exists()` for «не задано») inside the tasks' own
+        query, so a filter costs no query of its own."""
+        values = BoardCardFieldValue.objects.filter(card=OuterRef('board_card'), field_id=self.field_id)
+        if self.kind == BoardField.Kind.SELECT:
+            condition = Q()
+            if self.option_ids:
+                condition |= Q(Exists(values.filter(option_id__in=self.option_ids)))
+            if self.none:
+                condition |= ~Q(Exists(values))
+            return condition
+        if self.kind == BoardField.Kind.DATE:
+            bounds = {'value_date__gte': self.date_from, 'value_date__lte': self.date_to}
+        elif self.kind == BoardField.Kind.NUMBER:
+            bounds = {'value_number__gte': self.number_min, 'value_number__lte': self.number_max}
+        else:
+            bounds = {'value_text__icontains': self.text}
+        return Q(Exists(values.filter(**{name: value for name, value in bounds.items() if value is not None})))
+
+
 @dataclass(frozen=True)
 class BoardFilters:
-    """What the board shows: `?mine=1`, `?overdue=1`, `?q=<text>`.
+    """What the board shows: `?mine=1`, `?overdue=1`, `?q=<text>` and the
+    filters of the board's own card fields (`fields`, `FieldFilter`s in the
+    fields' order).
 
     Parsed once by `parse_board_filters()` for the page, its fragment and the
     drag's JSON counts alike, so the three can never filter differently.
@@ -73,14 +151,20 @@ class BoardFilters:
     mine: bool = False
     overdue: bool = False
     q: str = ''
+    fields: tuple = ()
 
     @property
     def is_active(self):
-        return self.mine or self.overdue or bool(self.q)
+        return self.mine or self.overdue or bool(self.q) or bool(self.fields)
 
     @property
     def query(self):
-        """The filter as a query string without `?` — `''` when none is set."""
+        """The filter as a query string without `?` — `''` when none is set.
+
+        Always in the same order — `mine`, `overdue`, `q`, then the fields by
+        their position — so an address never changes by itself, and parsing
+        it gives this very filter back.
+        """
         params = []
         if self.mine:
             params.append(('mine', '1'))
@@ -88,19 +172,106 @@ class BoardFilters:
             params.append(('overdue', '1'))
         if self.q:
             params.append(('q', self.q))
+        for field_filter in self.fields:
+            params.extend(field_filter.params())
         return urlencode(params)
+
+    def field_filter(self, field_id):
+        """The filter of that field, or `None`."""
+        return next((item for item in self.fields if item.field_id == field_id), None)
+
+    def without_field(self, field_id):
+        """The same filters with that field's dropped — a chip's «×»."""
+        return replace(self, fields=tuple(item for item in self.fields if item.field_id != field_id))
 
 
 NO_FILTERS = BoardFilters()
 
 
-def parse_board_filters(params):
-    """`BoardFilters` from a request's GET (or any mapping of strings)."""
+def _param_values(params, key):
+    """Every value of `key` in `params` — a `QueryDict` or a plain mapping
+    (whose value may be a list) — stripped."""
+    if hasattr(params, 'getlist'):
+        values = params.getlist(key)
+    else:
+        value = params.get(key)
+        values = value if isinstance(value, (list, tuple)) else ([] if value is None else [value])
+    return [str(value).strip() for value in values]
+
+
+def _param(params, key):
+    """The first non-empty value of `key`, or `''`."""
+    return next((value for value in _param_values(params, key) if value), '')
+
+
+def _parse_field_filter(params, field):
+    """The `FieldFilter` `params` ask of `field`, or `None`.
+
+    A value is read exactly as a card's value is (`services._parse_number()`,
+    `_parse_date()`), and anything that does not read — an option of another
+    field, a date or a number that is not one — is dropped without a word: a
+    filter is a convenience of the address, not a rule, so a stale or
+    hand-written link shows the board, never an error.
+    """
+    from .services import BoardError, _parse_date, _parse_number
+
+    key = f'{FIELD_PARAM_PREFIX}{field.pk}'
+    if field.kind == BoardField.Kind.SELECT:
+        asked = set(_param_values(params, key))
+        # An archived option still filters: cards keep holding it.
+        option_ids = tuple(option.pk for option in field.options.all() if str(option.pk) in asked)
+        none = FIELD_NONE_VALUE in asked
+        if not option_ids and not none:
+            return None
+        return FieldFilter(field.pk, field.kind, option_ids=option_ids, none=none)
+    if field.kind == BoardField.Kind.TEXT:
+        text = _param(params, key)[:SEARCH_MAX_LENGTH]
+        return FieldFilter(field.pk, field.kind, text=text) if text else None
+    parse = _parse_date if field.kind == BoardField.Kind.DATE else _parse_number
+    names = ('from', 'to') if field.kind == BoardField.Kind.DATE else ('min', 'max')
+    bounds = []
+    for name in names:
+        raw = _param(params, f'{key}_{name}')
+        try:
+            value = parse(field, raw) if raw else None
+        except BoardError:
+            value = None
+        if isinstance(value, Decimal):
+            # «3,50» and «3.5» are one filter and one address.
+            value = Decimal(format(value.normalize(), 'f'))
+        bounds.append(value)
+    if bounds == [None, None]:
+        return None
+    if field.kind == BoardField.Kind.DATE:
+        return FieldFilter(field.pk, field.kind, date_from=bounds[0], date_to=bounds[1])
+    return FieldFilter(field.pk, field.kind, number_min=bounds[0], number_max=bounds[1])
+
+
+def parse_board_filters(params, fields=()):
+    """`BoardFilters` from a request's GET (or any mapping of strings).
+
+    `fields` are the board's own fields (`board_fields()`), in order: only a
+    live one of them is read, so an unknown id, a field of another board and
+    an archived field are no filter — the parameter is simply not there.
+    """
     return BoardFilters(
         mine=params.get('mine') == '1',
         overdue=params.get('overdue') == '1',
         q=(params.get('q') or '').strip()[:SEARCH_MAX_LENGTH],
+        fields=tuple(
+            field_filter
+            for field_filter in (
+                _parse_field_filter(params, field) for field in fields if not field.is_archived
+            )
+            if field_filter is not None
+        ),
     )
+
+
+def names_field_filter(params):
+    """Whether `params` carry any `f_…` parameter — whether the board's
+    fields need reading to parse them."""
+    return any(key.startswith(FIELD_PARAM_PREFIX) for key in params)
 
 
 # A bare card number in the search: «12», «№12», «#12».
@@ -108,19 +279,26 @@ _CARD_NUMBER = re.compile(r'^\s*[№#]?\s*(\d+)\s*$')
 
 
 def card_search_q(q):
-    """The board search over a sub-board's tasks: the title, or the card's code.
+    """The board search over a sub-board's tasks: the title, the card's code
+    or the value of one of its text fields.
 
     A substring of the title; «ZAP-12» in any case (the board's code and the
     number — `tasks.selectors.board_card_code_filter()`, the registry's own
-    rule); or a bare number («12», «№12»). The tasks searched are already the
-    board's own, so a code of another board finds nothing here.
+    rule); a bare number («12», «№12»); or a substring of a live text
+    field's value («3-1579» of «Номер заявки» —
+    `tasks.selectors.board_field_value_filter()`, the registry's and the
+    topbar's rule too). The tasks searched are already the board's own, so a
+    code of another board finds nothing here.
     """
-    from tasks.selectors import board_card_code_filter
+    from tasks.selectors import board_card_code_filter, board_field_value_filter
 
     condition = Q(board_card__title__icontains=q)
     card_code = board_card_code_filter(q)
     if card_code is not None:
         condition |= card_code
+    field_value = board_field_value_filter(q)
+    if field_value is not None:
+        condition |= field_value
     number = _CARD_NUMBER.match(q)
     if number is not None:
         condition |= Q(board_card__number=int(number.group(1)))
@@ -131,13 +309,17 @@ def _filtered(tasks, filters, user, *, open_work):
     """`tasks` narrowed by `filters`; `overdue` only ever narrows open work.
 
     «Мои» is «I am an исполнитель» (`TaskAssignee`, one row per person, so the
-    join adds no duplicates); `q` is a substring of the card's title or its
-    code (`card_search_q()`).
+    join adds no duplicates); `q` is a substring of the card's title, its
+    code or a text field's value (`card_search_q()`); each field filter is
+    one `Exists()` of the same query (`FieldFilter.condition()`), so neither
+    the number of filters nor the number of fields adds a query.
     """
     if filters.mine:
         tasks = tasks.filter(assignees__user=user)
     if filters.q:
         tasks = tasks.filter(card_search_q(filters.q))
+    for field_filter in filters.fields:
+        tasks = tasks.filter(field_filter.condition())
     if filters.overdue and open_work:
         tasks = tasks.filter(due_date__lt=timezone.localdate())
     return tasks
@@ -293,6 +475,78 @@ def describe_field_value(field, row):
         'is_archived': archived,
         'on_tile': field.show_on_tile and not archived,
     }
+
+
+def _filter_chip_text(field, field_filter):
+    """«Приоритет: Высокий, Средний», «Срок: по 30.11.2026», «Сумма: от 5 до
+    10», «Номер заявки: «3-1579»» — what an active field filter reads as."""
+    kind = field.kind
+    if kind == BoardField.Kind.SELECT:
+        labels = [option.label for option in field.options.all() if option.pk in field_filter.option_ids]
+        if field_filter.none:
+            labels.append('не задано')
+        value = ', '.join(labels)
+    elif kind == BoardField.Kind.TEXT:
+        value = f'«{field_filter.text}»'
+    elif kind == BoardField.Kind.DATE:
+        value = ' '.join(
+            f'{word} {bound:%d.%m.%Y}'
+            for word, bound in (('с', field_filter.date_from), ('по', field_filter.date_to)) if bound is not None
+        )
+    else:
+        value = ' '.join(
+            f'{word} {format_number(bound)}'
+            for word, bound in (('от', field_filter.number_min), ('до', field_filter.number_max))
+            if bound is not None
+        )
+    return f'{field.name}: {value}'
+
+
+def describe_field_filters(fields, filters):
+    """The «Поля» panel of the filter row: one row per live field, in order.
+
+    Each is `{'field', 'kind', 'key', 'filter', 'chip'}` plus what its inputs
+    show: a list's `options` (`{'option', 'checked'}` — the live ones, and an
+    archived one only while it is chosen) and `none`; a date's `date_from`/
+    `date_to` (ISO, for `type="date"`), a number's `number_min`/`number_max`
+    (as typed: «1234,5») and a text's `text`. `chip` is the active filter's
+    wording for the chip under the row, `''` while the field filters nothing.
+    Read off what is in memory — no query.
+    """
+    rows = []
+    for field in fields:
+        if field.is_archived:
+            continue
+        field_filter = filters.field_filter(field.pk)
+        chosen = field_filter.option_ids if field_filter else ()
+        row = {
+            'field': field,
+            'kind': field.kind,
+            'key': f'{FIELD_PARAM_PREFIX}{field.pk}',
+            'filter': field_filter,
+            'chip': _filter_chip_text(field, field_filter) if field_filter else '',
+        }
+        if field.kind == BoardField.Kind.SELECT:
+            row['options'] = [
+                {'option': option, 'checked': option.pk in chosen}
+                for option in field.options.all()
+                if not option.is_archived or option.pk in chosen
+            ]
+            row['none'] = bool(field_filter and field_filter.none)
+        elif field.kind == BoardField.Kind.DATE:
+            row['date_from'] = field_filter.date_from.isoformat() if field_filter and field_filter.date_from else ''
+            row['date_to'] = field_filter.date_to.isoformat() if field_filter and field_filter.date_to else ''
+        elif field.kind == BoardField.Kind.NUMBER:
+            row['number_min'] = (
+                number_input(field_filter.number_min) if field_filter and field_filter.number_min is not None else ''
+            )
+            row['number_max'] = (
+                number_input(field_filter.number_max) if field_filter and field_filter.number_max is not None else ''
+            )
+        else:
+            row['text'] = field_filter.text if field_filter else ''
+        rows.append(row)
+    return rows
 
 
 def card_field_rows(fields, card_ids):
@@ -541,7 +795,7 @@ def _move_choices(tabs, columns_of, current):
 
 
 def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=None,
-                      filters=NO_FILTERS, all_comments=False):
+                      filters=NO_FILTERS, all_comments=False, fields=None):
     """Everything one sub-board page renders.
 
     `sub_boards` are the board's tabs, each `{'sub_board', 'is_active',
@@ -583,7 +837,9 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
     columns block. Every card — on a column and in the panel — carries
     `field_values` (what it holds, in the fields' order, `describe_field_value()`),
     `tile_values` (the first `TILE_FIELD_LIMIT` a tile shows) and `field_rows`;
-    the values of all of them are one query (`card_field_rows()`).
+    the values of all of them are one query (`card_field_rows()`). A caller
+    that has read the fields already — to parse the field filters — passes
+    them as `fields`, and they are not read twice.
     """
     from tasks.permissions import completable_task_ids
 
@@ -620,7 +876,8 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
         cards_by_column[done_column.pk] = [_item(task, board) for task in done_list]
     # The board's own fields, and the values of every card on the page — the
     # panel's included, whichever it is — in one query.
-    fields = board_fields(board)
+    if fields is None:
+        fields = board_fields(board)
     panel_id = int(card_id) if str(card_id or '').isdigit() else None
     field_rows = card_field_rows(
         fields,

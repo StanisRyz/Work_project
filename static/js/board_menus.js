@@ -36,6 +36,12 @@
         }
         if (menu.open) {
             closeAll(menu);
+            // The filter row's «Поля» is a panel of several fields, reopened
+            // by `registry_tools.js` with the caret where it was: nothing to
+            // take the focus to.
+            if (menu.hasAttribute('data-board-menu-keep-focus')) {
+                return;
+            }
             const field = menu.querySelector('input[type="text"]');
             if (field) {
                 field.focus();

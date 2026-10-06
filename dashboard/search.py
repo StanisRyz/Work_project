@@ -14,7 +14,8 @@ What people type, and what it finds:
 - «Качество 4», «Качество №4», «№4» → protocols by type and number, and any
   protocol whose повестка mentions the words;
 - «12», «задача 12», «обучение» → tasks by number or wording;
-- «ZAP-12», «zap-12» → the task of that board card;
+- «ZAP-12», «zap-12» → the task of that board card; «3-1579» → the board
+  card holding it in a text field («Номер заявки»);
 - «СМК 3», «СМК №3» → the СМК record.
 """
 
@@ -31,7 +32,7 @@ from smk.models import SmkSource
 from tasks.models import Task
 from tasks.permissions import get_readable_tasks_queryset
 from tasks.presentation import describe_task_type
-from tasks.selectors import board_card_code_filter
+from tasks.selectors import board_card_code_filter, board_field_value_filter
 
 MIN_LENGTH = 2
 GROUP_LIMIT = 8
@@ -103,9 +104,10 @@ def _tasks(user, term):
     # «№12», «задача 12». «Качество 4» must not find task №4.
     if number is not None and prefix in ('', 'задача'):
         criteria |= Q(pk=number)
-    card_code = board_card_code_filter(term)
-    if card_code is not None:
-        criteria |= card_code
+    # A board card by its code («ZAP-12») or a text field's value («3-1579»).
+    for board_criteria in (board_card_code_filter(term), board_field_value_filter(term)):
+        if board_criteria is not None:
+            criteria |= board_criteria
     tasks = (
         # The board of a card is joined too: a hit names the card by its code
         # («ZAP-12»), which reads the board — never a query per hit.

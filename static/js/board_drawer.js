@@ -152,6 +152,23 @@
         if (reset && resetUrl) {
             reset.setAttribute('href', resetUrl);
         }
+        // A field filter chip's «×» keeps the open card and its tab, as the
+        // form's hidden fields do: only those two parameters change.
+        root.querySelectorAll('[data-board-filter-chip]').forEach((link) => {
+            const url = new URL(link.getAttribute('href'), window.location.href);
+            const params = new URLSearchParams();
+            if (cardId) {
+                params.set('card', String(cardId));
+                params.set('tab', tab || 'description');
+            }
+            url.searchParams.forEach((value, name) => {
+                if (name !== 'card' && name !== 'tab') {
+                    params.append(name, value);
+                }
+            });
+            const query = params.toString();
+            link.setAttribute('href', url.pathname + (query ? `?${query}` : ''));
+        });
     };
 
     // -- tabs ----------------------------------------------------------------

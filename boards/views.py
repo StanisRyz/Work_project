@@ -91,8 +91,10 @@ from .selectors import (
     build_board_nav,
     build_board_state,
     column_counts,
+    describe_field_filters,
     first_sub_board,
     member_preview,
+    names_field_filter,
     number_input,
     parse_board_filters,
     resolve_new_column,
@@ -154,6 +156,19 @@ def _sub_board_url(board, sub_board_id):
     return reverse('boards:sub_board', args=[board.pk, sub_board_id])
 
 
+def _request_filters(request, board, fields=None):
+    """The board filters of `request.GET` — `parse_board_filters()` with the
+    board's own fields.
+
+    `fields` already read are used as they are; otherwise the fields are read
+    only when the query names a field filter (`f_…`), so a redirect or a
+    drag's answer under «Мои» or the search costs no query more.
+    """
+    if fields is None:
+        fields = board_fields(board) if names_field_filter(request.GET) else ()
+    return parse_board_filters(request.GET, fields)
+
+
 def _card_url(board, card, request=None, *, tab=''):
     """The card's sub-board with `card` open — and, from a request, the filter
     it was under; `tab` opens the panel on that tab («Чат» after a message).
@@ -164,7 +179,7 @@ def _card_url(board, card, request=None, *, tab=''):
     url = f'{_sub_board_url(board, card.sub_board_id)}?card={card.pk}'
     if tab:
         url = f'{url}&tab={tab}'
-    query = parse_board_filters(request.GET).query if request is not None else ''
+    query = _request_filters(request, board).query if request is not None else ''
     return f'{url}&{query}' if query else url
 
 
@@ -382,21 +397,24 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     changes no block — all four are drawn, the tab is an attribute of the
     drawer around them — only the addresses the page builds for itself.
 
-    The filters (`?mine=1`, `?overdue=1`, `?q=`) are read from `request.GET`
-    here and nowhere else — on a POST too, whose action URL carries them — so
-    the page, its fragment and a refused form are filtered alike, and every
-    link the panel and the tiles draw keeps them (`filter_query`).
+    The filters (`?mine=1`, `?overdue=1`, `?q=` and the field filters
+    `f_<id>…`) are read from `request.GET` here and nowhere else — on a POST
+    too, whose action URL carries them — so the page, its fragment and a
+    refused form are filtered alike, and every link the panel and the tiles
+    draw keeps them (`filter_query`). The board's fields are read once, for
+    the parse and for the page.
 
     Returns the context and whether the panel holds input that is not the
     stored state (a bound form, posted or parked text): such a page starts
     «dirty» for the live client, and its panel fingerprint comes from a clean
     render.
     """
-    filters = parse_board_filters(request.GET)
+    fields = board_fields(board)
+    filters = _request_filters(request, board, fields)
     all_comments = request.GET.get('comments') == 'all'
     state = build_board_state(
         board, sub_board, request.user,
-        card_id=card_id, filters=filters, all_comments=all_comments,
+        card_id=card_id, filters=filters, all_comments=all_comments, fields=fields,
     )
     item = state['card']
     columns = [row['column'] for row in state['columns']]
@@ -481,6 +499,23 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     state['reset_url'] = (
         f'{board_url}?card={item["card"].pk}' if item is not None and panel == 'view' else board_url
     )
+    # The «Поля» panel of the filter row and the chips under it. A chip's «×»
+    # is what the filter form itself would ask for without that field: the
+    # open card and its tab (as the form's hidden fields carry them), the
+    # rest of the filter — `board_drawer.js` keeps the card and the tab
+    # current, as it does for «Сбросить».
+    open_card = (
+        urlencode({'card': item['card'].pk, 'tab': state['tab']})
+        if item is not None and panel == 'view' else ''
+    )
+    field_filters = describe_field_filters(state['fields'], filters)
+    for row in field_filters:
+        if row['filter'] is not None:
+            rest = filters.without_field(row['field'].pk).query
+            encoded = '&'.join(part for part in (open_card, rest) if part)
+            row['remove_url'] = f'{board_url}?{encoded}' if encoded else board_url
+    state['field_filters'] = field_filters
+    state['field_filter_count'] = len(filters.fields)
     # The tab strip: each tab's own page and fragment address, built here.
     state['panel_tabs'] = [
         {
@@ -833,7 +868,7 @@ def card_move(request, pk, card_pk):
     if fetch:
         # Counted under the filter the board is drawn with: the move URL of a
         # tile carries it, exactly as the board's forms do.
-        counts = column_counts(card.sub_board, request.user, parse_board_filters(request.GET))
+        counts = column_counts(card.sub_board, request.user, _request_filters(request, board))
         return JsonResponse({'ok': True, 'column_id': card.column_id, 'counts': counts})
     return redirect(_card_url(board, card, request))
 
@@ -1032,7 +1067,7 @@ def _structure_request(request, pk, sub_pk=None):
 
 def _back(board, sub_board_id, request=None):
     url = _sub_board_url(board, sub_board_id)
-    query = parse_board_filters(request.GET).query if request is not None else ''
+    query = _request_filters(request, board).query if request is not None else ''
     return redirect(f'{url}?{query}' if query else url)
 
 

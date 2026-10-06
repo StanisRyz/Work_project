@@ -89,7 +89,10 @@ realtime  →  acts.permissions, tasks.permissions, notifications.services
   Номер карточки «ZAP-12» `tasks` читает через ту же связь
   (`board_card.code`: код доски и номер), а разбор «<код>-<номер>» для поиска
   — `tasks.selectors.board_card_code_filter()` — один на реестр задач, поиск
-  в шапке (`dashboard`) и фильтр доски (`boards` вызывает его сам).
+  в шапке (`dashboard`) и фильтр доски (`boards` вызывает его сам); рядом с
+  ним — `board_field_value_filter()`, единственное правило поиска карточки по
+  значению живого текстового поля (`Exists()` по `boards.BoardCardFieldValue`,
+  модуль читается лениво внутри функции), и его тоже зовут все три поиска.
   Общие для страницы задачи и панели карточки части лежат в `tasks`: список
   вложений (`tasks.presentation.task_attachment_cards()`) и его разметка
   (`templates/tasks/includes/attachments.html`); черновик «Выполнения»

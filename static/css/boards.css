@@ -348,7 +348,7 @@
 }
 
 .board-filters__search {
-    width: 260px;
+    width: 280px;
     max-width: 100%;
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
@@ -358,6 +358,177 @@
 
 .board-filters__reset {
     color: var(--color-primary);
+}
+
+/* «Поля»: the field filters, a `<details>` of the same form. The panel lies
+   over the columns under its button (a `.board-menu__body`), so the row keeps
+   its height and its width whatever the board's fields are. */
+.board-filters__fields > .board-filters__fields-toggle {
+    display: inline-flex;
+    height: var(--control-height);
+    align-items: center;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: var(--control-font-size);
+    list-style: none;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.board-filters__fields > .board-filters__fields-toggle::-webkit-details-marker {
+    display: none;
+}
+
+.board-filters__fields > .board-filters__fields-toggle::after {
+    margin-left: 6px;
+    color: var(--color-muted);
+    content: '▾';
+}
+
+.board-filters__fields > .board-filters__fields-toggle--active {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.board-filters__fields .board-field-filters {
+    right: auto;
+    left: 0;
+    width: 360px;
+    max-width: calc(100vw - 32px);
+    max-height: min(70vh, 560px);
+    overflow-y: auto;
+}
+
+.board-field-filter {
+    display: grid;
+    min-width: 0;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.board-field-filter > legend {
+    padding: 0;
+    margin-bottom: 6px;
+}
+
+.board-field-filter__options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+}
+
+.board-field-filter__option {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--color-text);
+}
+
+.board-field-filter__option input {
+    width: auto;
+}
+
+.board-field-filter__option--none {
+    color: var(--color-muted);
+}
+
+/* «с … по …», «от … до …»: two halves of one line. */
+.board-field-filter__range {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 12px;
+}
+
+.board-field-filter__range label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--color-muted);
+}
+
+.board-field-filter__range input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.board-field-filter__range input,
+.board-field-filter__text {
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+}
+
+.board-field-filter__text {
+    width: 100%;
+}
+
+.board-field-filters > .link-button {
+    justify-self: start;
+}
+
+/* A phone: the panel is the ordinary flow under its button, full width. */
+@media (max-width: 760px) {
+    .board-filters__fields {
+        flex-basis: 100%;
+    }
+
+    .board-filters__fields .board-field-filters {
+        position: static;
+        width: auto;
+        max-width: none;
+        max-height: none;
+        margin-top: 6px;
+        box-shadow: none;
+    }
+}
+
+/* The active field filters under the row, each with its «×». */
+.board-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 1px 4px 1px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: 13px;
+}
+
+.board-filter-chip__remove {
+    display: inline-grid;
+    width: 20px;
+    height: 20px;
+    place-items: center;
+    border-radius: var(--radius);
+    color: var(--color-muted);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.board-filter-chip__remove:hover,
+.board-filter-chip__remove:focus-visible {
+    background: var(--color-surface);
+    color: var(--color-text);
 }
 
 /* ---- Columns and the card drawer ---- */
@@ -817,7 +988,7 @@
 }
 
 .board-complete__body {
-    width: 340px;
+    width: 360px;
     max-width: calc(100vw - 32px);
 }
 

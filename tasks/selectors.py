@@ -7,7 +7,7 @@ queue from the global authenticated read scope on the server.
 
 import re
 
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, Exists, IntegerField, OuterRef, Q, Value, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -60,6 +60,33 @@ def board_card_code_filter(term, prefix=''):
     })
 
 
+def board_field_value_filter(term):
+    """A `BOARD` task whose card holds `term` in a text field — or `None`.
+
+    The one rule of what is searched by a card's own field values: a
+    substring, whatever the case, of the value of a **live** text field
+    («3-1579» of «Номер заявки») — an archived field is no longer what the
+    board says about its cards, and numbers, dates and list options are
+    found through the board's field filters instead. The board's own search
+    (`boards.selectors.card_search_q()`), the registry's «Источник» and the
+    topbar search all ask this. One `Exists()` inside the caller's query: it
+    adds no query and no repeated row, and visibility stays the caller's
+    queryset — this only narrows it. `None` for an empty term.
+    """
+    from boards.models import BoardCardFieldValue, BoardField
+
+    term = (term or '').strip()
+    if not term:
+        return None
+    values = BoardCardFieldValue.objects.filter(
+        card=OuterRef('board_card'),
+        field__kind=BoardField.Kind.TEXT,
+        field__is_archived=False,
+        value_text__icontains=term,
+    )
+    return Q(Exists(values), source_type=Task.SourceType.BOARD)
+
+
 def _source_search_filter(term):
     """Find a task by the number of the act or protocol behind it.
 
@@ -72,11 +99,12 @@ def _source_search_filter(term):
     """
     head, separator, tail = term.partition('№')
     # A board task is found by the name of its board or its card's code
-    # («ZAP-12») — what its «Источник» column shows.
+    # («ZAP-12») — what its «Источник» column shows — and by the value of a
+    # text field of its card («3-1579» of «Номер заявки»).
     criteria = Q(act__number__icontains=term) | Q(board_card__board__name__icontains=term)
-    card_code = board_card_code_filter(term)
-    if card_code is not None:
-        criteria |= card_code
+    for board_criteria in (board_card_code_filter(term), board_field_value_filter(term)):
+        if board_criteria is not None:
+            criteria |= board_criteria
     smk = Q()
     if separator:
         name, number = head.strip(), tail.strip()
