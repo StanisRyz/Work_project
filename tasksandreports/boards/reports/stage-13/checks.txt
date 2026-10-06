@@ -1,0 +1,15 @@
+$ python manage.py check
+System check identified no issues (0 silenced).
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test --parallel 4
+Ran 1508 tests in 116.611s
+OK (skipped=8)
+
+$ python manage.py check_documentation
+Документация корректна, предупреждений — 4.
+
+$ node realtime/tests/js/realtime_client_test.js
+100/100 passed

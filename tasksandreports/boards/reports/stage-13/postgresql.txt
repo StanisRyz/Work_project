@@ -1,0 +1,50 @@
+$ python manage.py migrate (PostgreSQL 16, empty database)
+  Apply all migrations: accounts, acts, admin, auth, boards, bugs, calculator, contenttypes, documents, notifications, plate_cutting, protocols, references, sessions, smk, tasks
+  Applying boards.0001_initial... OK
+  Applying boards.0002_board_archive_card_version... OK
+  Applying boards.0003_board_card_comment... OK
+  Applying boards.0004_board_department_optional... OK
+  Applying boards.0005_sub_boards_and_columns... OK
+  Applying boards.0006_default_sub_boards... OK
+  Applying boards.0007_sub_board_required... OK
+  Applying boards.0008_drop_card_stage... OK
+  Applying boards.0009_board_card_event... OK
+  Applying boards.0010_backfill_card_events... OK
+
+$ python manage.py shell < seed_demo.py
+seeded
+
+$ psql: journal after seeding
+ card_id |  kind   |                  details                  
+---------+---------+-------------------------------------------
+       1 | CREATED | {"column": "Сделать", "column_id": 1}
+       2 | CREATED | {"column": "Сделать", "column_id": 1}
+       3 | CREATED | {"column": "В работе", "column_id": 2}
+       4 | CREATED | {"column": "На проверке", "column_id": 3}
+(4 rows)
+
+$ python manage.py migrate boards 0008 (journal rolled back)
+  Rendering model states... DONE
+  Unapplying boards.0010_backfill_card_events... OK
+  Unapplying boards.0009_board_card_event... OK
+
+$ python manage.py migrate (forward again: 0009 + backfill 0010)
+Running migrations:
+  Applying boards.0009_board_card_event... OK
+  Applying boards.0010_backfill_card_events... OK
+ card_id |  kind   | actor_id | details 
+---------+---------+----------+---------
+       1 | CREATED |        1 | {}
+       2 | CREATED |        1 | {}
+       3 | CREATED |        1 | {}
+       4 | CREATED |        1 | {}
+(4 rows)
+
+$ backfill re-run (python: 0010.backfill on live apps)
+68 objects imported automatically (use -v 2 for details).
+
+events after re-run: 4
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+$ python manage.py test boards.tests.test_journal boards.tests.test_migration (PostgreSQL 16)
+Ran 22 tests — OK
