@@ -122,7 +122,8 @@
 | 12 | `tasks/stage-12.md` | `main` (`d50dc12..2cb54db`) | принят (`reviews/stage-12.md`) |
 | 13 | `tasks/stage-13.md` | `main` (`def7fe3..8fbb168`) | принят (`reviews/stage-13.md`) |
 | 14 | `tasks/stage-14.md` | `main` (`7bb0283..4d05f1f`) | принят (`reviews/stage-14.md`) |
-| 15 | `tasks/stage-15.md` | `main` | в работе |
+| 15 | `tasks/stage-15.md` | `main` (`c75a2f7..ab003fa`) | принят (`reviews/stage-15.md`) |
+| 16 | `tasks/stage-16.md` | `main` | в работе |
 
 ## Принятые ограничения (к пилоту)
 
