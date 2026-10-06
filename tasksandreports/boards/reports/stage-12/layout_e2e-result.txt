@@ -1,0 +1,39 @@
+PASS  1920 1 /work/boards/ открывает доску, а не реестр  — http://127.0.0.1:8765/work/boards/1/1/
+PASS  1920 1 слева две живые доски администратора  — ['Запуск заказов', 'Отгрузки']
+PASS  1920 1 текущая доска выделена
+PASS  1920 1 шапка, вкладки, фильтры и колонки — по порядку, без наложения  — {'head': {'top': 79, 'bottom': 127, 'left': 274, 'right': 1900, 'width': 1626}, 'tabs': {'top': 137, 'bottom': 173, 'left': 274, 'right': 1900, 'width': 1626}, 'filters': {'top': 181, 'bottom': 215, 'left': 274, 'right': 1900, 'width': 1626}, 'layout': {'top': 223, 'bottom': 1052, 'left': 274, 'right': 1900, 'width': 1626}, 'nav': {'top': 79, 'bottom': 1052, 'left': 20, 'right': 260, 'width': 240}, 'panel': None, 'pageScrollX': False, 'pageScrollY': False, 'rowScrollX': False, 'columns': [370, 370, 370, 370]}
+PASS  1920 1 четыре колонки и панель досок без прокрутки страницы и ряда  — {'head': {'top': 79, 'bottom': 127, 'left': 274, 'right': 1900, 'width': 1626}, 'tabs': {'top': 137, 'bottom': 173, 'left': 274, 'right': 1900, 'width': 1626}, 'filters': {'top': 181, 'bottom': 215, 'left': 274, 'right': 1900, 'width': 1626}, 'layout': {'top': 223, 'bottom': 1052, 'left': 274, 'right': 1900, 'width': 1626}, 'nav': {'top': 79, 'bottom': 1052, 'left': 20, 'right': 260, 'width': 240}, 'panel': None, 'pageScrollX': False, 'pageScrollY': False, 'rowScrollX': False, 'columns': [370, 370, 370, 370]}
+PASS  1920 1 переключение на вторую доску  — http://127.0.0.1:8765/work/boards/2/2/
+PASS  1920 1 вкладка «Цех ПиР» открыта
+PASS  1920 1 фильтр «Мои» применён, «Сбросить» появилась  — http://127.0.0.1:8765/work/boards/1/3/?mine=1&q=
+PASS  1920 3 /work/boards/ открывает последнюю поддоску  — http://127.0.0.1:8765/work/boards/1/3/ (ожидалась /work/boards/1/3/)
+PASS  1920 1 панель сворачивается в полосу и остаётся свёрнутой после перезагрузки  — ширина 52
+PASS  1920 1 доска переименована из меню «⋯»
+PASS  1920 1 в шапке пять кружков и «+3»
+PASS  1920 4 «Новая доска» в той же рамке, без выделенной доски
+PASS  1920 5 карточка открыта: строки не наезжают друг на друга  — {'head': {'top': 79, 'bottom': 127, 'left': 274, 'right': 1900, 'width': 1626}, 'tabs': {'top': 137, 'bottom': 173, 'left': 274, 'right': 1900, 'width': 1626}, 'filters': {'top': 181, 'bottom': 215, 'left': 274, 'right': 1900, 'width': 1626}, 'layout': {'top': 223, 'bottom': 1052, 'left': 274, 'right': 1900, 'width': 1626}, 'nav': {'top': 79, 'bottom': 1052, 'left': 20, 'right': 260, 'width': 240}, 'panel': {'top': 223, 'bottom': 1052, 'left': 1520, 'right': 1900, 'width': 380}, 'pageScrollX': False, 'pageScrollY': False, 'rowScrollX': False, 'columns': [271, 271, 271, 271]}
+PASS  1920 5 карточка открыта: страница не прокручивается  — {'head': {'top': 79, 'bottom': 127, 'left': 274, 'right': 1900, 'width': 1626}, 'tabs': {'top': 137, 'bottom': 173, 'left': 274, 'right': 1900, 'width': 1626}, 'filters': {'top': 181, 'bottom': 215, 'left': 274, 'right': 1900, 'width': 1626}, 'layout': {'top': 223, 'bottom': 1052, 'left': 274, 'right': 1900, 'width': 1626}, 'nav': {'top': 79, 'bottom': 1052, 'left': 20, 'right': 260, 'width': 240}, 'panel': {'top': 223, 'bottom': 1052, 'left': 1520, 'right': 1900, 'width': 380}, 'pageScrollX': False, 'pageScrollY': False, 'rowScrollX': False, 'columns': [271, 271, 271, 271]}
+PASS  1920 2 участник видит слева только свою доску  — ['Запуск заказов']
+PASS  1920 2 у участника нет меню доски
+PASS  1920 3 без досок — «Вас пока не добавили ни на одну доску»
+PASS  1536 1 /work/boards/ открывает доску, а не реестр  — http://127.0.0.1:8765/work/boards/1/1/
+PASS  1536 1 слева две живые доски администратора  — ['Запуск заказов', 'Отгрузки']
+PASS  1536 1 текущая доска выделена
+PASS  1536 1 шапка, вкладки, фильтры и колонки — по порядку, без наложения  — {'head': {'top': 79, 'bottom': 127, 'left': 274, 'right': 1516, 'width': 1242}, 'tabs': {'top': 137, 'bottom': 173, 'left': 274, 'right': 1516, 'width': 1242}, 'filters': {'top': 181, 'bottom': 215, 'left': 274, 'right': 1516, 'width': 1242}, 'layout': {'top': 223, 'bottom': 836, 'left': 274, 'right': 1516, 'width': 1242}, 'nav': {'top': 79, 'bottom': 836, 'left': 20, 'right': 260, 'width': 240}, 'panel': None, 'pageScrollX': False, 'pageScrollY': False, 'rowScrollX': False, 'columns': [274, 274, 274, 274]}
+PASS  1536 1 четыре колонки и панель досок без прокрутки страницы и ряда  — {'head': {'top': 79, 'bottom': 127, 'left': 274, 'right': 1516, 'width': 1242}, 'tabs': {'top': 137, 'bottom': 173, 'left': 274, 'right': 1516, 'width': 1242}, 'filters': {'top': 181, 'bottom': 215, 'left': 274, 'right': 1516, 'width': 1242}, 'layout': {'top': 223, 'bottom': 836, 'left': 274, 'right': 1516, 'width': 1242}, 'nav': {'top': 79, 'bottom': 836, 'left': 20, 'right': 260, 'width': 240}, 'panel': None, 'pageScrollX': False, 'pageScrollY': False, 'rowScrollX': False, 'columns': [274, 274, 274, 274]}
+PASS  1536 1 переключение на вторую доску  — http://127.0.0.1:8765/work/boards/2/2/
+PASS  1536 1 вкладка «Цех ПиР» открыта
+PASS  1536 1 фильтр «Мои» применён, «Сбросить» появилась  — http://127.0.0.1:8765/work/boards/1/3/?mine=1&q=
+PASS  1536 3 /work/boards/ открывает последнюю поддоску  — http://127.0.0.1:8765/work/boards/1/3/ (ожидалась /work/boards/1/3/)
+PASS  1536 1 панель сворачивается в полосу и остаётся свёрнутой после перезагрузки  — ширина 52
+PASS  1536 1 доска переименована из меню «⋯»
+PASS  1536 1 в шапке пять кружков и «+3»
+PASS  1536 4 «Новая доска» в той же рамке, без выделенной доски
+PASS  1536 5 карточка открыта: строки не наезжают друг на друга  — {'head': {'top': 79, 'bottom': 127, 'left': 86, 'right': 1516, 'width': 1430}, 'tabs': {'top': 137, 'bottom': 173, 'left': 86, 'right': 1516, 'width': 1430}, 'filters': {'top': 181, 'bottom': 215, 'left': 86, 'right': 1516, 'width': 1430}, 'layout': {'top': 223, 'bottom': 836, 'left': 86, 'right': 1516, 'width': 1430}, 'nav': {'top': 79, 'bottom': 836, 'left': 20, 'right': 72, 'width': 52}, 'panel': {'top': 223, 'bottom': 836, 'left': 1136, 'right': 1516, 'width': 380}, 'pageScrollX': False, 'pageScrollY': False, 'rowScrollX': True, 'columns': [260, 260, 260, 260]}
+PASS  1536 5 карточка открыта: страница не прокручивается  — {'head': {'top': 79, 'bottom': 127, 'left': 86, 'right': 1516, 'width': 1430}, 'tabs': {'top': 137, 'bottom': 173, 'left': 86, 'right': 1516, 'width': 1430}, 'filters': {'top': 181, 'bottom': 215, 'left': 86, 'right': 1516, 'width': 1430}, 'layout': {'top': 223, 'bottom': 836, 'left': 86, 'right': 1516, 'width': 1430}, 'nav': {'top': 79, 'bottom': 836, 'left': 20, 'right': 72, 'width': 52}, 'panel': {'top': 223, 'bottom': 836, 'left': 1136, 'right': 1516, 'width': 380}, 'pageScrollX': False, 'pageScrollY': False, 'rowScrollX': True, 'columns': [260, 260, 260, 260]}
+PASS  1536 2 участник видит слева только свою доску  — ['Запуск заказов']
+PASS  1536 2 у участника нет меню доски
+PASS  1536 3 без досок — «Вас пока не добавили ни на одну доску»
+PASS  нет ошибок JavaScript и браузерных диалогов
+
+37 of 37 checks passed
