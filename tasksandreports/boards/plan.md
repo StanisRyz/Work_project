@@ -95,8 +95,8 @@
 | 7 | `tasks/stage-07.md` | `main` (`cbb9cb9..0d47a38`) | принят (`reviews/stage-07.md`) |
 | 8 | `tasks/stage-08.md` | `main` (`c2e3f10..9b2d510`) | принят (`reviews/stage-08.md`) |
 | 9 | `tasks/stage-09.md` | `main` (`9c57fcf..3561ca4`) | принят (`reviews/stage-09.md`) |
-| 10 | `tasks/stage-10.md` | `main` | подготовлен |
-| 11 | `tasks/stage-11.md` | `main` | подготовлен, после приёмки 10 |
+| 10 | `tasks/stage-10.md` | `main` (`0fe3d21..b3e34e5`) | принят (`reviews/stage-10.md`) |
+| 11 | `tasks/stage-11.md` | `main` | подготовлен, можно начинать |
 | 12 | — | — | задание после приёмки 11 |
 | 13 | — | — | задание после приёмки 12 |
 
