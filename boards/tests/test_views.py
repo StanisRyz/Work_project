@@ -13,6 +13,7 @@ from tasks.services import complete_task
 from ..models import Board, BoardCard, BoardMember
 from ..services import create_board, create_sub_board
 from .helpers import (
+    FOLLOW_FORM,
     fresh_code,
     BoardFixtureMixin,
     board_url,
@@ -185,7 +186,9 @@ class BoardPageTests(BoardViewMixin, TestCase):
         for params in ({}, {'card': card.pk}, {'card': card.pk, 'edit': '1'}, {'new': self.column().pk}):
             with self.subTest(params=params):
                 response = self.detail(**params)
-                content = main_of(response)
+                # «Следить» is every reader's own and the one form a reader
+                # posts (`test_subscriptions.py`); nothing else that posts is.
+                content = FOLLOW_FORM.sub('', main_of(response))
                 # The GET filter form is for everybody; nothing that posts is.
                 for marker in (
                     'method="post"', '?new=', 'edit=1', 'Переместить', '+ Карточка',

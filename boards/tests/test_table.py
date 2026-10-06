@@ -396,7 +396,7 @@ class TableExcelTests(TableMixin, TestCase):
         rows, styles = read_xlsx(self.export().content)
         self.assertEqual(values(rows)[0], [
             'Код', 'Название', 'Колонка', 'Статус', 'Исполнители', 'Срок', 'В колонке, дн.',
-            'Номер заявки', 'Заказ покупателя', 'Срок изг.', 'Приоритет', 'Стоп', 'Сумма',
+            'Чек-лист', 'Номер заявки', 'Заказ покупателя', 'Срок изг.', 'Приоритет', 'Стоп', 'Сумма',
             'Создана', 'Завершена',
         ])
         self.assertIn('formatCode="dd.mm.yyyy"', styles)
@@ -407,18 +407,20 @@ class TableExcelTests(TableMixin, TestCase):
         self.assertEqual(alpha[4], ('s', 'member_one'))
         self.assertEqual(alpha[5], ('d', timezone.localdate() - datetime.timedelta(days=1)))
         self.assertEqual(alpha[6], ('n', Decimal(5)))
-        self.assertEqual(alpha[7], ('s', '3-1579'))
-        self.assertEqual(alpha[8], ('', None))
-        self.assertEqual(alpha[9], ('d', datetime.date(2026, 11, 30)))
-        self.assertEqual(alpha[10], ('s', 'Высокий'))
-        self.assertEqual(alpha[11], ('', None))
-        self.assertEqual(alpha[12], ('n', Decimal(10)))
-        self.assertEqual(alpha[13], ('d', timezone.localdate()))
-        self.assertEqual(alpha[14], ('', None))
+        # «Чек-лист»: no items, an empty cell (filled ones: `test_checklist.py`).
+        self.assertEqual(alpha[7], ('', None))
+        self.assertEqual(alpha[8], ('s', '3-1579'))
+        self.assertEqual(alpha[9], ('', None))
+        self.assertEqual(alpha[10], ('d', datetime.date(2026, 11, 30)))
+        self.assertEqual(alpha[11], ('s', 'Высокий'))
+        self.assertEqual(alpha[12], ('', None))
+        self.assertEqual(alpha[13], ('n', Decimal(10)))
+        self.assertEqual(alpha[14], ('d', timezone.localdate()))
+        self.assertEqual(alpha[15], ('', None))
         beta = rows[3]
-        self.assertEqual(beta[12], ('n', Decimal('2.5')))
+        self.assertEqual(beta[13], ('n', Decimal('2.5')))
         delta = rows[4]
-        self.assertEqual((delta[2], delta[3], delta[6], delta[14]), (
+        self.assertEqual((delta[2], delta[3], delta[6], delta[15]), (
             ('s', 'Готово'), ('s', 'Выполнена'), ('', None), ('d', timezone.localdate()),
         ))
 
@@ -428,7 +430,7 @@ class TableExcelTests(TableMixin, TestCase):
         archive_option(self.high, actor=self.owner)
         rows, _ = read_xlsx(self.export().content)
         self.assertEqual(rows[1][4], ('s', 'Иван Петров'))
-        self.assertEqual(rows[1][10], ('s', 'Высокий (в архиве)'))
+        self.assertEqual(rows[1][11], ('s', 'Высокий (в архиве)'))
 
     def test_empty_is_an_empty_cell_never_none_or_a_dash(self):
         content = self.export(cancelled=1).content

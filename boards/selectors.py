@@ -9,6 +9,10 @@ shows one more. The board's own card fields are one query with their options
 one prefetch, and the values of every card on the page — the panel's included
 — one more. A filter — «Мои», the search, a field's — is a condition of the
 tasks' own query (a field filter an `Exists()`), never a query of its own.
+A tile's «☑ 2/5» is an annotation of that same query; the open card's
+«Чек-лист» is one query, its followers (the board's readers, marked) one
+more, and the mentions of its messages one prefetch. Who hears about a card
+is `card_audience()`, one query.
 """
 
 import datetime
@@ -29,18 +33,24 @@ from django.utils import timezone
 from .columns import MAX_COLUMNS, card_column
 from .models import (
     Board,
+    BoardCardChecklistItem,
     BoardCardComment,
+    BoardCardCommentMention,
     BoardCardEvent,
     BoardCardFieldValue,
     BoardColumn,
     BoardField,
     BoardFieldOption,
+    BoardCardSubscription,
     BoardMember,
     SubBoard,
 )
 from .permissions import (
     active_employee_q,
+    board_readers_q,
     can_cancel_card,
+    can_edit_checklist,
+    can_follow_card,
     can_manage_board,
     readable_boards_q,
     can_restore_board,
@@ -62,6 +72,9 @@ MEMBER_PREVIEW_LIMIT = 5
 
 # How many pinned people a column header draws before «+N».
 PIN_PREVIEW_LIMIT = 3
+
+# How many followers «Подписчики» on «Описание» draws before «+N».
+SUBSCRIBER_PREVIEW_LIMIT = 5
 
 # The longest `?q=` a board search reads; anything past it is dropped.
 SEARCH_MAX_LENGTH = 200
@@ -430,9 +443,9 @@ def _tasks_with_cards(tasks):
     and since when the card stands in its column.
 
     The исполнители are one prefetch query with their accounts joined — a
-    tile draws a name and initials, nothing of the profile. The message count
-    and «В колонке с» (`in_column_since()`) are subquery annotations of the
-    same query.
+    tile draws a name and initials, nothing of the profile. The message count,
+    «В колонке с» (`in_column_since()`) and the «Чек-лист» counts
+    (`checklist_annotations()`) are subquery annotations of the same query.
     """
     from tasks.models import TaskAssignee
 
@@ -440,8 +453,23 @@ def _tasks_with_cards(tasks):
     return (
         tasks.select_related('status', 'board_card')
         .prefetch_related(Prefetch('assignees', queryset=TaskAssignee.objects.select_related('user')))
-        .annotate(comment_count=_count_subquery(comments, 'card'), in_column_since=in_column_since())
+        .annotate(
+            comment_count=_count_subquery(comments, 'card'),
+            in_column_since=in_column_since(),
+            **checklist_annotations(),
+        )
     )
+
+
+def checklist_annotations():
+    """«☑ 2/5» of a tile as two subquery annotations of the tasks' own
+    query — how many items the card's «Чек-лист» has and how many are ticked
+    — so the counter costs no query per tile."""
+    items = BoardCardChecklistItem.objects.filter(card=OuterRef('board_card'))
+    return {
+        'checklist_total': _count_subquery(items, 'card'),
+        'checklist_done': _count_subquery(items.filter(is_done=True), 'card'),
+    }
 
 
 def _item(task, board):
@@ -461,6 +489,9 @@ def _item(task, board):
         'due_date': task.due_date,
         'is_closed': is_closed,
         'comment_count': getattr(task, 'comment_count', 0),
+        # «☑ 2/5»: the card's «Чек-лист», counted in the tasks' own query.
+        'checklist_total': getattr(task, 'checklist_total', 0),
+        'checklist_done': getattr(task, 'checklist_done', 0),
         # «В колонке с» and the days since — for open work only: a completed
         # or cancelled card stands nowhere it could be stuck.
         'in_column_since': since,
@@ -756,7 +787,12 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     # there is no second query. Writing is `can_comment_card()` — i.e.
     # `can_work_on_board()`, already asked for the page — whatever the state
     # of the task.
-    messages = BoardCardComment.objects.filter(card=card).select_related('author')
+    messages = (
+        BoardCardComment.objects.filter(card=card).select_related('author')
+        # Who each message mentions, for the highlight: one query for all
+        # the messages shown, none at all while there are none.
+        .prefetch_related(Prefetch('mentions', queryset=BoardCardCommentMention.objects.select_related('user')))
+    )
     if all_comments:
         item['comments'] = list(messages)
     else:
@@ -764,6 +800,30 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     item['comments_earlier'] = max(item['comment_count'] - len(item['comments']), 0)
     item['can_comment'] = can_work
     item['log'] = card_log(card, item['attachments'])
+    # «Чек-лист»: the items in order, who ticked each one joined — one query.
+    item['checklist'] = list(
+        BoardCardChecklistItem.objects.filter(card=card).select_related('done_by').order_by('position', 'pk')
+    )
+    item['checklist_total'] = len(item['checklist'])
+    item['checklist_done'] = sum(1 for entry in item['checklist'] if entry.is_done)
+    item['can_edit_checklist'] = can_edit_checklist(user, card, task, can_work=can_work)
+    # The board's readers who are active employees, each marked whether they
+    # follow this card — one query that is both «Подписчики» and the people
+    # «@» offers in «Чат» (whoever no longer reads the board is neither).
+    readers = list(
+        get_user_model().objects.filter(board_readers_q(board))
+        .annotate(follows=Exists(BoardCardSubscription.objects.filter(card=card, user=OuterRef('pk'))))
+        .distinct()
+        .order_by('last_name', 'first_name', 'username', 'pk')
+    )
+    followers = [person for person in readers if person.follows]
+    item['subscribers'] = followers[:SUBSCRIBER_PREVIEW_LIMIT]
+    item['subscribers_more'] = max(len(followers) - SUBSCRIBER_PREVIEW_LIMIT, 0)
+    item['subscriber_count'] = len(followers)
+    item['is_subscribed'] = any(person.pk == user.pk for person in followers)
+    # The page is drawn for a reader of the board only.
+    item['can_follow'] = can_follow_card(user, card, can_view=True)
+    item['mention_people'] = [person for person in readers if person.pk != user.pk] if can_work else []
     attach_field_values(item, fields, (field_rows or {}).get(card.pk, {}))
     return item
 
@@ -820,7 +880,23 @@ def describe_card_event(event, code=''):
         return f'Возвращена в работу, в колонку «{column}»' if column else 'Возвращена в работу'
     if kind == BoardCardEvent.Kind.CANCELLED:
         return 'Карточка отменена'
+    if kind == BoardCardEvent.Kind.CHECKLIST:
+        action = CHECKLIST_ACTION_LABELS.get(details.get('action'), 'изменён')
+        done, total = details.get('done'), details.get('total')
+        counts = f' ({done}/{total})' if isinstance(done, int) and isinstance(total, int) else ''
+        return f'Чек-лист: {action}{counts}'
     return event.get_kind_display()
+
+
+# «Чек-лист: отмечен пункт (3/5)» — the action of a `CHECKLIST` entry, in
+# words; a reorder writes no entry and needs none.
+CHECKLIST_ACTION_LABELS = {
+    'added': 'добавлен пункт',
+    'renamed': 'пункт переименован',
+    'done': 'отмечен пункт',
+    'undone': 'снята отметка с пункта',
+    'deleted': 'удалён пункт',
+}
 
 
 def card_log(card, attachments):
@@ -1121,6 +1197,47 @@ def member_preview(board, limit=MEMBER_PREVIEW_LIMIT):
     ]
 
 
+def card_audience(card, task, *, assignees=True, author=True, subscribers=True):
+    """Who hears about a card: its исполнители, its author and its followers.
+
+    The one answer for every card notification — a message in «Чат»
+    (all three), a cancellation (исполнители and followers), a completion
+    (followers and the author) — each caller choosing its parts. Only
+    active employees who still read the board (`board_readers_q()`): a
+    follower taken off the board, a deactivated author and an inactive
+    account drop out here. One query, each person once, by id; whoever acted
+    is the caller's to leave out (`exclude_actor`).
+    """
+    from functools import reduce
+    from operator import or_
+
+    from tasks.models import TaskAssignee
+
+    parts = []
+    if assignees:
+        parts.append(Q(pk__in=TaskAssignee.objects.filter(task=task).values('user_id')))
+    if author:
+        parts.append(Q(pk=card.created_by_id))
+    if subscribers:
+        parts.append(Q(pk__in=BoardCardSubscription.objects.filter(card=card).values('user_id')))
+    if not parts:
+        return []
+    return list(
+        get_user_model().objects.filter(reduce(or_, parts))
+        .filter(board_readers_q(card.board_id))
+        .distinct()
+        .order_by('pk')
+    )
+
+
+def checklist_counts(card):
+    """`(done, total)` of a card's «Чек-лист» — one query."""
+    counts = BoardCardChecklistItem.objects.filter(card=card).aggregate(
+        total=Count('pk'), done=Count('pk', filter=Q(is_done=True)),
+    )
+    return counts['done'], counts['total']
+
+
 def is_stale(days, column):
     """Whether an open card `days` in `column` is stuck: at least the column's
     threshold, not a day earlier. A column without one never says so."""
@@ -1254,9 +1371,11 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
 
     Each row is `{'card', 'task', 'sub_board', 'column', 'column_label',
     'status', 'status_label', 'assignees', 'due_date', 'is_closed',
-    'in_column_days', 'is_stale', 'cells', 'created', 'completed'}`: `column`
+    'in_column_days', 'is_stale', 'checklist_label', 'cells', 'created',
+    'completed'}`: `column`
     is where the board shows the card (`columns.card_column()` — the closing
     column for a completed one), `column_label` its name or «Отменена»;
+    `checklist_label` the card's «Чек-лист» as «2/5» (empty without items);
     `cells` one per live field of the board, in order (`_table_cell()`);
     `created`/`completed` local dates. `field_columns` are those live fields.
 
@@ -1332,6 +1451,9 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
             within = (-(task.cancelled_at.timestamp() if task.cancelled_at else 0), card.pk)
         else:
             within = (card.position, card.pk)
+        item['checklist_label'] = (
+            f"{item['checklist_done']}/{item['checklist_total']}" if item['checklist_total'] else ''
+        )
         item['board_order'] = (*place, *within)
         item['sort_keys'] = {
             'code': card.number,

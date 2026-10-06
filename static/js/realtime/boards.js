@@ -40,6 +40,13 @@
  *   [data-live-board-log]      «Лог»: read-only, replaced whenever its
  *                              fingerprint moved; no entry is part of the
  *                              guarded block either.
+ *   [data-live-board-checklist] the card's «Чек-лист» on «Описание»: buttons
+ *                              only, replaced whenever its fingerprint moved —
+ *                              a tick never raises the banner over an edit —
+ *                              but not while one item's «Изменить» form is
+ *                              open (`[data-checklist-edit]`): deferred like
+ *                              the menus, and fetched again once it is gone.
+ *                              «Добавить пункт» is outside it.
  *
  * The numbers beside «Чат» and «Файлы» are set with their blocks
  * (`chat_count`, `files_count`). Which tab is shown is the drawer's own
@@ -84,6 +91,7 @@
     const cardElement = () => root.querySelector('[data-live-board-card]');
     const commentsElement = () => root.querySelector('[data-live-board-comments]');
     const logElement = () => root.querySelector('[data-live-board-log]');
+    const checklistElement = () => root.querySelector('[data-live-board-checklist]');
     const conflictBanner = document.querySelector('[data-board-conflict-banner]');
     const reloadButton = document.querySelector('[data-board-conflict-reload]');
     if (reloadButton) {
@@ -136,6 +144,11 @@
     const menuOpenIn = (element) =>
         Boolean(element && element.querySelector('details[data-board-menu][open]'));
     const menuOpen = () => menuOpenIn(tabsElement) || menuOpenIn(columnsElement);
+    // An item of the «Чек-лист» being renamed: its form holds typed text.
+    const checklistEditing = () => {
+        const checklist = checklistElement();
+        return Boolean(checklist && checklist.querySelector('[data-checklist-edit]'));
+    };
 
     const revisionOf = (value) => (typeof value === 'string' ? value : '');
 
@@ -247,6 +260,31 @@
         }
     };
 
+    /**
+     * The card's «Чек-лист»: buttons and links only, so replaced whenever its
+     * fingerprint moved — except while an item's «Изменить» form is open,
+     * which holds typed text: then the refresh waits, like the menus.
+     */
+    const applyChecklist = (payload) => {
+        const checklist = checklistElement();
+        if (!checklist || typeof payload.checklist_html !== 'string') {
+            return;
+        }
+        const next = revisionOf(payload.checklist_revision);
+        if (next && next === revision('checklistRevision')) {
+            return;
+        }
+        if (checklistEditing()) {
+            deferred = true;
+            return;
+        }
+        checklist.innerHTML = payload.checklist_html;
+        setRevision('checklistRevision', next);
+        if (window.qualityFragments) {
+            window.qualityFragments.reinitialise(checklist);
+        }
+    };
+
     // A reader within this many pixels of the end of the message list counts
     // as «at the bottom» and is kept there when a new message arrives.
     const BOTTOM_SLACK = 24;
@@ -316,6 +354,7 @@
             applyPanel(payload);
             applyComments(payload);
             applyLog(payload);
+            applyChecklist(payload);
         },
         // A lost session stops the whole client; a board that is gone stops
         // only this coordinator, which `createRefreshCoordinator` already did.

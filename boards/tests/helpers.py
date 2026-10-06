@@ -90,6 +90,9 @@ LIVE_BLOCKS = {
 
 CSRF_INPUT = re.compile(r'<input\b[^>]*\bname="csrfmiddlewaretoken"[^>]*>')
 
+# The panel heading's «Следить» / «Вы следите» form — every reader's own.
+FOLLOW_FORM = re.compile(r'<form class="board-follow".*?</form>', re.S)
+
 
 def page_attribute(content, name):
     """The value of the first `name="…"` in `content`, `&amp;` decoded."""

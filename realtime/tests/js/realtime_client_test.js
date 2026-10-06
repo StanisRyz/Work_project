@@ -33,6 +33,9 @@ const BOARD_DND_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_dnd.
 // The card drawer opens, switches and closes without a reload, and the live
 // client has to follow it.
 const BOARD_DRAWER_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_drawer.js'), 'utf8');
+// The checklist's tick through `fetch`, and «@» in «Чат».
+const BOARD_CHECKLIST_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_checklist.js'), 'utf8');
+const BOARD_MENTIONS_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_mentions.js'), 'utf8');
 const DEFAULT_COORDINATION_EPOCH = 'test-session-epoch-000000000001';
 const coordinationChannelName = (epoch = DEFAULT_COORDINATION_EPOCH) =>
     `quality-realtime-v1:${epoch}`;
@@ -1422,7 +1425,7 @@ function boardEvent(boardId, change, eventId) {
     };
 }
 
-function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts } = {}) {
+function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts, checklist } = {}) {
     const payload = {
         columns_html: `<section data-column-id="31"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
         columns_revision: columns,
@@ -1447,6 +1450,10 @@ function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comme
     if (comments) {
         payload.comments_html = `<ol><li data-comment-id="2" data-fresh-comment>${comments}</li></ol>`;
         payload.comments_revision = comments;
+    }
+    if (checklist) {
+        payload.checklist_html = `<ol><li data-checklist-item="1" data-fresh-checklist>${checklist}</li></ol>`;
+        payload.checklist_revision = checklist;
     }
     return payload;
 }
@@ -2073,6 +2080,240 @@ test('«Карточка ZAP-9» copies the link to the card, no dialog, no navi
     assert.equal(env.live.drawer.hidden, false, 'the drawer stays open');
 });
 
+// ------------------------------------------------------ the card's «Чек-лист»
+
+test('a tick by somebody else replaces the checklist, never the dirty panel or the field being typed', async () => {
+    const env = load({ page: 'board' });
+    // The checklist and the tile moved; the guarded panel did not.
+    env.setFetchHandler(() => boardFragment({ panel: 'panel-rev-initial', checklist: 'checklist-rev-2' }));
+
+    env.live.execution.value = 'Правка результата';
+    env.document.dispatch('input', { target: env.live.execution });
+    env.live.checklistText.value = 'Новый пункт, ещё не добавлен';
+    env.source.emitEvent('board.updated', boardEvent(4, 'checklist_changed'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.checklist.querySelector('[data-fresh-checklist]'), 'the list is replaced');
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'), 'and the tile with its «☑ 3/5»');
+    assert.equal(env.live.panel.querySelector('[data-fresh-panel]'), null, 'the panel is untouched');
+    assert.equal(env.live.execution.value, 'Правка результата');
+    assert.equal(env.live.checklistText.value, 'Новый пункт, ещё не добавлен', 'the add field is in no block');
+    assert.equal(env.live.conflictBanner.hidden, true, 'a tick is no conflict');
+    assert.equal(env.live.board.dataset.checklistRevision, 'checklist-rev-2');
+});
+
+test('an unchanged checklist fingerprint replaces nothing', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment({ checklist: 'checklist-rev-initial' }));
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_moved'));
+    env.clock.advance(300);
+    await flush();
+    assert.equal(env.live.checklist.querySelector('[data-fresh-checklist]'), null);
+});
+
+test('an item being renamed holds the checklist back until its form is gone', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment({ panel: 'panel-rev-initial', checklist: 'checklist-rev-2' }));
+    env.live.checklist.innerHTML = '<ol><li data-checklist-item="1"><form data-checklist-edit><input name="text"></form></li></ol>';
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'checklist_changed', 'renaming'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.checklist.querySelector('[data-checklist-edit]'), 'the open form is not replaced');
+    assert.equal(env.core.boardLive.isDeferred, true);
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'), 'the columns still refresh');
+
+    env.live.checklist.innerHTML = '<ol><li data-checklist-item="1">исходный пункт</li></ol>';
+    env.document.dispatch('quality:board-idle');
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.checklist.querySelector('[data-fresh-checklist]'), 'fetched again and replaced');
+    assert.equal(env.core.boardLive.isDeferred, false);
+});
+
+function loadChecklist(env) {
+    vm.runInContext(BOARD_CHECKLIST_SOURCE, env.context, { filename: 'board_checklist.js' });
+    return env.context.window.qualityBoardChecklist;
+}
+
+/** One item of the block as `checklist.html` draws it, and card 9's tile. */
+function checklistItem(env, { done = false } = {}) {
+    env.live.checklist.innerHTML = '<div><h3>Чек-лист <span data-checklist-count>1/3</span></h3>'
+        + `<ol><li class="board-checklist__item${done ? ' is-done' : ''}" data-checklist-item="5">`
+        + '<form action="/work/boards/4/cards/9/checklist/5/toggle/?mine=1" method="post" data-checklist-toggle>'
+        + '<input name="csrfmiddlewaretoken" value="token-1">'
+        + `<input name="done" value="${done ? '0' : '1'}" data-checklist-done>`
+        + `<button type="submit" aria-pressed="${done ? 'true' : 'false'}"></button>`
+        + '</form><span>Металл</span></li></ol></div>';
+    env.live.columns.setAttribute('data-current-card', '9');
+    env.live.columns.innerHTML = '<section data-column-id="31"><ol data-column-list>'
+        + '<li data-card-id="9" data-task-id="21"><a class="board-tile"><span data-tile-checklist>☑ 1/3</span></a></li>'
+        + '</ol></section>';
+    const form = env.live.checklist.querySelector('[data-checklist-toggle]');
+    return { form, item: env.live.checklist.querySelector('[data-checklist-item]') };
+}
+
+function submit(env, form) {
+    let prevented = false;
+    env.document.dispatch('submit', { target: form, preventDefault: () => { prevented = true; } });
+    return prevented;
+}
+
+test('a tick posts through fetch at once and takes the server\'s numbers', async () => {
+    const env = load({ page: 'board' });
+    loadChecklist(env);
+    const { form, item } = checklistItem(env);
+    let answer = null;
+    env.setFetchHandler((call) => {
+        if (call.url.includes('/checklist/')) {
+            answer = call;
+            return { ok: true, item_id: 5, is_done: true, done: 2, total: 3 };
+        }
+        return snapshot();
+    });
+
+    assert.equal(submit(env, form), true, 'no navigation');
+    assert.equal(item.classList.contains('is-done'), true, 'ticked at once');
+    await flush();
+    assert.equal(answer.url, '/work/boards/4/cards/9/checklist/5/toggle/?mine=1', 'the form\'s own address');
+    assert.equal(answer.options.method, 'POST');
+    assert.equal(answer.options.headers['X-Requested-With'], 'fetch');
+    assert.equal(answer.options.headers['X-CSRFToken'], 'token-1');
+    assert.equal(answer.options.body, 'done=1');
+    assert.equal(item.classList.contains('is-done'), true);
+    assert.equal(form.querySelector('button').getAttribute('aria-pressed'), 'true');
+    assert.equal(form.querySelector('[data-checklist-done]').value, '0', 'the next click takes it off');
+    assert.equal(env.live.checklist.querySelector('[data-checklist-count]').textContent, '2/3');
+    assert.equal(env.live.columns.querySelector('[data-tile-checklist]').textContent, '☑ 2/3');
+});
+
+test('a refused tick is put back and the message shown', async () => {
+    const env = load({ page: 'board' });
+    loadChecklist(env);
+    const { form, item } = checklistItem(env, { done: true });
+    env.setFetchHandler((call) => (call.url.includes('/checklist/') ? { status: 400 } : snapshot()));
+
+    submit(env, form);
+    assert.equal(item.classList.contains('is-done'), false, 'taken off at once');
+    await flush();
+    assert.equal(item.classList.contains('is-done'), true, 'and put back');
+    assert.equal(form.querySelector('button').getAttribute('aria-pressed'), 'true');
+    assert.equal(form.querySelector('[data-checklist-done]').value, '0');
+    const message = env.live.board.querySelector('[data-board-message]');
+    assert.equal(message.hidden, false);
+    assert.equal(message.textContent, 'Не удалось отметить пункт. Попробуйте ещё раз.');
+    assert.equal(env.live.checklist.querySelector('[data-checklist-count]').textContent, '1/3', 'counts untouched');
+});
+
+// ----------------------------------------------------------------- «@» in «Чат»
+
+function loadMentions(env) {
+    vm.runInContext(BOARD_MENTIONS_SOURCE, env.context, { filename: 'board_mentions.js' });
+    return env.context.window.qualityBoardMentions;
+}
+
+/** The chat's form as `drawer.html` draws it, with two readers to mention. */
+function mentionForm(env) {
+    const form = new Element('form');
+    form.setAttribute('data-board-mentions', '');
+    const field = new Element('div');
+    field.setAttribute('class', 'board-mentions__field');
+    const textarea = new Element('textarea');
+    textarea.setAttribute('name', 'text');
+    textarea.setAttribute('data-mention-input', '');
+    textarea.value = '';
+    field.append(textarea);
+    const fallback = new Element('details');
+    fallback.setAttribute('data-mention-fallback', '');
+    [['3', 'Ирина Петрова'], ['4', 'Игорь Смирнов']].forEach(([id, name]) => {
+        const box = new Element('input');
+        box.setAttribute('type', 'checkbox');
+        box.setAttribute('name', 'mention');
+        box.setAttribute('data-mention-name', name);
+        box.value = id;
+        box.checked = false;
+        fallback.append(box);
+    });
+    form.append(field, fallback);
+    env.live.drawer.append(form);
+    return { form, textarea, fallback };
+}
+
+const typeIn = (env, textarea, value) => {
+    textarea.value = value;
+    env.document.dispatch('input', { target: textarea });
+};
+
+const press = (env, textarea, key) => {
+    let prevented = false;
+    env.document.dispatch('keydown', {
+        target: textarea, key, preventDefault: () => { prevented = true; }, stopPropagation: () => {},
+    });
+    return prevented;
+};
+
+test('«@» opens the readers, narrows them, and Esc closes the list', async () => {
+    const env = load({ page: 'board' });
+    const { form, textarea, fallback } = mentionForm(env);
+    const mentions = loadMentions(env);
+
+    assert.equal(fallback.hidden, true, 'the checkboxes become the source, hidden');
+    assert.ok(fallback.querySelectorAll('[data-mention-name]').every((box) => box.disabled), 'and post nothing');
+
+    typeIn(env, textarea, 'Коллеги, ');
+    assert.equal(form.querySelector('[data-mention-list]'), null, 'no «@», no list');
+
+    typeIn(env, textarea, 'Коллеги, @');
+    let options = form.querySelectorAll('[data-mention-option]');
+    assert.deepEqual(options.map((option) => option.textContent), ['Ирина Петрова', 'Игорь Смирнов']);
+
+    typeIn(env, textarea, 'Коллеги, @ири');
+    options = form.querySelectorAll('[data-mention-option]');
+    assert.deepEqual(options.map((option) => option.textContent), ['Ирина Петрова'], 'filtered by what is typed');
+
+    typeIn(env, textarea, 'Коллеги, @кто-то');
+    assert.equal(form.querySelector('[data-mention-list]'), null, 'nobody matches, nothing open');
+
+    typeIn(env, textarea, 'Коллеги, @И');
+    assert.equal(mentions.isOpen, true);
+    assert.equal(press(env, textarea, 'Escape'), true);
+    assert.equal(mentions.isOpen, false);
+    assert.equal(form.querySelector('[data-mention-list]'), null);
+    assert.equal(textarea.value, 'Коллеги, @И', 'the text stays as typed');
+});
+
+test('choosing writes the name and a hidden mention; a deleted name is not sent', async () => {
+    const env = load({ page: 'board' });
+    const { form, textarea } = mentionForm(env);
+    loadMentions(env);
+
+    typeIn(env, textarea, 'Посмотрите, @И');
+    assert.equal(press(env, textarea, 'ArrowDown'), true);
+    assert.equal(form.querySelector('.is-active').textContent, 'Игорь Смирнов');
+    assert.equal(press(env, textarea, 'Enter'), true, 'Enter chooses, it adds no line');
+    assert.equal(textarea.value, 'Посмотрите, @Игорь Смирнов ');
+    let hidden = form.querySelectorAll('[data-mention-hidden]');
+    assert.deepEqual(hidden.map((input) => [input.getAttribute('name'), input.getAttribute('value')]), [['mention', '4']]);
+    assert.equal(form.querySelector('[data-mention-list]'), null);
+
+    // A click chooses too, and the same person twice is one field.
+    typeIn(env, textarea, 'Посмотрите, @Игорь Смирнов и @ир');
+    const option = form.querySelector('[data-mention-option="3"]');
+    env.document.dispatch('click', { target: option, preventDefault: () => {} });
+    assert.equal(textarea.value, 'Посмотрите, @Игорь Смирнов и @Ирина Петрова ');
+    typeIn(env, textarea, `${textarea.value}@Иг`);
+    press(env, textarea, 'Tab');
+    hidden = form.querySelectorAll('[data-mention-hidden]');
+    assert.deepEqual(hidden.map((input) => input.getAttribute('value')), ['4', '3']);
+
+    // Sending after deleting a name: that mention goes.
+    textarea.value = 'Посмотрите, @Ирина Петрова';
+    env.document.dispatch('submit', { target: form, preventDefault: () => {} });
+    hidden = form.querySelectorAll('[data-mention-hidden]');
+    assert.deepEqual(hidden.map((input) => input.getAttribute('value')), ['3']);
+});
 // --------------------------------------------------------------------------
 
 (async () => {

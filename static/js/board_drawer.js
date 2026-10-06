@@ -219,6 +219,7 @@
         root.dataset.panelRevision = payload.panel_revision || '';
         root.dataset.commentsRevision = payload.comments_revision || '';
         root.dataset.logRevision = payload.log_revision || '';
+        root.dataset.checklistRevision = payload.checklist_revision || '';
         root.dataset.panelHoldsInput = 'false';
         markTile(payload.card_id);
         syncFilter(payload.card_id, payload.tab, payload.reset_url);
@@ -249,6 +250,7 @@
         root.dataset.panelRevision = '';
         root.dataset.commentsRevision = '';
         root.dataset.logRevision = '';
+        root.dataset.checklistRevision = '';
         root.dataset.panelHoldsInput = 'false';
         markTile(null);
         syncFilter(null, '', root.dataset.boardUrl);

@@ -17,6 +17,8 @@ go there by itself. On the right, what may be done with the work as a whole:
   completion comes back with it open, the text in place and the error beside;
 - «Вернуть в работу» (`card.can_reopen`: `can_reopen_task()` on a live board)
   through the shared confirmation modal to `boards:card_reopen`;
+- «Следить» / «Вы следите» (`card.can_follow`: a reader of a live board),
+  an ordinary POST form to `boards:card_subscribe`;
 - «×», a link back to the sub-board — `board_drawer.js` closes the drawer
   without a reload instead, unless something typed here is unsaved.
 Every right is carried on `card` by `build_board_state()` and asked again by
@@ -52,6 +54,20 @@ the route.
                     </form>
                 </div>
             </details>
+        {% endif %}
+        {% comment %}
+        «Следить» / «Вы следите»: an ordinary POST form posting the state it
+        asks for, so a double click changes nothing twice. Personal — nobody
+        else is told — and drawn for every reader of a live board
+        (`card.can_follow`).
+        {% endcomment %}
+        {% if panel != 'new' and card.can_follow %}
+            <form class="board-follow" method="post" action="{% url 'boards:card_subscribe' board.pk card.card.pk %}{{ filter_suffix }}">
+                {% csrf_token %}
+                <input type="hidden" name="subscribe" value="{% if card.is_subscribed %}0{% else %}1{% endif %}">
+                <input type="hidden" name="tab" value="{{ tab }}">
+                <button class="link-button link-button--compact {% if card.is_subscribed %}link-button--secondary board-follow--on{% else %}link-button--secondary{% endif %}" type="submit" aria-pressed="{% if card.is_subscribed %}true{% else %}false{% endif %}" title="{% if card.is_subscribed %}Вы получаете уведомления о сообщениях, отмене и выполнении карточки. Нажмите, чтобы перестать следить.{% else %}Получать уведомления о сообщениях, отмене и выполнении карточки{% endif %}">{% if card.is_subscribed %}Вы следите{% else %}Следить{% endif %}</button>
+            </form>
         {% endif %}
         {% if panel == 'view' and card.can_reopen %}
             <button class="link-button link-button--warning link-button--compact" type="button"

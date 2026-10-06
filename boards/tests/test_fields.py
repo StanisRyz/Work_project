@@ -758,8 +758,9 @@ class FieldQueryCountTests(FieldsMixin, TestCase):
     the values of every card on the page one."""
 
     # A sub-board page with a card open, for an исполнитель of it, on a board
-    # with card fields (`boards/tests/test_journal.py` measures one without).
-    PAGE_QUERIES = 37
+    # with card fields (`boards/tests/test_journal.py` measures one without);
+    # two more since the card's «Чек-лист» and its followers are read.
+    PAGE_QUERIES = 39
 
     def setUp(self):
         self.make_fields()

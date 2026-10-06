@@ -2199,3 +2199,332 @@
         display: block;
     }
 }
+
+/* ---- «Описание»: one pane, and the card's «Чек-лист» in it ---- */
+
+/* While «Описание» is shown, the pane is its one scrolling body: the guarded
+   block's description section lays its parts straight into it
+   (`display: contents`), and the checklist — a live block of its own,
+   outside the guarded one — sits right under the description text (or the
+   card form), above the facts. On any other tab the pane is nothing of its
+   own and its bodies follow their own rules. */
+.board-drawer__pane {
+    display: contents;
+}
+
+.board-drawer[data-board-tab="description"] .board-drawer__pane {
+    display: grid;
+    flex: 1 1 0;
+    align-content: start;
+    gap: 12px;
+    min-height: 0;
+    padding: 14px 16px 16px;
+    overflow-y: auto;
+}
+
+.board-drawer[data-board-tab="description"] .board-drawer__card > [data-board-tab-body="description"] {
+    display: contents;
+}
+
+.board-drawer__pane [data-board-tab-body="description"] > * {
+    order: 2;
+}
+
+.board-drawer__pane .board-drawer__description,
+.board-drawer__pane .board-drawer__empty,
+.board-drawer__pane .board-card-form {
+    order: 0;
+}
+
+.board-checklist {
+    display: none;
+    order: 1;
+    gap: 8px;
+}
+
+.board-checklist__block {
+    display: grid;
+    gap: 6px;
+}
+
+.board-checklist__block:empty {
+    display: none;
+}
+
+.board-checklist__title {
+    margin: 0;
+    color: var(--color-text);
+    font-size: var(--font-size-base);
+}
+
+.board-checklist__count {
+    margin-left: 4px;
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.board-checklist__count.is-complete {
+    color: var(--board-color-green-text);
+}
+
+.board-checklist__items {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-checklist__item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+    padding: 4px 6px;
+    border-radius: var(--radius);
+}
+
+.board-checklist__item:hover {
+    background: var(--color-bg);
+}
+
+.board-checklist__toggle,
+.board-checklist__tools form {
+    display: contents;
+}
+
+/* The checkbox is a button: an empty square, a ticked one when done. */
+.board-checklist__check {
+    display: inline-grid;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    padding: 0;
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-surface);
+    cursor: pointer;
+}
+
+.board-checklist__check--static {
+    cursor: default;
+}
+
+.board-checklist__item.is-done .board-checklist__check {
+    border-color: var(--board-color-green-text);
+    background: var(--board-color-green-text);
+}
+
+.board-checklist__item.is-done .board-checklist__check > span::before {
+    content: '✓';
+    color: var(--color-surface);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.board-checklist__check:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+}
+
+.board-checklist__text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.board-checklist__item.is-done .board-checklist__text {
+    color: var(--color-muted);
+    text-decoration: line-through;
+}
+
+.board-checklist__tools {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 2px;
+    visibility: hidden;
+}
+
+.board-checklist__item:hover .board-checklist__tools,
+.board-checklist__item:focus-within .board-checklist__tools {
+    visibility: visible;
+}
+
+/* A finger has no hover: the tools are always there. */
+@media (hover: none) {
+    .board-checklist__tools {
+        visibility: visible;
+    }
+}
+
+.board-checklist__tool {
+    padding: 0 6px;
+    border: 0;
+    border-radius: var(--radius);
+    background: none;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 12px;
+    line-height: 20px;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.board-checklist__tool:hover,
+.board-checklist__tool:focus-visible {
+    background: var(--color-border);
+    color: var(--color-text);
+}
+
+.board-checklist__tool--danger:hover,
+.board-checklist__tool--danger:focus-visible {
+    color: var(--board-color-red-text);
+}
+
+.board-checklist__edit,
+.board-checklist__add {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.board-checklist__edit input,
+.board-checklist__add input {
+    flex: 1 1 200px;
+    min-width: 0;
+    height: var(--control-height);
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: var(--control-font-size);
+}
+
+.board-checklist__edit .field-error,
+.board-checklist__add .field-error {
+    flex-basis: 100%;
+    margin: 0;
+}
+
+.board-checklist__empty {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+/* «☑ 2/5» on a tile; green once every item is ticked. */
+.board-tile__checklist {
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.board-tile__checklist--complete {
+    padding: 0 5px;
+    border-radius: var(--radius);
+    background: var(--board-color-green-bg);
+    color: var(--board-color-green-text);
+}
+
+.board-table__checklist-value.is-complete {
+    color: var(--board-color-green-text);
+    font-weight: 700;
+}
+
+/* ---- «Следить» and «Подписчики» ---- */
+
+.board-follow {
+    display: contents;
+}
+
+.board-follow--on {
+    border-color: var(--board-color-green-text);
+    color: var(--board-color-green-text);
+}
+
+.board-drawer__more {
+    align-self: center;
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+/* ---- «@» in «Чат» ---- */
+
+.board-chat__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.board-chat__actions .link-button {
+    margin-left: auto;
+}
+
+.board-mentions__field {
+    position: relative;
+}
+
+.board-mentions {
+    position: absolute;
+    z-index: 5;
+    bottom: calc(100% + 4px);
+    left: 0;
+    min-width: 220px;
+    max-width: 100%;
+    max-height: 240px;
+    margin: 0;
+    padding: 4px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    box-shadow: 0 8px 24px rgb(23 32 51 / 16%);
+    list-style: none;
+}
+
+.board-mentions__option {
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    cursor: pointer;
+}
+
+.board-mentions__option.is-active,
+.board-mentions__option:hover {
+    background: var(--color-bg);
+    color: var(--color-primary-dark);
+}
+
+.board-mentions__fallback > summary {
+    color: var(--color-primary);
+    cursor: pointer;
+}
+
+.board-mentions__choices {
+    display: grid;
+    gap: 4px;
+    max-height: 160px;
+    margin-top: 6px;
+    overflow-y: auto;
+}
+
+.board-mentions__choices label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* «@Имя Фамилия» of somebody the message really mentions. */
+.board-mention {
+    padding: 0 3px;
+    border-radius: var(--radius);
+    background: var(--board-color-blue-bg);
+    color: var(--board-color-blue-text);
+    font-weight: 700;
+}

@@ -27,6 +27,9 @@ and `list_query` (`tab=files`) brings an upload back to this tab.
         <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=card.due_date done=card.is_closed %}</dd></div>
         {% if card.department %}<div><dt>Подразделение</dt><dd class="user-text">{{ card.department.name }}</dd></div>{% endif %}
         <div><dt>Создал</dt><dd>{{ card.card.created_by|person_name }}, {{ card.card.created_at|date:'d.m.Y H:i' }}</dd></div>
+        {% if card.subscriber_count %}<div><dt>Подписчики</dt><dd class="board-drawer__people">
+            {% for user in card.subscribers %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}{% if card.subscribers_more %}<span class="board-drawer__more" title="Ещё подписчиков: {{ card.subscribers_more }}">+{{ card.subscribers_more }}</span>{% endif %}
+        </dd></div>{% endif %}
         {% comment %}
         The board's own fields the card holds a value of, in the fields' order
         (`card.field_values`, `selectors.describe_field_value()`); an empty

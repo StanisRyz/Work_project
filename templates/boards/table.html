@@ -48,6 +48,7 @@ on the board.
                         <th class="board-table__people">Исполнители</th>
                         {% sortable_th 'Срок' 'due' sort 'board-table__due' %}
                         {% sortable_th 'В колонке' 'days' sort 'board-table__days' %}
+                        <th class="board-table__checklist">Чек-лист</th>
                         {% for column in table_fields %}
                             {% sortable_th column.field.name column.sort_key sort 'board-table__field' %}
                         {% endfor %}
@@ -66,6 +67,7 @@ on the board.
                         <td>{% if row.assignees %}<span class="board-table__people-list">{% for user in row.assignees %}<span class="board-table__person">{{ user|person_name }}</span>{% endfor %}</span>{% else %}—{% endif %}</td>
                         <td>{% if row.due_date %}{% include 'includes/due_date.html' with date=row.due_date done=row.is_closed %}{% else %}—{% endif %}</td>
                         <td class="board-table__number">{% if row.in_column_days is not None %}<span class="board-table__days{% if row.is_stale %} board-table__days--stale{% endif %}" title="В колонке с {{ row.in_column_since|date:'d.m.Y' }}">{% if row.in_column_days %}{{ row.in_column_days }} дн.{% else %}сегодня{% endif %}</span>{% else %}—{% endif %}</td>
+                        <td class="board-table__number">{% if row.checklist_label %}<span class="board-table__checklist-value{% if row.checklist_done == row.checklist_total %} is-complete{% endif %}" title="Чек-лист: сделано {{ row.checklist_done }} из {{ row.checklist_total }}">{{ row.checklist_label }}</span>{% else %}—{% endif %}</td>
                         {% for cell in row.cells %}
                             <td{% if cell.value.kind == 'NUMBER' %} class="board-table__number"{% endif %}>{% if cell.value %}{% if cell.value.color %}<span class="board-chip board-chip--{{ cell.value.color }}{% if cell.value.is_archived %} board-chip--archived{% endif %}"{% if cell.value.is_archived %} title="Вариант в архиве"{% endif %}>{{ cell.value.text }}</span>{% else %}<span class="user-text text-clamp-2" title="{{ cell.value.text }}">{{ cell.value.text }}</span>{% endif %}{% else %}—{% endif %}</td>
                         {% endfor %}

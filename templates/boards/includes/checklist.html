@@ -1,0 +1,86 @@
+{% load people %}{% comment %}
+A card's «Чек-лист» — the live block `[data-live-board-checklist]` on
+«Описание», with its own fingerprint (`checklist_revision`). It is not part of
+the guarded panel: ticking an item moves this block and the tile, never
+`panel_revision`, so it never raises the conflict banner over an edit being
+typed. The field «Добавить пункт» is the drawer's, below this block and outside
+every live block, so what is being typed there is never redrawn.
+
+Every control is an ordinary POST form, so the list works without JavaScript:
+the checkbox is a form's button posting the state it asks for (`done`),
+↑ ↓ post a direction, «×» is a submit button the shared confirmation modal
+asks about first (`data-confirm-form`), and «Изменить» is a link
+(`&edit_item=<id>`) to this same panel with that item as a form. While that
+form is open the live client leaves the block alone. With JavaScript
+(`static/js/board_checklist.js`) the checkbox posts through `fetch` and the
+page stays where it is; a refusal puts the tick back.
+
+Who ticked an item and when is on its `title`. The controls are drawn only for
+whoever may change the list (`card.can_edit_checklist`: works on the board,
+the card is open); every route asks again. Without items and without that right
+nothing at all is drawn.
+{% endcomment %}
+{% if card.checklist or card.can_edit_checklist %}
+    <div class="board-checklist__head">
+        <h3 class="board-checklist__title">Чек-лист{% if card.checklist_total %} <span class="board-checklist__count{% if card.checklist_done == card.checklist_total %} is-complete{% endif %}" data-checklist-count>{{ card.checklist_done }}/{{ card.checklist_total }}</span>{% endif %}</h3>
+    </div>
+    {% if card.checklist %}
+        <ol class="board-checklist__items">
+            {% for entry in card.checklist %}
+                <li class="board-checklist__item{% if entry.is_done %} is-done{% endif %}" data-checklist-item="{{ entry.pk }}"{% if entry.is_done %} title="Отметил {{ entry.done_by|person_name }}, {{ entry.done_at|date:'d.m.Y H:i' }}"{% endif %}>
+                    {% if card.can_edit_checklist %}
+                        <form class="board-checklist__toggle" method="post" action="{% url 'boards:checklist_toggle' board.pk card.card.pk entry.pk %}{{ filter_suffix }}" data-checklist-toggle>
+                            {% csrf_token %}
+                            <input type="hidden" name="done" value="{% if entry.is_done %}0{% else %}1{% endif %}" data-checklist-done>
+                            <button class="board-checklist__check" type="submit" aria-pressed="{% if entry.is_done %}true{% else %}false{% endif %}" aria-label="{% if entry.is_done %}Снять отметку{% else %}Отметить{% endif %}: {{ entry.text }}"><span aria-hidden="true"></span></button>
+                        </form>
+                    {% else %}
+                        <span class="board-checklist__check board-checklist__check--static" role="img" aria-label="{% if entry.is_done %}Сделано{% else %}Не сделано{% endif %}"><span aria-hidden="true"></span></span>
+                    {% endif %}
+                    {% if card.can_edit_checklist and checklist_edit_item == entry.pk %}
+                        <form class="board-checklist__edit" method="post" action="{% url 'boards:checklist_rename' board.pk card.card.pk entry.pk %}{{ filter_suffix }}" data-checklist-edit data-unsaved-guard{% if checklist_edit_error %}="dirty"{% endif %}>
+                            {% csrf_token %}
+                            <input type="text" name="text" value="{% if checklist_edit_error %}{{ checklist_edit_text }}{% else %}{{ entry.text }}{% endif %}" maxlength="200" required aria-label="Пункт чек-листа" autofocus>
+                            <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                            <a class="link-button link-button--secondary link-button--compact" href="{{ board_url }}?card={{ card.card.pk }}&amp;tab=description{% if filter_query %}&amp;{{ filter_query }}{% endif %}">Отмена</a>
+                            {% if checklist_edit_error %}<p class="field-error">{{ checklist_edit_error }}</p>{% endif %}
+                        </form>
+                    {% else %}
+                        <span class="board-checklist__text user-text">{{ entry.text }}</span>
+                        {% if card.can_edit_checklist %}
+                            <span class="board-checklist__tools">
+                                {% if not forloop.first %}
+                                    <form method="post" action="{% url 'boards:checklist_move' board.pk card.card.pk entry.pk %}{{ filter_suffix }}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="direction" value="up">
+                                        <button class="board-checklist__tool" type="submit" title="Выше" aria-label="Переместить выше: {{ entry.text }}">↑</button>
+                                    </form>
+                                {% endif %}
+                                {% if not forloop.last %}
+                                    <form method="post" action="{% url 'boards:checklist_move' board.pk card.card.pk entry.pk %}{{ filter_suffix }}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="direction" value="down">
+                                        <button class="board-checklist__tool" type="submit" title="Ниже" aria-label="Переместить ниже: {{ entry.text }}">↓</button>
+                                    </form>
+                                {% endif %}
+                                <a class="board-checklist__tool" href="{{ board_url }}?card={{ card.card.pk }}&amp;tab=description&amp;edit_item={{ entry.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" title="Изменить" aria-label="Изменить: {{ entry.text }}">Изменить</a>
+                                <form id="board-checklist-delete-{{ entry.pk }}" method="post" action="{% url 'boards:checklist_delete' board.pk card.card.pk entry.pk %}{{ filter_suffix }}">
+                                    {% csrf_token %}
+                                    <button class="board-checklist__tool board-checklist__tool--danger" type="submit" title="Удалить" aria-label="Удалить: {{ entry.text }}"
+                                            data-confirm
+                                            data-confirm-form="board-checklist-delete-{{ entry.pk }}"
+                                            data-confirm-title="Удалить пункт чек-листа?"
+                                            data-confirm-text="«{{ entry.text }}» будет удалён из чек-листа карточки {{ card.card.code }}. В «Логе» останется запись об удалении."
+                                            data-confirm-label="Удалить"
+                                            data-confirm-variant="danger">×</button>
+                                </form>
+                            </span>
+                        {% endif %}
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ol>
+    {% else %}
+        <p class="board-checklist__empty">Пунктов пока нет — добавьте первый шаг ниже.</p>
+    {% endif %}
+{% endif %}

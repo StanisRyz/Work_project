@@ -93,10 +93,15 @@ EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.ACT_REJECTION_ASSIGNED,
     Notification.EventType.SMK_TASK_ASSIGNED,
     # A board card put on somebody: work they did not choose themselves. A
-    # cancelled card and a new message in a card's «Обсуждение» stay in the
-    # bell only: nothing is asked of anybody, and a lively card would flood
-    # the mailbox.
+    # cancelled card, a completed one and a new message in a card's
+    # «Обсуждение» stay in the bell only: nothing is asked of anybody, and a
+    # lively card would flood the mailbox.
     Notification.EventType.BOARD_TASK_ASSIGNED,
+    # Somebody named with «@» in a card's «Чат»: a colleague asking this person
+    # in particular to look — a request, like an assignment, and often to
+    # somebody who is not watching the board. An ordinary message, a completed
+    # card a follower hears of, stays in the bell.
+    Notification.EventType.BOARD_CARD_MENTION,
     # A bug report is exactly the kind of fact this list is for: somebody has
     # to look at it, and the people who must are often not in the application
     # when it arrives.
@@ -353,6 +358,57 @@ def notify_board_card_comment(comment, task, actor, recipients):
     )
 
 
+def notify_board_card_mention(comment, task, actor, mentioned):
+    """One `BOARD_CARD_MENTION` per person a message of «Чат» names with «@».
+
+    `TASK`-sourced on the card's task and keyed on the message, like
+    `notify_board_card_comment()` — its link opens the card on «Чат». Bell and
+    mail (`EMAIL_ELIGIBLE_EVENTS`): a mention asks this person to look. The
+    caller (`boards.services.post_card_comment()`) passes only readers of the
+    board and leaves them out of the ordinary message notification, so a
+    person is told once per message; the writer is never told. The text
+    names the card and the board and never repeats the message.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_CARD_MENTION,
+        task=task,
+        actor=actor,
+        recipients=mentioned,
+        source_key=f'board_comment:{comment.pk}',
+        exclude_actor=True,
+    )
+
+
+def notify_board_card_completed(task, actor, recipients):
+    """«Карточка ZAP-12 выполнена» for its followers and its author.
+
+    Bell only. Keyed on the task and the moment of completion
+    (`task:<pk>:completed:<completed_at>`), so a card an administrator
+    reopened and somebody completed again says so again, while one completion
+    never notifies twice. Whoever completed it is not told
+    (`exclude_actor=True`). Called by `boards.services.complete_card()` inside
+    its transaction, after the task is completed; the recipients are
+    `selectors.card_audience()`'s.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    completed_at = task.completed_at.isoformat() if task.completed_at else ''
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_CARD_COMPLETED,
+        task=task,
+        actor=actor,
+        recipients=recipients,
+        source_key=f'task:{task.pk}:completed:{completed_at}',
+        exclude_actor=True,
+    )
+
+
 def notify_bug_reported(report, actor, recipients):
     """Tell the accounts responsible for bugs that a report has arrived.
 
@@ -579,18 +635,31 @@ def get_required_action(notification):
     ).required_action
 
 
+# A notification about a message opens its source on the tab that shows it:
+# `tasks:detail?tab=chat` leads to the board card's «Чат». The query is the
+# route's own convention, read by the page it opens; nothing else changes.
+EVENT_URL_QUERIES = {
+    Notification.EventType.BOARD_CARD_COMMENT: 'tab=chat',
+    Notification.EventType.BOARD_CARD_MENTION: 'tab=chat',
+}
+
+
 def get_notification_url(notification, *, absolute=False):
     """The page this notification opens, resolved by source type.
 
     Built from the stored foreign key id, so rendering a link costs no query
     and no relation has to be loaded. Always a named route — never a
-    hard-coded public path.
+    hard-coded public path. A message of a board card adds `?tab=chat`
+    (`EVENT_URL_QUERIES`), so the bell and the mail open its «Чат».
     """
     route, _label = SOURCE_ROUTES[notification.source_type]
     source_id = getattr(notification, f'{SOURCE_FIELDS[notification.source_type]}_id')
     # Positional: every source route takes exactly one integer, whatever the
     # owning app calls it (`pk`, `document_id`).
     path = reverse(route, args=[source_id])
+    query = EVENT_URL_QUERIES.get(notification.event_type)
+    if query:
+        path = f'{path}?{query}'
     if not absolute:
         return path
     return urljoin(f"{settings.APP_BASE_URL.rstrip('/')}/", path.lstrip('/'))
@@ -835,6 +904,8 @@ def _task_event_text(event_type, task):
         Notification.EventType.BOARD_TASK_ASSIGNED,
         Notification.EventType.BOARD_TASK_CANCELLED,
         Notification.EventType.BOARD_CARD_COMMENT,
+        Notification.EventType.BOARD_CARD_MENTION,
+        Notification.EventType.BOARD_CARD_COMPLETED,
     ):
         return _board_event_text(event_type, task)
     label = _protocol_label(task.protocol)
@@ -863,6 +934,18 @@ def _board_event_text(event_type, task):
             f'Карточка {code}, где вы исполнитель, отменена на доске «{name}». '
             'Задача закрыта без выполнения.',
             'Причина отмены — на карточке. Дополнительных действий не требуется.',
+        )
+    if event_type == Notification.EventType.BOARD_CARD_MENTION:
+        return NotificationText(
+            f'Вас упомянули в карточке {code} на доске «{name}»',
+            f'Вас упомянули в обсуждении карточки {code} (задача №{task.pk}) на доске «{name}».',
+            'Откройте обсуждение карточки и ответьте, если нужно.',
+        )
+    if event_type == Notification.EventType.BOARD_CARD_COMPLETED:
+        return NotificationText(
+            f'Карточка {code} выполнена',
+            f'Карточка {code} на доске «{name}», за которой вы следите, выполнена.',
+            'Результат — на карточке. Дополнительных действий не требуется.',
         )
     return NotificationText(
         f'Новое сообщение в карточке {code} на доске «{name}»',

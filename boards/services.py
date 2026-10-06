@@ -44,6 +44,14 @@ one `structure_changed` each — and filled in by `create_card()`/
 `update_card()` through `field_values`, parsed by kind in
 `_clean_field_values()`. A field or an option a card holds a value of is
 archived, never deleted.
+
+A card carries a «Чек-лист» (`add_checklist_item()` and the rest: whoever
+works on the board, an open card only, one `board.updated(checklist_changed)`
+and one journal entry each — a reorder writes none) and its followers
+(`toggle_card_subscription()`: personal, no event, no entry). Who hears of a
+card — a message, a cancellation, a completion — is
+`selectors.card_audience()`; the people a message mentions are told once, by
+`BOARD_CARD_MENTION`, and follow the card from then on.
 """
 
 import datetime
@@ -53,7 +61,7 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.db.models import Max, Q
+from django.db.models import Count, Max, Q
 from django.utils import timezone
 
 from ecosystem.logging_utils import log_event
@@ -67,6 +75,7 @@ from realtime.events import (
     BOARD_CHANGE_CARD_MOVED,
     BOARD_CHANGE_CARD_REOPENED,
     BOARD_CHANGE_CARD_UPDATED,
+    BOARD_CHANGE_CHECKLIST_CHANGED,
     BOARD_CHANGE_COMMENT_ADDED,
     BOARD_CHANGE_MEMBERS_CHANGED,
     BOARD_CHANGE_STRUCTURE_CHANGED,
@@ -74,6 +83,8 @@ from realtime.events import (
 
 from .columns import DEFAULT_COLUMNS, MAX_COLUMNS
 from .models import (
+    CHECKLIST_TEXT_MAX_LENGTH,
+    MAX_CHECKLIST_ITEMS,
     STALE_DAYS_MAX,
     STALE_DAYS_MIN,
     BOARD_CODE_MAX_LENGTH,
@@ -81,9 +92,12 @@ from .models import (
     BOARD_CODE_PATTERN,
     Board,
     BoardCard,
+    BoardCardChecklistItem,
     BoardCardComment,
+    BoardCardCommentMention,
     BoardCardEvent,
     BoardCardFieldValue,
+    BoardCardSubscription,
     BoardColumn,
     BoardColumnPin,
     BoardField,
@@ -94,9 +108,11 @@ from .models import (
 )
 from .permissions import (
     active_employee_q,
+    board_readers_q,
     can_cancel_card,
     can_comment_card,
     can_create_board,
+    can_follow_card,
     can_manage_board,
     can_restore_board,
     can_work_on_board,
@@ -453,7 +469,8 @@ def remove_board_member(board, user, *, actor):
 
     Their pins (`BoardColumn.pinned_assignees`) go with them, in every column
     of the board and in the same transaction: a column must never put a card
-    on somebody who is no longer on the board.
+    on somebody who is no longer on the board. So do their subscriptions to
+    the board's cards (`BoardCardSubscription`).
     """
     from tasks.models import Task
 
@@ -482,6 +499,10 @@ def remove_board_member(board, user, *, actor):
                 'Сначала переназначьте карточку.'
             )
         membership.delete()
+        # Their «Следить» on the cards of this board goes with the membership:
+        # `selectors.card_audience()` would leave them out anyway, but a
+        # follower who reads nothing should not be listed as one.
+        BoardCardSubscription.objects.filter(card__board=board, user=user).delete()
         pins = BoardColumnPin.objects.filter(column__sub_board__board=board, user=user)
         pinned_columns = list(pins.values_list('column_id', flat=True))
         if pinned_columns:
@@ -1010,9 +1031,15 @@ def complete_card(card, *, actor, execution_comment):
     The comment is required and the right is the task's own
     (`can_complete_task()`). `card.column` is not touched: the card stands in
     the closing column because its task is completed, and reopening the task
-    returns it to the working column it came from.
+    returns it to the working column it came from. The card's followers and
+    its author hear of it in the bell (`BOARD_CARD_COMPLETED`, keyed on the
+    completion's time, so a card completed again after a reopening says so
+    again); whoever completed it is not told.
     """
+    from notifications.services import notify_board_card_completed
     from tasks.services import TaskWorkflowError, complete_task
+
+    from .selectors import card_audience
 
     with transaction.atomic():
         board = _lock_board(card.board_id)
@@ -1023,6 +1050,9 @@ def complete_card(card, *, actor, execution_comment):
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
         _record(card, BoardCardEvent.Kind.COMPLETED, actor=actor)
+        # Its followers and its author, in the bell; whoever finished it knows.
+        card.board = board
+        notify_board_card_completed(task, actor, card_audience(card, task, assignees=False))
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_COMPLETED, card.pk)
     log_event(
         logger,
@@ -1084,12 +1114,13 @@ def cancel_card(card, *, actor, reason):
     — with the reason, who and when, and nothing claimed about the work — and
     the card leaves every column (`columns.card_column()`); its panel still
     reads the record by `?card=`. Who may do it is `can_cancel_card()`, asked
-    after the locks; its исполнители get one bell entry each
-    (`notify_board_task_cancelled()`), never an email.
+    after the locks; its исполнители and its followers get one bell entry
+    each (`notify_board_task_cancelled()`), never an email.
     """
     from notifications.services import notify_board_task_cancelled
-    from tasks.models import TaskAssignee
     from tasks.services import TaskWorkflowError, cancel_board_card_task
+
+    from .selectors import card_audience
 
     with transaction.atomic():
         board = _lock_board(card.board_id)
@@ -1106,9 +1137,9 @@ def cancel_card(card, *, actor, reason):
             task = cancel_board_card_task(task, actor=actor, reason=reason)
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
-        # Its исполнители, in the bell only; whoever cancelled is not told.
-        assignee_ids = TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True)
-        notify_board_task_cancelled(task, actor, _users(assignee_ids))
+        # Its исполнители and followers, in the bell only; whoever cancelled
+        # is not told.
+        notify_board_task_cancelled(task, actor, card_audience(card, task, author=False))
         _record(card, BoardCardEvent.Kind.CANCELLED, actor=actor)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_CANCELLED, card.pk)
     log_event(
@@ -2088,21 +2119,40 @@ def restore_board(board, *, actor):
 # --------------------------------------------------------------------------
 
 
-def post_card_comment(card, *, actor, text):
+def post_card_comment(card, *, actor, text, mentions=()):
     """One message in a card's «Обсуждение». No editing, no deletion.
 
     Locks the board, then the card, and asks `can_comment_card()` after the
     locks — an active member or an administrator, not on an archived board;
     the state of the task does not matter. The text is stripped, required and
-    at most `COMMENT_MAX_LENGTH` characters. The исполнители and the card's
-    author hear of it in the bell (`notify_board_card_comment()`, never the
-    writer), and the board publishes `board.updated(comment_added)`. Logged
-    by identifiers only, never the text.
+    at most `COMMENT_MAX_LENGTH` characters.
+
+    `mentions` are the ids «@» put beside the message (`mention=<id>`). Only
+    the readers of the board who are active employees are kept
+    (`board_readers_q()`) — a foreign, inactive, repeated or malformed id and
+    the writer's own are dropped without a word — and stored as
+    `BoardCardCommentMention` rows in the same transaction; each of them
+    follows the card from now on (`BoardCardSubscription`, if not already).
+
+    Who is told, one notification per person per message: everybody
+    mentioned gets `BOARD_CARD_MENTION` (bell and mail); the card's audience
+    (`selectors.card_audience()`: its исполнители, its author, its followers)
+    gets `BOARD_CARD_COMMENT` in the bell — except those mentioned, who have
+    theirs already, and the writer, who is told nothing. The board publishes
+    `board.updated(comment_added)`. Logged by identifiers only, never the text.
     """
-    from notifications.services import notify_board_card_comment
-    from tasks.models import Task, TaskAssignee
+    from notifications.services import notify_board_card_comment, notify_board_card_mention
+    from tasks.models import Task
+
+    from .selectors import card_audience
 
     text = (text or '').strip()
+    requested = set()
+    for value in mentions or ():
+        try:
+            requested.add(int(getattr(value, 'pk', value)))
+        except (TypeError, ValueError):
+            continue
     with transaction.atomic():
         board = _lock_board(card.board_id)
         card = _lock_card(card, board)
@@ -2116,12 +2166,31 @@ def post_card_comment(card, *, actor, text):
         if len(text) > COMMENT_MAX_LENGTH:
             raise BoardError(f'Сообщение — не длиннее {COMMENT_MAX_LENGTH} символов.')
         comment = BoardCardComment.objects.create(card=card, author=actor, text=text)
+        requested.discard(actor.pk)
+        mentioned = (
+            list(
+                get_user_model().objects.filter(board_readers_q(board), pk__in=requested)
+                .distinct().order_by('pk')
+            ) if requested else []
+        )
+        if mentioned:
+            BoardCardCommentMention.objects.bulk_create(
+                [BoardCardCommentMention(comment=comment, user=user) for user in mentioned]
+            )
+            following = set(
+                BoardCardSubscription.objects.filter(card=card, user__in=mentioned)
+                .values_list('user_id', flat=True)
+            )
+            BoardCardSubscription.objects.bulk_create(
+                [BoardCardSubscription(card=card, user=user) for user in mentioned if user.pk not in following]
+            )
         task = Task.objects.get(source_type=Task.SourceType.BOARD, board_card=card)
-        recipient_ids = {
-            *TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True),
-            card.created_by_id,
-        }
-        notify_board_card_comment(comment, task, actor, _users(recipient_ids))
+        mentioned_ids = {user.pk for user in mentioned}
+        notify_board_card_mention(comment, task, actor, mentioned)
+        notify_board_card_comment(
+            comment, task, actor,
+            [user for user in card_audience(card, task) if user.pk not in mentioned_ids],
+        )
         emit_board_updated(board.pk, BOARD_CHANGE_COMMENT_ADDED, card.pk)
     log_event(
         logger,
@@ -2130,7 +2199,251 @@ def post_card_comment(card, *, actor, text):
         board_id=board.pk,
         board_card_id=card.pk,
         comment_id=comment.pk,
+        mention_count=len(mentioned),
         actor_user_id=actor.pk,
         outcome='ok',
     )
     return comment
+
+
+# --------------------------------------------------------------------------
+# «Следить»
+# --------------------------------------------------------------------------
+
+
+def toggle_card_subscription(card, *, actor, subscribe=None):
+    """«Следить» / «Вы следите» on a card: follow it, or stop.
+
+    Any reader of the board (`can_follow_card()`), whatever the state of the
+    card, never on an archived board. `subscribe` is the state asked for —
+    the button posts it, so a double click or a stale tab asks the same thing
+    twice and changes nothing the second time; `None` flips. Personal: no
+    `board.updated` (nobody else sees it change) and no journal entry.
+    Returns whether `actor` follows the card afterwards.
+    """
+    with transaction.atomic():
+        board = _lock_board(card.board_id)
+        card = _lock_card(card, board)
+        card.board = board
+        _refuse_archived('toggle_subscription', board, actor=actor, card_id=card.pk)
+        if not can_follow_card(actor, card):
+            _rejected('toggle_subscription', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise BoardError('Следить за карточкой могут читатели доски.')
+        rows = BoardCardSubscription.objects.filter(card=card, user=actor)
+        current = rows.exists()
+        wanted = (not current) if subscribe is None else bool(subscribe)
+        if wanted == current:
+            return current
+        if wanted:
+            BoardCardSubscription.objects.create(card=card, user=actor)
+        else:
+            rows.delete()
+    log_event(
+        logger,
+        'INFO',
+        'board.card_subscription_changed',
+        board_id=board.pk,
+        board_card_id=card.pk,
+        actor_user_id=actor.pk,
+        subscribed=wanted,
+        outcome='ok',
+    )
+    return wanted
+
+
+# --------------------------------------------------------------------------
+# «Чек-лист»
+# --------------------------------------------------------------------------
+#
+# A working list of steps on a card — «Запуск заказа»: a few items, ticked
+# one by one. Whoever works on the board changes it (`can_work_on_board()`),
+# on an open card only: a completed or cancelled card keeps its list as it
+# was, and an archived board changes nothing. Each write locks the board,
+# then the card (and reads its task under them), and re-asks the right and
+# the state after the locks. The same text, the same tick, a move past the
+# edge store and announce nothing; anything else touches the card's
+# `updated_at` (the `boards` sync revision), writes one journal entry
+# (`CHECKLIST`: the action, the item's id and «сделано/всего» after it, never
+# the text; a reorder writes none) and publishes one
+# `board.updated(checklist_changed)`. Deleting an item deletes it — this is a
+# working list, not a record; the journal keeps that it happened.
+
+def _checklist_card(card, operation, *, actor):
+    """The board, the card and its task, locked in that order, if `actor`
+    may change the card's «Чек-лист» now."""
+    board = _lock_board(card.board_id)
+    card = _lock_card(card, board)
+    task = _lock_card_task(card)
+    card.board = board
+    _refuse_archived(operation, board, actor=actor, card_id=card.pk)
+    if not can_work_on_board(actor, board):
+        _rejected(operation, 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise BoardError('Работа с карточками этой доски недоступна.')
+    if task.status.code != 'IN_PROGRESS':
+        _rejected(operation, 'task_final', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise BoardError('Задача карточки закрыта — чек-лист больше не меняется.')
+    return board, card, task
+
+
+def _checklist_item(card, item, operation, *, actor):
+    """`item` (an object or an id), re-read under the card's lock, only if
+    it is on this very card."""
+    item_id = getattr(item, 'pk', item)
+    try:
+        item_id = int(item_id)
+    except (TypeError, ValueError):
+        item_id = None
+    found = (
+        BoardCardChecklistItem.objects.filter(pk=item_id, card=card).first()
+        if item_id is not None else None
+    )
+    if found is None:
+        _rejected(operation, 'unknown_item', actor=actor, board_id=card.board_id, card_id=card.pk)
+        raise BoardError('Пункт чек-листа не найден — возможно, его удалили. Обновите страницу.')
+    return found
+
+
+def _clean_checklist_text(text):
+    text = (text or '').strip()
+    if not text:
+        raise BoardError('Напишите пункт чек-листа.')
+    if len(text) > CHECKLIST_TEXT_MAX_LENGTH:
+        raise BoardError(f'Пункт чек-листа — не длиннее {CHECKLIST_TEXT_MAX_LENGTH} символов.')
+    return text
+
+
+def _checklist_items(card):
+    return list(BoardCardChecklistItem.objects.filter(card=card).order_by('position', 'pk'))
+
+
+def _checklist_changed(board, card, action, *, actor, item_id):
+    """What every write of a «Чек-лист» ends with: the card's `updated_at`,
+    the journal entry (none for a reorder), one event and the log line."""
+    counts = BoardCardChecklistItem.objects.filter(card=card).aggregate(
+        total=Count('pk'), done=Count('pk', filter=Q(is_done=True)),
+    )
+    card.save(update_fields=['updated_at'])
+    if action != 'moved':
+        _record(
+            card, BoardCardEvent.Kind.CHECKLIST, actor=actor,
+            action=action, item_id=item_id, done=counts['done'], total=counts['total'],
+        )
+    emit_board_updated(board.pk, BOARD_CHANGE_CHECKLIST_CHANGED, card.pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.checklist_changed',
+        board_id=board.pk,
+        board_card_id=card.pk,
+        checklist_item_id=item_id,
+        action=action,
+        done_count=counts['done'],
+        total_count=counts['total'],
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return counts['done'], counts['total']
+
+
+def add_checklist_item(card, *, actor, text):
+    """A new item at the end of the card's «Чек-лист», not ticked.
+
+    Trimmed, required, at most `CHECKLIST_TEXT_MAX_LENGTH`; at most
+    `MAX_CHECKLIST_ITEMS` items per card.
+    """
+    with transaction.atomic():
+        board, card, _task = _checklist_card(card, 'add_checklist_item', actor=actor)
+        text = _clean_checklist_text(text)
+        items = _checklist_items(card)
+        if len(items) >= MAX_CHECKLIST_ITEMS:
+            _rejected('add_checklist_item', 'limit', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise BoardError(f'В чек-листе может быть не больше {MAX_CHECKLIST_ITEMS} пунктов.')
+        item = BoardCardChecklistItem.objects.create(
+            card=card,
+            text=text,
+            position=(items[-1].position if items else 0) + 1,
+            created_by=actor,
+        )
+        _checklist_changed(board, card, 'added', actor=actor, item_id=item.pk)
+    return item
+
+
+def rename_checklist_item(item, *, actor, text):
+    """New wording for an item; the same wording changes nothing."""
+    with transaction.atomic():
+        board, card, _task = _checklist_card(item.card, 'rename_checklist_item', actor=actor)
+        item = _checklist_item(card, item, 'rename_checklist_item', actor=actor)
+        text = _clean_checklist_text(text)
+        if text == item.text:
+            return item
+        item.text = text
+        item.save(update_fields=['text'])
+        _checklist_changed(board, card, 'renamed', actor=actor, item_id=item.pk)
+    return item
+
+
+def toggle_checklist_item(item, *, actor, done=None):
+    """Tick an item, or take the tick off.
+
+    `done` is the state asked for — the checkbox posts it, so a double click
+    or a stale tab asks the same thing twice and the second time changes
+    nothing; `None` flips. A tick records who and when (`done_by`/`done_at`);
+    taking it off clears both.
+    """
+    with transaction.atomic():
+        board, card, _task = _checklist_card(item.card, 'toggle_checklist_item', actor=actor)
+        item = _checklist_item(card, item, 'toggle_checklist_item', actor=actor)
+        wanted = (not item.is_done) if done is None else bool(done)
+        if wanted == item.is_done:
+            return item
+        item.is_done = wanted
+        item.done_by = actor if wanted else None
+        item.done_at = timezone.now() if wanted else None
+        item.save(update_fields=['is_done', 'done_by', 'done_at'])
+        _checklist_changed(board, card, 'done' if wanted else 'undone', actor=actor, item_id=item.pk)
+    return item
+
+
+def move_checklist_item(item, *, actor, direction):
+    """One place up (`'up'`) or down (`'down'`); at the edge, nothing.
+
+    A reorder is no journal entry — the list says the same — but it is an
+    event: every open panel shows the new order.
+    """
+    if direction not in ('up', 'down'):
+        raise BoardError('Неизвестное направление.')
+    with transaction.atomic():
+        board, card, _task = _checklist_card(item.card, 'move_checklist_item', actor=actor)
+        item = _checklist_item(card, item, 'move_checklist_item', actor=actor)
+        items = _checklist_items(card)
+        index = next(i for i, other in enumerate(items) if other.pk == item.pk)
+        other = index - 1 if direction == 'up' else index + 1
+        if other < 0 or other >= len(items):
+            return item
+        items[index], items[other] = items[other], items[index]
+        _renumber_checklist(items)
+        _checklist_changed(board, card, 'moved', actor=actor, item_id=item.pk)
+    return item
+
+
+def delete_checklist_item(item, *, actor):
+    """Delete an item for real; the ones after it move up a place."""
+    with transaction.atomic():
+        board, card, _task = _checklist_card(item.card, 'delete_checklist_item', actor=actor)
+        item = _checklist_item(card, item, 'delete_checklist_item', actor=actor)
+        item_id = item.pk
+        item.delete()
+        _renumber_checklist(_checklist_items(card))
+        _checklist_changed(board, card, 'deleted', actor=actor, item_id=item_id)
+
+
+def _renumber_checklist(items):
+    """Positions 1, 2, 3, … for `items` in their new order — only the rows
+    whose position really changes are written."""
+    changed = []
+    for index, row in enumerate(items, start=1):
+        if row.position != index:
+            row.position = index
+            changed.append(row)
+    if changed:
+        BoardCardChecklistItem.objects.bulk_update(changed, ['position'])

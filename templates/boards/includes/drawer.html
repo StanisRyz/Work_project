@@ -1,4 +1,4 @@
-{% comment %}
+{% load people %}{% comment %}
 The card drawer: everything inside `<aside data-board-drawer>` of the board
 page, top to bottom — the heading, the tab strip, the four tab bodies. The page
 prints it, and `boards:fragment` returns it as `drawer_html` for
@@ -17,7 +17,9 @@ The guarded block has two containers — the heading
 (`[data-live-board-card]`) — with one fingerprint. «Чат»'s messages
 (`[data-live-board-comments]`) and «Лог» (`[data-live-board-log]`) are
 read-only blocks of their own, and the chat's form is in no block at all, so a
-message being typed is never redrawn.
+message being typed is never redrawn. So is the card's «Чек-лист» on
+«Описание» (`[data-live-board-checklist]`), with «Добавить пункт» below it in
+no block.
 {% endcomment %}
 <div class="board-drawer__frame">
     <div class="board-drawer__head" data-live-board-panel{% if card %} data-task-id="{{ card.task.pk }}"{% endif %}>{{ panel_html }}</div>
@@ -29,16 +31,59 @@ message being typed is never redrawn.
             {% endfor %}
         </nav>
     {% endif %}
-    <div class="board-drawer__card" data-live-board-card>{{ card_html }}</div>
+    {% comment %}
+    «Описание» is one scrolling pane (`.board-drawer__pane`, nothing of its own
+    while another tab is shown): the guarded block's bodies, then the card's
+    «Чек-лист» — a live block of its own, outside the guarded one — and the
+    field that adds an item, in no live block at all, like the chat's form.
+    The stylesheet sets the list right under the description text.
+    {% endcomment %}
+    <div class="board-drawer__pane">
+        <div class="board-drawer__card" data-live-board-card>{{ card_html }}</div>
+        {% if show_checklist %}
+            <section class="board-checklist" data-board-tab-body="description" aria-label="Чек-лист">
+                <div class="board-checklist__block" data-live-board-checklist>{{ checklist_html }}</div>
+                {% if card.can_edit_checklist %}
+                    <form class="board-checklist__add" method="post" action="{% url 'boards:checklist_add' board.pk card.card.pk %}{{ filter_suffix }}" data-unsaved-guard{% if checklist_error %}="dirty"{% endif %}>
+                        {% csrf_token %}
+                        <input type="text" name="text" value="{{ checklist_text }}" maxlength="200" required placeholder="Добавить пункт" aria-label="Новый пункт чек-листа">
+                        <button class="link-button link-button--secondary link-button--compact" type="submit">Добавить</button>
+                        {% if checklist_error %}<p class="field-error">{{ checklist_error }}</p>{% endif %}
+                    </form>
+                {% endif %}
+            </section>
+        {% endif %}
+    </div>
     {% if show_discussion %}
         <section class="board-drawer__body board-chat" data-board-tab-body="chat" aria-label="Чат">
             <div class="board-chat__list" data-live-board-comments>{{ comments_html }}</div>
             {% if card.can_comment %}
-                <form class="board-chat__form" method="post" action="{% url 'boards:card_comment' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if comment_error %}="dirty"{% endif %}>
+                {% comment %}
+                «@» in the message opens the board's readers (`board_mentions.js`,
+                which reads them off the «Упомянуть» list below): choosing one
+                writes «@Имя Фамилия» into the text and a hidden `mention` with
+                the id. Without JavaScript that list is the way: tick whom to
+                mention, the same `mention` values go with the message.
+                {% endcomment %}
+                <form class="board-chat__form" method="post" action="{% url 'boards:card_comment' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if comment_error %}="dirty"{% endif %} data-board-mentions>
                     {% csrf_token %}
-                    <textarea id="board-comment-text" name="text" aria-label="Сообщение" rows="2" maxlength="4000" required placeholder="Сообщение участникам карточки">{{ comment_text }}</textarea>
+                    <div class="board-mentions__field">
+                        <textarea id="board-comment-text" name="text" aria-label="Сообщение" rows="2" maxlength="4000" required placeholder="Сообщение участникам карточки — @, чтобы позвать коллегу" data-mention-input>{{ comment_text }}</textarea>
+                    </div>
                     {% if comment_error %}<p class="field-error">{{ comment_error }}</p>{% endif %}
-                    <button class="link-button link-button--compact" type="submit">Отправить</button>
+                    <div class="board-chat__actions">
+                        {% if card.mention_people %}
+                            <details class="board-mentions__fallback" data-mention-fallback>
+                                <summary>Упомянуть</summary>
+                                <div class="board-mentions__choices">
+                                    {% for person in card.mention_people %}
+                                        <label><input type="checkbox" name="mention" value="{{ person.pk }}" data-mention-name="{{ person|person_name }}"{% if person.pk|stringformat:'s' in comment_mentions %} checked{% endif %}> <span class="user-text">{{ person|person_name }}</span></label>
+                                    {% endfor %}
+                                </div>
+                            </details>
+                        {% endif %}
+                        <button class="link-button link-button--compact" type="submit">Отправить</button>
+                    </div>
                 </form>
             {% endif %}
         </section>

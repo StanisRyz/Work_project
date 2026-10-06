@@ -93,4 +93,25 @@ urlpatterns = [
     path('<int:pk>/cards/<int:card_pk>/reopen/', views.card_reopen, name='card_reopen'),
     path('<int:pk>/cards/<int:card_pk>/cancel/', views.card_cancel, name='card_cancel'),
     path('<int:pk>/cards/<int:card_pk>/comment/', views.card_comment, name='card_comment'),
+    # «Следить» / «Вы следите»: any reader of a live board.
+    path('<int:pk>/cards/<int:card_pk>/subscribe/', views.card_subscribe, name='card_subscribe'),
+    # The card's «Чек-лист»: whoever works on the board, an open card only.
+    # The checkbox answers a `fetch` in JSON, like a drag.
+    path('<int:pk>/cards/<int:card_pk>/checklist/add/', views.checklist_add, name='checklist_add'),
+    path(
+        '<int:pk>/cards/<int:card_pk>/checklist/<int:item_pk>/rename/',
+        views.checklist_rename, name='checklist_rename',
+    ),
+    path(
+        '<int:pk>/cards/<int:card_pk>/checklist/<int:item_pk>/toggle/',
+        views.checklist_toggle, name='checklist_toggle',
+    ),
+    path(
+        '<int:pk>/cards/<int:card_pk>/checklist/<int:item_pk>/move/',
+        views.checklist_move, name='checklist_move',
+    ),
+    path(
+        '<int:pk>/cards/<int:card_pk>/checklist/<int:item_pk>/delete/',
+        views.checklist_delete, name='checklist_delete',
+    ),
 ]

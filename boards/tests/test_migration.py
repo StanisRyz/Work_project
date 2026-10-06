@@ -1,6 +1,7 @@
 """`boards.0006`–`0008`: the four fixed columns become «Основная» and back;
 `boards.0010`: the journal of cards stored before it; `boards.0015`: the card
-fields; `boards.0016`: «Застой» of a column.
+fields; `boards.0016`: «Застой» of a column; `boards.0017`: the checklist,
+the subscriptions and the mentions.
 
 Run through `MigrationExecutor` on the test database: the board app is taken
 back to `0005` (sub-boards exist, `stage` still rules), cards are written the
@@ -448,3 +449,74 @@ class ColumnStaleDaysMigrationTests(TransactionTestCase):
         apps = migrate(STALE_BEFORE)
         self.assertNotIn('stale_after_days', _column_names('boards_boardcolumn'))
         self.assertEqual(apps.get_model('boards', 'BoardColumn').objects.filter(sub_board_id=sub_board.pk).count(), 2)
+
+
+CHECKLIST_BEFORE = [('boards', '0016_column_stale_days')]
+CHECKLIST_AFTER = [('boards', '0017_checklist_subscriptions_mentions')]
+CHECKLIST_TABLES = {
+    'boards_boardcardchecklistitem', 'boards_boardcardsubscription', 'boards_boardcardcommentmention',
+}
+
+
+def _table_names():
+    with connection.cursor() as cursor:
+        return set(connection.introspection.table_names(cursor))
+
+
+class ChecklistMigrationTests(TransactionTestCase):
+    """`boards.0017`: the checklist, the subscriptions and the mentions, three
+    new tables; and back — the cards, their messages and their journal stay."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_forward_three_tables_with_their_constraints_then_back(self):
+        from django.db import IntegrityError, transaction
+
+        apps = migrate(CHECKLIST_BEFORE)
+        self.assertFalse(CHECKLIST_TABLES & _table_names())
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        BoardCardComment = apps.get_model('boards', 'BoardCardComment')
+        owner = User.objects.create(username='checklist_migration_owner')
+        board = Board.objects.create(name='Доска', code='CM', owner=owner)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+        column = BoardColumn.objects.create(sub_board=sub_board, name='Сделать', position=1)
+        card = BoardCard.objects.create(
+            board=board, sub_board=sub_board, column=column, position=1024, number=1,
+            title='Карточка', created_by=owner,
+        )
+        comment = BoardCardComment.objects.create(card=card, author=owner, text='Сообщение')
+
+        apps = migrate(CHECKLIST_AFTER)
+        self.assertLessEqual(CHECKLIST_TABLES, _table_names())
+        Item = apps.get_model('boards', 'BoardCardChecklistItem')
+        Subscription = apps.get_model('boards', 'BoardCardSubscription')
+        Mention = apps.get_model('boards', 'BoardCardCommentMention')
+        Event = apps.get_model('boards', 'BoardCardEvent')
+        # Nothing to backfill: every card starts with none of them.
+        self.assertEqual((Item.objects.count(), Subscription.objects.count(), Mention.objects.count()), (0, 0, 0))
+        Item.objects.create(card_id=card.pk, text='Шаг', position=1, created_by_id=owner.pk)
+        Subscription.objects.create(card_id=card.pk, user_id=owner.pk)
+        Mention.objects.create(comment_id=comment.pk, user_id=owner.pk)
+        Event.objects.create(card_id=card.pk, actor_id=owner.pk, kind='CHECKLIST', details={'action': 'added'})
+        for model, values in (
+            (Subscription, {'card_id': card.pk, 'user_id': owner.pk}),
+            (Mention, {'comment_id': comment.pk, 'user_id': owner.pk}),
+        ):
+            with self.subTest(model=model.__name__), self.assertRaises(IntegrityError), transaction.atomic():
+                model.objects.create(**values)
+
+        # Back: the three tables go; the card, its message and its journal stay.
+        apps = migrate(CHECKLIST_BEFORE)
+        self.assertFalse(CHECKLIST_TABLES & _table_names())
+        self.assertTrue(apps.get_model('boards', 'BoardCard').objects.filter(pk=card.pk).exists())
+        self.assertTrue(apps.get_model('boards', 'BoardCardComment').objects.filter(pk=comment.pk).exists())
+        self.assertEqual(apps.get_model('boards', 'BoardCardEvent').objects.filter(card_id=card.pk).count(), 1)

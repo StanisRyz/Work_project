@@ -13,7 +13,7 @@ from tasks.models import Task, TaskAttachment
 from tasks.services import add_task_attachment, complete_task
 
 from ..services import create_board
-from .helpers import BoardFixtureMixin, board_url, done_column_of, fresh_code, new_card
+from .helpers import FOLLOW_FORM, BoardFixtureMixin, board_url, done_column_of, fresh_code, new_card
 
 
 def task_of(card):
@@ -213,7 +213,8 @@ class PanelWorkTests(PanelTestMixin, TestCase):
         )
         for user in (self.member, self.admin):
             with self.subTest(user=user.username):
-                content = panel_of(main_of(self.panel(user)))
+                # «Следить» stays on a closed card: it may still be discussed.
+                content = FOLLOW_FORM.sub('', panel_of(main_of(self.panel(user))))
                 self.assertIn('Отозвано', content)
                 for marker in ('<form', 'data-confirm', 'edit=1'):
                     self.assertNotIn(marker, content)

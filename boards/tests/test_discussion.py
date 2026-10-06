@@ -204,8 +204,9 @@ class CommentNoticeTests(BoardFixtureMixin, TestCase):
     def test_the_link_opens_the_card(self):
         post_card_comment(self.card_obj, actor=self.colleague, text='Ссылка')
         note = notes(Notification.EventType.BOARD_CARD_COMMENT).first()
+        # On its «Чат»: `tasks:detail?tab=chat` leads to the card's chat tab.
         self.assertEqual(
-            get_notification_url(note), reverse('tasks:detail', args=[note.related_task_id]),
+            get_notification_url(note), reverse('tasks:detail', args=[note.related_task_id]) + '?tab=chat',
         )
 
 

@@ -544,6 +544,7 @@ function createEnvironment({
         board.setAttribute('data-panel-revision', 'panel-rev-initial');
         board.setAttribute('data-comments-revision', 'comments-rev-initial');
         board.setAttribute('data-log-revision', 'log-rev-initial');
+        board.setAttribute('data-checklist-revision', 'checklist-rev-initial');
         board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
         // The sub-board tabs: a read-only live block of their own.
         const tabs = new Element('div');
@@ -585,6 +586,18 @@ function createEnvironment({
         card.setAttribute('data-live-board-card', '');
         card.innerHTML = '<section data-board-tab-body="description">исходное описание</section>'
             + '<section data-board-tab-body="files">исходные файлы</section>';
+        // «Описание»'s pane: the guarded bodies above, then the card's
+        // «Чек-лист» — a live block of its own — and its «Добавить пункт»,
+        // in no block, as `boards/includes/drawer.html` draws them.
+        const pane = new Element('div');
+        pane.setAttribute('class', 'board-drawer__pane');
+        const checklist = new Element('div');
+        checklist.setAttribute('data-live-board-checklist', '');
+        checklist.innerHTML = '<ol><li data-checklist-item="1">исходный пункт</li></ol>';
+        const checklistText = new Element('input');
+        checklistText.setAttribute('name', 'text');
+        checklistText.value = '';
+        pane.append(card, checklist, checklistText);
         // «Чат»: the read-only message list and, below it, its form —
         // outside every live block, as `boards/includes/drawer.html` draws them.
         const chat = new Element('section');
@@ -605,7 +618,7 @@ function createEnvironment({
         log.setAttribute('data-live-board-log', '');
         log.innerHTML = '<ol><li>исходная запись</li></ol>';
         logBody.append(log);
-        drawer.append(panel, strip, card, chat, logBody);
+        drawer.append(panel, strip, pane, chat, logBody);
         layout.append(columns, drawer);
         const message = new Element('div');
         message.setAttribute('data-board-message', '');
@@ -629,6 +642,8 @@ function createEnvironment({
             comments,
             commentText,
             log,
+            checklist,
+            checklistText,
             conflictBanner: conflict,
             modalTextarea,
         });

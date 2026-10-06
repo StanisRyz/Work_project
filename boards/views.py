@@ -73,6 +73,7 @@ from .forms import (
 from .models import (
     Board,
     BoardCard,
+    BoardCardChecklistItem,
     BoardCardFieldValue,
     BoardColumn,
     BoardField,
@@ -96,6 +97,7 @@ from .selectors import (
     build_board_nav,
     build_board_state,
     build_board_table,
+    checklist_counts,
     column_counts,
     describe_field_filters,
     first_sub_board,
@@ -114,6 +116,12 @@ from .services import (
     FieldValueError,
     StaleCardError,
     add_board_members,
+    add_checklist_item,
+    delete_checklist_item,
+    move_checklist_item,
+    rename_checklist_item,
+    toggle_card_subscription,
+    toggle_checklist_item,
     archive_field,
     archive_option,
     create_field,
@@ -366,6 +374,7 @@ PANEL_TEMPLATE = 'boards/includes/panel.html'
 CARD_TEMPLATE = 'boards/includes/card.html'
 COMMENTS_TEMPLATE = 'boards/includes/comments.html'
 LOG_TEMPLATE = 'boards/includes/log.html'
+CHECKLIST_TEMPLATE = 'boards/includes/checklist.html'
 DRAWER_TEMPLATE = 'boards/includes/drawer.html'
 
 # The card panel's tabs, in order: `?tab=` names one, anything else is the
@@ -387,7 +396,9 @@ def parse_panel_tab(value):
 def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=None, panel=None,
                    form=None, move_form=None, error='', execution_comment=None,
                    execution_error='', version_conflict=False,
-                   comment_text='', comment_error=''):
+                   comment_text='', comment_error='', comment_mentions=(),
+                   checklist_text='', checklist_error='', edit_item=None,
+                   checklist_edit_text='', checklist_edit_error=''):
     """Everything the board page and its live fragment render.
 
     `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from `card_id`,
@@ -411,6 +422,12 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     refused form are filtered alike, and every link the panel and the tiles
     draw keeps them (`filter_query`). The board's fields are read once, for
     the parse and for the page.
+
+    `?edit_item=<id>` opens that item of the card's «Чек-лист» as a form
+    (only while the list may be changed); the page's and the fragment's
+    addresses keep it, so a reload and a live refresh draw the same block.
+    A refused new item or a refused rename comes back with what was typed
+    (`checklist_text`, `checklist_edit_text`) and the message beside it.
 
     Returns the context and whether the panel holds input that is not the
     stored state (a bound form, posted or parked text): such a page starts
@@ -460,6 +477,14 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     if item is not None and item['can_complete'] and execution_comment is None:
         execution_comment = item['task'].execution_comment
     tab = parse_panel_tab(request.GET.get('tab'))
+    # «Изменить» of one item of the card's «Чек-лист»: an id of an item of
+    # this very card, while the list may be changed — anything else is none.
+    raw_edit_item = str(edit_item if edit_item is not None else request.GET.get('edit_item') or '')
+    edit_item = None
+    if item is not None and item['can_edit_checklist'] and raw_edit_item.isdigit():
+        edit_item = next(
+            (entry.pk for entry in item['checklist'] if entry.pk == int(raw_edit_item)), None,
+        )
     board_url = _sub_board_url(board, sub_board.pk)
     state.update({
         'active_page': 'boards',
@@ -493,10 +518,23 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         'show_discussion': bool(item is not None and panel in ('view', 'edit')),
         'comment_text': comment_text,
         'comment_error': comment_error,
+        # The people ticked under «Упомянуть» of a refused message, as posted.
+        'comment_mentions': [str(value) for value in comment_mentions],
+        # «Чек-лист» lives on «Описание» of a card being read or edited: its
+        # items are a live block of their own, the field adding one is in
+        # none.
+        'show_checklist': bool(item is not None and panel in ('view', 'edit')),
+        'checklist_edit_item': edit_item,
+        'checklist_text': checklist_text,
+        'checklist_error': checklist_error,
+        'checklist_edit_text': checklist_edit_text,
+        'checklist_edit_error': checklist_edit_error,
         'tab': tab if item is not None and panel in ('view', 'edit') else DEFAULT_PANEL_TAB,
     })
     fragment_base = reverse('boards:fragment', args=[board.pk, sub_board.pk])
-    query = _panel_query(item, panel, new_column, filters, all_comments=all_comments, tab=state['tab'])
+    query = _panel_query(
+        item, panel, new_column, filters, all_comments=all_comments, tab=state['tab'], edit_item=edit_item,
+    )
     state['fragment_base'] = fragment_base
     state['fragment_url'] = fragment_base + query
     state['page_url'] = board_url + query
@@ -534,10 +572,10 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
             'label': label,
             'active': name == state['tab'],
             'page_url': board_url + _panel_query(
-                item, panel, new_column, filters, all_comments=all_comments, tab=name,
+                item, panel, new_column, filters, all_comments=all_comments, tab=name, edit_item=edit_item,
             ),
             'fragment_url': fragment_base + _panel_query(
-                item, panel, new_column, filters, all_comments=all_comments, tab=name,
+                item, panel, new_column, filters, all_comments=all_comments, tab=name, edit_item=edit_item,
             ),
             'count': (
                 item['comment_count'] if name == 'chat'
@@ -554,7 +592,8 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     return state, holds_input
 
 
-def _panel_query(item, panel, new_column, filters, *, all_comments=False, tab=DEFAULT_PANEL_TAB):
+def _panel_query(item, panel, new_column, filters, *, all_comments=False, tab=DEFAULT_PANEL_TAB,
+                 edit_item=None):
     """The query string that asks for exactly the panel this page shows.
 
     It goes on the live fragment's URL and on the page's own address for a
@@ -570,6 +609,8 @@ def _panel_query(item, panel, new_column, filters, *, all_comments=False, tab=DE
         if all_comments:
             query['comments'] = 'all'
         query['tab'] = tab
+        if edit_item is not None:
+            query['edit_item'] = edit_item
     elif panel == 'new' and new_column is not None:
         query['new'] = new_column.pk
     encoded = '&'.join(part for part in (urlencode(query), filters.query) if part)
@@ -611,9 +652,14 @@ def _board_blocks(request, context):
     result or an edit being typed. `chat_count`/`files_count` are the numbers
     beside «Чат» and «Файлы», for the client to set with their blocks.
 
+    The card's «Чек-лист» (`checklist_html`, on «Описание») is a block of its
+    own too, outside the guarded one: ticking an item moves
+    `checklist_revision` and the columns' (the tile's «☑ 2/5»), never
+    `panel_revision`.
+
     `drawer_html` is the whole drawer around those blocks — the tab strip and
-    the chat's form included — which the client inserts once when it opens a
-    card without reloading the page.
+    the chat's and the checklist's forms included — which the client inserts
+    once when it opens a card without reloading the page.
     """
     tabs_html = _render_block(TABS_TEMPLATE, context, request)
     columns_html = _render_block(COLUMNS_TEMPLATE, context, request)
@@ -623,6 +669,8 @@ def _board_blocks(request, context):
     discussion = context['show_discussion']
     comments_html = _render_block(COMMENTS_TEMPLATE, context, request) if discussion else ''
     log_html = _render_block(LOG_TEMPLATE, context, request) if discussion else ''
+    checklist = context['show_checklist']
+    checklist_html = _render_block(CHECKLIST_TEMPLATE, context, request) if checklist else ''
     item = context['card']
     blocks = {
         'tabs_html': tabs_html,
@@ -636,6 +684,10 @@ def _board_blocks(request, context):
         'comments_revision': content_revision(comments_html) if comments_html else '',
         'log_html': log_html,
         'log_revision': content_revision(log_html) if log_html else '',
+        # Always a fingerprint while the list is shown — an emptied list is a
+        # change too.
+        'checklist_html': checklist_html,
+        'checklist_revision': content_revision(checklist_html) if checklist else '',
         'chat_count': item['comment_count'] if discussion else 0,
         'files_count': len(item['attachments']) if discussion else 0,
     }
@@ -788,6 +840,7 @@ def table_headers(state):
         'Исполнители',
         'Срок',
         'В колонке, дн.',
+        'Чек-лист',
         *(field.name for field in state['field_columns']),
         'Создана',
         'Завершена',
@@ -805,6 +858,7 @@ def table_cells(state, row):
         ', '.join(person_name(user) for user in row['assignees']) or None,
         row['due_date'],
         row['in_column_days'],
+        row['checklist_label'] or None,
         *(cell['raw'] for cell in row['cells']),
         row['created'],
         row['completed'],
@@ -1153,14 +1207,173 @@ def card_comment(request, pk, card_pk):
     if request.method != 'POST':
         return redirect(_card_url(board, card, request))
     text = request.POST.get('text', '')
+    mentions = request.POST.getlist('mention')
     try:
-        post_card_comment(card, actor=request.user, text=text)
+        post_card_comment(card, actor=request.user, text=text, mentions=mentions)
     except BoardError as exc:
         return _render_board(
             request, board, card.sub_board, card_id=card.pk, panel='view',
-            comment_text=text, comment_error=str(exc),
+            comment_text=text, comment_error=str(exc), comment_mentions=mentions,
         )
     return redirect(_card_url(board, card, request, tab='chat'))
+
+
+@login_required
+def card_subscribe(request, pk, card_pk):
+    """«Следить» / «Вы следите» in the card panel's heading:
+    `toggle_card_subscription()`.
+
+    Reading the board is asked before the method; the service refuses an
+    archived board. The form posts the state it asks for (`subscribe` 1 or
+    0) and the tab it was on, which the redirect opens again.
+    """
+    board = _board_or_404(pk)
+    _require(can_view_board(request.user, board))
+    card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
+    tab = parse_panel_tab(request.POST.get('tab') or request.GET.get('tab'))
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request, tab=tab))
+    wanted = request.POST.get('subscribe')
+    try:
+        following = toggle_card_subscription(
+            card, actor=request.user, subscribe=None if wanted not in ('0', '1') else wanted == '1',
+        )
+    except BoardError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            f'Вы следите за карточкой {card.code}: сообщения, отмена и выполнение придут в колокольчик.'
+            if following else f'Вы больше не следите за карточкой {card.code}.',
+        )
+    return redirect(_card_url(board, card, request, tab=tab))
+
+
+# --------------------------------------------------------------------------
+# «Чек-лист»
+# --------------------------------------------------------------------------
+#
+# Ordinary POST forms on «Описание», so the list works without JavaScript; the
+# right — working on the board — is asked before the method, and every refusal
+# of the service (a closed card, an archived board, an empty or a long text,
+# the limit) comes back on the card. A tick sent by `board_checklist.js`
+# (`X-Requested-With: fetch`) is answered in JSON instead, like a drag.
+
+
+def _checklist_request(request, pk, card_pk, item_pk=None, *, board=None):
+    """The board, the card and the item, the right asked before the method."""
+    board = board or _board_or_404(pk)
+    _require(can_work_on_board(request.user, board))
+    card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
+    item = (
+        get_object_or_404(BoardCardChecklistItem, pk=item_pk, card=card)
+        if item_pk is not None else None
+    )
+    return board, card, item
+
+
+def _checklist_back(request, board, card):
+    return redirect(_card_url(board, card, request, tab='description'))
+
+
+@login_required
+def checklist_add(request, pk, card_pk):
+    """«Добавить пункт»: `add_checklist_item()`; a refusal keeps the text."""
+    board, card, _item = _checklist_request(request, pk, card_pk)
+    if request.method != 'POST':
+        return _checklist_back(request, board, card)
+    text = request.POST.get('text', '')
+    try:
+        add_checklist_item(card, actor=request.user, text=text)
+    except BoardError as exc:
+        return _render_board(
+            request, board, card.sub_board, card_id=card.pk, panel='view',
+            checklist_text=text, checklist_error=str(exc),
+        )
+    return _checklist_back(request, board, card)
+
+
+@login_required
+def checklist_rename(request, pk, card_pk, item_pk):
+    """«Изменить» → «Сохранить»: `rename_checklist_item()`; a refusal
+    keeps the form open with what was typed."""
+    board, card, item = _checklist_request(request, pk, card_pk, item_pk)
+    if request.method != 'POST':
+        return _checklist_back(request, board, card)
+    text = request.POST.get('text', '')
+    try:
+        rename_checklist_item(item, actor=request.user, text=text)
+    except BoardError as exc:
+        return _render_board(
+            request, board, card.sub_board, card_id=card.pk, panel='view', edit_item=item.pk,
+            checklist_edit_text=text, checklist_edit_error=str(exc),
+        )
+    return _checklist_back(request, board, card)
+
+
+@login_required
+def checklist_toggle(request, pk, card_pk, item_pk):
+    """The checkbox of an item: `toggle_checklist_item()` with the state
+    the form asks for (`done` 1 or 0).
+
+    From `board_checklist.js` (`X-Requested-With: fetch`) the answer is JSON
+    — `{"ok": true, "item_id", "is_done", "done", "total"}`, or
+    `{"ok": false, "error"}` with 400 (the service refused) or 403 (no right,
+    asked before the method) — identifiers and counts only. Otherwise the
+    card again, a refusal as a message.
+    """
+    fetch = _is_fetch(request)
+    board = _board_or_404(pk)
+    if fetch and not can_work_on_board(request.user, board):
+        return JsonResponse(
+            {'ok': False, 'error': 'Работа с карточками этой доски недоступна.'}, status=403,
+        )
+    board, card, item = _checklist_request(request, pk, card_pk, item_pk, board=board)
+    if request.method != 'POST':
+        return _checklist_back(request, board, card)
+    wanted = request.POST.get('done')
+    try:
+        item = toggle_checklist_item(
+            item, actor=request.user, done=None if wanted not in ('0', '1') else wanted == '1',
+        )
+    except BoardError as exc:
+        if fetch:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        messages.error(request, str(exc))
+        return _checklist_back(request, board, card)
+    if fetch:
+        done, total = checklist_counts(card)
+        return JsonResponse({
+            'ok': True, 'item_id': item.pk, 'is_done': item.is_done, 'done': done, 'total': total,
+        })
+    return _checklist_back(request, board, card)
+
+
+@login_required
+def checklist_move(request, pk, card_pk, item_pk):
+    """↑ ↓ of an item: `move_checklist_item()`."""
+    board, card, item = _checklist_request(request, pk, card_pk, item_pk)
+    if request.method == 'POST':
+        try:
+            move_checklist_item(item, actor=request.user, direction=request.POST.get('direction'))
+        except BoardError as exc:
+            messages.error(request, str(exc))
+    return _checklist_back(request, board, card)
+
+
+@login_required
+def checklist_delete(request, pk, card_pk, item_pk):
+    """«×» of an item, confirmed through the shared modal:
+    `delete_checklist_item()`."""
+    board, card, item = _checklist_request(request, pk, card_pk, item_pk)
+    if request.method == 'POST':
+        try:
+            delete_checklist_item(item, actor=request.user)
+        except BoardError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, 'Пункт чек-листа удалён.')
+    return _checklist_back(request, board, card)
 
 
 @login_required
@@ -1434,8 +1647,8 @@ def column_stale(request, pk, sub_pk, column_pk):
             else:
                 messages.success(
                     request,
-                    f'Колонка «{column.name}»: застой — через {updated.stale_after_days} дн.'
-                    if updated.stale_after_days else f'Колонка «{column.name}»: застой не отслеживается.',
+                    f'Колонка «{column.name}»: подсвечивать карточки через {updated.stale_after_days} дн.'
+                    if updated.stale_after_days else f'Колонка «{column.name}»: подсветка застоя выключена.',
                 )
     return _back(board, sub_board.pk, request)
 

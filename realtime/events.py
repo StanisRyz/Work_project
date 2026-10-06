@@ -93,6 +93,9 @@ BOARD_CHANGE_COMMENT_ADDED = 'comment_added'
 # or its «Застой» threshold set, the board renamed or its code changed, or its
 # card fields («Поля карточек») or their options set up.
 BOARD_CHANGE_STRUCTURE_CHANGED = 'structure_changed'
+# A card's «Чек-лист»: an item added, renamed, ticked or unticked, moved or
+# deleted.
+BOARD_CHANGE_CHECKLIST_CHANGED = 'checklist_changed'
 
 BOARD_CHANGES = frozenset(
     {
@@ -107,6 +110,7 @@ BOARD_CHANGES = frozenset(
         BOARD_CHANGE_BOARD_RESTORED,
         BOARD_CHANGE_COMMENT_ADDED,
         BOARD_CHANGE_STRUCTURE_CHANGED,
+        BOARD_CHANGE_CHECKLIST_CHANGED,
     }
 )
 

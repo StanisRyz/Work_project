@@ -43,8 +43,11 @@ from .helpers import (
 # исполнитель of it (`test_query_count_does_not_grow_with_entries_messages_or_files`).
 # 34 at stage 14; one more since the board's card fields are read (none on
 # this board, so neither their options nor any value is) — a board with fields
-# is measured in `test_fields.FieldQueryCountTests`.
-PAGE_QUERIES = 35
+# is measured in `test_fields.FieldQueryCountTests`. Three more since the
+# card's «Чек-лист» (its items, one query), its followers (the board's readers
+# marked by whether they follow — one query, also the «@» list of «Чат») and
+# the mentions of the messages shown (one prefetch, this card has messages).
+PAGE_QUERIES = 38
 
 MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-journal-'))
 

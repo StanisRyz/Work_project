@@ -407,9 +407,10 @@ class BoardCard(models.Model):
 class BoardCardComment(models.Model):
     """One message of a card's «Обсуждение».
 
-    A record of the discussion, not a chat: no editing, no deletion, no files
-    or mentions. Written only by `services.post_card_comment()`; read by every
-    reader of the board.
+    A record of the discussion, not a chat: no editing, no deletion, no
+    files. People named with «@» are its `mentions`
+    (`BoardCardCommentMention`). Written only by `services.post_card_comment()`;
+    read by every reader of the board.
     """
 
     card = models.ForeignKey(
@@ -439,6 +440,132 @@ class BoardCardComment(models.Model):
         return f'Сообщение #{self.pk} в карточке #{self.card_id}'
 
 
+# How many items a card's «Чек-лист» may hold.
+MAX_CHECKLIST_ITEMS = 50
+CHECKLIST_TEXT_MAX_LENGTH = 200
+
+
+class BoardCardChecklistItem(models.Model):
+    """One step of a card's «Чек-лист» — «Согласовать спецификацию», ticked or not.
+
+    A working list, not a record: an item is renamed, reordered and deleted
+    for real, and the card's journal (`BoardCardEvent.Kind.CHECKLIST`) is
+    what remembers that it happened. At most `MAX_CHECKLIST_ITEMS` per card.
+    Who ticked it and when (`done_by`/`done_at`) are kept while it is ticked
+    and cleared with the tick. Written only by `boards/services.py`, only on
+    an open card of a live board.
+    """
+
+    card = models.ForeignKey(
+        'BoardCard',
+        on_delete=models.PROTECT,
+        related_name='checklist',
+        verbose_name='Карточка',
+    )
+    text = models.CharField('Пункт', max_length=CHECKLIST_TEXT_MAX_LENGTH)
+    # Order within the card, 1, 2, 3, … — renumbered by every move and delete.
+    position = models.PositiveIntegerField('Позиция')
+    is_done = models.BooleanField('Сделано', default=False)
+    done_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='+',
+        verbose_name='Отметил',
+    )
+    done_at = models.DateTimeField('Отмечено', null=True, blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='+',
+        verbose_name='Добавил',
+    )
+    created_at = models.DateTimeField('Добавлен', auto_now_add=True)
+
+    class Meta:
+        ordering = ['card_id', 'position', 'pk']
+        verbose_name = 'Пункт чек-листа'
+        verbose_name_plural = 'Пункты чек-листов'
+        indexes = [
+            models.Index(fields=['card', 'position'], name='board_checklist_place'),
+        ]
+
+    def __str__(self):
+        return f'Пункт #{self.pk} карточки #{self.card_id}'
+
+
+class BoardCardSubscription(models.Model):
+    """Somebody following a card («Следить»): told when it is discussed,
+    cancelled or completed, without being its исполнитель.
+
+    Personal: nobody else is told of it and no event is published. Written
+    by `services.toggle_card_subscription()` — and by `post_card_comment()`
+    for the people a message mentions — and dropped with the membership by
+    `remove_board_member()`. Who is told is `selectors.card_audience()`,
+    which also leaves out whoever no longer reads the board.
+    """
+
+    card = models.ForeignKey(
+        'BoardCard',
+        on_delete=models.PROTECT,
+        related_name='subscriptions',
+        verbose_name='Карточка',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_card_subscriptions',
+        verbose_name='Подписчик',
+    )
+    created_at = models.DateTimeField('Подписан', auto_now_add=True)
+
+    class Meta:
+        ordering = ['card_id', 'created_at', 'pk']
+        verbose_name = 'Подписка на карточку'
+        verbose_name_plural = 'Подписки на карточки'
+        constraints = [
+            models.UniqueConstraint(fields=['card', 'user'], name='unique_board_card_subscription'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} следит за карточкой #{self.card_id}'
+
+
+class BoardCardCommentMention(models.Model):
+    """A person a message of «Чат» names with «@Имя Фамилия».
+
+    Written with the message by `services.post_card_comment()`, only for a
+    reader of the board (an active employee); the message's text shows the
+    name highlighted (`boards_mentions` template filter), and the person gets
+    one `BOARD_CARD_MENTION`.
+    """
+
+    comment = models.ForeignKey(
+        'BoardCardComment',
+        on_delete=models.PROTECT,
+        related_name='mentions',
+        verbose_name='Сообщение',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_card_mentions',
+        verbose_name='Упомянут',
+    )
+
+    class Meta:
+        ordering = ['comment_id', 'pk']
+        verbose_name = 'Упоминание в сообщении'
+        verbose_name_plural = 'Упоминания в сообщениях'
+        constraints = [
+            models.UniqueConstraint(fields=['comment', 'user'], name='unique_board_comment_mention'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} в сообщении #{self.comment_id}'
+
+
 class BoardCardEvent(models.Model):
     """One entry of a card's journal — «Лог» in the card panel.
 
@@ -458,6 +585,10 @@ class BoardCardEvent(models.Model):
         COMPLETED = 'COMPLETED', 'Завершение'
         REOPENED = 'REOPENED', 'Возврат в работу'
         CANCELLED = 'CANCELLED', 'Отмена'
+        # The card's «Чек-лист»: `details.action` — `added`, `renamed`,
+        # `done`, `undone`, `deleted` (a reorder writes no entry) — the item's
+        # id and «сделано/всего» after the action, never the item's text.
+        CHECKLIST = 'CHECKLIST', 'Чек-лист'
 
     card = models.ForeignKey(
         BoardCard,

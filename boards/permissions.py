@@ -247,3 +247,42 @@ def can_work_on_board(user, board):
     if is_act_admin(user):
         return True
     return _is_member(user, board)
+
+
+def board_readers_q(board, prefix=''):
+    """`can_view_board()` as a filter on users, for active employees.
+
+    Full access or a membership of `board`, on an active account with an
+    active profile — the people a card's notifications may reach and a
+    message of «Чат» may mention. A superuser without a profile reads every
+    board but is no employee and is left out, as `create_notifications()`
+    leaves them out anyway. The substitution join of the full-access part can
+    repeat a user, so a queryset built on it needs `.distinct()`.
+    """
+    return active_employee_q(prefix) & (
+        full_board_access_q(prefix) | Q(**{f'{prefix}board_memberships__board': board})
+    )
+
+
+def can_edit_checklist(user, card, task, *, can_work=None):
+    """Adding, renaming, ticking, moving and deleting the items of a card's
+    «Чек-лист»: whoever may work on its board, while its task is open.
+
+    A completed or cancelled card keeps its list as it was — the work it
+    describes is over — and an archived board changes nothing. `can_work` is
+    `can_work_on_board()` already asked for the page, so the panel does not
+    ask it twice.
+    """
+    if task.status.code != 'IN_PROGRESS':
+        return False
+    return can_work_on_board(user, card.board) if can_work is None else bool(can_work)
+
+
+def can_follow_card(user, card, *, can_view=None):
+    """«Следить» / «Вы следите»: any reader of the board, whatever the state
+    of the card — a closed card may still be reopened or discussed — but never
+    on an archived board, which changes nothing any more. `can_view` is
+    `can_view_board()` already asked for the page."""
+    if card.board.is_archived:
+        return False
+    return can_view_board(user, card.board) if can_view is None else bool(can_view)

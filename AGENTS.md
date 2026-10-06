@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`, and a «Застой» threshold, `stale_after_days`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|files|log`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`, the task's own attachment routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?stale`/`?q` and by its fields (`?f_<id>…`, one parse — `parse_board_filters()`), an open tile says how long it has stood in its column (`in_column_since()`, from `BoardCardEvent`), `?view=table` is the sub-board as rows («Таблица», `build_board_table()`) and `&export=xlsx` that table through `ecosystem.xlsx`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat and its log) and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
+| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`, and a «Застой» threshold, `stale_after_days`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|files|log`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`, the task's own attachment routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?stale`/`?q` and by its fields (`?f_<id>…`, one parse — `parse_board_filters()`), an open tile says how long it has stood in its column (`in_column_since()`, from `BoardCardEvent`), `?view=table` is the sub-board as rows («Таблица», `build_board_table()`) and `&export=xlsx` that table through `ecosystem.xlsx`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`, which also stores whom a message mentions with «@» (`BoardCardCommentMention`); a card's «Чек-лист» is `BoardCardChecklistItem` (`add_checklist_item()` and its siblings) and its followers `BoardCardSubscription` (`toggle_card_subscription()`), and who hears of a card is `selectors.card_audience()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat, its log and its checklist) and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -1067,12 +1067,19 @@ tasks never live inside `acts`.
   | --- | --- | --- |
   | act | `ACT_SENT_TO_KO`, `ACT_SENT_TO_TO`, `ACT_SENT_TO_OTK`, `ACT_RETURNED_TO_OTK`, `ACT_RETURNED_TO_KO`, `ACT_RETURNED_TO_TO`, `ACTION_ASSIGNED`, `ACT_APPROVED` | `COMMENT_ADDED` |
   | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
-  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED` | `BOARD_TASK_CANCELLED`, `BOARD_CARD_COMMENT` (a card withdrawn, a message in its «Обсуждение» — nothing is asked of anybody) |
+  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED`, `BOARD_CARD_MENTION` | `BOARD_TASK_CANCELLED`, `BOARD_CARD_COMMENT`, `BOARD_CARD_COMPLETED` (a card withdrawn, a message in its «Обсуждение», a followed card done — nothing is asked of anybody) |
   | bug | `BUG_REPORTED` | — |
   | document | `DOCUMENT_ACK_REQUIRED`, `DOCUMENT_APPROVAL_REQUIRED`, `DOCUMENT_REVIEW_DUE`, `DOCUMENT_VERSION_RETURNED` | `DOCUMENT_UPDATED` (a subscriber's «новая версия» — information asked for, not a duty) |
 
   `COMMENT_ADDED` stays out on purpose: comments are frequent, carry no
   required action of their own and would turn the mailbox into noise.
+  `BOARD_CARD_MENTION` is in for the opposite reason: «@Имя Фамилия» in a
+  card's «Чат» is a colleague asking *this* person to look, often somebody
+  not watching the board — a request, like an assignment. An ordinary
+  message and `BOARD_CARD_COMPLETED` (a followed card done) stay in the bell.
+  Both board messages open the card on «Чат»: `get_notification_url()` adds
+  `?tab=chat` for them (`EVENT_URL_QUERIES`), and `tasks:detail?tab=chat`
+  leads there.
   `ACT_APPROVED` is informational — its required action is «дополнительных
   действий не требуется», and the link still opens the act.
 - **One renderer serves every source.** `_send_email()` builds a
@@ -1928,13 +1935,19 @@ tasks never live inside `acts`.
   there while this page had it open — carries `moved_to`, and the heading
   says «Карточка перенесена на поддоску «…»» with a link there, the drawer
   staying where it is. A cancelled card is found too, read-only. A
-  sub-board page with a card open is 35 on a board without card fields
-  (`boards/tests/test_journal.py`, `PAGE_QUERIES`) and 37 on one with them —
+  sub-board page with a card open is 38 on a board without card fields
+  (`boards/tests/test_journal.py`, `PAGE_QUERIES`, a card with messages) and
+  39 on one with them (no messages) —
   the fields with their options and the values of every card on the page,
   the panel's included, are three queries however many there are
-  (`boards/tests/test_fields.py`, `FieldQueryCountTests`). «В колонке с» of
-  every tile is a subquery annotation of the tasks' own query
-  (`in_column_since()`), so it adds no query either.
+  (`boards/tests/test_fields.py`, `FieldQueryCountTests`). «В колонке с» and
+  «☑ 2/5» of every tile are subquery annotations of the tasks' own query
+  (`in_column_since()`, `checklist_annotations()`), so they add no query
+  either. The open card's «Чек-лист» is one query (its items, who ticked
+  each joined), its followers one more — the board's readers who are active
+  employees (`board_readers_q()`), each marked whether they follow, which is
+  also the list «@» offers in «Чат» — and the mentions of the messages shown
+  one prefetch; none of them grows with items, followers or mentions.
 - **The card drawer is where a `BOARD` task is worked — and the only place.**
   Its heading (`boards/includes/panel.html`, fixed while the tab below
   scrolls) is «Карточка ZAP-12» (the copying link above) and «задача №N»,
@@ -2005,9 +2018,11 @@ tasks never live inside `acts`.
   `[data-board-tab-body]`, and `board_drawer.js` switches it in place —
   attribute, the active link, `[data-board]`'s page and fragment URLs, and
   `history.replaceState`. The `<aside>` is outside every live block, so no
-  replacement can change the tab. «Описание» holds the description, the facts
+  replacement can change the tab. «Описание» holds the description, the
+  card's «Чек-лист» right under it (below), the facts
   (column, исполнители with avatars, срок through `includes/due_date.html`,
-  who created it and when), the result or the reason, then «Редактировать»
+  who created it and when, «Подписчики» — up to `SUBSCRIBER_PREVIEW_LIMIT`
+  (5) avatars and «+N»), the result or the reason, then «Редактировать»
   (`&edit=1`, the form on this same tab), «Переместить в…» and «Отменить
   карточку» — one line of full-size controls of `--control-height`, the
   select's label on its `aria-label`; «Чат» the messages with the form pinned below; «Файлы» the task
@@ -2026,13 +2041,15 @@ tasks never live inside `acts`.
   (`from_column`/`to_column` with their ids, the names *as they were*, and
   `from_sub_board`/`to_sub_board` when the move crossed sub-boards),
   `COMPLETED`, `REOPENED` (the column it returns to),
-  `CANCELLED` — `details` (identifiers and column and field names only,
-  never the card's text, a value, a reason or a message) and `created_at`, indexed on `(card,
+  `CANCELLED`, `CHECKLIST` (`details.action` — `added`, `renamed`, `done`,
+  `undone`, `deleted` — `item_id` and `done`/`total` after it, «Чек-лист:
+  отмечен пункт (3/5)») — `details` (identifiers and column and field names only,
+  never the card's text, an item's text, a value, a reason or a message) and `created_at`, indexed on `(card,
   created_at)`. Append-only, written by `services._record()` alone, inside the
   transaction of the change: `create_card()`, `update_card()` only when it
   stored something, `move_card()` only across columns (a reorder within one
   and a drop in place are no entry), `complete_card()`, `reopen_card()`,
-  `cancel_card()`; a refusal writes none and a rollback takes it away.
+  `cancel_card()`, every checklist write but a reorder; a refusal writes none and a rollback takes it away.
   `selectors.card_log()` reads it in one query and merges, newest first, the
   task's files from the panel's own attachment list (who added which file and
   when — read, never written twice); `describe_card_event()` words each entry
@@ -2266,8 +2283,9 @@ tasks never live inside `acts`.
   containers with one fingerprint** — `[data-live-board-panel]` (the
   drawer's heading, `panel.html`) and `[data-live-board-card]` («Описание» and
   «Файлы», `card.html`, `display: contents`) — `panel_revision` over both,
-  `[data-live-board-comments]` (`comments.html`) and `[data-live-board-log]`
-  (`log.html`). The blocks are rendered by `views._render_block()` — the
+  `[data-live-board-comments]` (`comments.html`), `[data-live-board-log]`
+  (`log.html`) and `[data-live-board-checklist]` (`checklist.html`, on
+  «Описание»). The blocks are rendered by `views._render_block()` — the
   context plus `request`, `user` and the CSRF token, **without** the context
   processors (a `RequestContext` per block ran the bell's two queries seven
   times); only the page around them is rendered with them. The fragment adds `chat_count`/`files_count`, `drawer_html`
@@ -2287,7 +2305,11 @@ tasks never live inside `acts`.
   «Лог» are read-only and replaced whenever their own fingerprint moved («Чат
   (N)» set with its block); no message and no journal entry is in the guarded
   panel, so neither moves `panel_revision` or raises the banner, and the
-  chat's form is in no block, so a message being typed is never redrawn. A
+  chat's form is in no block, so a message being typed is never redrawn. The
+  card's «Чек-лист» is the same kind of block (buttons and links only):
+  replaced whenever `checklist_revision` moved — a tick never raises the
+  banner over an edit — except while one item's «Изменить» form
+  (`[data-checklist-edit]`) is in it, which defers it like a menu. A
   page whose panel holds input that is not stored — a bound form after a
   refusal, a refused result — says `data-panel-holds-input="true"` and takes
   its panel fingerprint from a clean render, exactly as the protocol page
@@ -2393,7 +2415,8 @@ tasks never live inside `acts`.
   `?card=` reads the reason, and «Задачи» puts the task in «Архив» by
   `is_final`. «Отменить карточку» is the shared modal with the required
   comment posted as `cancellation_reason` to `boards:card_cancel` (the right
-  asked before the method). Its исполнители hear of it in the bell only —
+  asked before the method). Its исполнители and followers
+  (`card_audience(author=False)`) hear of it in the bell only —
   `notify_board_task_cancelled()` (`BOARD_TASK_CANCELLED`, `TASK`-sourced,
   keyed `task:<pk>:cancelled`, `exclude_actor=True`), called inside the
   transaction after the cancellation; the text names the board, the reason
@@ -2483,19 +2506,21 @@ tasks never live inside `acts`.
   tab. `expected_version=None` (a call that is not a form) skips the check.
 - **«Чат» is a record of comments, not a chat engine.** `BoardCardComment`
   (card, author, text, `created_at`; `PROTECT` both ways, indexed on
-  `(card, created_at)`) has no edit and no delete, and no mentions, files,
-  reactions or «typing». `post_card_comment()` locks board → card, asks
+  `(card, created_at)`) has no edit and no delete, and no files, reactions
+  or «typing»; the people it names with «@» are its `mentions` (below).
+  `post_card_comment()` locks board → card, asks
   `can_comment_card()` after the locks — `can_work_on_board()`, so an active
   member or an administrator and never on an archived board, whatever the
   task's state — strips the text, refuses it empty or over
   `COMMENT_MAX_LENGTH` (4000), and in the same transaction notifies the
-  исполнители and the card's author except the writer
+  card's audience (`selectors.card_audience()`: исполнители, author,
+  followers) except the writer and the mentioned
   (`notify_board_card_comment()`: `BOARD_CARD_COMMENT`, `TASK`-sourced, keyed
   `board_comment:<pk>`, bell only, the text naming the board and never the
   message) and publishes `board.updated(comment_added, card_id)`; the log
   carries identifiers only. Reading is reading the board. «Чат» draws the
   messages oldest first (`person_initials`, `person_name`, time, `.user-text`
-  with `linebreaksbr`) and, for a writer, a `form[data-hotkey-submit]` pinned
+  through `board_text.with_mentions`) and, for a writer, a `form[data-hotkey-submit]` pinned
   below them, to `boards:card_comment` (right before the method; success →
   `?card=…&tab=chat` with the filter, refusal → the drawer with the text and
   the error). A tile shows the
@@ -2517,6 +2542,83 @@ tasks never live inside `acts`.
   a message being typed survives every refresh. `boards.js` keeps a reader at
   the bottom of the list there and leaves one who scrolled up where they
   were; `board_drawer.js` opens the list at its newest message when «Чат» is
+  shown.
+- **A card's «Чек-лист» is a working list, not a record.**
+  `BoardCardChecklistItem` (card `PROTECT`, `related_name='checklist'`, text
+  ≤ `CHECKLIST_TEXT_MAX_LENGTH` (200), `position`, `is_done` with
+  `done_by`/`done_at`, `created_by`/`created_at`), at most
+  `MAX_CHECKLIST_ITEMS` (50) per card. `add_checklist_item()`,
+  `rename_checklist_item()`, `toggle_checklist_item(done=…)` (the state asked
+  for — the checkbox posts it — `None` flips), `move_checklist_item()` (↑ ↓,
+  `'up'`/`'down'`) and `delete_checklist_item()` — a real delete, positions
+  renumbered 1, 2, 3, … — each one `atomic()` block locking board → card →
+  task and asking, after the locks, an archived board (refused first),
+  `can_work_on_board()` and an `IN_PROGRESS` task:
+  `permissions.can_edit_checklist()` is that rule. Text trimmed, required,
+  bounded. The same text, the same tick, a move past the edge store and
+  publish nothing; any other write touches the card's `updated_at` (the
+  `boards` sync revision), writes one `CHECKLIST` journal entry (none for a
+  reorder) and publishes one `board.updated(checklist_changed, card_id)`.
+  Completing a card asks nothing of its list (obligatory items do not
+  exist). On «Описание», right under the description (the drawer's
+  `.board-drawer__pane` is that tab's one scrolling body; the stylesheet
+  orders the list after the description text or the card form):
+  `[data-live-board-checklist]` (`checklist.html`, «Чек-лист 2/5», items
+  struck through when done with who and when on `title`, ↑ ↓ «Изменить» «×»
+  for whoever may change it), `checklist_html`/`checklist_revision` in the
+  fragment, outside the guarded panel; «Добавить пункт» below it is in no
+  block. Every control is an ordinary POST form to `boards:checklist_add` /
+  `_rename` / `_toggle` / `_move` / `_delete` (the right before the method,
+  a GET changes nothing, a refusal of add or rename comes back with the text
+  and the message, the others as a message); «Изменить» is
+  `&edit_item=<id>` — the page's and the fragment's addresses keep it — and
+  «×» the shared modal (`data-confirm-form`). `static/js/board_checklist.js`
+  posts the checkbox through `fetch` (`X-Requested-With: fetch`; JSON
+  `{"ok", "item_id", "is_done", "done", "total"}`, 400/403 `{"ok": false,
+  "error"}`), ticks at once and puts the tick back with the server's
+  sentence in `[data-board-message]` on a refusal. The tile shows «☑ 2/5»
+  (green when complete) and «Таблица» and its Excel a «Чек-лист» column
+  («2/5», empty without items) after «В колонке».
+- **Who hears of a card is `selectors.card_audience()`.**
+  `card_audience(card, task, *, assignees, author, subscribers)`: the
+  исполнители, the card's author and its followers, each part optional,
+  narrowed to active employees who still read the board
+  (`permissions.board_readers_q()` — full access or a membership; a
+  superuser without a profile is no employee) — one query, each person
+  once. A message notifies all three (minus the writer and the mentioned),
+  a cancellation the исполнители and followers, a completion
+  (`complete_card()` → `notify_board_card_completed()`:
+  `BOARD_CARD_COMPLETED`, «Карточка ZAP-12 выполнена», `TASK`-sourced, keyed
+  `task:<pk>:completed:<completed_at>` so a completion after a reopening
+  says so again, `exclude_actor=True`, bell only) the followers and the
+  author. Following is `BoardCardSubscription` (card, user, `created_at`;
+  `unique_board_card_subscription`), written by
+  `toggle_card_subscription(card, actor, subscribe=None)`: any reader of a
+  live board (`can_follow_card()`), a closed card included; the state asked
+  for — the button posts it — or `None` flips; personal, so no event and no
+  journal entry. `remove_board_member()` deletes the person's subscriptions
+  on the board in its transaction. The panel heading carries «Следить» / «Вы
+  следите» (`boards:card_subscribe`, an ordinary POST form, the reading
+  right before the method); «Описание» lists «Подписчики».
+- **«@» in «Чат» calls a colleague without making them an исполнитель.**
+  The chat's form (`form[data-board-mentions]`) carries «Упомянуть» — a
+  `<details>` of checkboxes, one per reader of the board but the writer,
+  each `mention=<id>`; `static/js/board_mentions.js` (delegated, a
+  `window.qualityFragments` initialiser) hides it and reads it as the list
+  «@» opens: filtered by what is typed, ↑ ↓ Enter/Tab or a click write
+  «@Имя Фамилия» and a hidden `mention`, Esc closes, a name deleted before
+  sending drops its `mention`. `post_card_comment(…, mentions=…)` keeps only
+  readers who are active employees (`board_readers_q()`), never the writer,
+  and drops any other id without a word; it stores `BoardCardCommentMention`
+  (comment, user, `unique_board_comment_mention`) and makes each mentioned
+  person a follower, in the message's transaction. One notification per
+  person per message: the mentioned get `BOARD_CARD_MENTION` («Вас упомянули
+  в карточке ZAP-12 на доске «X»», keyed `board_comment:<pk>`, bell and mail,
+  the message never repeated) and not `BOARD_CARD_COMMENT`; the writer gets
+  nothing. `board_text.with_mentions` escapes the message first and then
+  wraps the exact «@Имя Фамилия» of the people really mentioned in
+  `.board-mention` (the longest name first) — `<script>` in a message or a
+  name stays text — and the mentions are one prefetch for all the messages
   shown.
 
 ### Documentation library (`documents`)
@@ -2867,6 +2969,8 @@ tasks never live inside `acts`.
   `change` from the closed `realtime.events.BOARD_CHANGES`: `card_created`,
   `card_updated`, `card_moved`, `card_completed`, `card_reopened`, `card_cancelled`,
   `members_changed`, `board_archived`, `board_restored`, `comment_added`,
+  `checklist_changed` (a card's «Чек-лист» item added, renamed, ticked,
+  moved or deleted; no subscription is an event — following is personal),
   `structure_changed` — a sub-board or a column created, renamed, moved or
   deleted, a column's pins or «Застой» set, the board's code changed, its card
   fields or their options set up), through

@@ -83,7 +83,8 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 `card_created`, `card_updated`, `card_moved`, `card_completed`,
 `card_reopened` (администратор вернул карточку в работу, `reopen_card()`),
 `card_cancelled`, `members_changed`, `board_archived`, `board_restored`,
-`comment_added`, `structure_changed` (поддоска или колонка создана,
+`comment_added`, `checklist_changed` (пункт чек-листа карточки добавлен,
+переименован, отмечен или снят, переставлен или удалён), `structure_changed` (поддоска или колонка создана,
 переименована, переставлена или удалена, доска переименована или сменила
 код, у колонки изменены закреплённые исполнители или порог «Застой», на странице «Поля карточек»
 создано, изменено, переставлено, убрано в архив, возвращено или удалено поле
@@ -98,7 +99,12 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 перезапрашивают обе поддоски, у старой карточка исчезает из колонок, у новой
 появляется, а открытая на старой поддоске панель этой карточки (охраняемый
 блок, как всегда) показывает «Карточка перенесена на поддоску «…»» со
-ссылкой и сама никуда не переходит. Исполнители, добавленные закреплённой
+ссылкой и сама никуда не переходит. Подписка на карточку («Следить») —
+личное дело: событий не порождает, и уведомления о ней получает только сам
+подписчик. Упоминание «@» — часть `comment_added` того же сообщения.
+Каждое изменение чек-листа (`checklist_changed`) сдвигает и `updated_at`
+карточки — так ревизия `boards` замечает его у пропустившего событие.
+Исполнители, добавленные закреплённой
 колонкой при создании или переносе, — часть того же события (и свои
 `task.updated` от `replace_task_assignees()`), отдельного `board.updated` нет.
 Смена кода доски, кроме события, двигает `updated_at` её поддосок — так
@@ -145,7 +151,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_stale_days`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_stale_days`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.
@@ -364,6 +370,12 @@ read-only набор авторизованного пользователя, д
 - `comments_html`/`comments_revision` — сообщения «Чата» открытой карточки;
 - `log_html`/`log_revision` — «Лог» карточки (журнал `BoardCardEvent` и, по
   времени рядом, вложения задачи);
+- `checklist_html`/`checklist_revision` — «Чек-лист» карточки на «Описании»
+  (`[data-live-board-checklist]`): только кнопки и ссылки, вне охраняемой
+  панели; поле «Добавить пункт» — ни в одном блоке. Адрес с `edit_item=<id>`
+  рисует этот пункт формой «Изменить»: пока форма открыта
+  (`[data-checklist-edit]`), клиент блок не заменяет, а откладывает, как при
+  открытом меню, и запрашивает заново, когда формы не станет;
 - `chat_count`, `files_count` — числа у вкладок «Чат» и «Файлы»;
 - `drawer_html` — вся выдвижная панель вокруг этих блоков (полоса вкладок,
   форма чата), и `card_id`, `task_id`, `tab`, `page_url`, `fragment_url`,
@@ -372,10 +384,13 @@ read-only набор авторизованного пользователя, д
   на `[data-board]` адреса и отпечатки и делает `history.pushState(page_url)`;
   «назад»/«вперёд» (`popstate`) открывают и закрывают панель так же.
 
-Сообщения и лог — отдельные блоки только для чтения: в разметку охраняемой
-панели они не входят, поэтому новое сообщение или новая запись лога не
-меняют `panel_revision` и не поднимают баннер конфликта над результатом или
-правкой. Форма сообщения не входит ни в один заменяемый блок, и набираемый
+Сообщения, лог и чек-лист — отдельные блоки: в разметку охраняемой
+панели они не входят, поэтому новое сообщение, новая запись лога или
+отметка пункта не меняют `panel_revision` и не поднимают баннер конфликта над
+результатом или правкой (отметка двигает ещё отпечаток колонок — «☑ 2/5» на
+плитке). Флажок пункта `board_checklist.js` отправляет через `fetch`
+(`X-Requested-With: fetch`, ответ JSON с числами), отказ возвращает флажок;
+остальное другим вкладкам приносит `checklist_changed`. Форма сообщения не входит ни в один заменяемый блок, и набираемый
 текст не перерисовывается. После замены списка читатель, который был внизу,
 остаётся внизу, а пролиставший выше — на месте. Числа у «Чат» и «Файлы»
 клиент ставит вместе с заменой своего блока. Список — последние 100 сообщений
