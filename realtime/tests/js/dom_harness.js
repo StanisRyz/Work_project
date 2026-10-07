@@ -268,6 +268,23 @@ class Element {
         return this._descendants().filter((node) => matches(node, selector));
     }
 
+    /** A form's fields, in document order — what `form.elements` lists. */
+    get elements() {
+        return this._descendants().filter((node) => ['INPUT', 'TEXTAREA', 'SELECT'].includes(node.tagName));
+    }
+
+    /** Still somewhere under the page's root (`markConnected()` marks it). */
+    get isConnected() {
+        let current = this;
+        while (current) {
+            if (current._isRoot) {
+                return true;
+            }
+            current = current.parent;
+        }
+        return false;
+    }
+
     addEventListener(type, handler) {
         if (!this.listeners.has(type)) {
             this.listeners.set(type, []);
@@ -402,6 +419,14 @@ class FakeStorage {
         }
         this.data.delete(key);
     }
+
+    get length() {
+        return this.data.size;
+    }
+
+    key(index) {
+        return [...this.data.keys()][index] ?? null;
+    }
 }
 
 class Bus {
@@ -475,6 +500,7 @@ function createEnvironment({
     }
 
     const root = new Element('body');
+    root._isRoot = true;
 
     const config = new Element('div');
     config.setAttribute('data-realtime-config', '');

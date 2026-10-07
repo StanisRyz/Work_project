@@ -36,6 +36,8 @@ const BOARD_DRAWER_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_d
 // The checklist's tick through `fetch`, and «@» in «Чат».
 const BOARD_CHECKLIST_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_checklist.js'), 'utf8');
 const BOARD_MENTIONS_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_mentions.js'), 'utf8');
+// The unsent message of «Чат» waits in this browser (`form_drafts.js`).
+const FORM_DRAFTS_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'form_drafts.js'), 'utf8');
 // Files chosen for a message of «Чат»: «📎», a drop, a paste.
 const BOARD_CHAT_FILES_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_chat_files.js'), 'utf8');
 const DEFAULT_COORDINATION_EPOCH = 'test-session-epoch-000000000001';
@@ -2712,6 +2714,101 @@ test('choosing writes the name and a hidden mention; a deleted name is not sent'
     hidden = form.querySelectorAll('[data-mention-hidden]');
     assert.deepEqual(hidden.map((input) => input.getAttribute('value')), ['3']);
 });
+// ----------------------------------------------------- the chat's draft (E21)
+
+const CHAT_DRAFT = 'quality-draft:v1:7:board-chat:12';
+
+/** The chat's form as `drawer.html` draws it: `data-draft-key`, silent. */
+function chatForm(env, cardId = 12, { dirty = false } = {}) {
+    const form = new Element('form');
+    form.setAttribute('data-draft-key', `7:board-chat:${cardId}`);
+    form.setAttribute('data-draft-mode', 'silent');
+    form.setAttribute('data-unsaved-guard', dirty ? 'dirty' : '');
+    const textarea = new Element('textarea');
+    textarea.name = 'text';
+    textarea.value = '';
+    form.append(textarea);
+    env.live.drawer.append(form);
+    return { form, textarea };
+}
+
+function loadDrafts(env) {
+    vm.runInContext(FORM_DRAFTS_SOURCE, env.context, { filename: 'form_drafts.js' });
+    return env.context.window.qualityFormDrafts;
+}
+
+test('an unsent chat message is kept at once, per user and card, only in this browser', async () => {
+    const env = load({ page: 'board' });
+    const { textarea } = chatForm(env);
+    loadDrafts(env);
+    textarea.value = 'Проверьте раскрой';
+    env.document.dispatch('input', { target: textarea });
+    const saved = JSON.parse(env.window.localStorage.getItem(CHAT_DRAFT));
+    assert.deepEqual(saved.fields, [{ n: 'text', v: 'Проверьте раскрой' }], 'written without waiting');
+    assert.equal(env.fetchCalls.filter((call) => call.url.includes('comment')).length, 0, 'nothing is sent');
+
+    textarea.value = '';
+    env.document.dispatch('input', { target: textarea });
+    assert.equal(env.window.localStorage.getItem(CHAT_DRAFT), null, 'emptied back: no draft');
+});
+
+test('the card drawn again puts the message back without asking; another card does not', async () => {
+    const env = load({ page: 'board' });
+    const first = chatForm(env);
+    const drafts = loadDrafts(env);
+    first.textarea.value = 'Не забыть чертёж';
+    env.document.dispatch('input', { target: first.textarea });
+
+    // The drawer is replaced (another card opened, then this one again).
+    first.form.remove();
+    const other = chatForm(env, 13);
+    drafts.attach(other.form);
+    assert.equal(other.textarea.value, '', 'another card has its own draft');
+    other.form.remove();
+    const again = chatForm(env);
+    drafts.attach(again.form);
+    assert.equal(again.textarea.value, 'Не забыть чертёж');
+    assert.equal(env.live.drawer.querySelector('.draft-restore'), null, 'no notice: it is simply there');
+
+    // A form the server drew from a refused POST keeps what it shows.
+    again.form.remove();
+    const refused = chatForm(env, 12, { dirty: true });
+    refused.textarea.value = 'С сервера';
+    drafts.attach(refused.form);
+    assert.equal(refused.textarea.value, 'С сервера');
+});
+
+test('a message sent is dropped on the next page; a refused one is kept', async () => {
+    const storage = new FakeStorage();
+    const env = load({ page: 'board', storage });
+    const session = new FakeStorage();
+    env.window.sessionStorage = session;
+    const { form, textarea } = chatForm(env);
+    loadDrafts(env);
+    textarea.value = 'Отправляю';
+    env.document.dispatch('input', { target: textarea });
+    env.window.dispatch('submit', { target: form, defaultPrevented: false });
+    assert.equal(session.getItem('quality-draft:v1:pending'), CHAT_DRAFT);
+
+    // The page after the redirect: the same card, its form empty and clean.
+    const next = load({ page: 'board', storage, resetSources: false });
+    next.window.sessionStorage = session;
+    const fresh = chatForm(next);
+    loadDrafts(next);
+    assert.equal(storage.getItem(CHAT_DRAFT), null, 'the message went through');
+    assert.equal(fresh.textarea.value, '');
+
+    // A refusal draws the form dirty: the draft stays.
+    fresh.textarea.value = 'Ещё раз';
+    next.document.dispatch('input', { target: fresh.textarea });
+    next.window.dispatch('submit', { target: fresh.form, defaultPrevented: false });
+    const refusedPage = load({ page: 'board', storage, resetSources: false });
+    refusedPage.window.sessionStorage = session;
+    chatForm(refusedPage, 12, { dirty: true });
+    loadDrafts(refusedPage);
+    assert.notEqual(storage.getItem(CHAT_DRAFT), null);
+});
+
 // --------------------------------------------------------------------------
 
 (async () => {

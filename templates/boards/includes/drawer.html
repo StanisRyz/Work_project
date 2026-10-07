@@ -139,8 +139,13 @@ JavaScript, and a refusal comes back with what was typed.
                 «📎», a file dropped on «Чат» or an image pasted into the text
                 (Ctrl+V of a screenshot), each chosen file a chip with «×»
                 until it is sent. The server checks every one of them.
+
+                An unsent message waits in this browser (`form_drafts.js`,
+                `data-draft-mode="silent"`, the key `<user>:board-chat:<card>`):
+                it is put back when the card is opened again and dropped once
+                the message has gone. Nothing reaches the server until «Отправить».
                 {% endcomment %}
-                <form class="board-chat__form" method="post" enctype="multipart/form-data" action="{% url 'boards:card_comment' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if comment_error %}="dirty"{% endif %} data-board-mentions data-chat-files data-chat-files-max="{{ max_files_per_message }}">
+                <form class="board-chat__form" method="post" enctype="multipart/form-data" action="{% url 'boards:card_comment' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if comment_error %}="dirty"{% endif %} data-draft-key="{{ user.pk }}:board-chat:{{ card.card.pk }}" data-draft-mode="silent" data-board-mentions data-chat-files data-chat-files-max="{{ max_files_per_message }}">
                     {% csrf_token %}
                     <div class="board-mentions__field">
                         <textarea id="board-comment-text" name="text" aria-label="Сообщение" rows="2" maxlength="4000" placeholder="Сообщение участникам карточки — @, чтобы позвать коллегу; файл — 📎, перетаскиванием или Ctrl+V" data-mention-input>{{ comment_text }}</textarea>

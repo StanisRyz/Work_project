@@ -1,6 +1,6 @@
 from django.urls import include, path
 
-from . import request_views, views
+from . import automation_views, request_views, views
 
 app_name = 'boards'
 
@@ -66,6 +66,36 @@ board_patterns = [
         '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/follow/',
         views.column_follow, name='column_follow',
     ),
+    # «Правила при входе» of a working column — its pins, checklist template,
+    # field values and followers — and the board's «Действия» («Передать
+    # дальше»). Read by every reader of the board, set up by its manager.
+    path('<int:pk>/columns/<int:column_pk>/rules/', automation_views.column_rules, name='column_rules'),
+    path(
+        '<int:pk>/columns/<int:column_pk>/rules/template/add/',
+        automation_views.template_add, name='column_template_add',
+    ),
+    path(
+        '<int:pk>/columns/<int:column_pk>/rules/template/<int:item_pk>/move/',
+        automation_views.template_move, name='column_template_move',
+    ),
+    path(
+        '<int:pk>/columns/<int:column_pk>/rules/template/<int:item_pk>/delete/',
+        automation_views.template_delete, name='column_template_delete',
+    ),
+    path(
+        '<int:pk>/columns/<int:column_pk>/rules/fields/',
+        automation_views.rules_fields, name='column_rules_fields',
+    ),
+    path(
+        '<int:pk>/columns/<int:column_pk>/rules/followers/',
+        automation_views.rules_followers, name='column_rules_followers',
+    ),
+    path('<int:pk>/actions/', automation_views.actions_page, name='actions'),
+    path('<int:pk>/actions/create/', automation_views.action_create, name='action_create'),
+    path('<int:pk>/actions/<int:action_pk>/update/', automation_views.action_update, name='action_update'),
+    path('<int:pk>/actions/<int:action_pk>/move/', automation_views.action_move, name='action_move'),
+    path('<int:pk>/actions/<int:action_pk>/archive/', automation_views.action_archive, name='action_archive'),
+    path('<int:pk>/actions/<int:action_pk>/restore/', automation_views.action_restore, name='action_restore'),
     # «Поля карточек»: the board's own card fields. Read by every reader of
     # the board, changed by whoever manages it.
     path('<int:pk>/fields/', views.board_fields_page, name='fields'),
@@ -99,7 +129,16 @@ board_patterns = [
     # Cards: created on a sub-board, then addressed by board and card; every
     # redirect after a POST goes to the card's own sub-board.
     path('<int:pk>/<int:sub_pk>/cards/create/', views.card_create, name='card_create'),
+    # «Списком» in «+ Карточка»: one card per line.
+    path('<int:pk>/<int:sub_pk>/cards/create-list/', views.card_create_list, name='card_create_list'),
     path('<int:pk>/cards/<int:card_pk>/update/', views.card_update, name='card_update'),
+    # «Передать дальше»: a board action pressed on the card.
+    path(
+        '<int:pk>/cards/<int:card_pk>/actions/<int:action_pk>/run/',
+        views.card_run_action, name='card_action',
+    ),
+    # «📌 Закрепить» / «Открепить».
+    path('<int:pk>/cards/<int:card_pk>/pin/', views.card_pin, name='card_pin'),
     path('<int:pk>/cards/<int:card_pk>/move/', views.card_move, name='card_move'),
     path('<int:pk>/cards/<int:card_pk>/complete/', views.card_complete, name='card_complete'),
     path('<int:pk>/cards/<int:card_pk>/reopen/', views.card_reopen, name='card_reopen'),

@@ -45,6 +45,27 @@ the route.
         {% endif %}
     </div>
     <div class="board-drawer__actions">
+        {% comment %}
+        «Передать дальше» — the board's actions (`card.actions`: its live ones,
+        for whoever works on it, on an open card that is no subtask, but the
+        one leading to the column the card stands in): up to three buttons,
+        the rest under «Ещё ▾». Each is a trigger of the shared modal posting
+        to `boards:card_action` — «Передать ZAP-12 в «…»?», with a required
+        comment when the action asks for one (`comment`).
+        {% endcomment %}
+        {% if panel == 'view' and card.actions %}
+            <div class="board-actions" data-board-actions>
+                {% for action in card.actions_shown %}{% include 'boards/includes/action_button.html' %}{% endfor %}
+                {% if card.actions_more %}
+                    <details class="board-menu board-actions__more" data-board-menu>
+                        <summary class="link-button link-button--secondary link-button--compact">Ещё ▾</summary>
+                        <div class="board-menu__body board-actions__list">
+                            {% for action in card.actions_more %}{% include 'boards/includes/action_button.html' %}{% endfor %}
+                        </div>
+                    </details>
+                {% endif %}
+            </div>
+        {% endif %}
         {% if panel == 'view' and card.can_complete %}
             <details class="board-menu board-complete" data-board-menu data-board-complete{% if execution_error %} open{% endif %}>
                 <summary class="link-button link-button--success link-button--compact">Завершить</summary>

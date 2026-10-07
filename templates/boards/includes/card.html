@@ -96,5 +96,35 @@ values in place (`form` is then the bound form).
             <a class="link-button link-button--secondary" href="{% if panel == 'edit' %}{{ board_url }}?card={{ card.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}{% else %}{{ close_url }}{% endif %}">Отмена</a>
         </div>
     </form>
+    {% comment %}
+    «Списком» (a new card only): one card per line, the presser as
+    исполнитель, one срок for all — `boards:card_create_list` →
+    `create_cards_from_list()`, all or none. A `<details>`, so it works
+    without JavaScript; a refused list comes back open, the lines in place.
+    {% endcomment %}
+    {% if panel == 'new' and list_form %}
+        <details class="board-list-create" data-board-list-create{% if list_form.is_bound %} open{% endif %}>
+            <summary>Списком — несколько карточек сразу</summary>
+            <form class="board-card-form" method="post" action="{% url 'boards:card_create_list' board.pk sub_board.pk %}{{ filter_suffix }}" data-unsaved-guard{% if list_form.is_bound %}="dirty"{% endif %}>
+                {% csrf_token %}
+                <input type="hidden" name="column" value="{{ new_column.pk }}">
+                <label>
+                    <span>{{ list_form.text.label }}</span>
+                    <textarea name="text" rows="6" placeholder="Одна строка — одна карточка. Пустые строки пропускаются.">{{ list_form.text.value|default_if_none:'' }}</textarea>
+                    <span class="board-pins__hint">Исполнитель — вы, не больше {{ list_limit }} карточек за раз. Описание, людей и поля добавите в каждой карточке потом.</span>
+                </label>
+                <label>
+                    <span>{{ list_form.due_date.label }}</span>
+                    {{ list_form.due_date }}
+                    {% for error in list_form.due_date.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                </label>
+                {% for error in list_form.text.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+                {% if list_error %}<p class="field-error" role="alert">{{ list_error }}</p>{% endif %}
+                <div class="form-actions">
+                    <button class="link-button" type="submit">Создать карточки</button>
+                </div>
+            </form>
+        </details>
+    {% endif %}
 {% endif %}
 </section>

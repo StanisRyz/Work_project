@@ -33,10 +33,13 @@ refuse a `BOARD` task — so the journal misses none of them.
 
 A card is named by its board's code and its own number («ZAP-12»):
 `clean_board_code()` is the one normaliser of a code, `create_card()` gives
-the next number under the board lock. A working column may carry pinned
-people (`set_column_pins()`), whom a card created in it or moved into it gets
-through `_apply_pins()` in the same transaction; `move_card()` takes a
-working column of any sub-board of the card's own board.
+the next number under the board lock. A working column may carry
+«Правила при входе» — pinned people (`set_column_pins()`), a checklist
+template, field values, followers — which a card created in it or moved into
+it gets through `_apply_column_entry()` in the same transaction;
+`move_card()` takes a working column of any sub-board of the card's own
+board, and a board's actions «Передать дальше» (`run_board_action()`) move a
+card, set its people and values and post into «Чат» in one transaction.
 
 A board has its own card fields («Поля карточек»: text, number, date, a list
 of coloured options), set up by its manager — `create_field()` and the rest,
@@ -113,7 +116,9 @@ from .models import (
     DUE_COMMENT_MAX_LENGTH,
     MAX_CHECKLIST_ITEMS,
     MAX_FILES_PER_MESSAGE,
+    MAX_ACTIONS,
     MAX_SUBTASKS,
+    MAX_TEMPLATE_ITEMS,
     INTAKE_DUE_DAYS_MAX,
     INTAKE_HINT_MAX_LENGTH,
     REQUEST_DESCRIPTION_MAX_LENGTH,
@@ -134,7 +139,13 @@ from .models import (
     BoardCardFieldValue,
     BoardCardLink,
     BoardCardSubscription,
+    BoardAction,
+    BoardActionAssignee,
+    BoardActionFieldRule,
     BoardColumn,
+    BoardColumnChecklistTemplate,
+    BoardColumnFieldRule,
+    BoardColumnFollower,
     BoardColumnPin,
     BoardColumnSubscription,
     BoardDigestSubscription,
@@ -569,8 +580,19 @@ def remove_board_member(board, user, *, actor):
         BoardDigestSubscription.objects.filter(board=board, user=user).delete()
         # And their place among those who sort the board's requests.
         BoardIntakeHandler.objects.filter(board=board, user=user).delete()
+        # And their place in the columns' «Подписчики» and the actions'
+        # исполнители: neither may put a card on, or under, somebody who
+        # no longer reads the board.
+        followed_columns = list(
+            BoardColumnFollower.objects.filter(column__sub_board__board=board, user=user)
+            .values_list('column_id', flat=True)
+        )
+        BoardColumnFollower.objects.filter(column__sub_board__board=board, user=user).delete()
+        if BoardActionAssignee.objects.filter(action__board=board, user=user).exists():
+            BoardActionAssignee.objects.filter(action__board=board, user=user).delete()
+            SubBoard.objects.filter(board=board).update(updated_at=timezone.now())
         pins = BoardColumnPin.objects.filter(column__sub_board__board=board, user=user)
-        pinned_columns = list(pins.values_list('column_id', flat=True))
+        pinned_columns = list(pins.values_list('column_id', flat=True)) + followed_columns
         if pinned_columns:
             pins.delete()
             # The column headers draw the pins: the `boards` sync revision
@@ -708,36 +730,177 @@ def _pinned_ids(column, board):
     )
 
 
-def _apply_pins(card, task, column, board, *, actor, current_ids):
-    """Give the card the people pinned to `column`, if that changes anything.
+def _pin_target(column, board, current):
+    """The исполнители `column`'s pins give a card that holds `current`.
 
-    `ADD` puts them beside `current_ids`, `REPLACE` in their place. Only active
-    members of the board count; a `REPLACE` whose pinned people are all gone
-    would leave the card with nobody, so it changes nothing. A change goes
-    through `tasks.services.replace_task_assignees()` and is one journal entry
-    «Исполнители по колонке «…»» (`EDITED`, `fields=['assignees']`,
-    `by_column` the column's name as it is now). Returns the card's
-    исполнители afterwards and those added (sorted ids): the caller tells the
-    people concerned, inside its own transaction.
+    `ADD` puts the pinned people beside them, `REPLACE` in their place. Only
+    active members of the board count; a `REPLACE` whose pinned people are
+    all gone would leave the card with nobody, so it changes nothing.
+    """
+    pinned = _pinned_ids(column, board)
+    if not pinned:
+        return set(current)
+    if column.pinned_mode == BoardColumn.PinnedMode.REPLACE:
+        return pinned
+    return set(current) | pinned
+
+
+def _apply_field_rules(card, rules, *, operation):
+    """Give the card the values `rules` (`BoardFieldRule`s, their fields with
+    their options) set, and return the names of the fields that changed.
+
+    Each value is parsed by the card's own parse (`_parse_value()`). A field
+    archived since, or of another board, is skipped; a value that no longer
+    parses — an option archived since — applies nothing and is logged. A
+    value the card already holds is left alone unless the rule says
+    `overwrite`: a rule sets, it does not reset.
+    """
+    rules = [
+        rule for rule in rules
+        if not rule.field.is_archived and rule.field.board_id == card.board_id
+    ]
+    if not rules:
+        return []
+    current_rows = {
+        row.field_id: row
+        for row in BoardCardFieldValue.objects.filter(card=card).select_related('field')
+    }
+    parsed = {}
+    for rule in rules:
+        try:
+            value = _parse_value(rule.field, rule.value, None)
+        except FieldValueError:
+            log_event(
+                logger, 'INFO', 'board.field_rule_skipped',
+                board_id=card.board_id, board_card_id=card.pk, field_id=rule.field_id,
+                operation=operation, outcome='skipped',
+            )
+            continue
+        if value is None:
+            continue
+        if rule.field_id in current_rows and not rule.overwrite:
+            continue
+        parsed[rule.field] = value
+    changes = _field_value_changes(parsed, current_rows)
+    _write_field_values(card, changes, current_rows)
+    return [field.name for field, _ in changes]
+
+
+def _apply_checklist_template(card, column, *, actor):
+    """Put the column's template lines at the end of the card's «Чек-лист».
+
+    A line whose text the card already holds (whatever the case) is not
+    repeated; what does not fit under `MAX_CHECKLIST_ITEMS` is left out.
+    Returns how many were added and how many did not fit.
+    """
+    template = list(
+        BoardColumnChecklistTemplate.objects.filter(column=column).order_by('position', 'pk')
+    )
+    if not template:
+        return 0, 0
+    items = _checklist_items(card)
+    held = {item.text.casefold() for item in items}
+    room = MAX_CHECKLIST_ITEMS - len(items)
+    position = items[-1].position if items else 0
+    new, skipped = [], 0
+    for line in template:
+        key = line.text.casefold()
+        if key in held:
+            continue
+        held.add(key)
+        if len(new) >= room:
+            skipped += 1
+            continue
+        position += 1
+        new.append(BoardCardChecklistItem(card=card, text=line.text, position=position, created_by=actor))
+    BoardCardChecklistItem.objects.bulk_create(new)
+    return len(new), skipped
+
+
+def _apply_column_followers(card, column, board):
+    """Make the column's «Подписчики» followers of the card — those who are
+    active readers of the board and do not follow it yet. Returns how many."""
+    wanted = set(
+        get_user_model().objects.filter(
+            board_readers_q(board), board_column_follows__column=column,
+        ).values_list('pk', flat=True)
+    )
+    if not wanted:
+        return 0
+    following = set(
+        BoardCardSubscription.objects.filter(card=card, user_id__in=wanted)
+        .values_list('user_id', flat=True)
+    )
+    new = sorted(wanted - following)
+    BoardCardSubscription.objects.bulk_create(
+        [BoardCardSubscription(card=card, user_id=user_id) for user_id in new]
+    )
+    return len(new)
+
+
+def _apply_column_entry(card, task, column, actor, *, board, current_ids):
+    """«Правила при входе» of `column`, for a card that has just entered it.
+
+    Called by `create_card()` (through `_place_new_card()`) for the column a
+    card is created in, and by `move_card()` and `run_board_action()` for the
+    column a card is moved into — never for a reorder within a column or a
+    drop in place, never for a subtask (it stands in no column). Inside the
+    caller's transaction, under the board, card and task locks it holds.
+
+    Four rules, in this order:
+
+    * «Закреплённые исполнители» (`_pin_target()`) — through
+      `tasks.services.replace_task_assignees()`;
+    * «Значения полей» (`BoardColumnFieldRule`, `_apply_field_rules()`);
+    * «Шаблон чек-листа» (`BoardColumnChecklistTemplate`,
+      `_apply_checklist_template()`);
+    * «Подписчики» (`BoardColumnFollower`, `_apply_column_followers()`).
+
+    Whatever they did is one journal entry — `EDITED` with `by_column` (the
+    column's name as it is now), `fields` (`assignees`, `custom` with
+    `custom_fields`), `checklist_added`, `checklist_skipped` and
+    `followers_added` (numbers) — never a text. Nothing done, nothing
+    written. Returns the card's исполнители afterwards and those added
+    (sorted ids) — the caller tells them — and whether something an edit
+    form holds (исполнители, field values) changed.
     """
     from tasks.services import TaskWorkflowError, replace_task_assignees
 
     current = set(current_ids)
-    pinned = _pinned_ids(column, board)
-    if not pinned:
-        return sorted(current), []
-    target = pinned if column.pinned_mode == BoardColumn.PinnedMode.REPLACE else current | pinned
-    if target == current:
-        return sorted(current), []
-    try:
-        replace_task_assignees(task, sorted(target), actor=actor)
-    except TaskWorkflowError as exc:
-        raise BoardError(str(exc)) from exc
-    _record(
-        card, BoardCardEvent.Kind.EDITED, actor=actor,
-        fields=['assignees'], by_column_id=column.pk, by_column=column.name,
+    target = _pin_target(column, board, current)
+    assignees_changed = target != current
+    if assignees_changed:
+        try:
+            replace_task_assignees(task, sorted(target), actor=actor)
+        except TaskWorkflowError as exc:
+            raise BoardError(str(exc)) from exc
+    field_names = _apply_field_rules(
+        card,
+        BoardColumnFieldRule.objects.filter(column=column)
+        .select_related('field').prefetch_related('field__options').order_by('pk'),
+        operation='column_entry',
     )
-    return sorted(target), sorted(target - current)
+    checklist_added, checklist_skipped = _apply_checklist_template(card, column, actor=actor)
+    followers_added = _apply_column_followers(card, column, board)
+    if assignees_changed or field_names or checklist_added or checklist_skipped or followers_added:
+        fields = []
+        details = {}
+        if assignees_changed:
+            fields.append('assignees')
+        if field_names:
+            fields.append('custom')
+            details['custom_fields'] = field_names
+        if checklist_added:
+            details['checklist_added'] = checklist_added
+        if checklist_skipped:
+            details['checklist_skipped'] = checklist_skipped
+        if followers_added:
+            details['followers_added'] = followers_added
+        _record(
+            card, BoardCardEvent.Kind.EDITED, actor=actor,
+            fields=fields, by_column_id=column.pk, by_column=column.name, **details,
+        )
+    return sorted(target), sorted(target - current), bool(assignees_changed or field_names)
 
 
 def _next_number(board):
@@ -829,7 +992,7 @@ def _place_new_card(board, sub_board, *, actor, title, due_date, assignee_ids, d
         due_date=due_date, ids=ids, values=values, column=column,
         position=_end_position(column), request_id=request_id,
     )
-    ids, _ = _apply_pins(card, task, column, board, actor=actor, current_ids=ids)
+    ids, _, _ = _apply_column_entry(card, task, column, actor, board=board, current_ids=ids)
     # Inside the transaction and after the task and its исполнители exist,
     # so a rollback leaves no notification about a card that never was —
     # and only the people the card really ended up with.
@@ -848,7 +1011,8 @@ def create_card(
     `column` (an object or an id) must be a working column of this very
     sub-board; `None` is its first working column. The card takes the board's
     next number (`_next_number()`, under the board lock) and the people pinned
-    to its column (`_apply_pins()`); every исполнитель it ends up with is told
+    to its column (`_apply_column_entry()`, with the column's other entry
+    rules); every исполнитель it ends up with is told
     once. `field_values` (`{field id: raw value}`) are the board's own fields,
     parsed by kind (`_clean_field_values()`); an empty one stores nothing.
     The column's followers are told the card entered it
@@ -1088,6 +1252,145 @@ def _board_working_column(board, column, *, operation, actor, card_id=None):
     return found
 
 
+def _place_index(cards, card, pinned, before_card_id, *, operation, actor, board):
+    """Where `card` goes among `cards` (the target column, without it): the
+    index in the group of its own kind — the pinned cards or the others —
+    and that group.
+
+    A pinned card stands among the pinned ones and an unpinned one after
+    them, so `before_card_id` naming a card of the other group puts it at
+    the edge of its own: the end of the pinned, the start of the others.
+    `None` is the end of its group. A card not in the column is refused.
+    """
+    group = [other for other in cards if other.is_pinned == pinned]
+    if before_card_id is None:
+        return len(group), group
+    try:
+        before_card_id = int(before_card_id)
+    except (TypeError, ValueError):
+        before_card_id = None
+    index = next((i for i, other in enumerate(group) if other.pk == before_card_id), None)
+    if index is not None:
+        return index, group
+    if any(other.pk == before_card_id for other in cards):
+        return (len(group) if pinned else 0), group
+    _rejected(operation, 'bad_before_card', actor=actor, board_id=board.pk, card_id=card.pk)
+    raise BoardError('Карточка, перед которой нужно встать, не найдена в этой колонке.')
+
+
+def _move_locked(board, card, task, target, *, actor, before_card_id=None, operation='move_card',
+                 action=None):
+    """Put `card` in `target` — the body of `move_card()`, shared with
+    `run_board_action()`. Inside the caller's transaction, under the board,
+    card and task locks it holds, the right and the state already asked.
+
+    Returns `None` when the card already stands there (nothing written),
+    else `(previous_sub_board_id, previous_column_id, renumbered, added,
+    edited)`: who the column's entry rules added (not told yet — the caller
+    tells them) and whether they changed what an edit form holds. A move
+    into another column records one `MOVED` entry (with `action_id` and
+    `action`, its name then, when an action made it), runs the column's
+    «Правила при входе» (`_apply_column_entry()`) and unpins the card: a pin
+    holds a card first in *its* column.
+    """
+    from tasks.models import TaskAssignee
+
+    previous_sub_board_id = card.sub_board_id
+    crosses = target.sub_board_id != previous_sub_board_id
+    previous_column_id = card.column_id or _first_working_id(previous_sub_board_id)
+    enters = target.pk != previous_column_id
+    pinned = card.is_pinned and not enters
+    cards = _column(target, exclude_card_id=card.pk)
+    index, group = _place_index(
+        cards, card, pinned, before_card_id, operation=operation, actor=actor, board=board,
+    )
+    if not enters:
+        # Where the card stands now: after every other card of its group
+        # that sorts before it. The same index is the same place.
+        current_index = sum(
+            1 for other in group if (other.position, other.pk) < (card.position, card.pk)
+        )
+        if index == current_index:
+            return None
+    lower = group[index - 1].position if index > 0 else 0
+    if index < len(group):
+        upper = group[index].position
+        position = (lower + upper) // 2 if upper - lower >= 2 else None
+    else:
+        top = max((other.position for other in cards), default=0) if not pinned else lower
+        lower = max(lower, top)
+        position = lower + POSITION_STEP if lower + POSITION_STEP <= MAX_POSITION else None
+    renumbered = position is None
+    card.column = target
+    card.sub_board = target.sub_board
+    card.is_pinned = pinned
+    card.clean()
+    if renumbered:
+        # No gap left: respace the card's group with the card in its new
+        # place. Every card write happens under the board lock held here.
+        _renumber(group[:index] + [card] + group[index:])
+        card.save(update_fields=['column', 'sub_board', 'is_pinned', 'updated_at'])
+    else:
+        card.position = position
+        card.save(update_fields=['column', 'sub_board', 'position', 'is_pinned', 'updated_at'])
+    if crosses:
+        # A card's subtasks live inside it: they go to its new sub-board
+        # with it, in the same transaction, and keep their place in its list.
+        BoardCard.objects.filter(parent=card).update(
+            sub_board_id=target.sub_board_id, updated_at=timezone.now(),
+        )
+    added, edited = [], False
+    if enters:
+        # A reorder within a column is a move of the tile, not of the work:
+        # the journal records where the card went, by name — and, across
+        # sub-boards, on which tab, and by which action.
+        previous = BoardColumn.objects.select_related('sub_board').filter(pk=previous_column_id).first()
+        details = {
+            **_column_snapshot('from_column', previous),
+            **_column_snapshot('to_column', target),
+        }
+        if crosses:
+            details.update({
+                'from_sub_board_id': previous_sub_board_id,
+                'from_sub_board': previous.sub_board.name if previous is not None else '',
+                'to_sub_board_id': target.sub_board_id,
+                'to_sub_board': target.sub_board.name,
+            })
+        if action is not None:
+            details.update({'action_id': action.pk, 'action': action.name})
+        _record(card, BoardCardEvent.Kind.MOVED, actor=actor, **details)
+        current_ids = sorted(TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True))
+        _, added, edited = _apply_column_entry(
+            card, task, target, actor, board=board, current_ids=current_ids,
+        )
+    return previous_sub_board_id, previous_column_id, renumbered, added, edited
+
+
+def _movable_card(card, operation, *, actor):
+    """The board, the card and its task, locked in that order, if `actor`
+    may move the card now: a live board, its worker, a card (never a
+    subtask) whose task is open."""
+    board = _lock_board(card.board_id)
+    card = _lock_card(card, board)
+    task = _lock_card_task(card)
+    _refuse_archived(operation, board, actor=actor, card_id=card.pk)
+    if not can_work_on_board(actor, board):
+        _rejected(operation, 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise BoardError('Работа с карточками этой доски недоступна.')
+    if card.parent_id is not None:
+        _rejected(operation, 'subtask', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise BoardError('Подзадачу не переносят по колонкам: она живёт в своей карточке.')
+    return board, card, task
+
+
+def _refuse_closed_task(task, operation, *, actor, board, card):
+    if task.status.is_final:
+        _rejected(operation, 'task_final', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise BoardError(
+            'Задача карточки закрыта. Вернуть её в работу может только администратор.'
+        )
+
+
 def move_card(card, *, actor, column, before_card_id=None):
     """Put a live card in a working column of its board: at the end, or before
     another card.
@@ -1098,8 +1401,10 @@ def move_card(card, *, actor, column, before_card_id=None):
     the card there (`sub_board` follows the column; the panel's «Переместить
     в…» puts it at the end, and its number stays). `before_card_id` must name
     another card standing in the target column. Positions are spaced by
-    `POSITION_STEP`; when the gap is gone the whole column is renumbered under
-    the same board lock.
+    `POSITION_STEP`; when the gap is gone the card's group is renumbered under
+    the same board lock. A pinned card (`is_pinned`) moves only among the
+    pinned ones of its column, an unpinned one only after them; a card that
+    leaves its column is unpinned.
 
     A card whose task is closed is refused: the closing column is reached by
     completing the task, and left only by an administrator reopening it
@@ -1108,104 +1413,27 @@ def move_card(card, *, actor, column, before_card_id=None):
     A move to where the card already stands — its own column, between the
     same neighbours — writes nothing and announces nothing. A move into
     another column records one `MOVED` entry (the columns' names as they are
-    now, and the sub-boards' when it changes them) and gives the card the
-    people pinned to the new column (`_apply_pins()`); those added are told,
-    and the new column's followers hear the card entered it (once each).
+    now, and the sub-boards' when it changes them) and runs the new column's
+    «Правила при входе» (`_apply_column_entry()`); the people they added are
+    told, and the new column's followers hear the card entered it (once
+    each).
     """
     from notifications.services import notify_board_task_assigned
-    from tasks.models import TaskAssignee
 
     with transaction.atomic():
-        board = _lock_board(card.board_id)
-        card = _lock_card(card, board)
-        task = _lock_card_task(card)
-        _refuse_archived('move_card', board, actor=actor, card_id=card.pk)
-        if not can_work_on_board(actor, board):
-            _rejected('move_card', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
-            raise BoardError('Работа с карточками этой доски недоступна.')
-        if card.parent_id is not None:
-            _rejected('move_card', 'subtask', actor=actor, board_id=board.pk, card_id=card.pk)
-            raise BoardError('Подзадачу не переносят по колонкам: она живёт в своей карточке.')
+        board, card, task = _movable_card(card, 'move_card', actor=actor)
         target = _board_working_column(board, column, operation='move_card', actor=actor, card_id=card.pk)
-        if task.status.is_final:
-            _rejected('move_card', 'task_final', actor=actor, board_id=board.pk, card_id=card.pk)
-            raise BoardError(
-                'Задача карточки закрыта. Вернуть её в работу может только администратор.'
-            )
-        previous_sub_board_id = card.sub_board_id
-        crosses = target.sub_board_id != previous_sub_board_id
-        previous_column_id = card.column_id or _first_working_id(previous_sub_board_id)
-        cards = _column(target, exclude_card_id=card.pk)
-        if before_card_id is None:
-            index = len(cards)
-        else:
-            try:
-                before_card_id = int(before_card_id)
-            except (TypeError, ValueError):
-                before_card_id = None
-            index = next(
-                (i for i, other in enumerate(cards) if other.pk == before_card_id),
-                None,
-            )
-            if index is None:
-                _rejected('move_card', 'bad_before_card', actor=actor, board_id=board.pk, card_id=card.pk)
-                raise BoardError('Карточка, перед которой нужно встать, не найдена в этой колонке.')
-        if target.pk == previous_column_id:
-            # Where the card stands now: after every other card of its column
-            # that sorts before it. The same index is the same place.
-            current_index = sum(
-                1 for other in cards if (other.position, other.pk) < (card.position, card.pk)
-            )
-            if index == current_index:
-                return card
-        lower = cards[index - 1].position if index > 0 else 0
-        if index < len(cards):
-            upper = cards[index].position
-            position = (lower + upper) // 2 if upper - lower >= 2 else None
-        else:
-            position = lower + POSITION_STEP if lower + POSITION_STEP <= MAX_POSITION else None
-        renumbered = position is None
-        card.column = target
-        card.sub_board = target.sub_board
-        card.clean()
-        if renumbered:
-            # No gap left: respace the whole column with the card in its new
-            # place. Every card write happens under the board lock held here.
-            _renumber(cards[:index] + [card] + cards[index:])
-            card.save(update_fields=['column', 'sub_board', 'updated_at'])
-        else:
-            card.position = position
-            card.save(update_fields=['column', 'sub_board', 'position', 'updated_at'])
-        if crosses:
-            # A card's subtasks live inside it: they go to its new sub-board
-            # with it, in the same transaction, and keep their place in its list.
-            BoardCard.objects.filter(parent=card).update(
-                sub_board_id=target.sub_board_id, updated_at=timezone.now(),
-            )
+        _refuse_closed_task(task, 'move_card', actor=actor, board=board, card=card)
+        moved = _move_locked(board, card, task, target, actor=actor, before_card_id=before_card_id)
+        if moved is None:
+            return card
+        previous_sub_board_id, previous_column_id, renumbered, added, edited = moved
+        if edited:
+            # The edit form holds the исполнители and the field values: one
+            # drawn before this move must not put the old ones back silently.
+            card.version += 1
+            card.save(update_fields=['version'])
         if target.pk != previous_column_id:
-            # A reorder within a column is a move of the tile, not of the
-            # work: the journal records where the card went, by name — and,
-            # across sub-boards, on which tab.
-            previous = BoardColumn.objects.select_related('sub_board').filter(pk=previous_column_id).first()
-            details = {
-                **_column_snapshot('from_column', previous),
-                **_column_snapshot('to_column', target),
-            }
-            if crosses:
-                details.update({
-                    'from_sub_board_id': previous_sub_board_id,
-                    'from_sub_board': previous.sub_board.name if previous is not None else '',
-                    'to_sub_board_id': target.sub_board_id,
-                    'to_sub_board': target.sub_board.name,
-                })
-            _record(card, BoardCardEvent.Kind.MOVED, actor=actor, **details)
-            current_ids = sorted(TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True))
-            final_ids, added = _apply_pins(card, task, target, board, actor=actor, current_ids=current_ids)
-            if final_ids != current_ids:
-                # The edit form holds the исполнители: one drawn before this
-                # move must not put the old ones back silently.
-                card.version += 1
-                card.save(update_fields=['version'])
             if added:
                 notify_board_task_assigned(task, actor, _users(added))
             _notify_column_entered(card, task, target, board, actor=actor, told=added)
@@ -1772,11 +2000,31 @@ def delete_sub_board(sub_board, *, actor):
         if SubBoard.objects.filter(board=board).count() <= 1:
             _rejected('delete_sub_board', 'last', actor=actor, board_id=board.pk)
             raise BoardError('Это единственная поддоска доски — её нельзя удалить.')
+        _refuse_action_target(
+            board, BoardColumn.objects.filter(sub_board=sub_board).values_list('pk', flat=True),
+            'delete_sub_board', actor=actor,
+        )
         sub_board_id = sub_board.pk
         BoardColumn.objects.filter(sub_board=sub_board).delete()
         sub_board.delete()
         _renumber_rows(list(SubBoard.objects.filter(board=board).order_by('position', 'pk')))
         _structure_changed(board, 'board.sub_board_deleted', actor=actor, sub_board_id=sub_board_id)
+
+
+def _refuse_action_target(board, column_ids, operation, *, actor):
+    """Refuse to delete columns an action of the board leads to — archived
+    actions included (`BoardAction.target_column` is `PROTECT`)."""
+    names = list(
+        BoardAction.objects.filter(board=board, target_column_id__in=list(column_ids))
+        .order_by('position', 'pk').values_list('name', flat=True)
+    )
+    if names:
+        _rejected(operation, 'action_target', actor=actor, board_id=board.pk)
+        quoted = ', '.join(f'«{name}»' for name in names)
+        raise BoardError(
+            f'На эту колонку ведут действия доски: {quoted}. Сначала выберите для них '
+            'другую колонку на странице «Действия».'
+        )
 
 
 def _column_of(board, column, *, operation, actor):
@@ -1887,6 +2135,7 @@ def delete_column(column, *, actor):
                 f'В колонке открытые карточки: {open_count}. Перенесите, завершите '
                 'или отмените их, затем удалите колонку.'
             )
+        _refuse_action_target(board, [column.pk], 'delete_column', actor=actor)
         column_id, sub_board_id = column.pk, column.sub_board_id
         BoardCard.objects.filter(column=column).update(column=None)
         column.delete()
@@ -1904,7 +2153,7 @@ def set_column_pins(column, *, actor, user_ids, mode):
     never an archived board, never a closing column. Everyone pinned is an
     active member of the board; an empty list unpins everybody. The cards
     already standing in the column keep their people — a pin acts on the
-    next card created in the column or moved into it (`_apply_pins()`).
+    next card created in the column or moved into it (`_apply_column_entry()`).
     The same people and mode change nothing and announce nothing; a change
     publishes one `board.updated(structure_changed)`.
     """
@@ -2133,6 +2382,20 @@ def _has_values(field):
     return BoardCardFieldValue.objects.filter(field=field).exists()
 
 
+def _refuse_ruled_field(board, field, operation, *, actor, what):
+    """Refuse to delete a field, or change its kind, while a column's entry
+    rule or an action sets it (`BoardFieldRule.field` is `PROTECT`)."""
+    if (
+        BoardColumnFieldRule.objects.filter(field=field).exists()
+        or BoardActionFieldRule.objects.filter(field=field).exists()
+    ):
+        _rejected(operation, 'field_in_rules', actor=actor, board_id=board.pk)
+        raise BoardError(
+            f'Поле «{field.name}» ставят правила колонок или действия доски — {what} нельзя. '
+            'Сначала уберите его из правил.'
+        )
+
+
 def _refuse_summed(board, kind, sum_in_column, operation, *, actor, exclude_pk=None):
     """«Сумма в колонке» only for a number field, and on at most
     `MAX_SUMMED_FIELDS` live fields of the board: a column header has room
@@ -2211,6 +2474,8 @@ def update_field(field, *, actor, name, show_on_tile, kind=None, sum_in_column=N
             raise BoardError(
                 f'В карточках уже есть значения поля «{field.name}» — его вид менять нельзя.'
             )
+        if kind != field.kind:
+            _refuse_ruled_field(board, field, 'update_field', actor=actor, what='менять его вид')
         if sum_in_column is None:
             sum_in_column = field.sum_in_column and kind == BoardField.Kind.NUMBER
         sum_in_column = bool(sum_in_column)
@@ -2295,6 +2560,7 @@ def delete_field(field, *, actor):
             raise BoardError(
                 f'В карточках есть значения поля «{field.name}» — его можно только убрать в архив.'
             )
+        _refuse_ruled_field(board, field, 'delete_field', actor=actor, what='удалить его')
         field_id = field.pk
         field.delete()
         _renumber_rows(list(BoardField.objects.filter(board=board).order_by('position', 'pk')))
@@ -2397,6 +2663,13 @@ def delete_option(option, *, actor):
             _rejected('delete_option', 'has_values', actor=actor, board_id=board.pk)
             raise BoardError(
                 f'Вариант «{option.label}» выбран в карточках — его можно только убрать в архив.'
+            )
+        ruled = Q(field_id=option.field_id, value=str(option.pk))
+        if BoardColumnFieldRule.objects.filter(ruled).exists() or BoardActionFieldRule.objects.filter(ruled).exists():
+            _rejected('delete_option', 'option_in_rules', actor=actor, board_id=board.pk)
+            raise BoardError(
+                f'Вариант «{option.label}» ставят правила колонок или действия доски — '
+                'сначала уберите его из правил.'
             )
         option_id, field_id = option.pk, option.field_id
         option.delete()
@@ -4074,3 +4347,637 @@ def mark_duplicate(board_request, *, actor, card_code, comment=''):
         actor_user_id=actor.pk, outcome='ok',
     )
     return board_request
+
+
+# --------------------------------------------------------------------------
+# «📌 Закрепить» and «Списком»
+# --------------------------------------------------------------------------
+
+
+def set_card_pinned(card, *, actor, pinned):
+    """«📌 Закрепить» / «Открепить»: the card first in its working column.
+
+    Whoever works on the board (`can_work_on_board()`), an open card that is
+    no subtask, never on an archived board. A pinned card goes to the end of
+    the pinned ones; an unpinned one to the start of the others — where it
+    stood, just below them. `pinned` is the state asked for (the button
+    posts it): the same state stores and publishes nothing. A placement of
+    the tile, like a reorder: no journal entry and no version step, one
+    `board.updated(card_updated)`.
+    """
+    pinned = bool(pinned)
+    with transaction.atomic():
+        board, card, task = _movable_card(card, 'pin_card', actor=actor)
+        _refuse_closed_task(task, 'pin_card', actor=actor, board=board, card=card)
+        if card.is_pinned == pinned:
+            return card
+        column = _working_column(
+            card.sub_board, card.column_id or _first_working_id(card.sub_board_id),
+            operation='pin_card', actor=actor, card_id=card.pk,
+        )
+        cards = _column(column, exclude_card_id=card.pk)
+        group = [other for other in cards if other.is_pinned == pinned]
+        card.is_pinned = pinned
+        if pinned:
+            card.position = _end_position(column)
+            card.save(update_fields=['is_pinned', 'position', 'updated_at'])
+        elif group and group[0].position >= 2:
+            card.position = group[0].position // 2
+            card.save(update_fields=['is_pinned', 'position', 'updated_at'])
+        else:
+            card.save(update_fields=['is_pinned', 'updated_at'])
+            _renumber([card] + group)
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_UPDATED, card.pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.card_pinned' if pinned else 'board.card_unpinned',
+        board_id=board.pk,
+        board_card_id=card.pk,
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return card
+
+
+MAX_LIST_CARDS = 30
+
+
+def create_cards_from_list(sub_board, *, actor, text, due_date, column=None):
+    """«Списком» in «+ Карточка»: one card per non-empty line of `text`.
+
+    Each is `create_card()`'s own body (`_place_new_card()`): at the end of
+    `column` (`None` — the first working one), in the order of the lines,
+    with whoever pressed as its исполнитель and `due_date` as its срок (a
+    card's task always has one), the column's «Правила при входе» and its
+    followers told. All or nothing, in one transaction: no line, a line over
+    `TITLE_MAX_LENGTH` or more than `MAX_LIST_CARDS` lines refuse the whole
+    list before anything is written. One `board.updated(card_created)` for
+    the whole list. Returns the cards.
+    """
+    lines = [line.strip() for line in (text or '').splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        raise BoardError('Напишите хотя бы одну строку — одна строка, одна карточка.')
+    if len(lines) > MAX_LIST_CARDS:
+        raise BoardError(f'Списком — не больше {MAX_LIST_CARDS} карточек за раз, а строк {len(lines)}.')
+    for index, line in enumerate(lines, start=1):
+        if len(line) > TITLE_MAX_LENGTH:
+            raise BoardError(f'Строка {index} длиннее {TITLE_MAX_LENGTH} символов — сократите её.')
+    with transaction.atomic():
+        board = _lock_board(sub_board.board_id)
+        _refuse_archived('create_cards_from_list', board, actor=actor)
+        if not can_work_on_board(actor, board):
+            _rejected('create_cards_from_list', 'not_permitted', actor=actor, board_id=board.pk)
+            raise BoardError('Работа с карточками этой доски недоступна.')
+        cards = []
+        for line in lines:
+            card, _task, column, _ids = _place_new_card(
+                board, sub_board, actor=actor, title=line, due_date=due_date,
+                assignee_ids=[actor.pk], description='', column=column, field_values=None,
+                operation='create_cards_from_list',
+            )
+            column = column.pk
+            cards.append(card)
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_CREATED, cards[0].pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.cards_created',
+        board_id=board.pk,
+        sub_board_id=cards[0].sub_board_id,
+        column_id=column,
+        card_count=len(cards),
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return cards
+
+
+# --------------------------------------------------------------------------
+# «Правила при входе» of a working column
+# --------------------------------------------------------------------------
+#
+# The manager's, like the pins (`set_column_pins()`) they stand beside: one
+# board lock, never an archived board, never the closing column. Each change
+# saves the column's `updated_at` (the structure aggregate of the sync
+# revision) and publishes one `board.updated(structure_changed)`; the same
+# settings again store and publish nothing. What they do to a card is
+# `_apply_column_entry()`.
+
+
+def _rules_column(column, operation, *, actor):
+    """The board (locked) and `column`, if `actor` may set its entry rules."""
+    column_id = getattr(column, 'pk', column)
+    board_id = BoardColumn.objects.filter(pk=column_id).values_list('sub_board__board_id', flat=True).first()
+    if board_id is None:
+        raise BoardError('Колонка не найдена — возможно, её удалили.')
+    board = _manageable_board(board_id, operation, actor=actor)
+    column = _column_of(board, column_id, operation=operation, actor=actor)
+    if column.is_done:
+        _rejected(operation, 'done_column', actor=actor, board_id=board.pk)
+        raise BoardError(
+            'В завершающую колонку карточка попадает выполненной — правил при входе у неё нет.'
+        )
+    return board, column
+
+
+def _rules_changed(board, column, event, *, actor, **ids):
+    column.save(update_fields=['updated_at'])
+    _structure_changed(board, event, actor=actor, column_id=column.pk, **ids)
+
+
+def _template_rows(column):
+    return list(BoardColumnChecklistTemplate.objects.filter(column=column).order_by('position', 'pk'))
+
+
+def add_template_item(column, *, actor, text):
+    """A line at the end of the column's «Шаблон чек-листа».
+
+    Trimmed, required, at most `CHECKLIST_TEXT_MAX_LENGTH`; at most
+    `MAX_TEMPLATE_ITEMS` lines; a line the template already holds (whatever
+    the case) is refused — a card would get it once anyway.
+    """
+    with transaction.atomic():
+        board, column = _rules_column(column, 'add_template_item', actor=actor)
+        text = _clean_checklist_text(text)
+        rows = _template_rows(column)
+        if len(rows) >= MAX_TEMPLATE_ITEMS:
+            _rejected('add_template_item', 'limit', actor=actor, board_id=board.pk)
+            raise BoardError(f'В шаблоне может быть не больше {MAX_TEMPLATE_ITEMS} пунктов.')
+        if text.casefold() in {row.text.casefold() for row in rows}:
+            raise BoardError(f'Пункт «{text}» в шаблоне уже есть.')
+        item = BoardColumnChecklistTemplate.objects.create(
+            column=column, text=text, position=len(rows) + 1,
+        )
+        _rules_changed(board, column, 'board.column_template_changed', actor=actor, template_item_id=item.pk)
+    return item
+
+
+def _template_item(item, operation, *, actor):
+    item_id = getattr(item, 'pk', item)
+    column_id = BoardColumnChecklistTemplate.objects.filter(pk=item_id).values_list('column_id', flat=True).first()
+    if column_id is None:
+        raise BoardError('Пункт шаблона не найден — возможно, его удалили. Обновите страницу.')
+    board, column = _rules_column(column_id, operation, actor=actor)
+    found = BoardColumnChecklistTemplate.objects.filter(pk=item_id, column=column).first()
+    if found is None:
+        raise BoardError('Пункт шаблона не найден — возможно, его удалили. Обновите страницу.')
+    return board, column, found
+
+
+def move_template_item(item, *, actor, direction):
+    """A template line one place up (`'left'`) or down (`'right'`)."""
+    with transaction.atomic():
+        board, column, item = _template_item(item, 'move_template_item', actor=actor)
+        rows = _step(_template_rows(column), item, direction)
+        if rows is None:
+            return item
+        for index, row in enumerate(rows, start=1):
+            row.position = index
+        BoardColumnChecklistTemplate.objects.bulk_update(rows, ['position'])
+        _rules_changed(board, column, 'board.column_template_changed', actor=actor, template_item_id=item.pk)
+    return item
+
+
+def delete_template_item(item, *, actor):
+    """«×» beside a template line. The cards that got it keep their item."""
+    with transaction.atomic():
+        board, column, item = _template_item(item, 'delete_template_item', actor=actor)
+        item_id = item.pk
+        item.delete()
+        rows = _template_rows(column)
+        for index, row in enumerate(rows, start=1):
+            row.position = index
+        BoardColumnChecklistTemplate.objects.bulk_update(rows, ['position'])
+        _rules_changed(board, column, 'board.column_template_changed', actor=actor, template_item_id=item_id)
+
+
+def _rule_field(board, field, operation, *, actor):
+    """`field` (an object or an id) as a live field of `board`, its options read."""
+    field_id = getattr(field, 'pk', field)
+    try:
+        field_id = int(field_id)
+    except (TypeError, ValueError):
+        field_id = None
+    found = (
+        BoardField.objects.filter(pk=field_id, board=board).prefetch_related('options').first()
+        if field_id is not None else None
+    )
+    if found is None or found.is_archived:
+        _rejected(operation, 'unknown_field', actor=actor, board_id=board.pk)
+        raise BoardError('Поле не найдено на этой доске или убрано в архив.')
+    return found
+
+
+def _clean_rule_value(field, raw):
+    """The raw value a rule stores — the canonical form of what a card form
+    would send — or `''` for an empty one. A value that does not parse is a
+    `FieldValueError` naming the field."""
+    value = _parse_value(field, raw, None)
+    if value is None:
+        return ''
+    return str(_stored_request_value(field, value))
+
+
+def set_column_field_rules(column, *, actor, values):
+    """«Значения полей»: the values fields get when a card enters `column`.
+
+    `values` is `{field (an object or an id): (raw value, overwrite)}` for
+    the fields the form shows — each a live field of this board, its value
+    parsed as a card's would be (a refusal is a `FieldValueError` naming the
+    field, before anything is written); an empty value removes that field's
+    rule, a field left out keeps its rule. `overwrite` — replace a value the
+    card already holds. Returns whether anything changed; the same values
+    and flags store and publish nothing.
+    """
+    with transaction.atomic():
+        board, column = _rules_column(column, 'set_column_field_rules', actor=actor)
+        wanted = {}
+        for key, (raw, overwrite) in (values or {}).items():
+            field = _rule_field(board, key, 'set_column_field_rules', actor=actor)
+            wanted[field] = (_clean_rule_value(field, raw), bool(overwrite))
+        current = {
+            rule.field_id: rule
+            for rule in BoardColumnFieldRule.objects.filter(column=column, field__in=list(wanted))
+        }
+        changed = False
+        for field, (raw, overwrite) in wanted.items():
+            rule = current.get(field.pk)
+            if not raw:
+                if rule is not None:
+                    rule.delete()
+                    changed = True
+                continue
+            if rule is not None and rule.value == raw and rule.overwrite == overwrite:
+                continue
+            if rule is None:
+                rule = BoardColumnFieldRule(column=column, field=field)
+            rule.value, rule.overwrite = raw, overwrite
+            rule.save()
+            changed = True
+        if changed:
+            _rules_changed(board, column, 'board.column_field_rules_changed', actor=actor)
+    return changed
+
+
+def set_column_followers(column, *, actor, user_ids):
+    """«Подписчики»: who follows every card that enters `column`.
+
+    Only active readers of the board (`board_readers_q()`); anybody else
+    sent by hand is refused. An empty list removes everybody. The cards
+    already standing in the column are not touched.
+    """
+    with transaction.atomic():
+        board, column = _rules_column(column, 'set_column_followers', actor=actor)
+        requested = {int(getattr(value, 'pk', value)) for value in user_ids or ()}
+        readers = set(
+            get_user_model().objects.filter(board_readers_q(board), pk__in=requested)
+            .values_list('pk', flat=True)
+        )
+        if requested - readers:
+            _rejected('set_column_followers', 'not_a_reader', actor=actor, board_id=board.pk)
+            raise BoardError('Подписать на карточки колонки можно только активных читателей доски.')
+        current = set(BoardColumnFollower.objects.filter(column=column).values_list('user_id', flat=True))
+        if current == requested:
+            return False
+        BoardColumnFollower.objects.filter(column=column, user_id__in=current - requested).delete()
+        BoardColumnFollower.objects.bulk_create(
+            [BoardColumnFollower(column=column, user_id=user_id) for user_id in sorted(requested - current)]
+        )
+        _rules_changed(
+            board, column, 'board.column_followers_changed', actor=actor, follower_count=len(requested),
+        )
+    return True
+
+
+# --------------------------------------------------------------------------
+# «Передать дальше»: a board's actions
+# --------------------------------------------------------------------------
+#
+# Set up on «Действия» by whoever manages the board: one board lock, never
+# an archived board, one `board.updated(structure_changed)` per change (the
+# buttons are in every card's panel, so the sub-boards' `updated_at` moves
+# too — the sync revision's structure aggregate), the same settings again
+# nothing. Pressed by whoever works on the board: `run_board_action()`.
+
+
+def _actions_changed(board, event, *, actor, **ids):
+    SubBoard.objects.filter(board=board).update(updated_at=timezone.now())
+    _structure_changed(board, event, actor=actor, **ids)
+
+
+def _action_of(board, action, *, operation, actor):
+    action_id = getattr(action, 'pk', action)
+    try:
+        action_id = int(action_id)
+    except (TypeError, ValueError):
+        action_id = None
+    found = BoardAction.objects.filter(pk=action_id, board=board).first() if action_id is not None else None
+    if found is None:
+        _rejected(operation, 'unknown_action', actor=actor, board_id=board.pk)
+        raise BoardError('Действие не найдено на этой доске — возможно, его изменили. Обновите страницу.')
+    return found
+
+
+def _live_action_count(board, *, exclude_pk=None):
+    actions = BoardAction.objects.filter(board=board, is_archived=False)
+    if exclude_pk is not None:
+        actions = actions.exclude(pk=exclude_pk)
+    return actions.count()
+
+
+def _clean_action(board, *, name, target_column, assignee_mode, assignee_ids, field_values,
+                  comment_required, message_template, operation, actor, exclude_pk=None):
+    """Everything an action holds, checked under the board lock: a dict of
+    its columns plus `assignee_ids` (sorted) and `rules` (`{field: (raw,
+    overwrite)}`)."""
+    from .models import ACTION_MESSAGE_MAX_LENGTH, ACTION_NAME_MAX_LENGTH
+
+    name = _clean_name(name, max_length=ACTION_NAME_MAX_LENGTH, what='действия')
+    others = BoardAction.objects.filter(board=board, is_archived=False)
+    if exclude_pk is not None:
+        others = others.exclude(pk=exclude_pk)
+    if name.casefold() in {other.casefold() for other in others.values_list('name', flat=True)}:
+        raise BoardError(f'Действие «{name}» на этой доске уже есть.')
+    column = _board_working_column(board, target_column, operation=operation, actor=actor)
+    if assignee_mode not in BoardAction.AssigneeMode.values:
+        raise BoardError('Неизвестный режим исполнителей.')
+    ids = []
+    if assignee_mode != BoardAction.AssigneeMode.KEEP:
+        ids = _clean_assignees(board, assignee_ids)
+    rules = {}
+    for key, (raw, overwrite) in (field_values or {}).items():
+        field = _rule_field(board, key, operation, actor=actor)
+        value = _clean_rule_value(field, raw)
+        if value:
+            rules[field] = (value, bool(overwrite))
+    message_template = (message_template or '').strip()
+    if len(message_template) > ACTION_MESSAGE_MAX_LENGTH:
+        raise BoardError(f'Сообщение в чат — не длиннее {ACTION_MESSAGE_MAX_LENGTH} символов.')
+    return {
+        'name': name,
+        'target_column': column,
+        'assignee_mode': assignee_mode,
+        'comment_required': bool(comment_required),
+        'message_template': message_template,
+        'assignee_ids': ids,
+        'rules': rules,
+    }
+
+
+def _action_state(action):
+    """What an action holds, comparable: its columns, people and rules."""
+    return (
+        action.name, action.target_column_id, action.assignee_mode, action.comment_required,
+        action.message_template,
+        tuple(sorted(BoardActionAssignee.objects.filter(action=action).values_list('user_id', flat=True))),
+        tuple(sorted(
+            BoardActionFieldRule.objects.filter(action=action).values_list('field_id', 'value', 'overwrite')
+        )),
+    )
+
+
+def _cleaned_state(cleaned):
+    return (
+        cleaned['name'], cleaned['target_column'].pk, cleaned['assignee_mode'],
+        cleaned['comment_required'], cleaned['message_template'], tuple(cleaned['assignee_ids']),
+        tuple(sorted((field.pk, value, overwrite) for field, (value, overwrite) in cleaned['rules'].items())),
+    )
+
+
+def _write_action(action, cleaned):
+    action.name = cleaned['name']
+    action.target_column = cleaned['target_column']
+    action.assignee_mode = cleaned['assignee_mode']
+    action.comment_required = cleaned['comment_required']
+    action.message_template = cleaned['message_template']
+    action.save()
+    BoardActionAssignee.objects.filter(action=action).delete()
+    BoardActionAssignee.objects.bulk_create(
+        [BoardActionAssignee(action=action, user_id=user_id) for user_id in cleaned['assignee_ids']]
+    )
+    BoardActionFieldRule.objects.filter(action=action).delete()
+    BoardActionFieldRule.objects.bulk_create([
+        BoardActionFieldRule(action=action, field=field, value=value, overwrite=overwrite)
+        for field, (value, overwrite) in cleaned['rules'].items()
+    ])
+
+
+def create_action(board, *, actor, name, target_column, assignee_mode=BoardAction.AssigneeMode.KEEP,
+                  assignee_ids=(), field_values=None, comment_required=False, message_template=''):
+    """A new button «Передать дальше», the last of the board's.
+
+    `target_column` is a working column of any sub-board of this board;
+    `assignee_ids` the members `ADD`/`REPLACE` put on the card (required
+    then, ignored for `KEEP`); `field_values` `{field: (raw, overwrite)}`,
+    each parsed as a card's value (an empty one is no rule). At most
+    `MAX_ACTIONS` live actions per board.
+    """
+    with transaction.atomic():
+        board = _manageable_board(board.pk, 'create_action', actor=actor)
+        if _live_action_count(board) >= MAX_ACTIONS:
+            _rejected('create_action', 'limit', actor=actor, board_id=board.pk)
+            raise BoardError(f'На доске уже {MAX_ACTIONS} действий — больше нельзя. Уберите лишнее в архив.')
+        cleaned = _clean_action(
+            board, name=name, target_column=target_column, assignee_mode=assignee_mode,
+            assignee_ids=assignee_ids, field_values=field_values, comment_required=comment_required,
+            message_template=message_template, operation='create_action', actor=actor,
+        )
+        position = (BoardAction.objects.filter(board=board).aggregate(last=Max('position'))['last'] or 0) + 1
+        action = BoardAction(board=board, position=position, created_by=actor)
+        _write_action(action, cleaned)
+        _renumber_rows(list(BoardAction.objects.filter(board=board).order_by('position', 'pk')))
+        _actions_changed(board, 'board.action_created', actor=actor, action_id=action.pk)
+    return action
+
+
+def update_action(action, *, actor, name, target_column, assignee_mode, assignee_ids=(),
+                  field_values=None, comment_required=False, message_template=''):
+    """Everything an action holds, at once — an archived one too (to point
+    it at another column, say). The same settings store and publish nothing."""
+    with transaction.atomic():
+        board = _manageable_board(action.board_id, 'update_action', actor=actor)
+        action = _action_of(board, action, operation='update_action', actor=actor)
+        cleaned = _clean_action(
+            board, name=name, target_column=target_column, assignee_mode=assignee_mode,
+            assignee_ids=assignee_ids, field_values=field_values, comment_required=comment_required,
+            message_template=message_template, operation='update_action', actor=actor,
+            exclude_pk=action.pk,
+        )
+        if _action_state(action) == _cleaned_state(cleaned):
+            return action
+        _write_action(action, cleaned)
+        _actions_changed(board, 'board.action_updated', actor=actor, action_id=action.pk)
+    return action
+
+
+def move_action(action, *, actor, direction):
+    """One place towards the start (`'left'`) or the end (`'right'`)."""
+    with transaction.atomic():
+        board = _manageable_board(action.board_id, 'move_action', actor=actor)
+        action = _action_of(board, action, operation='move_action', actor=actor)
+        rows = _step(list(BoardAction.objects.filter(board=board).order_by('position', 'pk')), action, direction)
+        if rows is None:
+            return action
+        _renumber_rows(rows)
+        _actions_changed(board, 'board.action_moved', actor=actor, action_id=action.pk)
+    return action
+
+
+def archive_action(action, *, actor, archived=True):
+    """«В архив» / «Вернуть»: an archived action is no button. Returning one
+    is refused at `MAX_ACTIONS` live, or while its name is taken."""
+    archived = bool(archived)
+    with transaction.atomic():
+        board = _manageable_board(action.board_id, 'archive_action', actor=actor)
+        action = _action_of(board, action, operation='archive_action', actor=actor)
+        if action.is_archived == archived:
+            return action
+        if not archived:
+            if _live_action_count(board) >= MAX_ACTIONS:
+                _rejected('archive_action', 'limit', actor=actor, board_id=board.pk)
+                raise BoardError(f'На доске уже {MAX_ACTIONS} действий — вернуть ещё одно нельзя.')
+            taken = BoardAction.objects.filter(board=board, is_archived=False).values_list('name', flat=True)
+            if action.name.casefold() in {name.casefold() for name in taken}:
+                raise BoardError(f'Действие «{action.name}» на этой доске уже есть — переименуйте одно из них.')
+        action.is_archived = archived
+        action.save(update_fields=['is_archived', 'updated_at'])
+        _actions_changed(
+            board, 'board.action_archived' if archived else 'board.action_restored',
+            actor=actor, action_id=action.pk,
+        )
+    return action
+
+
+def action_message(action, card, column, comment=''):
+    """The message an action posts into «Чат»: its template, «{код}» and
+    «{колонка}» put in, and the comment under it. `''` for neither."""
+    text = (action.message_template or '').replace('{код}', card.code).replace('{колонка}', column.name).strip()
+    comment = (comment or '').strip()
+    return '\n\n'.join(part for part in (text, comment) if part)
+
+
+def run_board_action(card, action, *, actor, comment=''):
+    """Press «Передать в ПДО» on a card: all of it, or nothing.
+
+    In one transaction, under the board → card → task locks, and only for
+    whoever works on the board, on an open card that is no subtask, with a
+    live action of this board whose column the card is not standing in:
+
+    1. the move into `target_column` — `move_card()`'s own body
+       (`_move_locked()`), the column's «Правила при входе» included, with
+       one `MOVED` entry naming the action (`action_id`, `action`);
+    2. the исполнители by `assignee_mode` (`KEEP` / `ADD` / `REPLACE` — a
+       `REPLACE` whose people are all gone changes nothing), through
+       `replace_task_assignees()`;
+    3. the action's field values (`_apply_field_rules()`);
+    4. the message — the template and the comment
+       (`action_message()`) — in «Чат», from the presser, with the ordinary
+       `BOARD_CARD_COMMENT` to the card's audience.
+
+    Steps 2 and 3 are one `EDITED` entry «По действию «…»». Everybody the
+    card gained is told once (`BOARD_TASK_ASSIGNED`), the new column's
+    followers hear the card entered it. One `board.updated(card_moved)`.
+    `comment_required` refuses an empty comment; any refusal or error in any
+    step rolls everything back.
+    """
+    from notifications.services import notify_board_card_comment, notify_board_task_assigned
+    from tasks.models import TaskAssignee
+    from tasks.services import TaskWorkflowError, replace_task_assignees
+
+    from .selectors import card_audience
+
+    comment = (comment or '').strip()
+    with transaction.atomic():
+        board, card, task = _movable_card(card, 'run_action', actor=actor)
+        card.board = board
+        action = _action_of(board, action, operation='run_action', actor=actor)
+        if action.is_archived:
+            _rejected('run_action', 'archived_action', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise BoardError(f'Действие «{action.name}» убрано в архив. Обновите страницу.')
+        _refuse_closed_task(task, 'run_action', actor=actor, board=board, card=card)
+        if action.comment_required and not comment:
+            _rejected('run_action', 'comment_required', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise BoardError(f'Для действия «{action.name}» нужен комментарий.')
+        target = _board_working_column(
+            board, action.target_column_id, operation='run_action', actor=actor, card_id=card.pk,
+        )
+        if target.pk == (card.column_id or _first_working_id(card.sub_board_id)):
+            _rejected('run_action', 'same_column', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise BoardError(f'Карточка уже стоит в колонке «{target.name}».')
+        message = action_message(action, card, target, comment)
+        if len(message) > COMMENT_MAX_LENGTH:
+            raise BoardError(f'Сообщение — не длиннее {COMMENT_MAX_LENGTH} символов.')
+        assigned = lambda: set(TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True))  # noqa: E731
+        initial = assigned()
+        previous_sub_board_id, previous_column_id, _renumbered, _added, edited = _move_locked(
+            board, card, task, target, actor=actor, operation='run_action', action=action,
+        )
+        # 2. The action's people.
+        current = assigned()
+        wanted = current
+        if action.assignee_mode != BoardAction.AssigneeMode.KEEP:
+            people = set(
+                BoardActionAssignee.objects.filter(
+                    active_employee_q('user__'), action=action, user__board_memberships__board=board,
+                ).values_list('user_id', flat=True)
+            )
+            if action.assignee_mode == BoardAction.AssigneeMode.ADD:
+                wanted = current | people
+            elif people:
+                wanted = people
+        assignees_changed = wanted != current
+        if assignees_changed:
+            try:
+                replace_task_assignees(task, sorted(wanted), actor=actor)
+            except TaskWorkflowError as exc:
+                raise BoardError(str(exc)) from exc
+        # 3. The action's field values.
+        field_names = _apply_field_rules(
+            card,
+            BoardActionFieldRule.objects.filter(action=action)
+            .select_related('field').prefetch_related('field__options').order_by('pk'),
+            operation='run_action',
+        )
+        if assignees_changed or field_names:
+            fields, details = [], {}
+            if assignees_changed:
+                fields.append('assignees')
+            if field_names:
+                fields.append('custom')
+                details['custom_fields'] = field_names
+            _record(
+                card, BoardCardEvent.Kind.EDITED, actor=actor,
+                fields=fields, by_action_id=action.pk, by_action=action.name, **details,
+            )
+        if edited or assignees_changed or field_names:
+            card.version += 1
+            card.save(update_fields=['version'])
+        added = sorted(assigned() - initial)
+        if added:
+            notify_board_task_assigned(task, actor, _users(added))
+        _notify_column_entered(card, task, target, board, actor=actor, told=added)
+        # 4. The message, as the presser's own.
+        posted = None
+        if message:
+            posted = BoardCardComment.objects.create(card=card, author=actor, text=message)
+            notify_board_card_comment(posted, task, actor, card_audience(card, task))
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_MOVED, card.pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.action_run',
+        board_id=board.pk,
+        board_card_id=card.pk,
+        action_id=action.pk,
+        previous_sub_board_id=previous_sub_board_id,
+        previous_column_id=previous_column_id,
+        column_id=target.pk,
+        assignee_count=len(wanted),
+        field_count=len(field_names),
+        comment_id=getattr(posted, 'pk', None),
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return card

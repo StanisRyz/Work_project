@@ -3805,3 +3805,182 @@ form[data-chat-files-ready] .board-chat__file-input {
     font-weight: 400;
     white-space: nowrap;
 }
+
+/* ------------------------------------------------------------------------
+   «Правила при входе» of a column and «Действия» of a board
+   ------------------------------------------------------------------------ */
+
+.board-rules {
+    display: grid;
+    gap: 10px;
+    max-width: 1120px;
+}
+
+.board-rules h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: var(--font-size-base);
+}
+
+.board-rules__form {
+    display: grid;
+    gap: 10px;
+    justify-items: start;
+}
+
+.board-rules__people,
+.board-rules__people > div {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 4px 16px;
+    width: 100%;
+}
+
+.board-rules__people > div {
+    grid-column: 1 / -1;
+}
+
+.board-rules__people label,
+.board-rules__modes label,
+.board-rules__overwrite,
+.board-rules__check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-rules__modes,
+.board-rules__modes > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+}
+
+.board-rules__template {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding-left: 20px;
+}
+
+.board-rules__item {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.board-rules__item > span:first-child {
+    margin-right: 8px;
+}
+
+.board-rules__tools {
+    display: inline-flex;
+    gap: 4px;
+    vertical-align: middle;
+}
+
+.board-rules__add {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.board-rules__add input[type="text"] {
+    width: min(480px, 100%);
+}
+
+.board-rules__add .field-error {
+    flex-basis: 100%;
+    margin: 0;
+}
+
+.board-rules__fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px 16px;
+    width: 100%;
+}
+
+.board-rules__field {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+}
+
+.board-rules__field > label:first-child {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.board-rules__summary {
+    margin: 0;
+    padding-left: 20px;
+}
+
+/* «⚙» in a column header: the column has entry rules. */
+.board-column__rules {
+    flex: 0 0 auto;
+    color: var(--color-muted);
+    font-size: 12px;
+    text-decoration: none;
+}
+
+.board-column__rules:hover,
+.board-column__rules:focus-visible {
+    color: var(--color-text);
+}
+
+/* «Передать дальше» in the card panel's heading: up to three buttons, the
+   rest under «Ещё ▾». */
+.board-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-actions__button {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.board-actions__list {
+    display: grid;
+    gap: 6px;
+    justify-items: stretch;
+}
+
+.board-actions__list .board-actions__button {
+    max-width: none;
+}
+
+/* «📌»: a pinned card stands first in its column. */
+.board-tile__pinned {
+    margin-right: 4px;
+}
+
+.board-column__item--pinned .board-tile {
+    border-left: 3px solid var(--color-muted);
+}
+
+/* «Списком» in «+ Карточка». */
+.board-list-create {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
+}
+
+.board-list-create > summary {
+    cursor: pointer;
+    color: var(--color-text);
+    font-weight: 600;
+}
+
+.board-list-create textarea {
+    width: 100%;
+}

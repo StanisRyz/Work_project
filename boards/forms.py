@@ -18,6 +18,7 @@ from .models import (
     REQUEST_TITLE_MAX_LENGTH,
     BOARD_CODE_MAX_LENGTH,
     DUE_COMMENT_MAX_LENGTH,
+    BoardAction,
     BoardCard,
     BoardColumn,
     BoardField,
@@ -601,3 +602,130 @@ class DuplicateRequestForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, prefix='duplicate', **kwargs)
+
+
+# --------------------------------------------------------------------------
+# «Правила при входе» and «Действия»
+# --------------------------------------------------------------------------
+
+
+class FieldRulesMixin:
+    """Per live field of the board: `rule_<id>` (raw, as a card form would
+    send — the service parses it and names the field in its refusal) and
+    `overwrite_<id>`. `rules` are the stored rules (`{field id: rule}`)."""
+
+    def add_rule_fields(self, fields, rules):
+        self.rule_fields = [field for field in fields if not field.is_archived]
+        for field in self.rule_fields:
+            value = _custom_form_field(field, None)
+            value.label = field.name
+            self.fields[f'rule_{field.pk}'] = value
+            self.fields[f'overwrite_{field.pk}'] = forms.BooleanField(
+                label='перезаписывать', required=False,
+            )
+            rule = rules.get(field.pk)
+            if rule is not None and not self.is_bound:
+                self.initial[f'rule_{field.pk}'] = rule.value
+                self.initial[f'overwrite_{field.pk}'] = rule.overwrite
+
+    @property
+    def rule_rows(self):
+        return [(field, self[f'rule_{field.pk}'], self[f'overwrite_{field.pk}']) for field in self.rule_fields]
+
+    def rule_values(self):
+        """`{field id: (raw, overwrite)}` for the service."""
+        return {
+            field.pk: (
+                self.cleaned_data.get(f'rule_{field.pk}') or '',
+                bool(self.cleaned_data.get(f'overwrite_{field.pk}')),
+            )
+            for field in self.rule_fields
+        }
+
+
+class ColumnFieldRulesForm(FieldRulesMixin, forms.Form):
+    """«Значения полей» of a column's entry rules: every live field at once."""
+
+    def __init__(self, *args, fields, rules, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.add_rule_fields(fields, rules)
+
+
+class TemplateItemForm(forms.Form):
+    text = forms.CharField(label='Пункт шаблона', required=False, strip=False)
+
+
+class ColumnFollowersForm(forms.Form):
+    """«Подписчики» of a column: ids, checked by `set_column_followers()`."""
+
+    users = IdListField(required=False)
+
+
+class ActionForm(FieldRulesMixin, forms.Form):
+    """One action «Передать дальше»: its name, column, people, field values,
+    whether a comment is required and the chat message. Everything is
+    checked again by `services.create_action()`/`update_action()`."""
+
+    name = forms.CharField(label='Название кнопки', max_length=40, strip=False)
+    target_column = forms.CharField(label='Перенести в колонку', widget=forms.Select)
+    assignee_mode = forms.ChoiceField(
+        label='Исполнители', choices=BoardAction.AssigneeMode.choices,
+        initial=BoardAction.AssigneeMode.KEEP, widget=forms.RadioSelect,
+    )
+    assignees = EmployeeMultipleChoiceField(
+        label='Кого назначать',
+        queryset=get_user_model().objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    comment_required = forms.BooleanField(label='Комментарий обязателен', required=False)
+    message_template = forms.CharField(
+        label='Сообщение в чат', required=False, max_length=300,
+        widget=forms.Textarea(attrs={'rows': 3, 'maxlength': 300}),
+        help_text='Необязательно. {код} — код карточки, {колонка} — новая колонка; комментарий '
+                  'нажавшего добавится ниже.',
+    )
+
+    def __init__(self, *args, board, columns, fields, rules=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['assignees'].queryset = active_members(board)
+        self.fields['target_column'].widget.choices = (
+            [('', '— выберите колонку —')] + working_column_choices(columns)
+        )
+        self.add_rule_fields(fields, rules or {})
+
+    def service_kwargs(self):
+        data = self.cleaned_data
+        return {
+            'name': data['name'],
+            'target_column': data['target_column'],
+            'assignee_mode': data['assignee_mode'],
+            'assignee_ids': [user.pk for user in data['assignees']],
+            'field_values': self.rule_values(),
+            'comment_required': data['comment_required'],
+            'message_template': data['message_template'],
+        }
+
+    @staticmethod
+    def initial_for(action):
+        return {
+            'name': action.name,
+            'target_column': str(action.target_column_id),
+            'assignee_mode': action.assignee_mode,
+            'assignees': list(action.assignee_rows.values_list('user_id', flat=True)),
+            'comment_required': action.comment_required,
+            'message_template': action.message_template,
+        }
+
+
+# «Списком» in «+ Карточка»: the срок the cards get. A card's task always has
+# one; the form offers this many working days from today, and it may be changed.
+LIST_DUE_WORKING_DAYS = 5
+
+
+class CardListForm(forms.Form):
+    """«Списком»: one card per line, the presser as исполнитель, one срок."""
+
+    text = forms.CharField(label='Карточки, по одной в строке', strip=False, widget=forms.Textarea(attrs={'rows': 6}))
+    due_date = forms.DateField(label='Срок', widget=DATE_INPUT, input_formats=DATE_FORMATS)
+    column = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)

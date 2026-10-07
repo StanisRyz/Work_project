@@ -898,3 +898,83 @@ class IntakeAndRequestSourceMigrationTests(TransactionTestCase):
         self.assertNotIn('related_board_request_id', _columns_of('notifications_notification'))
         Notification = apps.get_model('notifications', 'Notification')
         self.assertEqual(Notification.objects.get(pk=old.pk).related_bug_report_id, report.pk)
+
+
+AUTOMATION_BEFORE = [('boards', '0024_intake_and_requests')]
+AUTOMATION_AFTER = [('boards', '0025_column_rules_and_actions')]
+
+
+class ColumnRulesAndActionsMigrationTests(TransactionTestCase):
+    """`boards.0025`: a column's «Правила при входе» (checklist template,
+    field values, followers), the board's actions with their people and
+    field values, and `BoardCard.is_pinned` (false for every card that
+    existed) — and back, the cards untouched."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_forward_six_tables_a_flag_and_their_constraints_then_back(self):
+        from django.db import IntegrityError, transaction
+
+        new_tables = {
+            'boards_boardcolumnchecklisttemplate', 'boards_boardcolumnfieldrule', 'boards_boardcolumnfollower',
+            'boards_boardaction', 'boards_boardactionassignee', 'boards_boardactionfieldrule',
+        }
+        apps = migrate(AUTOMATION_BEFORE)
+        self.assertFalse(new_tables & _table_names())
+        self.assertNotIn('is_pinned', _columns_of('boards_boardcard'))
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        BoardField = apps.get_model('boards', 'BoardField')
+        owner = User.objects.create(username='automation_migration_owner')
+        board = Board.objects.create(name='Доска', code='AM', owner=owner)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+        column = BoardColumn.objects.create(sub_board=sub_board, name='Запуск в работу', position=1)
+        card = BoardCard.objects.create(
+            board=board, sub_board=sub_board, column=column, position=1024, number=1,
+            title='Заказ', created_by=owner,
+        )
+        field = BoardField.objects.create(board=board, name='Цех', kind='TEXT', position=1)
+
+        apps = migrate(AUTOMATION_AFTER)
+        self.assertTrue(new_tables <= _table_names())
+        self.assertFalse(apps.get_model('boards', 'BoardCard').objects.get(pk=card.pk).is_pinned)
+        Template = apps.get_model('boards', 'BoardColumnChecklistTemplate')
+        Rule = apps.get_model('boards', 'BoardColumnFieldRule')
+        Follower = apps.get_model('boards', 'BoardColumnFollower')
+        Action = apps.get_model('boards', 'BoardAction')
+        ActionAssignee = apps.get_model('boards', 'BoardActionAssignee')
+        ActionRule = apps.get_model('boards', 'BoardActionFieldRule')
+        Template.objects.create(column_id=column.pk, text='Проверить КД', position=1)
+        Rule.objects.create(column_id=column.pk, field_id=field.pk, value='ПиР')
+        Follower.objects.create(column_id=column.pk, user_id=owner.pk)
+        action = Action.objects.create(
+            board_id=board.pk, name='Передать в ПДО', position=1, target_column_id=column.pk,
+            created_by_id=owner.pk,
+        )
+        ActionAssignee.objects.create(action_id=action.pk, user_id=owner.pk)
+        ActionRule.objects.create(action_id=action.pk, field_id=field.pk, value='ПДО', overwrite=True)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Rule.objects.create(column_id=column.pk, field_id=field.pk, value='ещё раз')
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Follower.objects.create(column_id=column.pk, user_id=owner.pk)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            ActionAssignee.objects.create(action_id=action.pk, user_id=owner.pk)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Action.objects.filter(pk=action.pk).update(assignee_mode='NEVER')
+
+        # Back: the six tables and the flag go; the card stays where it was.
+        apps = migrate(AUTOMATION_BEFORE)
+        self.assertFalse(new_tables & _table_names())
+        self.assertNotIn('is_pinned', _columns_of('boards_boardcard'))
+        self.assertEqual(
+            apps.get_model('boards', 'BoardCard').objects.filter(pk=card.pk).values_list('column_id', flat=True).get(),
+            column.pk,
+        )

@@ -1,0 +1,167 @@
+{% extends 'boards/layout.html' %}
+{% load people %}
+
+{% block title %}Правила колонки «{{ column.name }}» · {{ board.name }}{% endblock %}
+
+{% block board_main_label %}Правила при входе · {{ column.name }}{% endblock %}
+
+{% block board_main %}
+{% comment %}
+«Правила при входе» of one working column: what a card created in it or moved
+into it — by a drag, «Переместить в…», from another sub-board or by a board
+action — gets, in this order (`services._apply_column_entry()`):
+«Закреплённые исполнители», «Значения полей», «Шаблон чек-листа»,
+«Подписчики». What a card got is one entry of its «Лог». Every reader of the
+board reads the page; whoever manages it (`can_manage`, never on an archived
+board) gets the forms — ordinary POST forms, so it all works without
+JavaScript; every route asks the right again, and a refusal is a message
+here (a refused field value beside its field).
+{% endcomment %}
+<header class="board-head">
+    <div class="board-head__title">
+        <h1 class="user-text text-ellipsis" title="{{ column.name }}">Правила при входе · {{ column.name }}</h1>
+        {% if board.is_archived %}<span class="status-badge status-badge--archived">В архиве</span>{% endif %}
+    </div>
+    <div class="board-head__actions">
+        <a class="link-button link-button--secondary" href="{% url 'boards:sub_board' board.pk column.sub_board_id %}">К доске</a>
+    </div>
+</header>
+
+<div class="board-scroll">
+<p class="board-form__hint board-fields__intro">
+    Доска «<span class="user-text">{{ board.name }}</span>», поддоска «<span class="user-text">{{ column.sub_board.name }}</span>».
+    Правила срабатывают, когда карточку создают в этой колонке или переносят в неё — перетаскиванием,
+    «Переместить в…», с другой поддоски или действием доски. Перенос внутри колонки их не запускает.
+    Что получила карточка, видно в её «Логе» одной записью.
+    {% if actions_here %}Сюда ведут действия: {% for action in actions_here %}«<span class="user-text">{{ action.name }}</span>»{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+</p>
+
+<section class="detail-section board-rules" id="pins">
+    <h2>Закреплённые исполнители</h2>
+    <p class="board-form__hint">Карточка получает их при входе: добавляются к исполнителям или заменяют их.</p>
+    {% if can_manage %}
+        <form class="board-rules__form" method="post" action="{% url 'boards:column_pins' board.pk column.sub_board_id column.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="back" value="rules">
+            <div class="board-rules__people">
+                {% for person in members %}
+                    <label><input type="checkbox" name="users" value="{{ person.pk }}"{% if person.pk in pinned_ids %} checked{% endif %}> <span class="user-text">{{ person|person_name }}</span></label>
+                {% endfor %}
+            </div>
+            <div class="board-rules__modes" role="radiogroup" aria-label="Как закреплять">
+                <label><input type="radio" name="mode" value="ADD"{% if column.pinned_mode != 'REPLACE' %} checked{% endif %}> Добавить к исполнителям</label>
+                <label><input type="radio" name="mode" value="REPLACE"{% if column.pinned_mode == 'REPLACE' %} checked{% endif %}> Заменить исполнителей</label>
+            </div>
+            <button class="link-button" type="submit">Сохранить исполнителей</button>
+        </form>
+    {% elif pinned_people %}
+        <p>{% for person in pinned_people %}{{ person|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %} — {% if column.pinned_mode == 'REPLACE' %}заменяют исполнителей{% else %}добавляются к исполнителям{% endif %}.</p>
+    {% else %}
+        <p class="board-drawer__empty">Не закреплены.</p>
+    {% endif %}
+</section>
+
+<section class="detail-section board-rules" id="template">
+    <h2>Шаблон чек-листа <span class="tab-count">{{ template|length }}/{{ template_limit }}</span></h2>
+    <p class="board-form__hint">Пункты добавляются в конец чек-листа карточки. Пункт с тем же текстом, уже стоящий в карточке, не повторяется; что не влезло в 50 пунктов чек-листа, не добавляется.</p>
+    {% if template %}
+        <ol class="board-rules__template">
+            {% for item in template %}
+                <li class="board-rules__item">
+                    <span class="user-text">{{ item.text }}</span>
+                    {% if can_manage %}
+                        <span class="board-rules__tools">
+                            {% if not forloop.first %}
+                                <form method="post" action="{% url 'boards:column_template_move' board.pk column.pk item.pk %}">
+                                    {% csrf_token %}<input type="hidden" name="direction" value="left">
+                                    <button class="link-button link-button--secondary link-button--compact" type="submit" title="Выше" aria-label="Пункт «{{ item.text }}» выше">↑</button>
+                                </form>
+                            {% endif %}
+                            {% if not forloop.last %}
+                                <form method="post" action="{% url 'boards:column_template_move' board.pk column.pk item.pk %}">
+                                    {% csrf_token %}<input type="hidden" name="direction" value="right">
+                                    <button class="link-button link-button--secondary link-button--compact" type="submit" title="Ниже" aria-label="Пункт «{{ item.text }}» ниже">↓</button>
+                                </form>
+                            {% endif %}
+                            <form id="board-template-delete-{{ item.pk }}" method="post" action="{% url 'boards:column_template_delete' board.pk column.pk item.pk %}">
+                                {% csrf_token %}
+                                <button class="link-button link-button--danger link-button--compact" type="submit" title="Удалить пункт" aria-label="Удалить пункт «{{ item.text }}»"
+                                        data-confirm data-confirm-form="board-template-delete-{{ item.pk }}"
+                                        data-confirm-title="Удалить пункт шаблона?"
+                                        data-confirm-text="Новые карточки его не получат; у карточек, которые его уже получили, он останется."
+                                        data-confirm-label="Удалить" data-confirm-variant="danger">×</button>
+                            </form>
+                        </span>
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ol>
+    {% else %}
+        <p class="board-drawer__empty">Шаблона нет.</p>
+    {% endif %}
+    {% if can_manage and not template_full %}
+        <form class="board-rules__add" method="post" action="{% url 'boards:column_template_add' board.pk column.pk %}" data-unsaved-guard{% if template_error %}="dirty"{% endif %}>
+            {% csrf_token %}
+            <input id="board-template-text" aria-label="Новый пункт шаблона" type="text" name="text" maxlength="200" value="{{ template_text }}" placeholder="Новый пункт, например «Проверить КД»" required>
+            <button class="link-button" type="submit">Добавить пункт</button>
+            {% if template_error %}<p class="field-error" role="alert">{{ template_error }}</p>{% endif %}
+        </form>
+    {% endif %}
+</section>
+
+<section class="detail-section board-rules" id="fields">
+    <h2>Значения полей</h2>
+    <p class="board-form__hint">Поле получает значение при входе. Значение, которое в карточке уже стоит, не меняется — если не отмечено «перезаписывать». Пусто — правила нет.</p>
+    {% if can_manage %}
+        {% if fields_form.rule_rows %}
+            <form class="board-rules__form" method="post" action="{% url 'boards:column_rules_fields' board.pk column.pk %}" data-unsaved-guard{% if fields_form.is_bound %}="dirty"{% endif %}>
+                {% csrf_token %}
+                {% if fields_form.non_field_errors %}<p class="field-error" role="alert">{{ fields_form.non_field_errors|join:' ' }}</p>{% endif %}
+                <div class="board-rules__fields">
+                    {% for field, value, overwrite in fields_form.rule_rows %}
+                        <div class="board-rules__field">
+                            <label for="{{ value.id_for_label }}" class="user-text">{{ field.name }}</label>
+                            {{ value }}
+                            <label class="board-rules__overwrite">{{ overwrite }} перезаписывать</label>
+                            {% for error in value.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                        </div>
+                    {% endfor %}
+                </div>
+                <button class="link-button" type="submit">Сохранить значения</button>
+            </form>
+        {% else %}
+            <p class="board-drawer__empty">У доски нет полей карточек — их добавляют в «Поля карточек».</p>
+        {% endif %}
+    {% elif rule_summary %}
+        <ul class="board-rules__summary">
+            {% for field, text, overwrite in rule_summary %}<li><span class="user-text">{{ field.name }}</span>: <span class="user-text">{{ text }}</span>{% if overwrite %} (перезаписывать){% endif %}</li>{% endfor %}
+        </ul>
+    {% else %}
+        <p class="board-drawer__empty">Значений нет.</p>
+    {% endif %}
+    {% if archived_rules %}
+        <p class="board-form__hint">Правила полей в архиве не срабатывают: {% for rule in archived_rules %}«<span class="user-text">{{ rule.field.name }}</span>»{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+    {% endif %}
+</section>
+
+<section class="detail-section board-rules" id="followers">
+    <h2>Подписчики</h2>
+    <p class="board-form__hint">Эти люди начинают следить за карточкой, вошедшей в колонку: сообщения, отмена и выполнение придут им в колокольчик. Это не «🔔 Сообщать о новых карточках» — та подписка на саму колонку.</p>
+    {% if can_manage %}
+        <form class="board-rules__form" method="post" action="{% url 'boards:column_rules_followers' board.pk column.pk %}">
+            {% csrf_token %}
+            <div class="board-rules__people">
+                {% for person in readers %}
+                    <label><input type="checkbox" name="users" value="{{ person.pk }}"{% if person.pk in follower_ids %} checked{% endif %}> <span class="user-text">{{ person|person_name }}</span></label>
+                {% endfor %}
+            </div>
+            <button class="link-button" type="submit">Сохранить подписчиков</button>
+        </form>
+    {% elif followers %}
+        <p>{% for person in followers %}{{ person|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+    {% else %}
+        <p class="board-drawer__empty">Подписчиков нет.</p>
+    {% endif %}
+</section>
+</div>
+{% endblock %}

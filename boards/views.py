@@ -54,6 +54,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from accounts.directory import get_employee_directory
+from ecosystem.workdays import add_working_days
 from accounts.templatetags.people import person_name
 from ecosystem.templatetags.registry import plural_ru
 from ecosystem.xlsx import xlsx_response
@@ -67,7 +68,9 @@ from .forms import (
     BoardCodeForm,
     BoardForm,
     BoardNameForm,
+    LIST_DUE_WORKING_DAYS,
     CardForm,
+    CardListForm,
     ColumnNameForm,
     FieldForm,
     FieldUpdateForm,
@@ -82,6 +85,7 @@ from .forms import (
 )
 from .models import (
     MAX_FILES_PER_MESSAGE,
+    BoardAction,
     PREVIEW_IMAGE_TYPES,
     Board,
     BoardCard,
@@ -135,6 +139,10 @@ from .selectors import (
 )
 from .services import (
     MAX_FIELDS,
+    MAX_LIST_CARDS,
+    create_cards_from_list,
+    run_board_action,
+    set_card_pinned,
     MAX_OPTIONS,
     MAX_SUMMED_FIELDS,
     BoardCodeError,
@@ -472,7 +480,7 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
                    checklist_text='', checklist_error='', edit_item=None,
                    checklist_edit_text='', checklist_edit_error='', tabs=None,
                    subtask_form=None, subtask_error='', subtask_list_text='', subtask_list_error='',
-                   tab=None, link_code='', link_kind='', link_error=''):
+                   tab=None, link_code='', link_kind='', link_error='', list_form=None, list_error=''):
     """Everything the board page and its live fragment render.
 
     `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from `card_id`,
@@ -540,6 +548,7 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         (form is not None and form.is_bound)
         or (move_form is not None and move_form.is_bound)
         or execution_comment is not None
+        or (list_form is not None and list_form.is_bound)
     )
     if panel is None:
         new_column = resolve_new_column(columns, new) if state['can_work'] else None
@@ -557,6 +566,13 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         )
     if panel == 'new' and form is None:
         form = CardForm(board=board, fields=state['fields'], initial={'column': new_column.pk})
+    if panel == 'new' and list_form is None:
+        # «Списком»: one card per line, the presser as исполнитель, one срок
+        # for all — a card's task always has one.
+        list_form = CardListForm(initial={
+            'column': new_column.pk,
+            'due_date': add_working_days(timezone.localdate(), LIST_DUE_WORKING_DAYS),
+        })
     if panel == 'edit':
         # The stored срок: `board_due.js` shows «Причина переноса» while the
         # date in the form differs from it.
@@ -596,6 +612,9 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         'panel': panel,
         'form': form,
         'move_form': move_form,
+        'list_form': list_form,
+        'list_error': list_error,
+        'list_limit': MAX_LIST_CARDS,
         'new_column': new_column,
         'sub_board_name_form': SubBoardNameForm(),
         'column_name_form': ColumnNameForm(),
@@ -1319,6 +1338,87 @@ def card_create(request, pk, sub_pk):
             )
         return redirect(_card_url(board, card, request))
     return _render_board(request, board, sub_board, panel='new', form=form)
+
+
+@login_required
+def card_create_list(request, pk, sub_pk):
+    """«Списком» in «+ Карточка»: `create_cards_from_list()` — one card per
+    line, the presser as исполнитель, all or none. A refusal comes back as
+    the new-card panel with the lines typed and the message."""
+    board = _board_or_404(pk)
+    _require(can_work_on_board(request.user, board))
+    sub_board = _sub_board_or_404(board, sub_pk)
+    if request.method != 'POST':
+        return redirect(_sub_board_url(board, sub_board.pk))
+    form = CardListForm(request.POST)
+    if form.is_valid():
+        try:
+            cards = create_cards_from_list(
+                sub_board, actor=request.user, text=form.cleaned_data['text'],
+                due_date=form.cleaned_data['due_date'], column=form.cleaned_data['column'],
+            )
+        except BoardError as exc:
+            return _render_board(
+                request, board, sub_board, panel='new', new=form.data.get('column'),
+                list_form=form, list_error=str(exc), status=400,
+            )
+        messages.success(
+            request,
+            f'Создано {len(cards)} {plural_ru(len(cards), "карточка", "карточки", "карточек")}: '
+            f'{cards[0].code}…{cards[-1].code}' if len(cards) > 1 else f'Создана карточка {cards[0].code}.',
+        )
+        query = _request_filters(request, board).query
+        url = _sub_board_url(board, sub_board.pk)
+        return redirect(f'{url}?{query}' if query else url)
+    return _render_board(
+        request, board, sub_board, panel='new', new=form.data.get('column'), list_form=form, status=400,
+    )
+
+
+@login_required
+def card_run_action(request, pk, card_pk, action_pk):
+    """A board's «Передать дальше» pressed on a card: `run_board_action()`.
+
+    Working on the board is asked before the method; a GET goes back to the
+    card and changes nothing. The comment arrives as `comment` — the shared
+    modal's own field when the action requires one. Success opens the card on
+    its new place; a refusal comes back as the panel with the message.
+    """
+    board = _board_or_404(pk)
+    _require(can_work_on_board(request.user, board))
+    card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
+    action = get_object_or_404(BoardAction, pk=action_pk, board=board)
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request))
+    try:
+        card = run_board_action(card, action, actor=request.user, comment=request.POST.get('comment', ''))
+    except BoardError as exc:
+        return _render_board(request, board, card.sub_board, card_id=card.pk, panel='view', error=str(exc))
+    messages.success(request, f'Карточка {card.code} передана: «{action.name}».')
+    return redirect(_card_url(board, card, request))
+
+
+@login_required
+def card_pin(request, pk, card_pk):
+    """«📌 Закрепить» / «Открепить»: `set_card_pinned()`. The form posts the
+    state it asks for (`pinned` 1 or 0)."""
+    board = _board_or_404(pk)
+    _require(can_work_on_board(request.user, board))
+    card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request))
+    pinned = request.POST.get('pinned') == '1'
+    try:
+        set_card_pinned(card, actor=request.user, pinned=pinned)
+    except BoardError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            f'Карточка {card.code} закреплена первой в колонке.' if pinned
+            else f'Карточка {card.code} откреплена.',
+        )
+    return redirect(_card_url(board, card, request))
 
 
 @login_required
@@ -2255,6 +2355,9 @@ def column_pins(request, pk, sub_pk, column_pk):
                 _refused(request, str(exc))
             else:
                 messages.success(request, f'Закреплённые исполнители колонки «{column.name}» сохранены.')
+    if request.POST.get('back') == 'rules':
+        # Posted from the column's «Правила при входе».
+        return redirect(f"{reverse('boards:column_rules', args=[board.pk, column.pk])}#pins")
     return _back(board, sub_board.pk, request)
 
 

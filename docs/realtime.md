@@ -90,7 +90,8 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 переименована, переставлена или удалена, доска переименована или сменила
 код, у колонки изменены закреплённые исполнители или «Норматив этапа», на странице «Поля карточек»
 создано, изменено, переставлено, убрано в архив, возвращено или удалено поле
-или вариант списка, изменены настройки «Приём заявок»), `request_changed`
+или вариант списка, изменены настройки «Приём заявок», изменены «Правила при
+входе» колонки или «Действия» доски), `request_changed`
 (заявку подали, автор её отозвал, её приняли — с id новой карточки, без
 отдельного `card_created`, — отклонили или отметили дублем);
 неизвестный код фабрика отклоняет. Ни заголовка карточки,
@@ -173,6 +174,21 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 того, кто работает с доской (`can_work`). Страницы «Заявки», «Входящие» и
 страница заявки живыми не являются.
 
+«Правила при входе» колонки (шаблон чек-листа, значения полей, подписчики,
+закреплённые исполнители) и «Действия» доски новых кодов не добавляют. Их
+настройка — `structure_changed` (правила сдвигают `updated_at` колонки,
+действия — поддосок: агрегат структуры в ревизии `boards`); то, что правила
+сделали с карточкой при входе, входит в одно событие самого изменения
+(`card_created`, `card_moved`). Нажатие кнопки действия — одно
+`board.updated(card_moved)`, хотя карточка переезжает, меняет исполнителей и
+поля и получает сообщение в «Чат»: сообщение отдельного `comment_added` не
+порождает. «📌 Закрепить» — `card_updated`. «Списком» — одно `card_created`
+(с id первой карточки) на весь список. «⚙» в шапке колонки — часть блока
+колонок; кнопки действий в шапке панели — часть охраняемой панели, их
+отпечаток двигается вместе с настройкой действий. Страницы правил колонки и
+действий живыми не являются. Черновик неотправленного сообщения «Чата»
+хранится только в браузере и ничего не публикует.
+
 ## 3. Явные эмиттеры
 
 События публикуются **явными вызовами из сервисов**, никогда из `post_save`.
@@ -195,7 +211,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `delete_card_file`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_norm`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `link_cards`, `unlink_cards`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item`, `create_subtask`, `create_subtasks_from_list`, `checklist_item_to_subtask` — ровно одно событие на успешную запись внутри её `atomic()` (связь и закрытие блокирующей карточки — по событию на каждую затронутую доску); отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `delete_card_file`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_norm`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `link_cards`, `unlink_cards`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item`, `create_subtask`, `create_subtasks_from_list`, `checklist_item_to_subtask`, `add_template_item`, `move_template_item`, `delete_template_item`, `set_column_field_rules`, `set_column_followers`, `create_action`, `update_action`, `move_action`, `archive_action`, `run_board_action`, `set_card_pinned`, `create_cards_from_list` — ровно одно событие на успешную запись внутри её `atomic()` (связь и закрытие блокирующей карточки — по событию на каждую затронутую доску); отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.

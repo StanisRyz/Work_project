@@ -148,6 +148,11 @@
             return null;
         }
         if (column.hasAttribute('data-column-move')) {
+            // A pinned card moves only among the pinned of its own column;
+            // «Переместить в…» takes it elsewhere (and unpins it).
+            if (drag.item.hasAttribute('data-card-pinned') && !column.contains(drag.item)) {
+                return null;
+            }
             return { column, mode: 'move' };
         }
         if (column.hasAttribute('data-column-complete') && drag.item.querySelector('[data-card-complete-trigger]')) {
@@ -166,14 +171,23 @@
             list.insertBefore(drag.placeholder, list.firstElementChild);
             return;
         }
-        const items = Array.from(list.querySelectorAll(':scope > [data-card-movable]'))
+        // «📌»: the pinned cards stand first. A pinned card is placed among
+        // them, any other after them — the server keeps the same groups.
+        const pinned = drag.item.hasAttribute('data-card-pinned');
+        const movable = Array.from(list.querySelectorAll(':scope > [data-card-movable]'))
             .filter((node) => node !== drag.item);
+        const items = movable.filter((node) => node.hasAttribute('data-card-pinned') === pinned);
         const before = items.find((node) => {
             const rect = node.getBoundingClientRect();
             return y < rect.top + rect.height / 2;
         });
         if (before) {
             list.insertBefore(drag.placeholder, before);
+        } else if (pinned) {
+            const firstOther = Array.from(list.querySelectorAll(':scope > .board-column__item'))
+                .find((node) => node !== drag.item && !node.hasAttribute('data-card-pinned'));
+            const empty = list.querySelector(':scope > .board-column__empty');
+            list.insertBefore(drag.placeholder, firstOther || empty || null);
         } else {
             const empty = list.querySelector(':scope > .board-column__empty');
             list.insertBefore(drag.placeholder, empty || null);

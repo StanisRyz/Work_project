@@ -49,6 +49,7 @@ from .columns import MAX_COLUMNS, card_column
 from .models import (
     MAX_SUBTASKS,
     Board,
+    BoardAction,
     BoardCard,
     BoardCardChecklistItem,
     BoardCardComment,
@@ -59,6 +60,9 @@ from .models import (
     BoardCardFile,
     BoardCardLink,
     BoardColumn,
+    BoardColumnChecklistTemplate,
+    BoardColumnFieldRule,
+    BoardColumnFollower,
     BoardColumnSubscription,
     BoardField,
     BoardFieldOption,
@@ -102,6 +106,10 @@ PIN_PREVIEW_LIMIT = 3
 
 # How many followers «Подписчики» on «Описание» draws before «+N».
 SUBSCRIBER_PREVIEW_LIMIT = 5
+
+# «Передать дальше»: how many of the board's actions are buttons in the card
+# panel's heading; the rest are under «Ещё ▾».
+ACTION_BUTTONS_SHOWN = 3
 
 # The longest `?q=` a board search reads; anything past it is dropped.
 SEARCH_MAX_LENGTH = 200
@@ -1191,6 +1199,26 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     item['can_cancel'] = (
         task.status.code == 'IN_PROGRESS' and can_cancel_card(user, card)
     )
+    # «Передать дальше» and «📌 Закрепить»: whoever works on the board, on an
+    # open card that is no subtask. The buttons are the board's live
+    # actions — one query, and only when a column of the board (read for
+    # the page, `leads_action`) says one exists — but the one leading to the
+    # column the card stands in.
+    can_act = bool(can_work and not item['is_subtask'] and task.status.code == 'IN_PROGRESS')
+    item['can_pin'] = can_act
+    item['actions'] = []
+    has_actions = any(
+        getattr(column, 'leads_action', True) for columns in columns_of.values() for column in columns
+    )
+    if can_act and has_actions:
+        here = item['column'].pk if item['column'] is not None else None
+        item['actions'] = [
+            action for action in BoardAction.objects.filter(board=board, is_archived=False)
+            .select_related('target_column__sub_board').order_by('position', 'pk')
+            if action.target_column_id != here
+        ]
+    item['actions_shown'] = item['actions'][:ACTION_BUTTONS_SHOWN]
+    item['actions_more'] = item['actions'][ACTION_BUTTONS_SHOWN:]
     # «Обсуждение»: the newest `COMMENTS_LIMIT` messages, oldest first, in one
     # query sliced by the database — or every one under `all_comments`. How
     # many are left out is the card's `comment_count`, already annotated, so
@@ -1526,9 +1554,6 @@ def describe_card_event(event, code='', *, hide_other=False):
         subtask = details.get('code') or ''
         return f'Подзадача {subtask} {action}'.replace('  ', ' ')
     if kind == BoardCardEvent.Kind.EDITED:
-        if details.get('by_column'):
-            # The people pinned to the column the card came into.
-            return f'Исполнители по колонке «{details["by_column"]}»'
         names = []
         for name in details.get('fields') or ():
             if name in EDITED_FIELD_LABELS:
@@ -1536,9 +1561,29 @@ def describe_card_event(event, code='', *, hide_other=False):
             elif name == 'custom':
                 # The board's own fields, named as they were at the time.
                 names.extend(str(field) for field in details.get('custom_fields') or ())
+        if details.get('by_column'):
+            # «Правила при входе» of the column the card came into.
+            column = details['by_column']
+            done = list(names)
+            if isinstance(details.get('checklist_added'), int):
+                done.append(f'чек-лист +{details["checklist_added"]}')
+            if isinstance(details.get('checklist_skipped'), int):
+                done.append(f'не вошло в чек-лист: {details["checklist_skipped"]}')
+            if isinstance(details.get('followers_added'), int):
+                done.append(f'подписчики +{details["followers_added"]}')
+            if done == [EDITED_FIELD_LABELS['assignees']]:
+                return f'Исполнители по колонке «{column}»'
+            return f'Правила колонки «{column}»: {", ".join(done) if done else "без изменений"}'
+        if details.get('by_action'):
+            # What «Передать дальше» set beside the move.
+            return f'По действию «{details["by_action"]}»: {", ".join(names)}'
         return f'Изменено: {", ".join(names)}' if names else 'Карточка изменена'
     if kind == BoardCardEvent.Kind.MOVED:
-        return f'Перенос: «{_place(details, "from")}» → «{_place(details, "to")}»'
+        moved = f'Перенос: «{_place(details, "from")}» → «{_place(details, "to")}»'
+        if details.get('action'):
+            # Made by a board's action, named as it was then.
+            moved = f'{moved} — действие «{details["action"]}»'
+        return moved
     if kind == BoardCardEvent.Kind.COMPLETED:
         return 'Задача выполнена'
     if kind == BoardCardEvent.Kind.REOPENED:
@@ -1861,7 +1906,16 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
     if tabs is None:
         tabs = board_tabs(board)
     columns_of = {}
-    for column in BoardColumn.objects.filter(sub_board__board=board).order_by('position', 'pk'):
+    # «⚙» in a column header: the column has «Правила при входе» beyond its
+    # pins — annotated on the same query, no query of its own.
+    for column in BoardColumn.objects.filter(sub_board__board=board).annotate(
+        has_entry_rules=Exists(BoardColumnChecklistTemplate.objects.filter(column=OuterRef('pk')))
+        | Exists(BoardColumnFieldRule.objects.filter(column=OuterRef('pk')))
+        | Exists(BoardColumnFollower.objects.filter(column=OuterRef('pk'))),
+        # A live action leads here: the panel reads the board's actions
+        # only when one of its columns says so.
+        leads_action=Exists(BoardAction.objects.filter(target_column=OuterRef('pk'), is_archived=False)),
+    ).order_by('position', 'pk'):
         columns_of.setdefault(column.sub_board_id, []).append(column)
     columns = columns_of.get(sub_board.pk, [])
     prefetch_related_objects(columns, Prefetch(
@@ -1887,7 +1941,8 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
             apply_stage(item, column)
             cards_by_column[column.pk].append(item)
     for cards in cards_by_column.values():
-        cards.sort(key=lambda item: (item['card'].position, item['card'].pk))
+        # «📌»: the pinned cards first, each group in its own order.
+        cards.sort(key=lambda item: (not item['card'].is_pinned, item['card'].position, item['card'].pk))
     done_column = next((column for column in columns if column.is_done), None)
     done_total = done_tasks.count()
     done_list = []
@@ -1947,6 +2002,7 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
             'pinned_ids': {person.pk for person in pinned},
             'sums': sums.get(column.pk, []) if total else [],
             'is_followed': column.pk in followed,
+            'has_rules': not column.is_done and bool(column.has_entry_rules or pinned),
         })
     loaded = {task.board_card_id: task for task in [*open_tasks, *done_list]}
     return {
@@ -2443,7 +2499,7 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
         elif status == 'CANCELLED':
             within = (-(task.cancelled_at.timestamp() if task.cancelled_at else 0), card.pk)
         else:
-            within = (card.position, card.pk)
+            within = (not card.is_pinned, card.position, card.pk)
         # «Исходный срок», «Переносов», «Последняя причина».
         item['original_due_date'] = card.original_due_date
         item['last_due_reason'] = getattr(task, 'last_due_reason', None) or ''

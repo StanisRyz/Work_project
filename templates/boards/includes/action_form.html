@@ -1,0 +1,59 @@
+{% load people %}{% comment %}
+«+ Действие» or «Изменить» on «Действия»: one ordinary POST form to
+`boards:action_create` / `boards:action_update`. The field values are the
+board's live fields, each raw as a card form would send it, with
+«перезаписывать». The server checks everything again.
+{% endcomment %}
+<section class="detail-section board-rules" id="action-form">
+    <h2>{% if editing %}Действие «<span class="user-text">{{ editing.name }}</span>»{% else %}Новое действие{% endif %}</h2>
+    <form class="board-rules__form" method="post" action="{% if editing %}{% url 'boards:action_update' board.pk editing.pk %}{% else %}{% url 'boards:action_create' board.pk %}{% endif %}" data-unsaved-guard{% if form.is_bound %}="dirty"{% endif %}>
+        {% csrf_token %}
+        {% if form.non_field_errors %}<p class="field-error" role="alert">{{ form.non_field_errors|join:' ' }}</p>{% endif %}
+        <div class="board-intake__grid">
+            <label class="board-request-form__field">
+                <span>{{ form.name.label }}</span>
+                <input type="text" name="name" maxlength="40" required value="{{ form.name.value|default_if_none:'' }}" placeholder="Передать в ПДО">
+                {% for error in form.name.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+            </label>
+            <label class="board-request-form__field">
+                <span>{{ form.target_column.label }}</span>
+                {{ form.target_column }}
+                {% for error in form.target_column.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+            </label>
+        </div>
+        <fieldset class="board-intake__group">
+            <legend>{{ form.assignee_mode.label }}</legend>
+            <div class="board-rules__modes">{{ form.assignee_mode }}</div>
+            <p class="board-form__hint">{{ form.assignees.label }} — для «Добавить» и «Заменить»:</p>
+            <div class="board-rules__people">{{ form.assignees }}</div>
+            {% for error in form.assignees.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+        </fieldset>
+        {% if form.rule_rows %}
+            <fieldset class="board-intake__group">
+                <legend>Значения полей</legend>
+                <p class="board-form__hint">Пусто — поле не трогается. Стоящее значение меняется, только если отмечено «перезаписывать».</p>
+                <div class="board-rules__fields">
+                    {% for field, value, overwrite in form.rule_rows %}
+                        <div class="board-rules__field">
+                            <label for="{{ value.id_for_label }}" class="user-text">{{ field.name }}</label>
+                            {{ value }}
+                            <label class="board-rules__overwrite">{{ overwrite }} перезаписывать</label>
+                            {% for error in value.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </fieldset>
+        {% endif %}
+        <label class="board-rules__check">{{ form.comment_required }} {{ form.comment_required.label }} — нажавший напишет его в окне подтверждения, он уйдёт в чат</label>
+        <label class="board-request-form__field board-request-form__field--wide">
+            <span>{{ form.message_template.label }}</span>
+            {{ form.message_template }}
+            <span class="board-form__hint">{{ form.message_template.help_text }}</span>
+            {% for error in form.message_template.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+        </label>
+        <div class="form-actions">
+            <button class="link-button" type="submit">{% if editing %}Сохранить{% else %}Добавить действие{% endif %}</button>
+            <a class="link-button link-button--secondary" href="{% url 'boards:actions' board.pk %}">Отмена</a>
+        </div>
+    </form>
+</section>

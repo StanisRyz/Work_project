@@ -1,0 +1,93 @@
+{% extends 'boards/layout.html' %}
+{% load people %}
+
+{% block title %}Действия · {{ board.name }}{% endblock %}
+
+{% block board_main_label %}Действия · {{ board.name }}{% endblock %}
+
+{% block board_main %}
+{% comment %}
+«Действия» — the board's buttons «Передать дальше». Each, pressed on an open
+card (`services.run_board_action()`), moves it into its column (that column's
+«Правила при входе» included), sets its исполнители by the mode, sets the
+field values and posts the message into «Чат» — in one transaction. Every
+reader of the board reads the page; whoever manages it (`can_manage`, never
+on an archived board) gets «+ Действие» (`?new=1`), «Изменить» (`?edit=<id>`),
+← →, «В архив» / «Вернуть» — ordinary POST forms, so it all works without
+JavaScript, every route asks the right again, and a refused form comes back
+with what was typed.
+{% endcomment %}
+<header class="board-head">
+    <div class="board-head__title">
+        <h1 class="user-text text-ellipsis" title="{{ board.name }}">Действия · {{ board.name }}</h1>
+        {% if board.is_archived %}<span class="status-badge status-badge--archived">В архиве</span>{% endif %}
+    </div>
+    <div class="board-head__actions">
+        {% if can_manage and live_count < limit and not creating %}
+            <a class="link-button" href="{% url 'boards:actions' board.pk %}?new=1#action-form">+ Действие</a>
+        {% endif %}
+        <a class="link-button link-button--secondary" href="{% url 'boards:detail' board.pk %}">К доске</a>
+    </div>
+</header>
+
+<div class="board-scroll">
+<p class="board-form__hint board-fields__intro">
+    Действие — кнопка в шапке открытой карточки: одним нажатием она переносит карточку в выбранную колонку
+    (с её правилами при входе), меняет исполнителей, ставит значения полей и пишет в чат. Первые три кнопки видны
+    сразу, остальные — в «Ещё». Кнопка, ведущая в колонку, где карточка уже стоит, не показывается.
+    Живых действий: {{ live_count }} из {{ limit }}.
+</p>
+
+{% if form %}
+    {% include 'boards/includes/action_form.html' %}
+{% endif %}
+
+{% if rows %}
+<ol class="board-fields">
+    {% for row in rows %}{% with action=row.action %}
+    <li class="board-field{% if action.is_archived %} board-field--archived{% endif %}" id="action-{{ action.pk }}">
+        <div class="board-field__head">
+            <h2 class="board-field__name user-text">{{ action.name }}</h2>
+            {% if action.is_archived %}<span class="status-badge status-badge--archived">В архиве</span>{% endif %}
+            <dl class="board-field__facts">
+                <div><dt>Колонка</dt><dd class="user-text">{{ action.target_column.sub_board.name }} / {{ action.target_column.name }}</dd></div>
+                <div><dt>Исполнители</dt><dd>{{ action.get_assignee_mode_display }}{% if row.people %}: {% for person in row.people %}{{ person|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</dd></div>
+                {% if row.rules %}<div><dt>Поля</dt><dd>{% for field, text, overwrite in row.rules %}<span class="user-text">{{ field.name }}</span>: <span class="user-text">{{ text }}</span>{% if overwrite %} (перезаписывать){% endif %}{% if not forloop.last %}; {% endif %}{% endfor %}</dd></div>{% endif %}
+                <div><dt>Комментарий</dt><dd>{% if action.comment_required %}обязателен{% else %}не спрашивается{% endif %}</dd></div>
+                {% if action.message_template %}<div><dt>Сообщение в чат</dt><dd class="user-text">{{ action.message_template }}</dd></div>{% endif %}
+            </dl>
+            {% if can_manage %}
+                <div class="board-field__tools">
+                    {% if row.can_move_left %}
+                        <form method="post" action="{% url 'boards:action_move' board.pk action.pk %}">
+                            {% csrf_token %}<input type="hidden" name="direction" value="left">
+                            <button class="link-button link-button--secondary link-button--compact" type="submit" title="Раньше" aria-label="Действие «{{ action.name }}» раньше">←</button>
+                        </form>
+                    {% endif %}
+                    {% if row.can_move_right %}
+                        <form method="post" action="{% url 'boards:action_move' board.pk action.pk %}">
+                            {% csrf_token %}<input type="hidden" name="direction" value="right">
+                            <button class="link-button link-button--secondary link-button--compact" type="submit" title="Позже" aria-label="Действие «{{ action.name }}» позже">→</button>
+                        </form>
+                    {% endif %}
+                    <a class="link-button link-button--secondary link-button--compact" href="{% url 'boards:actions' board.pk %}?edit={{ action.pk }}#action-form">Изменить</a>
+                    {% if action.is_archived %}
+                        <form method="post" action="{% url 'boards:action_restore' board.pk action.pk %}">
+                            {% csrf_token %}<button class="link-button link-button--secondary link-button--compact" type="submit">Вернуть</button>
+                        </form>
+                    {% else %}
+                        <form method="post" action="{% url 'boards:action_archive' board.pk action.pk %}">
+                            {% csrf_token %}<button class="link-button link-button--secondary link-button--compact" type="submit">В архив</button>
+                        </form>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </li>
+    {% endwith %}{% endfor %}
+</ol>
+{% elif not form %}
+    <p class="board-drawer__empty">Действий пока нет.{% if can_manage %} Нажмите «+ Действие», например «Передать в ПДО».{% endif %}</p>
+{% endif %}
+</div>
+{% endblock %}

@@ -12,6 +12,10 @@ members as tick boxes and the mode — «Добавить к исполните�
 исполнителей» — one ordinary POST form to `boards:column_pins`. The cards
 already standing in the column keep their people.
 
+«⚙ Правила при входе» leads to the column's page of entry rules
+(`boards:column_rules`): the pins again, the checklist template, the field
+values and the followers a card entering the column gets.
+
 A working column's menu holds «Норматив этапа» as well (`norm_url`): N
 working days, 1–365, empty for none — one ordinary POST form to
 `boards:column_norm`.
@@ -61,6 +65,9 @@ board's filter (`filter_suffix`).
                         </form>
                     {% endif %}
                 </div>
+            {% endif %}
+            {% if kind == 'column' %}
+                <a class="link-button link-button--secondary link-button--compact board-menu__link" href="{% url 'boards:column_rules' board.pk object.pk %}">⚙ Правила при входе</a>
             {% endif %}
             {% if pin_row and members %}
                 <form class="board-menu__form board-pins" method="post" action="{{ pins_url }}{{ filter_suffix }}">

@@ -34,11 +34,14 @@ twice (`item.due_change_count`, annotated likewise) (`item.open_subtask_codes`):
 they stay in work, the card may be finished all the same. An open card that
 waits for an open card («Связи», `BLOCKS`) says «⛔ ждёт СНБ-14» — the first
 blocker on a board the reader reads, else «карточку другой доски» — and «+N»
-for the rest (`item.blocker_count`, annotated in the tiles' own query). Every URL here carries the
+for the rest (`item.blocker_count`, annotated in the tiles' own query). A
+pinned card («📌 Закрепить», `card.is_pinned`) stands first in its column and
+says «📌»; `data-card-pinned` keeps a drag of it among the pinned ones
+(`board_dnd.js`). Every URL here carries the
 board's filter, so the panel,
 the drag's counts and the redirect after completion stay filtered.
 {% endcomment %}
-<li class="board-column__item" data-card-id="{{ item.card.pk }}" data-task-id="{{ item.task.pk }}"{% if item.is_movable %} data-card-movable data-card-move-url="{% url 'boards:card_move' board.pk item.card.pk %}{{ filter_suffix }}"{% endif %}>
+<li class="board-column__item{% if item.card.is_pinned and not item.is_closed %} board-column__item--pinned{% endif %}" data-card-id="{{ item.card.pk }}" data-task-id="{{ item.task.pk }}"{% if item.card.is_pinned and not item.is_closed %} data-card-pinned{% endif %}{% if item.is_movable %} data-card-movable data-card-move-url="{% url 'boards:card_move' board.pk item.card.pk %}{{ filter_suffix }}"{% endif %}>
     <a class="board-tile{% if card and card.card.pk == item.card.pk %} board-tile--open{% endif %}{% if item.is_late %} board-tile--late{% endif %}" href="{{ board_url }}?card={{ item.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" draggable="false">
         <span class="board-tile__title user-text text-clamp-2" title="{{ item.card.title }}">{{ item.card.title }}</span>
         {% if item.tile_values %}
@@ -56,7 +59,7 @@ the drag's counts and the redirect after completion stay filtered.
             <span class="board-tile__age{% if item.is_late %} board-tile__age--late{% endif %}" data-tile-stage{% if item.light %} data-light="{{ item.light }}"{% endif %} title="{% if item.light %}{{ item.light_label }}. Норматив этапа {{ item.norm }} р.д., план выхода {{ item.plan_exit|date:'d.m.Y' }}. {% endif %}В колонке с {{ item.in_column_since|date:'d.m.Y' }}">{% if item.light %}<span class="board-light board-light--{{ item.light }}" aria-label="{{ item.light_label }}"></span>план до {{ item.plan_exit|date:'d.m' }} · {% endif %}{% if item.in_column_days %}в колонке {{ item.in_column_days }} дн.{% else %}в колонке сегодня{% endif %}</span>
         {% endif %}
         <span class="board-tile__footer">
-            <span class="board-tile__number" title="Задача №{{ item.task.pk }}">{{ item.card.code }}</span>
+            <span class="board-tile__number" title="Задача №{{ item.task.pk }}">{% if item.card.is_pinned and not item.is_closed %}<span class="board-tile__pinned" title="Закреплена первой в колонке" aria-label="Закреплена">📌</span>{% endif %}{{ item.card.code }}</span>
             <span class="board-tile__assignees">
                 {% for user in item.assignees %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}
             </span>

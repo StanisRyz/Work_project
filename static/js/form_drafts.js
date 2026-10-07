@@ -24,6 +24,13 @@
  *   stays and is offered once the form is opened again;
  * * anything else — the submission went through, and the draft is removed.
  *
+ * A short form marked `[data-draft-mode="silent"]` — the message of a board
+ * card's «Чат» (`<user>:board-chat:<card>`) — is copied at once on every
+ * keystroke and put back without asking when the form is drawn again,
+ * whether on a page load or in a card drawer opened without one (a
+ * `window.qualityFragments` initialiser): an unsent message simply waits
+ * where it was typed. The same rules decide when it is finished with.
+ *
  * Restoring rebuilds the rows first, by pressing the form's own «+» and «×»
  * buttons, then writes every value back by field name and replays the
  * `change`/`input` events the form's own scripts listen to. No markup is
@@ -154,7 +161,15 @@
         });
     };
 
+    const isSilent = (form) => form.dataset.draftMode === 'silent';
+
     const scheduleSave = (form) => {
+        if (isSilent(form)) {
+            // A short message: written at once, so a drawer replaced right
+            // after a keystroke loses nothing.
+            saveNow(form);
+            return;
+        }
         window.clearTimeout(timers.get(form));
         timers.set(form, window.setTimeout(() => saveNow(form), SAVE_DELAY_MS));
     };
@@ -431,6 +446,29 @@
 
     // ------------------------------------------------------------ page load
 
+    /** One form: remember what the server drew, then offer (or, silent, put back) its draft. */
+    const attach = (form) => {
+        if (form.dataset.draftAttached === 'true') {
+            return;
+        }
+        form.dataset.draftAttached = 'true';
+        // What the server rendered: typing back to exactly this is not a draft.
+        form.dataset.draftBaseline = JSON.stringify(serialize(form));
+        if (form.matches('[data-unsaved-guard="dirty"]')) {
+            // The page already shows the user's own input.
+            return;
+        }
+        const draft = read(storageKey(form));
+        if (!draft || !hasContent(draft.fields) || sameFields(draft.fields, serialize(form))) {
+            return;
+        }
+        if (isSilent(form)) {
+            assignValues(form, draft.fields);
+            return;
+        }
+        offer(form, draft);
+    };
+
     const start = () => {
         const now = Date.now();
         storedKeys().forEach((key) => {
@@ -452,22 +490,19 @@
             }
         }
 
-        forms.forEach((form) => {
-            // What the server rendered: typing back to exactly this is not a draft.
-            form.dataset.draftBaseline = JSON.stringify(serialize(form));
-            if (form.matches('[data-unsaved-guard="dirty"]')) {
-                // The page already shows the user's own input.
-                return;
-            }
-            const draft = read(storageKey(form));
-            if (!draft || !hasContent(draft.fields) || sameFields(draft.fields, serialize(form))) {
-                return;
-            }
-            offer(form, draft);
-        });
+        forms.forEach(attach);
     };
 
-    window.qualityFormDrafts = { restore, serialize, saveNow };
+    window.qualityFormDrafts = { restore, serialize, saveNow, attach };
+
+    // A form brought in later — the chat of a card drawer opened without a
+    // reload — gets the same treatment.
+    if (window.qualityFragments) {
+        window.qualityFragments.register('form-drafts', (root) => {
+            const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+            scope.querySelectorAll('form[data-draft-key]').forEach(attach);
+        });
+    }
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', start);

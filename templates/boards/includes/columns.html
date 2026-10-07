@@ -33,6 +33,10 @@ and «+N»; the full list is on the group's `title`. The manager sets them in th
 column's «⋯» menu, and «Норматив этапа» there too: a working column with a
 norm shows «⏱ N р.д.» in its header, and each open tile in it its traffic
 light (`tile.html`).
+
+«⚙» says the working column has «Правила при входе» (`column.has_rules`:
+pins, a checklist template, field values or followers) — a link to the
+column's rules page, which the manager reaches from «⋯» too.
 {% endcomment %}
 <div class="board-columns" aria-label="Колонки поддоски «{{ sub_board.name }}»" data-board-columns data-fields-stamp="{{ fields_stamp }}">
     {% for column in columns %}
@@ -44,6 +48,7 @@ light (`tile.html`).
                 {% if not column.is_done and column.column.norm_working_days %}
                     <span class="board-column__norm" title="Норматив этапа: {{ column.column.norm_working_days }} раб. дн. в колонке">⏱ {{ column.column.norm_working_days }} р.д.</span>
                 {% endif %}
+                {% if column.has_rules %}<a class="board-column__rules" href="{% url 'boards:column_rules' board.pk column.pk %}" title="У колонки есть правила при входе: что получает карточка, попавшая сюда" aria-label="Правила при входе колонки «{{ column.name }}»">⚙</a>{% endif %}
                 {% if column.is_followed %}<span class="board-column__followed" title="Вы следите за колонкой: новые карточки придут в колокольчик" aria-label="Вы следите за колонкой">🔔</span>{% endif %}
                 {% if column.pinned %}
                     <span class="board-column__pins" title="Закреплённые исполнители ({% if column.column.pinned_mode == 'REPLACE' %}заменяют{% else %}добавляются{% endif %}): {% for person in column.pinned_all %}{{ person|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}" aria-label="Закреплённые исполнители: {{ column.pinned_all|length }}">

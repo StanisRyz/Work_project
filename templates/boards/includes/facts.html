@@ -74,7 +74,7 @@ never moves this block's fingerprint.
         </section>
     {% endif %}
 
-    {% if can_edit_card or card.can_cancel %}
+    {% if can_edit_card or card.can_cancel or card.can_pin %}
         <div class="board-drawer__tools">
             {% if can_edit_card %}
                 <a class="link-button link-button--secondary" href="{{ board_url }}?card={{ card.card.pk }}&amp;edit=1{% if filter_query %}&amp;{{ filter_query }}{% endif %}">Редактировать</a>
@@ -93,6 +93,18 @@ never moves this block's fingerprint.
                     <button class="link-button link-button--secondary" type="submit">Переместить</button>
                 </form>
                 {% endif %}
+            {% endif %}
+            {% comment %}
+            «📌 Закрепить» / «Открепить» (`card.can_pin`: whoever works on the
+            board, an open card that is no subtask): the card stands first in
+            its column. An ordinary POST form posting the state it asks for.
+            {% endcomment %}
+            {% if card.can_pin and panel == 'view' %}
+                <form class="board-drawer__pin" method="post" action="{% url 'boards:card_pin' board.pk card.card.pk %}{{ filter_suffix }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="pinned" value="{% if card.card.is_pinned %}0{% else %}1{% endif %}">
+                    <button class="link-button link-button--secondary" type="submit" aria-pressed="{% if card.card.is_pinned %}true{% else %}false{% endif %}" title="{% if card.card.is_pinned %}Карточка стоит первой в колонке. Нажмите, чтобы открепить.{% else %}Поставить карточку первой в колонке{% endif %}">📌 {% if card.card.is_pinned %}Открепить{% else %}Закрепить{% endif %}</button>
+                </form>
             {% endif %}
             {% comment %}
             «Отменить карточку»: its author, the board's owner or an

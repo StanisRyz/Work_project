@@ -257,8 +257,9 @@ class BoardColumn(models.Model):
     # in this column or moved into it — added to its исполнители (`ADD`) or
     # put in their place (`REPLACE`). A working column's only; the cards
     # already standing here when the pins change keep their people.
-    # `services.set_column_pins()` writes them, `services._apply_pins()` uses
-    # them, `remove_board_member()` drops a removed member's.
+    # `services.set_column_pins()` writes them, `services._apply_column_entry()`
+    # uses them with the column's other entry rules, `remove_board_member()`
+    # drops a removed member's.
     pinned_assignees = models.ManyToManyField(
         User,
         through='BoardColumnPin',
@@ -374,6 +375,124 @@ class BoardColumnSubscription(models.Model):
 
     def __str__(self):
         return f'{self.user} следит за колонкой #{self.column_id}'
+
+
+# ---------------------------------------------------------------------------
+# «Правила при входе»: what a card gets when it enters a working column
+# ---------------------------------------------------------------------------
+
+MAX_TEMPLATE_ITEMS = 20
+RULE_VALUE_MAX_LENGTH = 500
+
+
+class BoardColumnChecklistTemplate(models.Model):
+    """One line of a working column's checklist template — «Шаблон чек-листа».
+
+    A card created in the column or moved into it gets these lines at the end
+    of its «Чек-лист» (`services._apply_column_entry()`): a line whose text
+    the card already holds (whatever the case) is not repeated, and what does
+    not fit under `MAX_CHECKLIST_ITEMS` is left out and counted in the
+    journal. At most `MAX_TEMPLATE_ITEMS` per column; written only by
+    `services.add_template_item()` and its siblings.
+    """
+
+    column = models.ForeignKey(
+        BoardColumn,
+        on_delete=models.CASCADE,
+        related_name='checklist_template',
+        verbose_name='Колонка',
+    )
+    text = models.CharField('Текст', max_length=200)
+    # Order in the template, 1, 2, 3, … — renumbered by every change.
+    position = models.PositiveIntegerField('Позиция')
+
+    class Meta:
+        ordering = ['column_id', 'position', 'pk']
+        verbose_name = 'Пункт шаблона чек-листа колонки'
+        verbose_name_plural = 'Шаблоны чек-листов колонок'
+
+    def __str__(self):
+        return f'{self.column}: {self.text[:60]}'
+
+
+class BoardFieldRule(models.Model):
+    """A value a card's field gets — by a column on entry, or by an action.
+
+    `value` is raw, exactly what a card form would send for that field (a
+    text, a number, an ISO date, an option's id), and is parsed by the card's
+    own parse (`services._parse_value()`) every time it is applied: a field
+    archived since is skipped, an option archived since makes the rule
+    apply nothing. A value the card already holds is left alone unless
+    `overwrite` — the rule sets, it does not reset.
+    """
+
+    field = models.ForeignKey(
+        'BoardField',
+        on_delete=models.PROTECT,
+        related_name='+',
+        verbose_name='Поле',
+    )
+    value = models.CharField('Значение', max_length=RULE_VALUE_MAX_LENGTH)
+    overwrite = models.BooleanField('Перезаписывать', default=False)
+
+    class Meta:
+        abstract = True
+
+
+class BoardColumnFieldRule(BoardFieldRule):
+    """«Значения полей» of a working column's entry rules."""
+
+    column = models.ForeignKey(
+        BoardColumn,
+        on_delete=models.CASCADE,
+        related_name='field_rules',
+        verbose_name='Колонка',
+    )
+
+    class Meta:
+        ordering = ['column_id', 'pk']
+        verbose_name = 'Значение поля по колонке'
+        verbose_name_plural = 'Значения полей по колонкам'
+        constraints = [
+            models.UniqueConstraint(fields=['column', 'field'], name='unique_board_column_field_rule'),
+        ]
+
+    def __str__(self):
+        return f'{self.column}: поле #{self.field_id}'
+
+
+class BoardColumnFollower(models.Model):
+    """Somebody who follows every card that enters a working column.
+
+    Not `BoardColumnSubscription` — that one is a notification «карточка
+    вошла в колонку»; this makes the person a follower of the card itself
+    (`BoardCardSubscription`), from then on. Only an active reader of the
+    board is subscribed; `remove_board_member()` drops the person.
+    """
+
+    column = models.ForeignKey(
+        BoardColumn,
+        on_delete=models.CASCADE,
+        related_name='entry_followers',
+        verbose_name='Колонка',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_column_follows',
+        verbose_name='Подписчик',
+    )
+
+    class Meta:
+        ordering = ['column_id', 'pk']
+        verbose_name = 'Подписчик карточек колонки'
+        verbose_name_plural = 'Подписчики карточек колонок'
+        constraints = [
+            models.UniqueConstraint(fields=['column', 'user'], name='unique_board_column_follower'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} подписывается на карточки колонки #{self.column_id}'
 
 
 class BoardDigestSubscription(models.Model):
@@ -499,6 +618,10 @@ class BoardCard(models.Model):
     # `update_card(expected_version=…)` refuses a save made against an older
     # one — two people editing one card never silently overwrite each other.
     version = models.PositiveIntegerField('Версия', default=1)
+    # «📌 Закрепить»: the card stands first in its working column, among the
+    # other pinned ones in their own `position` order. Leaving the column
+    # unpins it (`services.move_card()`); a subtask is never pinned.
+    is_pinned = models.BooleanField('Закреплена', default=False)
     created_by = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
@@ -1436,3 +1559,137 @@ class BoardRequest(models.Model):
     @property
     def is_new(self):
         return self.status == self.Status.NEW
+
+
+# ---------------------------------------------------------------------------
+# «Передать дальше»: a board's buttons that move a card and hand it on
+# ---------------------------------------------------------------------------
+
+MAX_ACTIONS = 8
+ACTION_NAME_MAX_LENGTH = 40
+ACTION_MESSAGE_MAX_LENGTH = 300
+
+
+class BoardAction(models.Model):
+    """One button of a board — «Передать в ПДО».
+
+    Pressed on an open card it does, in one transaction
+    (`services.run_board_action()`): moves the card into `target_column`
+    (the column's entry rules included), sets its исполнители by
+    `assignee_mode`, sets its field values (`field_rules`) and posts
+    `message_template` with the comment into «Чат». `target_column` is a
+    working column of any sub-board of this very board; `PROTECT` — a column
+    an action leads to is not deleted (`services.delete_column()` says so).
+    At most `MAX_ACTIONS` live per board; an action is archived, never
+    deleted. Written only by `services.create_action()` and its siblings.
+    """
+
+    class AssigneeMode(models.TextChoices):
+        KEEP = 'KEEP', 'Не менять'
+        ADD = 'ADD', 'Добавить к исполнителям'
+        REPLACE = 'REPLACE', 'Заменить исполнителей'
+
+    board = models.ForeignKey(
+        Board,
+        on_delete=models.PROTECT,
+        related_name='actions',
+        verbose_name='Доска',
+    )
+    name = models.CharField('Название', max_length=ACTION_NAME_MAX_LENGTH)
+    # Order of the buttons, 1, 2, 3, … — renumbered by every change.
+    position = models.PositiveIntegerField('Позиция')
+    target_column = models.ForeignKey(
+        BoardColumn,
+        on_delete=models.PROTECT,
+        related_name='actions',
+        verbose_name='Колонка',
+    )
+    assignee_mode = models.CharField(
+        'Исполнители', max_length=8, choices=AssigneeMode.choices, default=AssigneeMode.KEEP,
+    )
+    assignees = models.ManyToManyField(
+        User,
+        through='BoardActionAssignee',
+        related_name='board_actions',
+        verbose_name='Новые исполнители',
+        blank=True,
+    )
+    comment_required = models.BooleanField('Комментарий обязателен', default=False)
+    # Posted into «Чат» as the presser's message; «{код}» and «{колонка}» are
+    # the card's code and the target column's name.
+    message_template = models.CharField(
+        'Сообщение в чат', max_length=ACTION_MESSAGE_MAX_LENGTH, blank=True,
+    )
+    is_archived = models.BooleanField('В архиве', default=False)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='created_board_actions',
+        verbose_name='Создал',
+    )
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+    updated_at = models.DateTimeField('Обновлено', auto_now=True)
+
+    class Meta:
+        ordering = ['board_id', 'position', 'pk']
+        verbose_name = 'Действие доски'
+        verbose_name_plural = 'Действия досок'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(assignee_mode__in=['KEEP', 'ADD', 'REPLACE']),
+                name='board_action_assignee_mode_known',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.board}: {self.name}'
+
+
+class BoardActionAssignee(models.Model):
+    """A board member an action puts on the card (`ADD` or `REPLACE`)."""
+
+    action = models.ForeignKey(
+        BoardAction,
+        on_delete=models.CASCADE,
+        related_name='assignee_rows',
+        verbose_name='Действие',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_action_roles',
+        verbose_name='Исполнитель',
+    )
+
+    class Meta:
+        ordering = ['action_id', 'pk']
+        verbose_name = 'Исполнитель действия доски'
+        verbose_name_plural = 'Исполнители действий досок'
+        constraints = [
+            models.UniqueConstraint(fields=['action', 'user'], name='unique_board_action_assignee'),
+        ]
+
+    def __str__(self):
+        return f'{self.action}: {self.user}'
+
+
+class BoardActionFieldRule(BoardFieldRule):
+    """A field value an action sets — the same rule as a column's."""
+
+    action = models.ForeignKey(
+        BoardAction,
+        on_delete=models.CASCADE,
+        related_name='field_rules',
+        verbose_name='Действие',
+    )
+
+    class Meta:
+        ordering = ['action_id', 'pk']
+        verbose_name = 'Значение поля по действию'
+        verbose_name_plural = 'Значения полей по действиям'
+        constraints = [
+            models.UniqueConstraint(fields=['action', 'field'], name='unique_board_action_field_rule'),
+        ]
+
+    def __str__(self):
+        return f'{self.action}: поле #{self.field_id}'

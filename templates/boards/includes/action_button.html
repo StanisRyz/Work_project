@@ -1,0 +1,10 @@
+{% comment %}One button «Передать дальше» of the card panel's heading: the shared modal posts to `boards:card_action` (`run_board_action()`); the comment field is there only when the action requires one.{% endcomment %}
+<button class="link-button link-button--compact board-actions__button" type="button"
+        data-confirm
+        data-board-action="{{ action.pk }}"
+        data-confirm-title="Передать {{ card.card.code }} в «{{ action.target_column.name }}»?"
+        data-confirm-text="«{{ action.name }}»: карточка перейдёт в колонку «{{ action.target_column.name }}»{% if action.target_column.sub_board_id != card.card.sub_board_id %} поддоски «{{ action.target_column.sub_board.name }}»{% endif %}{% if action.assignee_mode == 'REPLACE' %}, исполнители будут заменены{% elif action.assignee_mode == 'ADD' %}, к исполнителям добавятся новые{% endif %}{% if action.message_template or action.comment_required %}, в чат уйдёт сообщение{% endif %}."
+        data-confirm-label="Передать"
+        {% if action.comment_required %}data-confirm-comment="required" data-confirm-comment-label="Комментарий" data-confirm-comment-name="comment"{% endif %}
+        data-confirm-url="{% url 'boards:card_action' board.pk card.card.pk action.pk %}{{ filter_suffix }}"
+        title="Перенести в «{{ action.target_column.name }}»">{{ action.name }}</button>

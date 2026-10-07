@@ -61,6 +61,7 @@ manages or may restore it. The page's own, never part of a live block.
                     <a class="board-menu__link" href="{% url 'boards:deviations' board.pk %}">Отклонения</a>
                     {% if can_manage %}<a class="board-menu__link" href="{% url 'boards:fields' board.pk %}">Поля карточек</a>{% endif %}
                     {% if can_manage %}<a class="board-menu__link" href="{% url 'boards:intake' board.pk %}">Приём заявок</a>{% endif %}
+                    {% if can_manage %}<a class="board-menu__link" href="{% url 'boards:actions' board.pk %}">Действия «Передать дальше»</a>{% endif %}
                     {% if can_manage %}
                         <button class="link-button link-button--secondary link-button--compact" type="button"
                                 data-confirm
