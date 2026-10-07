@@ -1,0 +1,105 @@
+
+=== 1920×1080 ===
+PASS  a card has four tabs: Описание, Чат, Подзадачи, Лог  — ['description', 'chat', 'subtasks', 'log']
+PASS  «Подзадачи» opens on its tab
+PASS  no subtasks yet
+PASS  «Добавить списком»: one line — one subtask, the empty one skipped  — ['Корпус 1200×800', 'Крышка с уплотнителем', 'Комплект крепежа М8']
+PASS  the redirect lands on «Подзадачи»
+PASS  each with the order's исполнитель (ИИ)  — [['ИИ'], ['ИИ'], ['ИИ']]
+PASS  «В подзадачу» beside a checklist step
+PASS  the shared confirmation asks first  — Сделать пункт подзадачей?
+
+«Передать заказ в цех МП» станет подзадачей карточки ZAP-1 — с её исполнителями и сроком — и уйдёт из чек-листа.
+
+Отмена
+В подзадачу
+PASS  the step left the checklist  — ['Согласовать спецификацию', 'Проверить наличие металла', 'Запустить партию в работу', 'Принять партию ОТК']
+PASS  «Описание»: «Подзадачи: 0 из 4»  — Подзадачи: 0 из 4
+PASS  the tile: «⧉ 0/4»  — ⧉ 0/4
+PASS  «Подзадачи: 0 из 4» switches to the tab in place
+PASS  four subtasks, the board's own numbers  — ['ZAP-10', 'ZAP-11', 'ZAP-12', 'ZAP-13']
+PASS  «0 из 4 выполнено»
+PASS  «Подзадачи 0/4» in the tab strip
+PASS  no subtask is a tile  — ['ZAP-1', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+PASS  no sideways scroll of the page
+PASS  the code opens the subtask in the drawer, no reload  — http://127.0.0.1:8765/work/boards/1/1/?card=11&tab=description
+PASS  «Подзадача карточки ZAP-1 · Согласовать спецификацию»  — Подзадача карточки ZAP-1 · Согласовать спецификацию
+PASS  a subtask has three tabs, no «Подзадачи»  — ['description', 'chat', 'log']
+PASS  its facts name the card, not a column
+PASS  the page did not reload
+PASS  the link to ZAP-1 opens the order again, on «Подзадачи»  — http://127.0.0.1:8765/work/boards/1/1/?card=1&tab=subtasks
+PASS  ivanov finds the subtask in «Мои задачи»
+PASS  its source: «Доска «Запуск заказов» · ZAP-… · подзадача ZAP-1»  — №11 Корпус 1200×800 Иван Иванов Доска Доска «Запуск заказов» · ZAP-10 · подзадача ZAP-1 В работе 09.10.2026 через 2 дня
+PASS  it opens the board with the subtask's drawer  — http://127.0.0.1:8765/work/boards/1/1/?card=11&tab=my
+PASS  ivanov: «Выполнена»
+PASS  admin1 sees «⧉ 1/4» and «1 из 4 выполнено» without a reload  — ('⧉ 1/4', '1 из 4 выполнено')
+PASS  the done one went to the bottom of the list
+PASS  no conflict banner
+PASS  «Завершить»: «Открыто подзадач: 3 (…)» above «Результат»  — Открыто подзадач: 3 (ZAP-11, ZAP-12, ZAP-13). Они останутся в работе у своих исполнителей — завершить карточку можно.
+PASS  the drop dialog of the tile says it too  — Карточка перейдёт в колонку «Готово». Укажите результат выполнения. Открыто подзадач: 3 (ZAP-11, ZAP-12, ZAP-13). Они останутся в работе у своих исполнителей.
+PASS  and «Отменить карточку»  — Карточка ZAP-1 (задача №1) будет закрыта без выполнения и уйдёт с доски. Исполнители получат уведомление в колокольчике. Открыто подзадач: 3 (ZAP-11, ZAP-12, ZAP-13). Они останутся в работе у своих исполнителей.
+PASS  «4 из 4 выполнено», the tile green
+PASS  ZAP-1 itself is still in work
+PASS  admin1's bell: «Все подзадачи карточки ZAP-1 выполнены»  — ['Все подзадачи карточки ZAP-1 выполнены\nВсе подзадачи карточки ZAP-1 на доске «Запуск заказов» выполнены, а сама карточка ещё в работе.\n07.10.2026 11:28']
+PASS  «Родитель» after «Код»  — ['Код', 'Родитель', 'Название']
+PASS  the four subtasks right under ZAP-1  — ['ZAP-1', 'ZAP-10', 'ZAP-11', 'ZAP-12', 'ZAP-13', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+PASS  indented
+PASS  the «Подзадачи» box is ticked
+PASS  the Excel: «Родитель» and the same rows  — [['Код', 'Родитель', 'Название', 'Колонка', 'Статус', 'Исполнители', 'Срок', 'В колонке, дн.', 'Чек-лист', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена'], ['ZAP-1', None, 'Согласовать спецификацию', 'Сделать', 'В работе', 'Иван Иванов', '46304', '5', '2/4', '3-1579', None, '46356', 'Высокий', 'Да', '1250000', '46302', None], ['ZAP-10', 'ZAP-1', 'Корпус 1200×800', None, 'Выполнена', 'Иван Иванов', '46304', None, None, None, None, None, None, None, None, '46302', '46302']]
+PASS  without the box no subtask in the table  — ['ZAP-1', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+PASS  the name under the thumbnail takes the whole width of the row  — ({'x': 1311, 'y': 502.6875, 'width': 240, 'height': 201.6875}, {'x': 1311, 'y': 663.375, 'width': 240, 'height': 19.5})
+PASS  the size and the links on the line below it  — ({'x': 1311, 'y': 663.375, 'width': 240, 'height': 19.5}, {'x': 1311, 'y': 684.875, 'width': 33.84375, 'height': 19.5})
+
+=== 1536×864 ===
+PASS  a card has four tabs: Описание, Чат, Подзадачи, Лог  — ['description', 'chat', 'subtasks', 'log']
+PASS  «Подзадачи» opens on its tab
+PASS  no subtasks yet
+PASS  «Добавить списком»: one line — one subtask, the empty one skipped  — ['Корпус 1200×800', 'Крышка с уплотнителем', 'Комплект крепежа М8']
+PASS  the redirect lands on «Подзадачи»
+PASS  each with the order's исполнитель (ИИ)  — [['ИИ'], ['ИИ'], ['ИИ']]
+PASS  «В подзадачу» beside a checklist step
+PASS  the shared confirmation asks first  — Сделать пункт подзадачей?
+
+«Передать заказ в цех МП» станет подзадачей карточки ZAP-1 — с её исполнителями и сроком — и уйдёт из чек-листа.
+
+Отмена
+В подзадачу
+PASS  the step left the checklist  — ['Согласовать спецификацию', 'Проверить наличие металла', 'Запустить партию в работу', 'Принять партию ОТК']
+PASS  «Описание»: «Подзадачи: 0 из 4»  — Подзадачи: 0 из 4
+PASS  the tile: «⧉ 0/4»  — ⧉ 0/4
+PASS  «Подзадачи: 0 из 4» switches to the tab in place
+PASS  four subtasks, the board's own numbers  — ['ZAP-10', 'ZAP-11', 'ZAP-12', 'ZAP-13']
+PASS  «0 из 4 выполнено»
+PASS  «Подзадачи 0/4» in the tab strip
+PASS  no subtask is a tile  — ['ZAP-1', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+PASS  no sideways scroll of the page
+PASS  the code opens the subtask in the drawer, no reload  — http://127.0.0.1:8765/work/boards/1/1/?card=11&tab=description
+PASS  «Подзадача карточки ZAP-1 · Согласовать спецификацию»  — Подзадача карточки ZAP-1 · Согласовать спецификацию
+PASS  a subtask has three tabs, no «Подзадачи»  — ['description', 'chat', 'log']
+PASS  its facts name the card, not a column
+PASS  the page did not reload
+PASS  the link to ZAP-1 opens the order again, on «Подзадачи»  — http://127.0.0.1:8765/work/boards/1/1/?card=1&tab=subtasks
+PASS  ivanov finds the subtask in «Мои задачи»
+PASS  its source: «Доска «Запуск заказов» · ZAP-… · подзадача ZAP-1»  — №11 Корпус 1200×800 Иван Иванов Доска Доска «Запуск заказов» · ZAP-10 · подзадача ZAP-1 В работе 09.10.2026 через 2 дня
+PASS  it opens the board with the subtask's drawer  — http://127.0.0.1:8765/work/boards/1/1/?card=11&tab=my
+PASS  ivanov: «Выполнена»
+PASS  admin1 sees «⧉ 1/4» and «1 из 4 выполнено» without a reload  — ('⧉ 1/4', '1 из 4 выполнено')
+PASS  the done one went to the bottom of the list
+PASS  no conflict banner
+PASS  «Завершить»: «Открыто подзадач: 3 (…)» above «Результат»  — Открыто подзадач: 3 (ZAP-11, ZAP-12, ZAP-13). Они останутся в работе у своих исполнителей — завершить карточку можно.
+PASS  the drop dialog of the tile says it too  — Карточка перейдёт в колонку «Готово». Укажите результат выполнения. Открыто подзадач: 3 (ZAP-11, ZAP-12, ZAP-13). Они останутся в работе у своих исполнителей.
+PASS  and «Отменить карточку»  — Карточка ZAP-1 (задача №1) будет закрыта без выполнения и уйдёт с доски. Исполнители получат уведомление в колокольчике. Открыто подзадач: 3 (ZAP-11, ZAP-12, ZAP-13). Они останутся в работе у своих исполнителей.
+PASS  «4 из 4 выполнено», the tile green
+PASS  ZAP-1 itself is still in work
+PASS  admin1's bell: «Все подзадачи карточки ZAP-1 выполнены»  — ['Все подзадачи карточки ZAP-1 выполнены\nВсе подзадачи карточки ZAP-1 на доске «Запуск заказов» выполнены, а сама карточка ещё в работе.\n07.10.2026 11:29']
+PASS  «Родитель» after «Код»  — ['Код', 'Родитель', 'Название']
+PASS  the four subtasks right under ZAP-1  — ['ZAP-1', 'ZAP-10', 'ZAP-11', 'ZAP-12', 'ZAP-13', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+PASS  indented
+PASS  the «Подзадачи» box is ticked
+PASS  the Excel: «Родитель» and the same rows  — [['Код', 'Родитель', 'Название', 'Колонка', 'Статус', 'Исполнители', 'Срок', 'В колонке, дн.', 'Чек-лист', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена'], ['ZAP-1', None, 'Согласовать спецификацию', 'Сделать', 'В работе', 'Иван Иванов', '46304', '5', '2/4', '3-1579', None, '46356', 'Высокий', 'Да', '1250000', '46302', None], ['ZAP-10', 'ZAP-1', 'Корпус 1200×800', None, 'Выполнена', 'Иван Иванов', '46304', None, None, None, None, None, None, None, None, '46302', '46302']]
+PASS  without the box no subtask in the table  — ['ZAP-1', 'ZAP-2', 'ZAP-7', 'ZAP-8', 'ZAP-3', 'ZAP-5', 'ZAP-4', 'ZAP-6']
+PASS  the name under the thumbnail takes the whole width of the row  — ({'x': 946, 'y': 502.6875, 'width': 240, 'height': 201.6875}, {'x': 946, 'y': 663.375, 'width': 240, 'height': 19.5})
+PASS  the size and the links on the line below it  — ({'x': 946, 'y': 663.375, 'width': 240, 'height': 19.5}, {'x': 946, 'y': 684.875, 'width': 33.84375, 'height': 19.5})
+PASS  no JavaScript errors and no browser dialogs
+
+89/89 PASS

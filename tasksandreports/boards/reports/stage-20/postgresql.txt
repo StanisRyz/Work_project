@@ -1,0 +1,62 @@
+$ python manage.py migrate   # с нуля, PostgreSQL 16
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying boards.0018_chat_files... OK
+  Applying boards.0019_card_subtasks... OK
+  Applying notifications.0012_board_mention_and_completed_events... OK
+  Applying notifications.0013_board_subtasks_done_event... OK
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-20/seed_demo.py
+76 objects imported automatically (use -v 2 for details).
+
+seeded
+seeded stage 16
+seeded stage 17
+seeded stage 18
+seeded stage 19
+seeded stage 20
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-20/pg_checks.py
+76 objects imported automatically (use -v 2 for details).
+
+списком: [('ZAP-10', 1, None), ('ZAP-11', 2, None), ('ZAP-12', 3, None)]
+из чек-листа: ZAP-13 Принять партию ОТК | пункт остался: False
+номера — общий ряд доски: [9, 10, 11, 12, 13]
+подзадача в колонке: IntegrityError True
+подзадача подзадачи: У подзадачи не бывает подзадач — добавьте их в саму карточку.
+счётчики колонок не изменились: True
+плитка: ⧉ 0/4 | коды для окна броска: ['ZAP-10', 'ZAP-11', 'ZAP-12', 'ZAP-13']
+подзадач среди плиток: 0
+запросов build_board_state с открытой карточкой: 0 подзадач — 22 | 20 подзадач — 22
+«Все подзадачи выполнены»: 1 для ['admin1'] | карточка в работе: IN_PROGRESS
+журнал карточки, SUBTASK: 40
+перенос карточки на «Цех ПиР»: подзадачи там же — True
+
+$ python manage.py migrate boards 0018   # откат миграции этапа
+Operations to perform:
+  Target specific migration: 0018_chat_files, from boards
+Running migrations:
+  Rendering model states... DONE
+  Unapplying boards.0019_card_subtasks... OK
+$ python manage.py migrate notifications 0012
+Operations to perform:
+  Target specific migration: 0012_board_mention_and_completed_events, from notifications
+Running migrations:
+  Rendering model states... DONE
+  Unapplying notifications.0013_board_subtasks_done_event... OK
+
+parent_id после отката: 0
+карточек: 30
+
+$ python manage.py migrate   # снова вперёд
+  Applying boards.0019_card_subtasks... OK
+  Applying notifications.0013_board_subtasks_done_event... OK
+
+подзадач после повтора (родитель утерян при откате): 0 | карточек: 30
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test boards dashboard tasks notifications realtime --parallel 4   # PostgreSQL 16
+Found 1140 test(s).
+Ran 1140 tests in 271.150s
+OK (skipped=3)
