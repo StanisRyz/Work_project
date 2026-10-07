@@ -1,0 +1,84 @@
+$ python manage.py migrate   # с нуля, PostgreSQL
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying references.0005_deviation_reasons... OK
+  Applying boards.0020_due_changes... OK
+  Applying notifications.0014_board_due_events... OK
+
+$ python manage.py seed_references
+Reference data ready: 13 operations, 20 defect types, 8 act statuses, 3 task statuses, 4 priorities, 8 deviation reasons.
+
+$ python manage.py check_fresh_bootstrap   # причины отклонений
+  [PASS    ] deviation_reasons: Записей: 8.
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-21/seed_demo.py
+78 objects imported automatically (use -v 2 for details).
+
+seeded
+seeded stage 16
+seeded stage 17
+seeded stage 18
+seeded stage 19
+seeded stage 20
+seeded stage 21
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-21/pg_checks.py
+
+причин в справочнике: 8
+без причины: Срок переносится только с причиной: выберите причину переноса. | срок не изменился: True | строк истории: 0
+выключенная причина: Такой причины переноса нет среди действующих — выберите другую.
+перенос: 2026-10-09 → 2026-10-12 Ждём материал (снабжение) (+3 дн.) | исходный срок: 2026-10-09
+«Срок перенесён»: ['ivanov', 'petrova'] | Срок карточки ZAP-1 перенесён на 12.10.2026 | писем: 0
+запросов страницы с открытой карточкой: до — 23 | после 11 переносов — 23
+запросов отчёта: до — 1 | после 11 переносов — 1
+сводка: [('Брак', 11, 15, 2), ('Ждём материал (снабжение)', 3, 8, 3), ('Нет КД / ждём конструктора', 1, 4, 1), ('Оборудование', 1, 6, 1)]
+итого: 16 переносов, 5 карточек, сдвиг 33 дн.
+«Таблица», по переносам: [('ZAP-1', 11, 'Брак'), ('ZAP-2', 2, 'Нет КД / ждём конструктора'), ('ZAP-5', 1, 'Брак')]
+напоминания: первый запуск — {'due_soon': 1, 'overdue': 2} | второй — {'due_soon': 0, 'overdue': 0}
+BOARD_DUE_SOON [('Завтра срок карточки ZAP-8', 'ivanov')] | писем поставлено: 1
+BOARD_OVERDUE [('Карточка ZAP-3 просрочена', 'admin1'), ('Карточка ZAP-3 просрочена', 'ivanov')] | писем поставлено: 2
+
+$ python manage.py board_due_reminders   # третий запуск за день
+Напоминаний «срок подходит»: 0, «просрочено»: 0.
+
+$ python manage.py migrate boards 0019   # откат миграций этапа
+Operations to perform:
+  Target specific migration: 0019_card_subtasks, from boards
+Running migrations:
+  Rendering model states... DONE
+  Unapplying boards.0020_due_changes... OK
+$ python manage.py migrate notifications 0013
+Operations to perform:
+  Target specific migration: 0013_board_subtasks_done_event, from notifications
+Running migrations:
+  Rendering model states... DONE
+  Unapplying notifications.0014_board_due_events... OK
+$ python manage.py migrate references 0004
+Operations to perform:
+  Target specific migration: 0004_cancelled_task_status, from references
+Running migrations:
+  Rendering model states... DONE
+  Unapplying references.0005_deviation_reasons... OK
+
+original_due_date после отката: 0
+таблицы после отката: []
+карточек: 11
+
+$ python manage.py migrate   # снова вперёд
+  Applying references.0005_deviation_reasons... OK
+  Applying boards.0020_due_changes... OK
+  Applying notifications.0014_board_due_events... OK
+
+причин: 8 | история: 0 | исходный срок известен у 0 из 11
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test boards dashboard tasks notifications realtime references --parallel 4   # PostgreSQL
+Found 1186 test(s).
+Ran 1186 tests in 506.550s
+OK (skipped=3)
+
+$ python manage.py test boards.tests.test_due boards.tests.test_migration.DueChangesMigrationTests references   # PostgreSQL, после последних правок тестов
+Found 48 test(s).
+Ran 48 tests in 62.411s
+OK
