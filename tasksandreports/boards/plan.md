@@ -165,7 +165,9 @@
 | 22 | `tasks/stage-22.md` | `main` (`1bcbe0f..c81bf32`) | принят (`reviews/stage-22.md`) |
 | 23 | `tasks/stage-23.md` | `main` (`97e98ee..f5bc50e`) | принят (`reviews/stage-23.md`) |
 | 24 | `tasks/stage-24.md` | `main` (`cc9a196..b6f8ba0`) | принят (`reviews/stage-24.md`) |
-| 25 | `tasks/stage-25.md` | `main` | ждёт передачи владельцем |
+| 25 | `tasks/stage-25.md` | `main` (`dbcbf5c..9de5320`) | принят (`reviews/stage-25.md`) |
+
+Цикл 19–25 завершён. Итог и как работать дальше — `summary.md`.
 
 ## Принятые ограничения (к пилоту)
 
