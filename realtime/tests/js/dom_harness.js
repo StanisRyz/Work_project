@@ -526,9 +526,10 @@ function createEnvironment({
         // The board page as `boards/detail.html` draws it: the root with the
         // server-built addresses and the fingerprints, the columns with one
         // tile, and the card drawer — its heading (the guarded panel, with
-        // «Завершить»'s result field), the tab strip, «Описание»/«Файлы» (the
-        // guarded block's second container), «Чат» with its list and form,
-        // and «Лог» — and the conflict banner.
+        // «Завершить»'s result field), the tab strip, «Описание» (the guarded
+        // block's second container, the checklist, the facts — the third — and
+        // «Подписчики»), «Чат» with its modes, its list and its form with the
+        // file input, and «Лог» — and the conflict banner.
         const board = new Element('div');
         board.setAttribute('data-board', '');
         board.setAttribute('data-board-id', '4');
@@ -545,6 +546,7 @@ function createEnvironment({
         board.setAttribute('data-comments-revision', 'comments-rev-initial');
         board.setAttribute('data-log-revision', 'log-rev-initial');
         board.setAttribute('data-checklist-revision', 'checklist-rev-initial');
+        board.setAttribute('data-followers-revision', 'followers-rev-initial');
         board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
         // The sub-board tabs: a read-only live block of their own.
         const tabs = new Element('div');
@@ -576,16 +578,26 @@ function createEnvironment({
         execution.value = '';
         panel.append(close, execution);
         const strip = new Element('nav');
-        strip.innerHTML = ['description', 'chat', 'files', 'log'].map((name) => (
+        strip.innerHTML = ['description', 'chat', 'log'].map((name) => (
             `<a class="board-drawer__tab${name === 'description' ? ' is-active' : ''}" `
             + `href="/work/boards/4/7/?card=9&tab=${name}" data-board-tab-link="${name}" `
             + `data-board-tab-fragment-url="/work/boards/4/7/fragment/?card=9&tab=${name}">${name}`
-            + `${name === 'chat' || name === 'files' ? `<span data-board-tab-count="${name}">1</span>` : ''}</a>`
+            + `${name === 'chat' ? `<span data-board-tab-count="${name}">1</span>` : ''}</a>`
         )).join('');
         const card = new Element('div');
         card.setAttribute('data-live-board-card', '');
-        card.innerHTML = '<section data-board-tab-body="description">исходное описание</section>'
-            + '<section data-board-tab-body="files">исходные файлы</section>';
+        card.innerHTML = '<section data-board-tab-body="description">исходное описание</section>';
+        // The facts and the tools: the guarded block's third container, with
+        // «Переместить в…»'s select — and «Подписчики», a read-only block.
+        const facts = new Element('div');
+        facts.setAttribute('data-live-board-facts', '');
+        facts.innerHTML = '<section data-board-tab-body="description"><dl>исходные факты</dl></section>';
+        const move = new Element('select');
+        move.setAttribute('name', 'column_id');
+        facts.append(move);
+        const followers = new Element('div');
+        followers.setAttribute('data-live-board-followers', '');
+        followers.innerHTML = '<dl>исходные подписчики</dl>';
         // «Описание»'s pane: the guarded bodies above, then the card's
         // «Чек-лист» — a live block of its own — and its «Добавить пункт»,
         // in no block, as `boards/includes/drawer.html` draws them.
@@ -597,21 +609,43 @@ function createEnvironment({
         const checklistText = new Element('input');
         checklistText.setAttribute('name', 'text');
         checklistText.value = '';
-        pane.append(card, checklist, checklistText);
-        // «Чат»: the read-only message list and, below it, its form —
+        pane.append(card, checklist, checklistText, facts, followers);
+        // «Чат»: «Все сообщения | Только файлы · N», the read-only list and,
+        // below it, its form with the file input and the chosen files —
         // outside every live block, as `boards/includes/drawer.html` draws them.
         const chat = new Element('section');
         chat.setAttribute('data-board-tab-body', 'chat');
+        chat.setAttribute('data-board-chat-mode', 'messages');
+        const modes = new Element('nav');
+        modes.innerHTML = ['messages', 'files'].map((name) => (
+            `<a class="board-chat__mode${name === 'messages' ? ' is-active' : ''}" `
+            + `href="/work/boards/4/7/?card=9&tab=chat${name === 'files' ? '&chat=files' : ''}" data-board-chat-mode-link="${name}" `
+            + `data-board-chat-mode-fragment-url="/work/boards/4/7/fragment/?card=9&tab=chat${name === 'files' ? '&chat=files' : ''}">${name}`
+            + `${name === 'files' ? '<span data-board-chat-files-count>1</span>' : ''}</a>`
+        )).join('');
+        chat.append(modes);
         const comments = new Element('div');
         comments.setAttribute('data-live-board-comments', '');
         comments.innerHTML = '<ol><li data-comment-id="1">исходное сообщение</li></ol>';
         comments.scrollTop = 0;
         comments.scrollHeight = 0;
         comments.clientHeight = 0;
+        const chatForm = new Element('form');
+        chatForm.setAttribute('class', 'board-chat__form');
+        chatForm.setAttribute('data-chat-files', '');
         const commentText = new Element('textarea');
         commentText.setAttribute('name', 'text');
         commentText.value = '';
-        chat.append(comments, commentText);
+        const chosen = new Element('ul');
+        chosen.setAttribute('data-chat-files-list', '');
+        chosen.hidden = true;
+        const fileInput = new Element('input');
+        fileInput.setAttribute('type', 'file');
+        fileInput.setAttribute('name', 'files');
+        fileInput.setAttribute('data-chat-files-input', '');
+        fileInput.files = [];
+        chatForm.append(commentText, chosen, fileInput);
+        chat.append(comments, chatForm);
         const logBody = new Element('section');
         logBody.setAttribute('data-board-tab-body', 'log');
         const log = new Element('div');
@@ -638,9 +672,16 @@ function createEnvironment({
             drawer,
             panel,
             card,
+            facts,
+            move,
+            followers,
             execution,
+            chat,
             comments,
             commentText,
+            chatForm,
+            chosen,
+            fileInput,
             log,
             checklist,
             checklistText,

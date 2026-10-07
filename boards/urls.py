@@ -93,6 +93,17 @@ urlpatterns = [
     path('<int:pk>/cards/<int:card_pk>/reopen/', views.card_reopen, name='card_reopen'),
     path('<int:pk>/cards/<int:card_pk>/cancel/', views.card_cancel, name='card_cancel'),
     path('<int:pk>/cards/<int:card_pk>/comment/', views.card_comment, name='card_comment'),
+    # The files of «Чат»: protected — served only after reading the board is
+    # asked again; an image also inline, for its thumbnail.
+    path('<int:pk>/cards/<int:card_pk>/files/<int:file_pk>/', views.file_download, name='file_download'),
+    path(
+        '<int:pk>/cards/<int:card_pk>/files/<int:file_pk>/preview/',
+        views.file_preview, name='file_preview',
+    ),
+    path(
+        '<int:pk>/cards/<int:card_pk>/files/<int:file_pk>/delete/',
+        views.file_delete, name='file_delete',
+    ),
     # «Следить» / «Вы следите»: any reader of a live board.
     path('<int:pk>/cards/<int:card_pk>/subscribe/', views.card_subscribe, name='card_subscribe'),
     # The card's «Чек-лист»: whoever works on the board, an open card only.

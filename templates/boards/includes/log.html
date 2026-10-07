@@ -3,9 +3,10 @@
 read-only, so replaced whenever its fingerprint (`log_revision`) moves.
 
 The entries are the card's journal (`BoardCardEvent`, written by
-`boards/services.py` with every change) and, beside them by time, the files of
-its task — who added which file and when, read off `TaskAttachment`, never
-written twice. `selectors.card_log()` merges them and words each entry from
+`boards/services.py` with every change) and, beside them by time, the card's
+files — those of «Чат» (`BoardCardFile`, a deleted one marked «(удалён)») and
+the attachments its task got before — who added which file and when, read off
+the rows themselves, never written twice. `selectors.card_log()` merges them and words each entry from
 its stored snapshots, so a column renamed since still reads as it was then.
 Messages of «Чат» are not here; they are on their own tab.
 {% endcomment %}

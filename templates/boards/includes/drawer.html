@@ -1,25 +1,32 @@
 {% load people %}{% comment %}
 The card drawer: everything inside `<aside data-board-drawer>` of the board
-page, top to bottom — the heading, the tab strip, the four tab bodies. The page
-prints it, and `boards:fragment` returns it as `drawer_html` for
+page, top to bottom — the heading, the tab strip, the three tab bodies. The
+page prints it, and `boards:fragment` returns it as `drawer_html` for
 `board_drawer.js` to insert when it opens a card without reloading the page;
 it composes the live blocks already rendered (`panel_html`, `card_html`,
-`comments_html`, `log_html`) and adds no markup of theirs.
+`checklist_html`, `facts_html`, `followers_html`, `comments_html`,
+`log_html`) and adds no markup of theirs.
 
 Which tab is shown is the `<aside>`'s own `data-board-tab`, outside every
 block the live client replaces, so a replacement never changes the tab. The
 tab strip is links (`?tab=`), so without JavaScript a tab is a page; with it a
-tab is switched in place and the address follows. The numbers beside «Чат» and
-«Файлы» are set again by the live client together with their blocks.
+tab is switched in place and the address follows. The number beside «Чат» and
+«Только файлы · N» are set again by the live client together with the
+messages' block. «Чат» shows every message or only the files
+(`data-board-chat-mode`, `&chat=files`): both lists are in its block, the mode
+is the section's attribute, switched in place like a tab.
 
-The guarded block has two containers — the heading
-(`[data-live-board-panel]`) and the forms and files
-(`[data-live-board-card]`) — with one fingerprint. «Чат»'s messages
+The guarded block has three containers — the heading
+(`[data-live-board-panel]`), the description or the card's form
+(`[data-live-board-card]`) and the facts with the tools
+(`[data-live-board-facts]`) — with one fingerprint. «Чат»'s messages
 (`[data-live-board-comments]`) and «Лог» (`[data-live-board-log]`) are
 read-only blocks of their own, and the chat's form is in no block at all, so a
-message being typed is never redrawn. So is the card's «Чек-лист» on
-«Описание» (`[data-live-board-checklist]`), with «Добавить пункт» below it in
-no block.
+message being typed — and the files chosen for it — are never redrawn. So are
+the card's «Чек-лист» on «Описание» (`[data-live-board-checklist]`, between
+the description and the facts, with «Добавить пункт» below it in no block)
+and its «Подписчики» (`[data-live-board-followers]`, below the facts). The
+markup is in the order of the screen, so the focus follows it.
 {% endcomment %}
 <div class="board-drawer__frame">
     <div class="board-drawer__head" data-live-board-panel{% if card %} data-task-id="{{ card.task.pk }}"{% endif %}>{{ panel_html }}</div>
@@ -33,10 +40,10 @@ no block.
     {% endif %}
     {% comment %}
     «Описание» is one scrolling pane (`.board-drawer__pane`, nothing of its own
-    while another tab is shown): the guarded block's bodies, then the card's
-    «Чек-лист» — a live block of its own, outside the guarded one — and the
-    field that adds an item, in no live block at all, like the chat's form.
-    The stylesheet sets the list right under the description text.
+    while another tab is shown), in the order of the screen: the description
+    (or the form), the card's «Чек-лист» and the field that adds an item (in
+    no live block at all, like the chat's form), the facts and the tools, and
+    «Подписчики».
     {% endcomment %}
     <div class="board-drawer__pane">
         <div class="board-drawer__card" data-live-board-card>{{ card_html }}</div>
@@ -53,9 +60,24 @@ no block.
                 {% endif %}
             </section>
         {% endif %}
+        {% if panel == 'view' %}
+            <div class="board-drawer__card" data-live-board-facts>{{ facts_html }}</div>
+            <div class="board-drawer__followers-block" data-board-tab-body="description" data-live-board-followers>{{ followers_html }}</div>
+        {% endif %}
     </div>
     {% if show_discussion %}
-        <section class="board-drawer__body board-chat" data-board-tab-body="chat" aria-label="Чат">
+        <section class="board-drawer__body board-chat" data-board-tab-body="chat" data-board-chat-mode="{{ chat_mode }}" aria-label="Чат">
+            {% comment %}
+            «Все сообщения | Только файлы · N»: links to this very panel in
+            each mode (`&chat=files`), built by the server; `board_drawer.js`
+            switches the mode in place, as it switches a tab.
+            {% endcomment %}
+            <nav class="board-chat__modes" aria-label="Что показать в чате">
+                {% for mode in chat_modes %}
+                    <a class="board-chat__mode{% if mode.active %} is-active{% endif %}" href="{{ mode.page_url }}"
+                       data-board-chat-mode-link="{{ mode.name }}" data-board-chat-mode-fragment-url="{{ mode.fragment_url }}"{% if mode.active %} aria-current="true"{% endif %}>{{ mode.label }}{% if mode.name == 'files' %} · <span data-board-chat-files-count>{{ card.files_count }}</span>{% endif %}</a>
+                {% endfor %}
+            </nav>
             <div class="board-chat__list" data-live-board-comments>{{ comments_html }}</div>
             {% if card.can_comment %}
                 {% comment %}
@@ -64,14 +86,26 @@ no block.
                 writes «@Имя Фамилия» into the text and a hidden `mention` with
                 the id. Without JavaScript that list is the way: tick whom to
                 mention, the same `mention` values go with the message.
+
+                Files go with the message (`files`, multipart): without
+                JavaScript an ordinary file input; with `board_chat_files.js`
+                «📎», a file dropped on «Чат» or an image pasted into the text
+                (Ctrl+V of a screenshot), each chosen file a chip with «×»
+                until it is sent. The server checks every one of them.
                 {% endcomment %}
-                <form class="board-chat__form" method="post" action="{% url 'boards:card_comment' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if comment_error %}="dirty"{% endif %} data-board-mentions>
+                <form class="board-chat__form" method="post" enctype="multipart/form-data" action="{% url 'boards:card_comment' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if comment_error %}="dirty"{% endif %} data-board-mentions data-chat-files data-chat-files-max="{{ max_files_per_message }}">
                     {% csrf_token %}
                     <div class="board-mentions__field">
-                        <textarea id="board-comment-text" name="text" aria-label="Сообщение" rows="2" maxlength="4000" required placeholder="Сообщение участникам карточки — @, чтобы позвать коллегу" data-mention-input>{{ comment_text }}</textarea>
+                        <textarea id="board-comment-text" name="text" aria-label="Сообщение" rows="2" maxlength="4000" placeholder="Сообщение участникам карточки — @, чтобы позвать коллегу; файл — 📎, перетаскиванием или Ctrl+V" data-mention-input>{{ comment_text }}</textarea>
                     </div>
+                    <ul class="board-chat__chosen" data-chat-files-list aria-label="Выбранные файлы" hidden></ul>
                     {% if comment_error %}<p class="field-error">{{ comment_error }}</p>{% endif %}
                     <div class="board-chat__actions">
+                        <label class="board-chat__attach" title="Прикрепить файлы — не больше {{ max_files_per_message }} к сообщению">
+                            <span class="board-chat__attach-icon" aria-hidden="true">📎</span>
+                            <span class="board-chat__attach-label">Файлы</span>
+                            <input class="board-chat__file-input" type="file" name="files" multiple data-chat-files-input aria-label="Прикрепить файлы">
+                        </label>
                         {% if card.mention_people %}
                             <details class="board-mentions__fallback" data-mention-fallback>
                                 <summary>Упомянуть</summary>

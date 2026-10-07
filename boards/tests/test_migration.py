@@ -1,7 +1,7 @@
 """`boards.0006`–`0008`: the four fixed columns become «Основная» and back;
 `boards.0010`: the journal of cards stored before it; `boards.0015`: the card
 fields; `boards.0016`: «Застой» of a column; `boards.0017`: the checklist,
-the subscriptions and the mentions.
+the subscriptions and the mentions; `boards.0018`: the files of «Чат».
 
 Run through `MigrationExecutor` on the test database: the board app is taken
 back to `0005` (sub-boards exist, `stage` still rules), cards are written the
@@ -520,3 +520,56 @@ class ChecklistMigrationTests(TransactionTestCase):
         self.assertTrue(apps.get_model('boards', 'BoardCard').objects.filter(pk=card.pk).exists())
         self.assertTrue(apps.get_model('boards', 'BoardCardComment').objects.filter(pk=comment.pk).exists())
         self.assertEqual(apps.get_model('boards', 'BoardCardEvent').objects.filter(card_id=card.pk).count(), 1)
+
+
+CHAT_FILES_BEFORE = [('boards', '0017_checklist_subscriptions_mentions')]
+CHAT_FILES_AFTER = [('boards', '0018_chat_files')]
+
+
+class ChatFilesMigrationTests(TransactionTestCase):
+    """`boards.0018`: the files of «Чат», one new table; and back — the cards
+    and their messages stay, and nothing was copied out of the task's
+    attachments either way."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_forward_one_table_then_back(self):
+        apps = migrate(CHAT_FILES_BEFORE)
+        self.assertNotIn('boards_boardcardfile', _table_names())
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        BoardCardComment = apps.get_model('boards', 'BoardCardComment')
+        owner = User.objects.create(username='chat_files_migration_owner')
+        board = Board.objects.create(name='Доска', code='CF', owner=owner)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+        column = BoardColumn.objects.create(sub_board=sub_board, name='Сделать', position=1)
+        card = BoardCard.objects.create(
+            board=board, sub_board=sub_board, column=column, position=1024, number=1,
+            title='Карточка', created_by=owner,
+        )
+        comment = BoardCardComment.objects.create(card=card, author=owner, text='Сообщение')
+
+        apps = migrate(CHAT_FILES_AFTER)
+        self.assertIn('boards_boardcardfile', _table_names())
+        CardFile = apps.get_model('boards', 'BoardCardFile')
+        # Nothing to backfill: no message had a file.
+        self.assertEqual(CardFile.objects.count(), 0)
+        CardFile.objects.create(
+            card_id=card.pk, comment_id=comment.pk, uploaded_by_id=owner.pk,
+            file='boards/files/1/x.pdf', original_name='x.pdf', size=3,
+        )
+        apps.get_model('boards', 'BoardCardComment').objects.create(card_id=card.pk, author_id=owner.pk, text='')
+
+        # Back: the table goes; the card and both its messages stay.
+        apps = migrate(CHAT_FILES_BEFORE)
+        self.assertNotIn('boards_boardcardfile', _table_names())
+        self.assertTrue(apps.get_model('boards', 'BoardCard').objects.filter(pk=card.pk).exists())
+        self.assertEqual(apps.get_model('boards', 'BoardCardComment').objects.filter(card_id=card.pk).count(), 2)

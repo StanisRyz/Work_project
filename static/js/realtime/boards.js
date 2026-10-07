@@ -22,21 +22,28 @@
  *                              column menu left open (`details[data-board-menu]`,
  *                              perhaps with a new name half typed) holds it
  *                              back the same way, until the menu closes.
- *   [data-live-board-panel] +  the card drawer's guarded block, in two
- *   [data-live-board-card]     containers with one fingerprint
- *                              (`panel_revision`): the heading with
- *                              «Завершить», and «Описание» + «Файлы». It holds
+ *   [data-live-board-panel] +  the card drawer's guarded block, in three
+ *   [data-live-board-card] +   containers with one fingerprint
+ *   [data-live-board-facts]    (`panel_revision`): the heading with
+ *                              «Завершить», «Описание»'s text or the card's
+ *                              form, and the facts with the tools. It holds
  *                              forms, so it is guarded exactly like the act and
  *                              protocol work blocks: an unchanged fingerprint
  *                              does nothing, a changed one replaces a clean
  *                              block, and a block with unsaved input keeps
  *                              every typed character and raises the conflict
  *                              banner instead.
- *   [data-live-board-comments] the messages of «Чат»: read-only, replaced
- *                              whenever its fingerprint moved, keeping a reader
- *                              at the bottom there. Its form is outside every
- *                              block, and no message is part of the guarded
- *                              block — a message never raises the banner.
+ *   [data-live-board-comments] «Чат»: its messages with their files, and the
+ *                              list «Только файлы» — read-only, replaced
+ *                              whenever its fingerprint moved (a message, a
+ *                              file deleted), keeping a reader at the bottom
+ *                              there. Its form — and the files chosen in it —
+ *                              is outside every block, and no message is part
+ *                              of the guarded block: a message never raises
+ *                              the banner.
+ *   [data-live-board-followers] «Подписчики» on «Описание»: read-only,
+ *                              replaced whenever its fingerprint moved — a new
+ *                              follower never raises the banner either.
  *   [data-live-board-log]      «Лог»: read-only, replaced whenever its
  *                              fingerprint moved; no entry is part of the
  *                              guarded block either.
@@ -48,8 +55,8 @@
  *                              the menus, and fetched again once it is gone.
  *                              «Добавить пункт» is outside it.
  *
- * The numbers beside «Чат» and «Файлы» are set with their blocks
- * (`chat_count`, `files_count`). Which tab is shown is the drawer's own
+ * The numbers beside «Чат» and «Только файлы» are set with the messages'
+ * block (`chat_count`, `files_count`). Which tab is shown is the drawer's own
  * `data-board-tab`, outside every block, so no replacement changes it.
  *
  * The drawer is opened, switched and closed without a reload by
@@ -89,6 +96,8 @@
     // The drawer's blocks come and go with the card it shows: found anew.
     const panelElement = () => root.querySelector('[data-live-board-panel]');
     const cardElement = () => root.querySelector('[data-live-board-card]');
+    const factsElement = () => root.querySelector('[data-live-board-facts]');
+    const followersElement = () => root.querySelector('[data-live-board-followers]');
     const commentsElement = () => root.querySelector('[data-live-board-comments]');
     const logElement = () => root.querySelector('[data-live-board-log]');
     const checklistElement = () => root.querySelector('[data-live-board-checklist]');
@@ -120,7 +129,7 @@
     // nothing a refresh could discard, and a programmatic replacement
     // dispatches nothing.
     const insidePanel = (target) =>
-        Boolean(target) && [panelElement(), cardElement()].some(
+        Boolean(target) && [panelElement(), cardElement(), factsElement()].some(
             (element) => element && typeof element.contains === 'function' && element.contains(target),
         );
     ['input', 'change'].forEach((type) =>
@@ -215,16 +224,18 @@
         }
     };
 
-    const setCount = (name, value) => {
-        const count = root.querySelector(`[data-board-tab-count="${name}"]`);
+    const setText = (selector, value) => {
+        const count = root.querySelector(selector);
         if (count && Number.isInteger(value)) {
             count.textContent = String(value);
         }
     };
+    const setCount = (name, value) => setText(`[data-board-tab-count="${name}"]`, value);
 
     const applyPanel = (payload) => {
         const panel = panelElement();
         const card = cardElement();
+        const facts = factsElement();
         if (!panel || typeof payload.panel_html !== 'string') {
             return;
         }
@@ -250,14 +261,35 @@
         if (card && typeof payload.card_html === 'string') {
             card.innerHTML = payload.card_html;
         }
-        setRevision('panelRevision', next);
-        setCount('files', payload.files_count);
-        if (window.qualityFragments) {
-            window.qualityFragments.reinitialise(panel);
-            if (card) {
-                window.qualityFragments.reinitialise(card);
-            }
+        if (facts && typeof payload.facts_html === 'string') {
+            facts.innerHTML = payload.facts_html;
         }
+        setRevision('panelRevision', next);
+        if (window.qualityFragments) {
+            [panel, card, facts].forEach((element) => {
+                if (element) {
+                    window.qualityFragments.reinitialise(element);
+                }
+            });
+        }
+    };
+
+    /**
+     * «Подписчики»: avatars only, so replaced whenever the fingerprint moved —
+     * a colleague who starts following the card never touches the guarded
+     * block, and never raises the banner over a result being typed.
+     */
+    const applyFollowers = (payload) => {
+        const followers = followersElement();
+        if (!followers || typeof payload.followers_html !== 'string') {
+            return;
+        }
+        const next = revisionOf(payload.followers_revision);
+        if (next && next === revision('followersRevision')) {
+            return;
+        }
+        followers.innerHTML = payload.followers_html;
+        setRevision('followersRevision', next);
     };
 
     /**
@@ -313,6 +345,7 @@
         list.scrollTop = atBottom ? Number(list.scrollHeight || 0) : scrollTop;
         setRevision('commentsRevision', next);
         setCount('chat', payload.chat_count);
+        setText('[data-board-chat-files-count]', payload.files_count);
         if (window.qualityFragments) {
             window.qualityFragments.reinitialise(list);
         }
@@ -355,6 +388,7 @@
             applyComments(payload);
             applyLog(payload);
             applyChecklist(payload);
+            applyFollowers(payload);
         },
         // A lost session stops the whole client; a board that is gone stops
         // only this coordinator, which `createRefreshCoordinator` already did.

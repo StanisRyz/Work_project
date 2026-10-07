@@ -153,9 +153,10 @@ def task_detail(request, pk):
     # «Ознакомиться» and «Согласовать документ» are answered on the document.
     if task.is_routing_task and task.is_document_task and task.document_version_id:
         return redirect('documents:document_detail', task.document_version.document_id)
-    # A board card is worked on its board. Not a routing entry — it takes
-    # files exactly like any task — only shown elsewhere. `?tab=files` (where
-    # an attachment request comes back to) opens the panel on its files.
+    # A board card is worked on its board. Not a routing entry — only shown
+    # elsewhere. `?tab=` names the drawer's tab: `chat` (where a message's
+    # notification and an older attachment's deletion come back to), and the
+    # old `files`, which the board reads as «Чат» showing its files.
     if task.is_board_task and task.board_card_id:
         tab = request.GET.get('tab', '')
         return redirect(board_card_url(task, tab if tab.isalpha() else ''))
@@ -230,16 +231,9 @@ def complete_task_view(request, pk):
     return _redirect_to_next_task(request, task, list_query)
 
 
-def _back_to_board_card(request, task, error):
-    """A refused upload on a `BOARD` task: the message goes to the card's files.
-
-    The task page is never drawn for a board task, so where it would come back
-    with the error beside the form, the board does instead. No «Выполнение»
-    draft travels: the board's result is typed into «Завершить» in the panel's
-    heading, and no attachment form carries it.
-    """
-    messages.error(request, error)
-    return redirect(board_card_url(task, 'files'))
+# A card's files are attached to a message of its «Чат», never to its task:
+# `tasks:add_attachment` creates nothing for a `BOARD` task and leads there.
+BOARD_ATTACHMENT_REFUSAL = 'Файлы карточки прикрепляют в чате.'
 
 
 def _redirect_to_next_task(request, done_task, list_query):
@@ -309,6 +303,11 @@ def task_add_attachment(request, pk):
     re-checked in the service under the row lock.
     """
     task = get_object_or_404(get_visible_tasks_queryset(request.user), pk=pk)
+    # A board card takes its files in its «Чат»: nothing is written here, and
+    # the card's chat opens with the reason. `tasks` names the route only.
+    if task.is_board_task and task.board_card_id:
+        messages.info(request, BOARD_ATTACHMENT_REFUSAL)
+        return redirect(board_card_url(task, 'chat'))
     if request.method != 'POST':
         return redirect('tasks:detail', pk=pk)
     list_query = request.POST.get('list_query', '')
@@ -329,9 +328,6 @@ def task_add_attachment(request, pk):
         remember_execution_draft(request, task, execution_comment)
         return redirect(f"{reverse('tasks:detail', args=[task.pk])}"
                         f"{'?' + list_query if list_query else ''}")
-    if task.is_board_task:
-        errors = [str(error) for error in form.errors.get('file', [])]
-        return _back_to_board_card(request, task, ' '.join(['Проверьте файл вложения.', *errors]))
     messages.error(request, 'Проверьте файл вложения.')
     context = _task_detail_context(
         task, request.user, list_query, execution_comment, attachment_form=form,

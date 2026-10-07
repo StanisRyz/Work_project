@@ -1049,8 +1049,9 @@
     font-weight: 700;
 }
 
-/* «Описание» and «Файлы» sit in the guarded block's second container, which
-   lays its bodies straight into the drawer's column. */
+/* The guarded block's second and third containers (the description or the
+   form, the facts and tools) lay their bodies straight into «Описание»'s
+   pane. */
 .board-drawer__card {
     display: contents;
 }
@@ -1067,7 +1068,6 @@
 }
 
 .board-drawer[data-board-tab="description"] [data-board-tab-body="description"],
-.board-drawer[data-board-tab="files"] [data-board-tab-body="files"],
 .board-drawer[data-board-tab="log"] [data-board-tab-body="log"] {
     display: grid;
 }
@@ -1174,24 +1174,6 @@
 
 .board-drawer__conflict {
     margin: 0;
-}
-
-/* «Файлы»: the task page's card, set flat inside the tab. */
-.board-drawer__body .task-detail-attachments-card {
-    display: grid;
-    gap: 8px;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: none;
-    box-shadow: none;
-}
-
-.board-drawer__body .task-detail-attachments-card h2 {
-    margin: 0;
-    color: var(--color-text);
-    font-size: var(--font-size-base);
 }
 
 .board-card-form {
@@ -2202,12 +2184,12 @@
 
 /* ---- «Описание»: one pane, and the card's «Чек-лист» in it ---- */
 
-/* While «Описание» is shown, the pane is its one scrolling body: the guarded
-   block's description section lays its parts straight into it
-   (`display: contents`), and the checklist — a live block of its own,
-   outside the guarded one — sits right under the description text (or the
-   card form), above the facts. On any other tab the pane is nothing of its
-   own and its bodies follow their own rules. */
+/* While «Описание» is shown, the pane is its one scrolling body, in the order
+   of the markup — which is the order of the screen and of the focus: the
+   description (or the card form), the checklist (a live block of its own,
+   outside the guarded one), the facts and tools, «Подписчики». The guarded
+   block's sections lay their parts straight into it (`display: contents`).
+   On any other tab the pane is nothing of its own. */
 .board-drawer__pane {
     display: contents;
 }
@@ -2226,20 +2208,24 @@
     display: contents;
 }
 
-.board-drawer__pane [data-board-tab-body="description"] > * {
-    order: 2;
-}
-
-.board-drawer__pane .board-drawer__description,
-.board-drawer__pane .board-drawer__empty,
-.board-drawer__pane .board-card-form {
-    order: 0;
-}
-
 .board-checklist {
     display: none;
-    order: 1;
     gap: 8px;
+}
+
+/* «Подписчики»: below the facts and the tools, only on «Описание», and
+   nothing while nobody follows. */
+.board-drawer__followers-block {
+    display: none;
+}
+
+.board-drawer[data-board-tab="description"] .board-drawer__followers-block:empty {
+    display: none;
+}
+
+.board-drawer__followers {
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
 }
 
 .board-checklist__block {
@@ -2527,4 +2513,296 @@
     background: var(--board-color-blue-bg);
     color: var(--board-color-blue-text);
     font-weight: 700;
+}
+
+/* ---- Files in «Чат» ---- */
+
+/* «Все сообщения | Только файлы · N» above the list. */
+.board-chat__modes {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 4px;
+    padding: 8px 16px 0;
+}
+
+.board-chat__mode {
+    padding: 3px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-muted);
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.board-chat__mode:hover {
+    color: var(--color-text);
+}
+
+.board-chat__mode.is-active {
+    border-color: var(--color-primary);
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+/* The mode is the chat section's attribute; both lists are in its block. */
+.board-chat[data-board-chat-mode="messages"] [data-board-chat-view="files"],
+.board-chat[data-board-chat-mode="files"] [data-board-chat-view="messages"] {
+    display: none;
+}
+
+/* Files dragged over «Чат». */
+.board-chat.is-dropping {
+    outline: 2px dashed var(--color-primary);
+    outline-offset: -4px;
+}
+
+.board-discussion__message.is-highlighted {
+    border-radius: var(--radius);
+    background: var(--board-color-yellow-bg);
+}
+
+/* Thumbnails of the images of a message: a bounded height, the full size in
+   a new tab. */
+.board-chat__images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 6px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-chat__image {
+    display: grid;
+    gap: 4px;
+    max-width: 240px;
+    min-width: 0;
+}
+
+.board-chat__image img {
+    display: block;
+    max-width: 240px;
+    max-height: 160px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    object-fit: contain;
+}
+
+.board-chat__image-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 13px;
+}
+
+/* Any other file of a message, or of the task: one row each. */
+.board-chat__files,
+.board-chat__all-files {
+    display: grid;
+    gap: 4px;
+    margin: 6px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 4px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    font-size: 13px;
+}
+
+.board-file--deleted {
+    border-style: dashed;
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-style: italic;
+}
+
+.board-file--listed {
+    padding: 6px 8px;
+}
+
+.board-file__badge {
+    flex: 0 0 auto;
+    min-width: 34px;
+    padding: 1px 4px;
+    border-radius: var(--radius);
+    background: var(--board-color-gray-bg);
+    color: var(--board-color-gray-text);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.board-file__badge--pdf { background: var(--board-color-red-bg); color: var(--board-color-red-text); }
+.board-file__badge--doc { background: var(--board-color-blue-bg); color: var(--board-color-blue-text); }
+.board-file__badge--xls { background: var(--board-color-green-bg); color: var(--board-color-green-text); }
+.board-file__badge--img { background: var(--board-color-purple-bg); color: var(--board-color-purple-text); }
+.board-file__badge--txt { background: var(--board-color-yellow-bg); color: var(--board-color-yellow-text); }
+
+.board-file__main {
+    display: grid;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.board-file__name {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.board-file__size,
+.board-file__meta {
+    color: var(--color-muted);
+    white-space: nowrap;
+}
+
+.board-file__meta {
+    font-size: 12px;
+}
+
+.board-file__download,
+.board-file__goto {
+    flex: 0 0 auto;
+    color: var(--color-primary);
+    white-space: nowrap;
+}
+
+.board-file__download:hover,
+.board-file__goto:hover {
+    color: var(--color-primary-dark);
+    text-decoration: underline;
+}
+
+.board-file__delete-form {
+    display: contents;
+}
+
+.board-file__delete {
+    flex: 0 0 auto;
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.board-file__delete:hover,
+.board-file__delete:focus-visible {
+    color: var(--board-color-red-text);
+}
+
+/* «📎 Файлы»: without JavaScript an ordinary file input beside the word;
+   with `board_chat_files.js` (`[data-chat-files-ready]`) the label is the
+   button and the input is hidden — still focusable, for the keyboard. */
+.board-chat__attach {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--color-muted);
+    cursor: pointer;
+}
+
+.board-chat__attach-icon {
+    font-size: 16px;
+}
+
+form[data-chat-files-ready] .board-chat__attach {
+    position: relative;
+    height: var(--control-height);
+    padding: 0 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+form[data-chat-files-ready] .board-chat__attach:hover,
+form[data-chat-files-ready] .board-chat__attach:focus-within {
+    border-color: var(--color-primary);
+}
+
+form[data-chat-files-ready] .board-chat__file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* The files chosen for the message, before it is sent. */
+.board-chat__chosen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-chat__chosen[hidden] {
+    display: none;
+}
+
+.board-chat__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 2px 4px 2px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    font-size: 13px;
+}
+
+.board-chat__chip-name {
+    max-width: 260px;
+    min-width: 0;
+}
+
+.board-chat__chip-size {
+    color: var(--color-muted);
+    white-space: nowrap;
+}
+
+.board-chat__chip-remove {
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.board-chat__chip-remove:hover,
+.board-chat__chip-remove:focus-visible {
+    color: var(--board-color-red-text);
+}
+
+/* «📎 N» on a tile. */
+.board-tile__files {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }

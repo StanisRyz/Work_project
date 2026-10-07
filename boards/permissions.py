@@ -286,3 +286,23 @@ def can_follow_card(user, card, *, can_view=None):
     if card.board.is_archived:
         return False
     return can_view_board(user, card.board) if can_view is None else bool(can_view)
+
+
+def can_delete_card_file(user, card_file, board, *, can_work=None, is_admin=None):
+    """«×» beside a file of «Чат»: whoever uploaded it, while still working
+    on the board (an active member), or an administrator.
+
+    Never on an archived board — `can_work_on_board()` already says no
+    there — and never twice: a deleted file is a tombstone with nothing left
+    to remove. Not «whoever may write in the chat»: a message is its
+    author's, and a colleague's file is not theirs to take away. `can_work`
+    (`can_work_on_board()`) and `is_admin` (`is_act_admin()`) may be passed
+    when the page asked them already, so the chat does not ask them per file.
+    """
+    if card_file.deleted_at is not None:
+        return False
+    if not (can_work_on_board(user, board) if can_work is None else can_work):
+        return False
+    if is_act_admin(user) if is_admin is None else is_admin:
+        return True
+    return card_file.uploaded_by_id == getattr(user, 'pk', None)

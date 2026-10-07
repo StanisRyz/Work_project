@@ -10,10 +10,12 @@ from django.urls import reverse
 
 from references.models import TaskStatus
 from tasks.models import Task, TaskAttachment
-from tasks.services import add_task_attachment, complete_task
+from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
 
 from ..services import create_board
-from .helpers import FOLLOW_FORM, BoardFixtureMixin, board_url, done_column_of, fresh_code, new_card
+from .helpers import (
+    FOLLOW_FORM, BoardFixtureMixin, board_url, done_column_of, fresh_code, legacy_attachment, new_card,
+)
 
 
 def task_of(card):
@@ -27,8 +29,8 @@ def main_of(response):
 
 
 def panel_of(content):
-    """The guarded card panel alone — its heading, «Описание» and «Файлы» —
-    without «Чат» and «Лог», its siblings."""
+    """The card panel's «Описание» — its heading, the description, the
+    checklist, the facts and tools, the followers — without «Чат» and «Лог»."""
     return content.split('data-live-board-panel', 1)[1].split('data-board-tab-body="chat"', 1)[0]
 
 
@@ -60,18 +62,28 @@ class RedirectTests(PanelTestMixin, TestCase):
         response = self.client.get(reverse('tasks:detail', args=[self.task.pk]))
         self.assertRedirects(response, self.card_url)
 
-    def test_an_upload_comes_back_to_the_files_and_carries_no_draft(self):
+    def test_an_upload_creates_nothing_and_leads_to_the_chat(self):
+        """A card's files are attached in its «Чат»; its task takes none."""
         self.client.force_login(self.member)
         response = self.client.post(
             reverse('tasks:add_attachment', args=[self.task.pk]),
             {'file': upload(), 'list_query': 'tab=files', 'execution_comment': 'Почти готово'},
             follow=True,
         )
-        self.assertRedirects(response, f'{self.card_url}&tab=files')
-        self.assertEqual(response.context['tab'], 'files')
+        self.assertRedirects(response, f'{self.card_url}&tab=chat')
+        self.assertEqual(response.context['tab'], 'chat')
+        self.assertContains(response, 'Файлы карточки прикрепляют в чате')
         self.assertEqual(response.context['execution_comment'], '')
         self.assertNotContains(response, 'Почти готово')
-        self.assertEqual(TaskAttachment.objects.filter(task=self.task).count(), 1)
+        self.assertFalse(TaskAttachment.objects.exists())
+        # A GET is led there too, and the service refuses whoever calls it.
+        self.assertRedirects(
+            self.client.get(reverse('tasks:add_attachment', args=[self.task.pk])),
+            f'{self.card_url}&tab=chat', fetch_redirect_response=False,
+        )
+        with self.assertRaises(TaskWorkflowError):
+            add_task_attachment(self.task, self.member, upload())
+        self.assertFalse(TaskAttachment.objects.exists())
 
     def test_tasks_complete_does_nothing_for_a_board_task(self):
         self.client.force_login(self.member)
@@ -96,18 +108,32 @@ class RedirectTests(PanelTestMixin, TestCase):
         self.assertEqual(self.task.status.code, 'COMPLETED')
         self.assertFalse(self.card_obj.events.filter(kind='REOPENED').exists())
 
-    def test_upload_error_goes_back_to_the_files(self):
+    def test_a_bad_file_is_not_even_looked_at(self):
         self.client.force_login(self.member)
         response = self.client.post(
             reverse('tasks:add_attachment', args=[self.task.pk]),
             {'file': upload('вирус.exe'), 'execution_comment': 'Текст'},
             follow=True,
         )
-        self.assertRedirects(response, f'{self.card_url}&tab=files')
+        self.assertRedirects(response, f'{self.card_url}&tab=chat')
         self.assertTemplateNotUsed(response, 'tasks/detail.html')
-        self.assertContains(response, 'Проверьте файл вложения.')
-        self.assertEqual(response.context['execution_comment'], '')
+        self.assertContains(response, 'Файлы карточки прикрепляют в чате')
         self.assertFalse(TaskAttachment.objects.exists())
+
+    def test_other_sources_upload_as_before(self):
+        from bugs.models import BugReport
+        from tasks.services import create_bug_report_task
+
+        report = BugReport.objects.create(reporter=self.member, message='Ошибка', page_url='/')
+        task = create_bug_report_task(
+            report, [self.member.pk], created_by=self.member, due_date=self.task.due_date,
+        )
+        self.client.force_login(self.member)
+        response = self.client.post(
+            reverse('tasks:add_attachment', args=[task.pk]), {'file': upload(), 'execution_comment': ''},
+        )
+        self.assertRedirects(response, reverse('tasks:detail', args=[task.pk]), fetch_redirect_response=False)
+        self.assertEqual(TaskAttachment.objects.filter(task=task).count(), 1)
 
 
 @MEDIA
@@ -182,23 +208,31 @@ class PanelWorkTests(PanelTestMixin, TestCase):
             self.panel(self.member), reverse('boards:card_reopen', args=[self.board.pk, self.card_obj.pk]),
         )
 
-    def test_attachment_is_uploaded_and_deleted_back_to_the_board(self):
-        self.client.force_login(self.member)
-        response = self.client.post(
-            reverse('tasks:add_attachment', args=[self.task.pk]), {'file': upload()}, follow=True,
-        )
-        self.assertRedirects(response, self.card_url)
-        attachment = TaskAttachment.objects.get(task=self.task)
+    def test_an_older_attachment_is_shown_in_the_chat_and_deleted_back_to_the_board(self):
+        attachment = legacy_attachment(self.task, self.member)
+        response = self.panel(self.member)
         self.assertContains(response, reverse('tasks:download_attachment', args=[self.task.pk, attachment.pk]))
         self.assertContains(response, reverse('tasks:delete_attachment', args=[self.task.pk, attachment.pk]))
+        self.assertNotContains(response, reverse('tasks:add_attachment', args=[self.task.pk]))
         response = self.client.post(
-            reverse('tasks:delete_attachment', args=[self.task.pk, attachment.pk]), follow=True,
+            reverse('tasks:delete_attachment', args=[self.task.pk, attachment.pk]),
+            {'list_query': 'tab=chat'}, follow=True,
         )
-        self.assertRedirects(response, self.card_url)
+        self.assertRedirects(response, f'{self.card_url}&tab=chat')
         self.assertFalse(TaskAttachment.objects.exists())
 
+    def test_an_older_attachment_is_deleted_by_the_task_rule_only(self):
+        attachment = legacy_attachment(self.task, self.member)
+        # Not an исполнитель: no cross, and the route refuses.
+        self.assertNotContains(
+            self.panel(self.colleague), reverse('tasks:delete_attachment', args=[self.task.pk, attachment.pk]),
+        )
+        response = self.client.post(reverse('tasks:delete_attachment', args=[self.task.pk, attachment.pk]))
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(TaskAttachment.objects.filter(pk=attachment.pk).exists())
+
     def test_completed_card_downloads_only(self):
-        attachment = add_task_attachment(self.task, self.member, upload())
+        attachment = legacy_attachment(self.task, self.member)
         complete_task(self.task, self.member, 'Готово')
         content = main_of(self.panel(self.member))
         self.assertIn(reverse('tasks:download_attachment', args=[self.task.pk, attachment.pk]), content)
@@ -226,11 +260,11 @@ class PanelWorkTests(PanelTestMixin, TestCase):
 
     def test_query_count_does_not_depend_on_cards_or_attachments(self):
         self.client.force_login(self.member)
-        add_task_attachment(self.task, self.member, upload())
+        legacy_attachment(self.task, self.member)
         complete_task(task_of(self.card('Готовая')), self.member, 'Да')
         baseline = self._page_queries()
         for index in range(4):
-            add_task_attachment(self.task, self.member, upload(f'файл-{index}.pdf'))
+            legacy_attachment(self.task, self.member, f'файл-{index}.pdf')
         for index in range(5):
             self.card(f'Ещё {index}', assignees=[self.member, self.colleague])
         for index in range(2):

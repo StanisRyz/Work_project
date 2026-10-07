@@ -221,26 +221,54 @@ class SubscriptionRouteTests(SubscriptionMixin, TestCase):
     def test_the_button_and_the_followers_on_the_description(self):
         payload = self.panel(self.follower)
         self.assertIn('>Следить</button>', payload['panel_html'])
-        self.assertNotIn('Подписчики', payload['card_html'])
+        self.assertEqual(payload['followers_html'].strip(), '')
+        self.assertNotIn('Подписчики', payload['card_html'] + payload['facts_html'])
         toggle_card_subscription(self.card_obj, actor=self.follower)
         self.follower.first_name, self.follower.last_name = 'Олег', 'Следящий'
         self.follower.save()
         payload = self.panel(self.follower)
         self.assertIn('>Вы следите</button>', payload['panel_html'])
         self.assertIn('aria-pressed="true"', FOLLOW_FORM.search(payload['panel_html']).group(0))
-        self.assertIn('<dt>Подписчики</dt>', payload['card_html'])
-        self.assertIn('title="Олег Следящий">ОС</span>', payload['card_html'])
+        # «Подписчики» are a read-only block of their own, below the facts.
+        self.assertIn('<dt>Подписчики</dt>', payload['followers_html'])
+        self.assertIn('title="Олег Следящий">ОС</span>', payload['followers_html'])
+        self.assertNotIn('Подписчики', payload['card_html'] + payload['facts_html'])
+        drawer = payload['drawer_html']
+        self.assertLess(drawer.index('data-live-board-facts'), drawer.index('data-live-board-followers'))
         # Somebody else sees the follower, and their own «Следить».
         payload = self.panel(self.member)
         self.assertIn('>Следить</button>', payload['panel_html'])
-        self.assertIn('title="Олег Следящий"', payload['card_html'])
+        self.assertIn('title="Олег Следящий"', payload['followers_html'])
+
+    def test_a_new_follower_moves_their_block_and_never_the_guarded_panel(self):
+        before = self.panel(self.member)
+        toggle_card_subscription(self.card_obj, actor=self.follower)
+        after = self.panel(self.member)
+        self.assertEqual(before['panel_revision'], after['panel_revision'])
+        self.assertNotEqual(before['followers_revision'], after['followers_revision'])
+        # The colleague a message mentions follows too — and the panel of
+        # whoever is reading (perhaps typing a result) stays as it was.
+        stranger = make_user('mentioned_follower')
+        add_board_members(self.board, [stranger.pk], actor=self.owner)
+        post_card_comment(self.card_obj, actor=self.colleague, text='Посмотри', mentions=[stranger.pk])
+        mentioned = self.panel(self.member)
+        self.assertEqual(after['panel_revision'], mentioned['panel_revision'])
+        self.assertNotEqual(after['followers_revision'], mentioned['followers_revision'])
+
+    def test_the_page_carries_the_followers_fingerprint(self):
+        toggle_card_subscription(self.card_obj, actor=self.follower)
+        self.client.force_login(self.member)
+        page = self.client.get(board_url(self.board), {'card': self.card_obj.pk}).content.decode()
+        payload = self.panel(self.member)
+        self.assertIn(f'data-followers-revision="{payload["followers_revision"]}"', page)
+        self.assertIn(payload['followers_html'], page)
 
     def test_five_avatars_and_the_rest_counted(self):
         people = [make_user(f'many_follower_{index}') for index in range(7)]
         add_board_members(self.board, [person.pk for person in people], actor=self.owner)
         for person in people:
             toggle_card_subscription(self.card_obj, actor=person)
-        html = self.panel(self.member)['card_html']
+        html = self.panel(self.member)['followers_html']
         facts = html.split('<dt>Подписчики</dt>', 1)[1].split('</dd>', 1)[0]
         self.assertEqual(facts.count('board-avatar'), 5)
         self.assertIn('+2', facts)

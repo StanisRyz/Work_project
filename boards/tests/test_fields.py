@@ -621,7 +621,7 @@ class FieldDisplayTests(FieldsMixin, TestCase):
     def test_description_shows_every_value_formatted_and_the_archived_marked(self):
         archive_field(self.customer, actor=self.owner)
         archive_option(self.yes, actor=self.owner)
-        html = self.fragment(card=self.card_obj.pk)['card_html']
+        html = self.fragment(card=self.card_obj.pk)['facts_html']
         expected = [
             'Номер заявки</dt><dd><span class="user-text">З-17</span></dd>',
             'Заказ покупателя</dt><dd><span class="user-text">ООО «Ромашка»</span> <span class="board-drawer__archived">(в архиве)</span>',
@@ -640,7 +640,7 @@ class FieldDisplayTests(FieldsMixin, TestCase):
 
     def test_an_empty_value_is_not_shown(self):
         card = self.card('Пустая', field_values={self.order.pk: '5'})
-        html = self.fragment(card=card.pk)['card_html']
+        html = self.fragment(card=card.pk)['facts_html']
         self.assertIn('Номер заявки</dt>', html)
         self.assertNotIn('Срок изг.</dt>', html)
         self.assertNotIn('Приоритет</dt>', html)
@@ -720,7 +720,10 @@ class FieldDisplayTests(FieldsMixin, TestCase):
                 page = self.client.get(board_url(self.board), query).content.decode()
                 assert_page_matches_fragment(
                     self, page, self.fragment(**query),
-                    blocks={'tabs': ('tabs_html',), 'columns': ('columns_html',), 'panel': ('panel_html', 'card_html')},
+                    blocks={
+                        'tabs': ('tabs_html',), 'columns': ('columns_html',),
+                        'panel': ('panel_html', 'card_html', 'facts_html'),
+                    },
                 )
 
     def test_the_columns_fingerprint_follows_tile_values_and_the_setup(self):
@@ -759,8 +762,10 @@ class FieldQueryCountTests(FieldsMixin, TestCase):
 
     # A sub-board page with a card open, for an исполнитель of it, on a board
     # with card fields (`boards/tests/test_journal.py` measures one without);
-    # two more since the card's «Чек-лист» and its followers are read.
-    PAGE_QUERIES = 39
+    # two more since the card's «Чек-лист» and its followers are read; at
+    # stage 19 one more for the files of «Чат» and two fewer (the member
+    # count and the tabs read once).
+    PAGE_QUERIES = 38
 
     def setUp(self):
         self.make_fields()

@@ -364,7 +364,7 @@ class CrossSubBoardMoveTests(PinsFixture, TestCase):
 
     def test_move_to_offers_every_sub_board_grouped_current_first(self):
         self.client.force_login(self.member)
-        card_html = self.client.get(fragment_url(self.board), {'card': self.card_obj.pk}).json()['card_html']
+        card_html = self.client.get(fragment_url(self.board), {'card': self.card_obj.pk}).json()['facts_html']
         self.assertIn('aria-label="Переместить в колонку"', card_html)
         main_group = card_html.index('<optgroup label="Основная">')
         tab_group = card_html.index('<optgroup label="Цех ПиР">')

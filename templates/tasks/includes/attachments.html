@@ -1,10 +1,12 @@
 {% load people %}{% comment %}
-«Вложения» of one ordinary task — the task page and the board's card panel
-both include this, so a file is uploaded, listed and removed the same way in
-both. It reads `task`, `attachments` (`tasks.presentation.task_attachment_cards()`),
+«Вложения» of one ordinary task, on the task page. It reads `task`,
+`attachments` (`tasks.presentation.task_attachment_cards()`),
 `can_upload_attachment`, `attachment_form`, `list_query` and `execution_comment`.
 The upload and delete forms carry the unsaved «Выполнение» text from
-`#task-execution-comment`, which both pages give their textarea.
+`#task-execution-comment`. A board card's task is never drawn here: its files
+are the board's own, in the card's «Чат», where the attachments the task got
+before are shown among the messages (from the same `task_attachment_cards()`
+list, removed through the same `tasks:delete_attachment`).
 {% endcomment %}
 <section class="task-detail-attachments-card">
     <h2>Вложения</h2>

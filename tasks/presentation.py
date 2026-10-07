@@ -27,8 +27,9 @@ def board_card_url(task, tab=''):
     `Task.board_card` relation (its `board_id` and `sub_board_id`) are read,
     exactly as `acts:detail` and `protocols:detail` are named elsewhere in this
     module; `tasks` never imports `boards`. `tab` names the panel's tab to
-    open (the files after an upload); the board reads it and falls back to
-    «Описание» for anything it does not know.
+    open («Чат» after a message, or after an older attachment of the task is
+    removed; the old `files` is «Чат» showing its files); the board reads it
+    and falls back to «Описание» for anything it does not know.
     """
     card = task.board_card
     board_url = reverse('boards:sub_board', args=[card.board_id, card.sub_board_id])

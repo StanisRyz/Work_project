@@ -9,9 +9,10 @@ shows one more. The board's own card fields are one query with their options
 one prefetch, and the values of every card on the page — the panel's included
 — one more. A filter — «Мои», the search, a field's — is a condition of the
 tasks' own query (a field filter an `Exists()`), never a query of its own.
-A tile's «☑ 2/5» is an annotation of that same query; the open card's
-«Чек-лист» is one query, its followers (the board's readers, marked) one
-more, and the mentions of its messages one prefetch. Who hears about a card
+A tile's «☑ 2/5» and «📎 N» are annotations of that same query; the open
+card's «Чек-лист» is one query, its followers (the board's readers, marked)
+one more, the mentions of its messages one prefetch, and the files of its
+«Чат» one query. Who hears about a card
 is `card_audience()`, one query.
 """
 
@@ -38,6 +39,7 @@ from .models import (
     BoardCardCommentMention,
     BoardCardEvent,
     BoardCardFieldValue,
+    BoardCardFile,
     BoardColumn,
     BoardField,
     BoardFieldOption,
@@ -49,6 +51,7 @@ from .permissions import (
     active_employee_q,
     board_readers_q,
     can_cancel_card,
+    can_delete_card_file,
     can_edit_checklist,
     can_follow_card,
     can_manage_board,
@@ -455,10 +458,22 @@ def _tasks_with_cards(tasks):
         .prefetch_related(Prefetch('assignees', queryset=TaskAssignee.objects.select_related('user')))
         .annotate(
             comment_count=_count_subquery(comments, 'card'),
+            file_count=file_count_annotation(),
             in_column_since=in_column_since(),
             **checklist_annotations(),
         )
     )
+
+
+def file_count_annotation():
+    """«📎 N» of a tile: the card's live files of «Чат» plus the attachments
+    its task got before files moved into the chat — two subqueries of the
+    tasks' own query, so the counter costs no query per tile."""
+    from tasks.models import TaskAttachment
+
+    chat_files = BoardCardFile.objects.filter(card=OuterRef('board_card'), deleted_at__isnull=True)
+    attachments = TaskAttachment.objects.filter(task=OuterRef('pk'))
+    return _count_subquery(chat_files, 'card') + _count_subquery(attachments, 'task')
 
 
 def checklist_annotations():
@@ -489,6 +504,8 @@ def _item(task, board):
         'due_date': task.due_date,
         'is_closed': is_closed,
         'comment_count': getattr(task, 'comment_count', 0),
+        # «📎 N»: the card's files, counted in the tasks' own query.
+        'file_count': getattr(task, 'file_count', 0),
         # «☑ 2/5»: the card's «Чек-лист», counted in the tasks' own query.
         'checklist_total': getattr(task, 'checklist_total', 0),
         'checklist_done': getattr(task, 'checklist_done', 0),
@@ -715,11 +732,14 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     missing id, text. Unlike the columns, a cancelled card is found too — its
     panel is the read-only record of what was withdrawn.
 
-    The panel is where a `BOARD` task is worked, so the card also carries what
-    the task page used to show: its attachments
-    (`tasks.presentation.task_attachment_cards()`, the task page's own list)
-    and the task rights, each asked once of `tasks.permissions` — the board
-    has no rules of its own about completing, reopening or files.
+    The panel is where a `BOARD` task is worked, so the card also carries the
+    task rights, each asked once of `tasks.permissions` — the board has no
+    rules of its own about completing or reopening — and the attachments the
+    task got before files moved into «Чат»
+    (`tasks.presentation.task_attachment_cards()`, the task page's own list,
+    with its delete right). «Чат» itself (`build_chat()`) is its messages,
+    their files — the board's own, one query for the card, each with
+    `permissions.can_delete_card_file()` — and those older attachments.
 
     `loaded` are the tasks the columns already read (`{card id: task}`): the
     open card is almost always among them, and its исполнители are taken from
@@ -728,12 +748,9 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     `can_work` is `can_work_on_board()`, asked once for the page: writing in
     «Чат» is exactly that right (`can_comment_card()`).
     """
+    from acts.permissions import is_act_admin
     from tasks.models import TaskAssignee
-    from tasks.permissions import (
-        can_complete_task,
-        can_reopen_task,
-        can_upload_task_attachment,
-    )
+    from tasks.permissions import can_complete_task, can_reopen_task
     from tasks.presentation import task_attachment_cards
 
     try:
@@ -777,7 +794,6 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     item['can_complete'] = can_complete_task(task, user)
     # An archived board stays as it was shelved: `reopen_card()` refuses it.
     item['can_reopen'] = can_reopen_task(task, user) and not board.is_archived
-    item['can_upload_attachment'] = can_upload_task_attachment(task, user)
     item['can_cancel'] = (
         task.status.code == 'IN_PROGRESS' and can_cancel_card(user, card)
     )
@@ -799,7 +815,22 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
         item['comments'] = list(messages.order_by('-created_at', '-pk')[:COMMENTS_LIMIT])[::-1]
     item['comments_earlier'] = max(item['comment_count'] - len(item['comments']), 0)
     item['can_comment'] = can_work
-    item['log'] = card_log(card, item['attachments'])
+    # «Чат»'s files: every file of the card, deleted ones too, in one query —
+    # shared out to the messages shown, listed under «Только файлы» and named
+    # in «Лог». The task's older attachments are the list above, already read.
+    card_files = list(
+        BoardCardFile.objects.filter(card=card).select_related('uploaded_by').order_by('created_at', 'pk')
+    )
+    is_admin = is_act_admin(user)
+    chat = build_chat(
+        item['comments'], card_files, item['attachments'],
+        all_shown=not item['comments_earlier'],
+        can_delete=lambda card_file: can_delete_card_file(
+            user, card_file, board, can_work=can_work, is_admin=is_admin,
+        ),
+    )
+    item.update(chat)
+    item['log'] = card_log(card, item['attachments'], card_files)
     # «Чек-лист»: the items in order, who ticked each one joined — one query.
     item['checklist'] = list(
         BoardCardChecklistItem.objects.filter(card=card).select_related('done_by').order_by('position', 'pk')
@@ -899,13 +930,15 @@ CHECKLIST_ACTION_LABELS = {
 }
 
 
-def card_log(card, attachments):
+def card_log(card, attachments, card_files=()):
     """«Лог» of a card, newest first: its journal and its files.
 
     The journal is one query (`BoardCardEvent`, its authors joined); the files
-    are the panel's own attachment list, already read, so a file costs no
-    query here — they are not journal entries, only shown beside them, by
-    time: who added which file and when.
+    are the panel's own lists, already read — the task's older attachments
+    and the files of «Чат», a deleted one marked «(удалён)» — so a file costs
+    no query here. They are not journal entries, only shown beside them, by
+    time: who added which file and when. Nothing about a file is ever written
+    into the journal.
     """
     entries = [
         {
@@ -927,8 +960,137 @@ def card_log(card, attachments):
         }
         for item in attachments
     )
+    entries.extend(
+        {
+            'kind': 'file',
+            'actor': card_file.uploaded_by,
+            'at': card_file.created_at,
+            'text': (
+                f'Добавлен файл «{card_file.original_name}»'
+                + (' (удалён)' if card_file.deleted_at is not None else '')
+            ),
+            'order': (card_file.created_at, 0, card_file.pk),
+        }
+        for card_file in card_files
+    )
     entries.sort(key=lambda entry: entry['order'], reverse=True)
     return entries
+
+
+# What «Чат» draws beside a file's name: a short badge by its type.
+FILE_KINDS = {
+    '.pdf': 'pdf',
+    '.doc': 'doc',
+    '.docx': 'doc',
+    '.xls': 'xls',
+    '.xlsx': 'xls',
+    '.txt': 'txt',
+    '.png': 'img',
+    '.jpg': 'img',
+    '.jpeg': 'img',
+    '.webp': 'img',
+}
+FILE_KIND_LABELS = {'pdf': 'PDF', 'doc': 'DOC', 'xls': 'XLS', 'txt': 'TXT', 'img': 'IMG', 'other': 'FILE'}
+
+
+def describe_file(name, size):
+    """`{'icon', 'badge', 'size_label'}` — how «Чат» shows any file, a file of
+    the chat or an older task attachment alike: the badge's colour (`icon`:
+    pdf, doc, xls, txt, img, other), its text and the size."""
+    from ecosystem.attachments import attachment_extension, format_file_size
+
+    icon = FILE_KINDS.get(attachment_extension(name), 'other')
+    return {'icon': icon, 'badge': FILE_KIND_LABELS[icon], 'size_label': format_file_size(size or 0)}
+
+
+def build_chat(comments, card_files, attachments, *, all_shown, can_delete):
+    """«Чат» of a card as its templates read it — no query of its own.
+
+    `comments` are the messages shown (the newest `COMMENTS_LIMIT`, oldest
+    first, unless all are), `card_files` every `BoardCardFile` of the card,
+    `attachments` the task's older attachments
+    (`tasks.presentation.task_attachment_cards()`), all already read.
+
+    - `feed`: the messages and, among them by time, the older attachments as
+      rows of their own («добавлен файл»), oldest first. An attachment older
+      than the first message shown waits behind «Показать ранние» with it.
+      Each message carries its `images` (thumbnails) and `documents` (rows)
+      in upload order, each file `{'file', 'icon', 'badge', 'size_label',
+      'can_delete'}` — a deleted one is still there, `file.deleted_at` set.
+    - `files`: «Только файлы» — every live file of the card, of the chat and
+      of the task, newest first, each with `comment_id` or `attachment_id`
+      and `shown` (whether «К сообщению» finds it in the feed as drawn).
+    - `files_count`: their number, «Файлы · N».
+
+    `can_delete(card_file)` is `permissions.can_delete_card_file()` with the
+    page's rights already asked.
+    """
+    by_comment = {}
+    for card_file in card_files:
+        by_comment.setdefault(card_file.comment_id, []).append(card_file)
+    shown_ids = {comment.pk for comment in comments}
+    oldest = comments[0].created_at if comments else None
+
+    def entry(card_file):
+        return {
+            'file': card_file,
+            **describe_file(card_file.original_name, card_file.size),
+            'can_delete': can_delete(card_file),
+        }
+
+    feed = []
+    for comment in comments:
+        entries = [entry(card_file) for card_file in by_comment.get(comment.pk, ())]
+        feed.append({
+            'kind': 'message',
+            'comment': comment,
+            'images': [row for row in entries if row['file'].is_image and row['file'].deleted_at is None],
+            'documents': [row for row in entries if not (row['file'].is_image and row['file'].deleted_at is None)],
+            'order': (comment.created_at, 1, comment.pk),
+        })
+    shown_attachments = set()
+    for row in attachments:
+        attachment = row['object']
+        if all_shown or (oldest is not None and attachment.created_at >= oldest):
+            shown_attachments.add(attachment.pk)
+            feed.append({
+                'kind': 'attachment',
+                'attachment': row,
+                **describe_file(attachment.original_name, attachment.file_size),
+                'order': (attachment.created_at, 0, attachment.pk),
+            })
+    feed.sort(key=lambda row: row['order'])
+
+    files = [
+        {
+            'kind': 'chat',
+            'name': card_file.original_name,
+            'author': card_file.uploaded_by,
+            'at': card_file.created_at,
+            'object': card_file,
+            'comment_id': card_file.comment_id,
+            'shown': card_file.comment_id in shown_ids,
+            **describe_file(card_file.original_name, card_file.size),
+            'order': (card_file.created_at, card_file.pk),
+        }
+        for card_file in card_files if card_file.deleted_at is None
+    ]
+    files.extend(
+        {
+            'kind': 'attachment',
+            'name': row['object'].original_name,
+            'author': row['object'].uploaded_by,
+            'at': row['object'].created_at,
+            'object': row['object'],
+            'attachment_id': row['object'].pk,
+            'shown': row['object'].pk in shown_attachments,
+            **describe_file(row['object'].original_name, row['object'].file_size),
+            'order': (row['object'].created_at, row['object'].pk),
+        }
+        for row in attachments
+    )
+    files.sort(key=lambda row: row['order'], reverse=True)
+    return {'feed': feed, 'files': files, 'files_count': len(files)}
 
 
 def _return_column(card, columns):
@@ -942,6 +1104,13 @@ def _return_column(card, columns):
 def sub_board_columns(sub_board):
     """The sub-board's columns, in order — one query."""
     return list(BoardColumn.objects.filter(sub_board=sub_board).order_by('position', 'pk'))
+
+
+def board_tabs(board):
+    """The board's sub-boards, in tab order — one query. A view that has read
+    them to find the sub-board it shows passes them on to
+    `build_board_state()` instead of reading them twice."""
+    return list(SubBoard.objects.filter(board=board).order_by('position', 'pk'))
 
 
 def first_sub_board(board):
@@ -964,7 +1133,7 @@ def _move_choices(tabs, columns_of, current):
 
 
 def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=None,
-                      filters=NO_FILTERS, all_comments=False, fields=None):
+                      filters=NO_FILTERS, all_comments=False, fields=None, tabs=None):
     """Everything one sub-board page renders.
 
     `sub_boards` are the board's tabs, each `{'sub_board', 'is_active',
@@ -1008,13 +1177,15 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
     `tile_values` (the first `TILE_FIELD_LIMIT` a tile shows) and `field_rows`;
     the values of all of them are one query (`card_field_rows()`). A caller
     that has read the fields already — to parse the field filters — passes
-    them as `fields`, and they are not read twice.
+    them as `fields`, and they are not read twice; `tabs` likewise
+    (`board_tabs()`).
     """
     from tasks.permissions import completable_task_ids
 
     can_work = can_work_on_board(user, board)
     can_manage = can_manage_board(user, board)
-    tabs = list(SubBoard.objects.filter(board=board).order_by('position', 'pk'))
+    if tabs is None:
+        tabs = board_tabs(board)
     columns_of = {}
     for column in BoardColumn.objects.filter(sub_board__board=board).order_by('position', 'pk'):
         columns_of.setdefault(column.sub_board_id, []).append(column)
@@ -1099,7 +1270,6 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
         'first_working_column': working[0] if working else None,
         'done_column': done_column,
         'can_add_column': len(columns) < MAX_COLUMNS,
-        'member_count': BoardMember.objects.filter(board=board).count(),
         # Whom a column's «Закреплённые исполнители» may name — drawn for the
         # manager only, so nobody else pays for the query.
         'members': (
@@ -1184,17 +1354,19 @@ def build_board_nav(user, current_board=None):
 
 
 def member_preview(board, limit=MEMBER_PREVIEW_LIMIT):
-    """The first `limit` members by name, for the avatars in the board heading.
+    """`(the first `limit` members by name, how many members there are)` —
+    the avatars of the board heading and the number behind «+N».
 
-    One query; how many are left over is the caller's `member_count` minus
-    the length of this list.
+    One query for both: a board has tens of members, not thousands, so they
+    are read once and counted here rather than counted by a second query.
     """
-    return [
+    members = [
         member.user
         for member in BoardMember.objects.filter(board=board)
         .select_related('user')
-        .order_by('user__last_name', 'user__first_name', 'user__username', 'pk')[:limit]
+        .order_by('user__last_name', 'user__first_name', 'user__username', 'pk')
     ]
+    return members[:limit], len(members)
 
 
 def card_audience(card, task, *, assignees=True, author=True, subscribers=True):

@@ -3,7 +3,6 @@
 import re
 import tempfile
 
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection, transaction
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -12,7 +11,7 @@ from django.urls import reverse
 from realtime.events import BOARD_CHANGE_CARD_REOPENED, RealtimeEventType
 from realtime.testing import capture_realtime_events
 from tasks.models import Task
-from tasks.services import add_task_attachment, complete_task
+from tasks.services import complete_task
 
 from ..models import BoardCardEvent
 from ..selectors import describe_card_event
@@ -32,9 +31,11 @@ from .helpers import (
     BoardFixtureMixin,
     assert_page_matches_fragment,
     board_url,
+    chat_upload,
     done_column_of,
     due,
     fragment_url,
+    legacy_attachment,
     page_attribute,
 )
 
@@ -47,7 +48,11 @@ from .helpers import (
 # card's «Чек-лист» (its items, one query), its followers (the board's readers
 # marked by whether they follow — one query, also the «@» list of «Чат») and
 # the mentions of the messages shown (one prefetch, this card has messages).
-PAGE_QUERIES = 38
+# Stage 19: one more for the files of «Чат» (every file of the card, one
+# query), two fewer — the board's member count is taken from the heading's
+# own member list, and the tabs are read once for the page and its
+# `build_board_state()` — so 37.
+PAGE_QUERIES = 37
 
 MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-journal-'))
 
@@ -58,10 +63,6 @@ def task_of(card):
 
 def kinds(card):
     return list(card.events.order_by('pk').values_list('kind', flat=True))
-
-
-def upload(name='протокол.pdf'):
-    return SimpleUploadedFile(name, b'%PDF-1.4 journal', 'application/pdf')
 
 
 class JournalWritesTests(BoardFixtureMixin, TestCase):
@@ -246,7 +247,7 @@ class ReopenCardTests(BoardFixtureMixin, TestCase):
 
 @MEDIA
 class DrawerTabsTests(BoardFixtureMixin, TestCase):
-    TABS = ('description', 'chat', 'files', 'log')
+    TABS = ('description', 'chat', 'log')
 
     def setUp(self):
         self.card_obj = self.card('Сверить остатки', assignees=[self.member])
@@ -277,16 +278,27 @@ class DrawerTabsTests(BoardFixtureMixin, TestCase):
                     f'{self.fragment}?card={self.card_obj.pk}&tab={shown}',
                 )
 
+    def test_the_old_files_tab_is_the_chat_showing_its_files(self):
+        content = self.get(tab='files').content.decode()
+        self.assertIn('data-board-tab="chat"', content)
+        self.assertIn('data-board-chat-mode="files"', content)
+        self.assertNotIn('data-board-tab-link="files"', content)
+        self.assertNotIn('data-board-tab-body="files"', content)
+        self.assertEqual(
+            page_attribute(content, 'data-board-page-url'),
+            f'{self.page}?card={self.card_obj.pk}&tab=chat&chat=files',
+        )
+
     def test_every_tab_body_is_drawn_whatever_the_tab(self):
         post_card_comment(self.card_obj, actor=self.colleague, text='Где файл?')
-        add_task_attachment(self.task, self.member, upload())
+        legacy_attachment(self.task, self.member, 'протокол.pdf')
         content = self.get(tab='log').content.decode()
         for tab in self.TABS:
             self.assertIn(f'data-board-tab-body="{tab}"', content)
         self.assertIn('Где файл?', content)
         self.assertIn('Добавлен файл «протокол.pdf»', content)
         self.assertIn('data-board-tab-count="chat">1<', content)
-        self.assertIn('data-board-tab-count="files">1<', content)
+        self.assertIn('data-board-chat-files-count>1<', content)
         # Without JavaScript a tab is a link to the same page with `tab`.
         self.assertIn(f'href="{self.page}?card={self.card_obj.pk}&amp;tab=chat"', content)
 
@@ -319,7 +331,7 @@ class DrawerTabsTests(BoardFixtureMixin, TestCase):
 
     def test_the_log_is_newest_first_with_the_files_beside_it(self):
         move_card(self.card_obj, actor=self.colleague, column=self.column('IN_PROGRESS'))
-        add_task_attachment(self.task, self.member, upload('схема.pdf'))
+        legacy_attachment(self.task, self.member, 'схема.pdf')
         complete_card(self.card_obj, actor=self.member, execution_comment='Готово')
         log = self.client.get(self.fragment, {'card': self.card_obj.pk}).json()['log_html']
         order = [
@@ -337,12 +349,15 @@ class DrawerTabsTests(BoardFixtureMixin, TestCase):
 
     def test_query_count_does_not_grow_with_entries_messages_or_files(self):
         # One of each first: the delete right of a file is asked once a file exists.
-        post_card_comment(self.card_obj, actor=self.colleague, text='Первое')
-        add_task_attachment(self.task, self.member, upload('первый.pdf'))
+        post_card_comment(self.card_obj, actor=self.colleague, text='Первое', files=[chat_upload('первый.pdf')])
+        legacy_attachment(self.task, self.member, 'первый-задачи.pdf')
         baseline = {tab: self._queries(tab) for tab in self.TABS}
         for index in range(3):
-            post_card_comment(self.card_obj, actor=self.colleague, text=f'Сообщение {index}')
-            add_task_attachment(self.task, self.member, upload(f'файл-{index}.pdf'))
+            post_card_comment(
+                self.card_obj, actor=self.colleague, text=f'Сообщение {index}',
+                files=[chat_upload(f'файл-{index}.pdf'), chat_upload(f'снимок-{index}.png', b'png', 'image/png')],
+            )
+            legacy_attachment(self.task, self.member, f'файл-задачи-{index}.pdf')
             stage = ('REVIEW', 'TODO', 'IN_PROGRESS')[index]
             move_card(self.card_obj, actor=self.member, column=self.column(stage))
             BoardCardEvent.objects.create(card=self.card_obj, actor=self.member, kind='EDITED', details={})

@@ -83,7 +83,9 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 `card_created`, `card_updated`, `card_moved`, `card_completed`,
 `card_reopened` (администратор вернул карточку в работу, `reopen_card()`),
 `card_cancelled`, `members_changed`, `board_archived`, `board_restored`,
-`comment_added`, `checklist_changed` (пункт чек-листа карточки добавлен,
+`comment_added` (сообщение «Чата» — вместе с его файлами, если они есть),
+`file_deleted` (файл «Чата» удалён, `delete_card_file()`; повторное
+удаление ничего не публикует), `checklist_changed` (пункт чек-листа карточки добавлен,
 переименован, отмечен или снят, переставлен или удалён), `structure_changed` (поддоска или колонка создана,
 переименована, переставлена или удалена, доска переименована или сменила
 код, у колонки изменены закреплённые исполнители или порог «Застой», на странице «Поля карточек»
@@ -93,8 +95,11 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 ни описания, ни имён, ни прав: открытая доска перезапрашивает свой фрагмент.
 Завершают и возвращают в работу задачу карточки только маршруты доски
 (`card_completed`, `card_reopened`): `tasks:complete` и `tasks:reopen` для
-задачи `BOARD` ничего не делают. Вложение, добавленное или удалённое у задачи
-карточки, даёт свои `task.*`, но `board.updated` не порождает.
+задачи `BOARD` ничего не делают. Новых вложений у задачи карточки нет (файлы
+— в «Чате»); удаление старого вложения задачи даёт свои `task.*`, но
+`board.updated` не порождает. Удаление файла «Чата» сдвигает `updated_at`
+карточки — ревизия `boards` замечает его и у пропустившего событие;
+добавленный файл приходит с сообщением, а сообщения у ревизии свои.
 Перенос карточки на другую поддоску — одно `card_moved` той же доски:
 перезапрашивают обе поддоски, у старой карточка исчезает из колонок, у новой
 появляется, а открытая на старой поддоске панель этой карточки (охраняемый
@@ -151,7 +156,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_stale_days`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `delete_card_file`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_stale_days`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.
@@ -362,21 +367,36 @@ read-only набор авторизованного пользователя, д
 - `tabs_html`/`tabs_revision` (вкладки поддосок) и `columns_html`/
   `columns_revision` (колонки) — только для чтения; между ними на странице
   стоит строка фильтров, которая ни в один блок не входит;
-- охраняемая панель карточки — **один блок в двух контейнерах с одним
+- охраняемая панель карточки — **один блок в трёх контейнерах с одним
   отпечатком**: `panel_html` (шапка выдвижной панели:
-  `[data-live-board-panel]`, с полем «Результат» кнопки «Завершить») и
-  `card_html` (вкладки «Описание» и «Файлы»: `[data-live-board-card]`),
-  `panel_revision` — по обоим; плюс `panel`: `view`, `edit`, `new` или пусто;
-- `comments_html`/`comments_revision` — сообщения «Чата» открытой карточки;
+  `[data-live-board-panel]`, с полем «Результат» кнопки «Завершить»),
+  `card_html` (описание или форма карточки: `[data-live-board-card]`) и
+  `facts_html` (факты, результат или причина отмены и кнопки
+  «Редактировать / Переместить в… / Отменить карточку»:
+  `[data-live-board-facts]`), `panel_revision` — по всем трём; плюс `panel`:
+  `view`, `edit`, `new` или пусто. В разметке «Описания» они стоят в порядке
+  экрана: описание, чек-лист, факты, подписчики — порядок фокуса совпадает с
+  видимым;
+- `comments_html`/`comments_revision` — «Чат» открытой карточки: сообщения с
+  их файлами (миниатюры, строки, «Файл удалён»), старые вложения задачи среди
+  них по времени и список «Только файлы»; какой из двух видов показан —
+  атрибут `data-board-chat-mode` секции «Чата» вне блока (`chat_mode` во
+  фрагменте, `&chat=files` в адресе), поэтому отпечаток от режима не зависит.
+  Добавленный или удалённый файл меняет отпечаток блока;
 - `log_html`/`log_revision` — «Лог» карточки (журнал `BoardCardEvent` и, по
-  времени рядом, вложения задачи);
+  времени рядом, файлы «Чата» и старые вложения задачи);
+- `followers_html`/`followers_revision` — «Подписчики» внизу «Описания»
+  (`[data-live-board-followers]`): только чтение, вне охраняемой панели —
+  новый подписчик (например, упомянутый в сообщении) не меняет
+  `panel_revision` и не поднимает баннер над «Завершить»;
 - `checklist_html`/`checklist_revision` — «Чек-лист» карточки на «Описании»
   (`[data-live-board-checklist]`): только кнопки и ссылки, вне охраняемой
   панели; поле «Добавить пункт» — ни в одном блоке. Адрес с `edit_item=<id>`
   рисует этот пункт формой «Изменить»: пока форма открыта
   (`[data-checklist-edit]`), клиент блок не заменяет, а откладывает, как при
   открытом меню, и запрашивает заново, когда формы не станет;
-- `chat_count`, `files_count` — числа у вкладок «Чат» и «Файлы»;
+- `chat_count`, `files_count` — число у вкладки «Чат» и у переключателя
+  «Только файлы · N»;
 - `drawer_html` — вся выдвижная панель вокруг этих блоков (полоса вкладок,
   форма чата), и `card_id`, `task_id`, `tab`, `page_url`, `fragment_url`,
   `reset_url` — их собрал сервер. С этим же ответом `board_drawer.js`
@@ -392,8 +412,10 @@ read-only набор авторизованного пользователя, д
 (`X-Requested-With: fetch`, ответ JSON с числами), отказ возвращает флажок;
 остальное другим вкладкам приносит `checklist_changed`. Форма сообщения не входит ни в один заменяемый блок, и набираемый
 текст не перерисовывается. После замены списка читатель, который был внизу,
-остаётся внизу, а пролиставший выше — на месте. Числа у «Чат» и «Файлы»
-клиент ставит вместе с заменой своего блока. Список — последние 100 сообщений
+остаётся внизу, а пролиставший выше — на месте. Числа у «Чат» и «Только
+файлы» клиент ставит вместе с заменой своего блока. Выбранные для сообщения,
+но ещё не отправленные файлы живут в форме (`board_chat_files.js` пишет их в
+её поле файлов) и при живом обновлении не теряются. Список — последние 100 сообщений
 (`boards.selectors.COMMENTS_LIMIT`) со ссылкой «Показать ранние (N)»;
 страница, открытая с `comments=all`, получает тот же параметр в адресе
 фрагмента, и живое обновление показывает все.
@@ -484,8 +506,9 @@ polling и safety-таймер останавливаются, таймер ру
 «Грязное» состояние выставляется только настоящим жестом пользователя
 (`input`/`change` или добавление/удаление динамической строки) **внутри
 защищаемого блока** — `[data-live-act-work]` на акте, `[data-live-protocol-content]`
-на протоколе, `[data-live-board-panel]` и `[data-live-board-card]` (шапка и
-«Описание»/«Файлы» панели карточки) на доске. Модальное окно подтверждения, сообщение об ошибке и смена пароля
+на протоколе, `[data-live-board-panel]`, `[data-live-board-card]` и
+`[data-live-board-facts]` (шапка, описание или форма, факты и кнопки панели
+карточки) на доске. Модальное окно подтверждения, сообщение об ошибке и смена пароля
 в него не входят. Программная замена фрагмента не порождает событий и не может
 дать ложное срабатывание. Страница, отрисованная заново после отклонённой
 отправки формы (ошибка валидации, отказ сервиса), считается «грязной» сразу

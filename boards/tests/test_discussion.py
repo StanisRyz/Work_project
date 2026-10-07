@@ -240,7 +240,7 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
         response = self.client.post(self.url, {'text': '   '})
         self.assertEqual(response.status_code, 200)
         content = main_of(response)
-        self.assertIn('Напишите сообщение.', content)
+        self.assertIn('Напишите сообщение или прикрепите файл.', content)
         self.assertIn('data-unsaved-guard="dirty"', content)
 
     def test_the_panel_shows_the_discussion_and_the_form_only_to_writers(self):
@@ -275,9 +275,10 @@ class DiscussionPageTests(BoardFixtureMixin, TestCase):
         for block in ('columns', 'comments', 'log'):
             self.assertEqual(fragment[f'{block}_revision'], content_revision(fragment[f'{block}_html']))
         self.assertEqual(
-            fragment['panel_revision'], content_revision(fragment['panel_html'] + fragment['card_html']),
+            fragment['panel_revision'],
+            content_revision(fragment['panel_html'] + fragment['card_html'] + fragment['facts_html']),
         )
-        self.assertNotIn('Есть', fragment['panel_html'] + fragment['card_html'])
+        self.assertNotIn('Есть', fragment['panel_html'] + fragment['card_html'] + fragment['facts_html'])
         self.assertEqual(fragment['chat_count'], 1)
 
     def test_a_new_message_does_not_move_the_panel_fingerprint(self):

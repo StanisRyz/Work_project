@@ -19,7 +19,7 @@ one `board.updated` (`realtime.emitters.emit_board_updated()`), from inside
 its own `atomic()` block, so the event is published after the commit and a
 refusal or a rollback publishes nothing. A write that stored nothing — an edit
 that changes no field, a drop where the card already stood — is not a change
-and says nothing. A board's task changed elsewhere (an attachment added or
+and says nothing. A board's task changed elsewhere (an older attachment of it
 removed) is the task's own `task.*` event and the `boards` sync revision, never
 a `board.updated`.
 
@@ -52,12 +52,19 @@ and one journal entry each — a reorder writes none) and its followers
 card — a message, a cancellation, a completion — is
 `selectors.card_audience()`; the people a message mentions are told once, by
 `BOARD_CARD_MENTION`, and follow the card from then on.
+
+A message of «Чат» carries files (`BoardCardFile`, the board's own — never a
+`tasks.TaskAttachment`): `post_card_comment(files=…)` checks them by the one
+upload policy, writes them before their rows and removes them again if the
+transaction fails; `delete_card_file()` leaves a tombstone row, removes the
+file once committed and publishes `board.updated(file_deleted)`.
 """
 
 import datetime
 import logging
 import re
 from decimal import Decimal
+from functools import partial
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -77,6 +84,7 @@ from realtime.events import (
     BOARD_CHANGE_CARD_UPDATED,
     BOARD_CHANGE_CHECKLIST_CHANGED,
     BOARD_CHANGE_COMMENT_ADDED,
+    BOARD_CHANGE_FILE_DELETED,
     BOARD_CHANGE_MEMBERS_CHANGED,
     BOARD_CHANGE_STRUCTURE_CHANGED,
 )
@@ -85,6 +93,7 @@ from .columns import DEFAULT_COLUMNS, MAX_COLUMNS
 from .models import (
     CHECKLIST_TEXT_MAX_LENGTH,
     MAX_CHECKLIST_ITEMS,
+    MAX_FILES_PER_MESSAGE,
     STALE_DAYS_MAX,
     STALE_DAYS_MIN,
     BOARD_CODE_MAX_LENGTH,
@@ -96,6 +105,7 @@ from .models import (
     BoardCardComment,
     BoardCardCommentMention,
     BoardCardEvent,
+    BoardCardFile,
     BoardCardFieldValue,
     BoardCardSubscription,
     BoardColumn,
@@ -112,6 +122,7 @@ from .permissions import (
     can_cancel_card,
     can_comment_card,
     can_create_board,
+    can_delete_card_file,
     can_follow_card,
     can_manage_board,
     can_restore_board,
@@ -2119,13 +2130,62 @@ def restore_board(board, *, actor):
 # --------------------------------------------------------------------------
 
 
-def post_card_comment(card, *, actor, text, mentions=()):
-    """One message in a card's «Обсуждение». No editing, no deletion.
+def _clean_message_files(files):
+    """The files of one message, refused by the one upload policy before
+    anything is written: at most `MAX_FILES_PER_MESSAGE`, each of an allowed
+    type and size (`ecosystem.attachments`). The refusal names the file —
+    the person who chose it reads it, no log line does."""
+    from django.core.exceptions import ValidationError
+
+    from ecosystem.attachments import validate_attachment_upload
+
+    files = [item for item in (files or ()) if item]
+    if len(files) > MAX_FILES_PER_MESSAGE:
+        raise BoardError(f'К одному сообщению — не больше {MAX_FILES_PER_MESSAGE} файлов.')
+    for item in files:
+        try:
+            validate_attachment_upload(item)
+        except ValidationError as exc:
+            raise BoardError(f'Файл «{item.name}»: {" ".join(exc.messages)}') from exc
+    return files
+
+
+def _remove_stored_file(storage, name, *, card_id, file_id=None, operation):
+    """Best-effort removal of one stored file of «Чат»: after a rollback, or
+    once a deletion has committed. Identifiers only in the log."""
+    if not name:
+        return
+    try:
+        storage.delete(name)
+    except OSError as exc:
+        log_event(
+            logger,
+            'ERROR',
+            'board.file_cleanup_failed',
+            board_card_id=card_id,
+            board_card_file_id=file_id,
+            operation=operation,
+            error_type=type(exc).__name__,
+            outcome='orphaned_file',
+        )
+
+
+def post_card_comment(card, *, actor, text, mentions=(), files=()):
+    """One message in a card's «Чат»: text, files or both. No editing, no
+    deletion of the message.
 
     Locks the board, then the card, and asks `can_comment_card()` after the
     locks — an active member or an administrator, not on an archived board;
-    the state of the task does not matter. The text is stripped, required and
-    at most `COMMENT_MAX_LENGTH` characters.
+    the state of the task does not matter, so a closed card is discussed and
+    takes files too. The text is stripped and at most `COMMENT_MAX_LENGTH`
+    characters; it may be empty only beside at least one file.
+
+    `files` are uploaded files (`BoardCardFile`, at most
+    `MAX_FILES_PER_MESSAGE`), each checked by the project's one upload policy
+    (`ecosystem.attachments`: type and size) before anything is written — a
+    refusal stores no row and leaves no file. Storage is not transactional,
+    so the files are written first, then the rows; if anything after that
+    fails, the files written are removed again before the error goes on.
 
     `mentions` are the ids «@» put beside the message (`mention=<id>`). Only
     the readers of the board who are active employees are kept
@@ -2138,8 +2198,10 @@ def post_card_comment(card, *, actor, text, mentions=()):
     mentioned gets `BOARD_CARD_MENTION` (bell and mail); the card's audience
     (`selectors.card_audience()`: its исполнители, its author, its followers)
     gets `BOARD_CARD_COMMENT` in the bell — except those mentioned, who have
-    theirs already, and the writer, who is told nothing. The board publishes
-    `board.updated(comment_added)`. Logged by identifiers only, never the text.
+    theirs already, and the writer, who is told nothing. Neither names the
+    message nor a file: a file's name is somebody's text too. The board
+    publishes one `board.updated(comment_added)` per message, files or not.
+    Logged by identifiers and sizes only, never the text or a name.
     """
     from notifications.services import notify_board_card_comment, notify_board_card_mention
     from tasks.models import Task
@@ -2153,45 +2215,68 @@ def post_card_comment(card, *, actor, text, mentions=()):
             requested.add(int(getattr(value, 'pk', value)))
         except (TypeError, ValueError):
             continue
-    with transaction.atomic():
-        board = _lock_board(card.board_id)
-        card = _lock_card(card, board)
-        card.board = board
-        _refuse_archived('post_comment', board, actor=actor, card_id=card.pk)
-        if not can_comment_card(actor, card):
-            _rejected('post_comment', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
-            raise BoardError('Писать в обсуждение могут участники доски.')
-        if not text:
-            raise BoardError('Напишите сообщение.')
-        if len(text) > COMMENT_MAX_LENGTH:
-            raise BoardError(f'Сообщение — не длиннее {COMMENT_MAX_LENGTH} символов.')
-        comment = BoardCardComment.objects.create(card=card, author=actor, text=text)
-        requested.discard(actor.pk)
-        mentioned = (
-            list(
-                get_user_model().objects.filter(board_readers_q(board), pk__in=requested)
-                .distinct().order_by('pk')
-            ) if requested else []
-        )
-        if mentioned:
-            BoardCardCommentMention.objects.bulk_create(
-                [BoardCardCommentMention(comment=comment, user=user) for user in mentioned]
+    written = []   # (storage, name) of every file put on the disk so far
+    try:
+        with transaction.atomic():
+            board = _lock_board(card.board_id)
+            card = _lock_card(card, board)
+            card.board = board
+            _refuse_archived('post_comment', board, actor=actor, card_id=card.pk)
+            if not can_comment_card(actor, card):
+                _rejected('post_comment', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
+                raise BoardError('Писать в обсуждение могут участники доски.')
+            uploads = _clean_message_files(files)
+            if not text and not uploads:
+                raise BoardError('Напишите сообщение или прикрепите файл.')
+            if len(text) > COMMENT_MAX_LENGTH:
+                raise BoardError(f'Сообщение — не длиннее {COMMENT_MAX_LENGTH} символов.')
+            # The files first, then the rows: a row never points at nothing.
+            stored = []
+            for upload in uploads:
+                card_file = BoardCardFile(
+                    card=card,
+                    uploaded_by=actor,
+                    original_name=(upload.name or 'файл')[:255],
+                    size=getattr(upload, 'size', 0) or 0,
+                    content_type=(getattr(upload, 'content_type', '') or '')[:120],
+                )
+                card_file.file.save(upload.name, upload, save=False)
+                written.append((card_file.file.storage, card_file.file.name))
+                stored.append(card_file)
+            comment = BoardCardComment.objects.create(card=card, author=actor, text=text)
+            for card_file in stored:
+                card_file.comment = comment
+                card_file.save()
+            requested.discard(actor.pk)
+            mentioned = (
+                list(
+                    get_user_model().objects.filter(board_readers_q(board), pk__in=requested)
+                    .distinct().order_by('pk')
+                ) if requested else []
             )
-            following = set(
-                BoardCardSubscription.objects.filter(card=card, user__in=mentioned)
-                .values_list('user_id', flat=True)
+            if mentioned:
+                BoardCardCommentMention.objects.bulk_create(
+                    [BoardCardCommentMention(comment=comment, user=user) for user in mentioned]
+                )
+                following = set(
+                    BoardCardSubscription.objects.filter(card=card, user__in=mentioned)
+                    .values_list('user_id', flat=True)
+                )
+                BoardCardSubscription.objects.bulk_create(
+                    [BoardCardSubscription(card=card, user=user) for user in mentioned if user.pk not in following]
+                )
+            task = Task.objects.get(source_type=Task.SourceType.BOARD, board_card=card)
+            mentioned_ids = {user.pk for user in mentioned}
+            notify_board_card_mention(comment, task, actor, mentioned)
+            notify_board_card_comment(
+                comment, task, actor,
+                [user for user in card_audience(card, task) if user.pk not in mentioned_ids],
             )
-            BoardCardSubscription.objects.bulk_create(
-                [BoardCardSubscription(card=card, user=user) for user in mentioned if user.pk not in following]
-            )
-        task = Task.objects.get(source_type=Task.SourceType.BOARD, board_card=card)
-        mentioned_ids = {user.pk for user in mentioned}
-        notify_board_card_mention(comment, task, actor, mentioned)
-        notify_board_card_comment(
-            comment, task, actor,
-            [user for user in card_audience(card, task) if user.pk not in mentioned_ids],
-        )
-        emit_board_updated(board.pk, BOARD_CHANGE_COMMENT_ADDED, card.pk)
+            emit_board_updated(board.pk, BOARD_CHANGE_COMMENT_ADDED, card.pk)
+    except Exception:
+        for storage, name in written:
+            _remove_stored_file(storage, name, card_id=card.pk, operation='post_comment_rollback')
+        raise
     log_event(
         logger,
         'INFO',
@@ -2200,10 +2285,67 @@ def post_card_comment(card, *, actor, text, mentions=()):
         board_card_id=card.pk,
         comment_id=comment.pk,
         mention_count=len(mentioned),
+        file_count=len(stored),
+        size_bytes=sum(card_file.size for card_file in stored),
         actor_user_id=actor.pk,
         outcome='ok',
     )
     return comment
+
+
+def delete_card_file(card_file, *, actor):
+    """«×» beside a file of «Чат»: the file goes, its row stays as a tombstone.
+
+    Locks the board, then the card, then the file row, and asks
+    `can_delete_card_file()` after the locks: whoever uploaded it while still
+    working on the board, or an administrator; an archived board is refused
+    first. The row keeps who uploaded what and when, and gets
+    `deleted_at`/`deleted_by` and an empty `file`, so the message still says
+    «Файл удалён»; the file leaves the disk only once the transaction has
+    committed (`on_commit`), so a rollback never leaves a row without its
+    file. The card's `updated_at` moves (the `boards` sync revision), and the
+    board publishes one `board.updated(file_deleted)`.
+
+    Returns `True` when the file was deleted now and `False` when it already
+    was — deleting twice is not an error, and the second time stores and
+    publishes nothing.
+    """
+    with transaction.atomic():
+        board = _lock_board(card_file.card.board_id)
+        card = _lock_card(card_file.card, board)
+        card.board = board
+        _refuse_archived('delete_file', board, actor=actor, card_id=card.pk)
+        try:
+            locked = BoardCardFile.objects.select_for_update().get(pk=card_file.pk, card=card)
+        except BoardCardFile.DoesNotExist as exc:
+            raise BoardError('Файл не найден в этой карточке.') from exc
+        if locked.deleted_at is not None:
+            return False
+        if not can_delete_card_file(actor, locked, board):
+            _rejected('delete_file', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise BoardError('Удалить файл может тот, кто его прикрепил, или администратор.')
+        storage, name = locked.file.storage, locked.file.name
+        locked.deleted_at = timezone.now()
+        locked.deleted_by = actor
+        locked.file = ''
+        locked.save(update_fields=['deleted_at', 'deleted_by', 'file'])
+        card.save(update_fields=['updated_at'])
+        transaction.on_commit(partial(
+            _remove_stored_file, storage, name,
+            card_id=card.pk, file_id=locked.pk, operation='delete_file',
+        ))
+        emit_board_updated(board.pk, BOARD_CHANGE_FILE_DELETED, card.pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.file_deleted',
+        board_id=board.pk,
+        board_card_id=card.pk,
+        board_card_file_id=locked.pk,
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return True
 
 
 # --------------------------------------------------------------------------

@@ -16,6 +16,13 @@
  *   fragment's URL become the tab link's own, server-built ones, through
  *   `history.replaceState`. The attribute is outside every block the live
  *   client replaces, so a replacement never changes the tab;
+ * - «Чат» shows every message or only the files: «Все сообщения | Только
+ *   файлы» is switched in place the same way — the chat section's
+ *   `data-board-chat-mode` (both lists are in its block), the active link,
+ *   and the address and the fragment's URL become the link's own (the «Чат»
+ *   tab link follows, so the next tab switch back keeps the mode). «К
+ *   сообщению» of a file shows the messages and scrolls to its row when it is
+ *   on the page, and is an ordinary link when it is not;
  * - «×», Esc and a click on the dimmed part of the board close it;
  * - a tile clicked while a card is open opens the new card on the tab the
  *   drawer shows now («Лог» stays «Лог»); without JavaScript a tile opens
@@ -116,10 +123,16 @@
 
     // -- the chat opens at its newest message ------------------------------
 
+    const chatSection = () => drawer.querySelector('[data-board-chat-mode]');
+
+    // The messages open at the newest one at the bottom; the files list —
+    // newest first — at its top.
     const scrollChatToEnd = () => {
         const list = drawer.querySelector('[data-live-board-comments]');
         if (list) {
-            list.scrollTop = list.scrollHeight;
+            const section = chatSection();
+            const files = section && section.getAttribute('data-board-chat-mode') === 'files';
+            list.scrollTop = files ? 0 : list.scrollHeight;
         }
     };
 
@@ -206,6 +219,46 @@
         return true;
     };
 
+    // -- «Все сообщения | Только файлы» ---------------------------------------
+
+    const setChatMode = (name) => {
+        const section = chatSection();
+        const link = drawer.querySelector(`[data-board-chat-mode-link="${name}"]`);
+        if (!section || !link) {
+            return false;
+        }
+        section.setAttribute('data-board-chat-mode', name);
+        drawer.querySelectorAll('[data-board-chat-mode-link]').forEach((other) => {
+            const active = other === link;
+            other.classList.toggle('is-active', active);
+            if (active) {
+                other.setAttribute('aria-current', 'true');
+            } else {
+                other.removeAttribute('aria-current');
+            }
+        });
+        // «Чат» in the tab strip now leads to this mode.
+        const chatTab = drawer.querySelector('[data-board-tab-link="chat"]');
+        if (chatTab) {
+            chatTab.setAttribute('href', link.getAttribute('href'));
+            if (link.dataset.boardChatModeFragmentUrl) {
+                chatTab.setAttribute('data-board-tab-fragment-url', link.dataset.boardChatModeFragmentUrl);
+            }
+        }
+        if (drawer.getAttribute('data-board-tab') === 'chat') {
+            const pageUrl = link.getAttribute('href');
+            root.dataset.boardPageUrl = pageUrl;
+            if (link.dataset.boardChatModeFragmentUrl) {
+                root.dataset.boardFragmentUrl = link.dataset.boardChatModeFragmentUrl;
+            }
+            if (window.history && typeof window.history.replaceState === 'function') {
+                window.history.replaceState(window.history.state, '', pageUrl);
+            }
+        }
+        scrollChatToEnd();
+        return true;
+    };
+
     // -- open and close ------------------------------------------------------
 
     const show = (payload) => {
@@ -220,6 +273,7 @@
         root.dataset.commentsRevision = payload.comments_revision || '';
         root.dataset.logRevision = payload.log_revision || '';
         root.dataset.checklistRevision = payload.checklist_revision || '';
+        root.dataset.followersRevision = payload.followers_revision || '';
         root.dataset.panelHoldsInput = 'false';
         markTile(payload.card_id);
         syncFilter(payload.card_id, payload.tab, payload.reset_url);
@@ -251,6 +305,7 @@
         root.dataset.commentsRevision = '';
         root.dataset.logRevision = '';
         root.dataset.checklistRevision = '';
+        root.dataset.followersRevision = '';
         root.dataset.panelHoldsInput = 'false';
         markTile(null);
         syncFilter(null, '', root.dataset.boardUrl);
@@ -361,6 +416,30 @@
             return;
         }
 
+        const modeLink = target.closest('[data-board-chat-mode-link]');
+        if (modeLink && drawer.contains(modeLink)) {
+            if (setChatMode(modeLink.dataset.boardChatModeLink)) {
+                event.preventDefault();
+            }
+            return;
+        }
+
+        // «К сообщению»: the row is on the page — show the messages and go
+        // there; otherwise (an older message) the link asks for every one.
+        const goto = target.closest('[data-board-chat-goto]');
+        if (goto && drawer.contains(goto)) {
+            const row = drawer.querySelector(`[id="${goto.dataset.boardChatGoto}"]`);
+            if (row && setChatMode('messages')) {
+                event.preventDefault();
+                if (typeof row.scrollIntoView === 'function') {
+                    row.scrollIntoView({ block: 'center' });
+                }
+                row.classList.add('is-highlighted');
+                window.setTimeout(() => row.classList.remove('is-highlighted'), 2000);
+            }
+            return;
+        }
+
         const cardLink = target.closest('[data-board-card-link]');
         if (cardLink && drawer.contains(cardLink)) {
             event.preventDefault();
@@ -455,6 +534,7 @@
         open,
         close,
         setTab,
+        setChatMode,
         /** Draw the open card again from the server (its column changed). */
         refresh() {
             const url = new URL(root.dataset.boardPageUrl || '', window.location.href);

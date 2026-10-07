@@ -4,7 +4,6 @@ import re
 import tempfile
 from unittest import mock
 
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -22,6 +21,7 @@ from .helpers import (
     assert_page_matches_fragment,
     board_url,
     fragment_url,
+    legacy_attachment,
     page_attribute,
 )
 
@@ -89,24 +89,23 @@ class NoExecutionDraftTests(BoardFixtureMixin, TestCase):
         self.assertNotIn('Старый черновик', response.content.decode())
 
     @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-files-'))
-    def test_files_work_without_the_execution_textarea(self):
-        content = self.open_panel(tab='files').content.decode()
-        upload = content.split('class="task-attachment-form"', 1)[1].split('</form>', 1)[0]
-        # The shared include still draws its hidden field; with no
-        # `#task-execution-comment` on the board it simply posts it empty.
-        self.assertIn('name="list_query" value="tab=files"', upload)
+    def test_an_older_attachment_is_removed_from_the_chat_without_a_draft(self):
         task = task_of(self.card_obj)
+        attachment = legacy_attachment(task, self.member)
+        content = self.open_panel(tab='chat').content.decode()
+        form = content.split(f'id="board-attachment-delete-{attachment.pk}"', 1)[1].split('</form>', 1)[0]
+        # The chat's own form for it: back to «Чат», nothing to carry.
+        self.assertIn('name="list_query" value="tab=chat"', form)
+        self.assertNotIn('execution_comment', form)
         response = self.client.post(
-            reverse('tasks:add_attachment', args=[task.pk]),
-            {'list_query': 'tab=files', 'execution_comment': '',
-             'file': SimpleUploadedFile('акт.pdf', b'%PDF-1.4 test', content_type='application/pdf')},
-            follow=True,
+            reverse('tasks:delete_attachment', args=[task.pk, attachment.pk]),
+            {'list_query': 'tab=chat'}, follow=True,
         )
-        self.assertEqual(TaskAttachment.objects.filter(task=task).count(), 1)
+        self.assertFalse(TaskAttachment.objects.filter(task=task).exists())
         self.assertEqual(
-            response.redirect_chain[-1][0], f'{self.page_url}?card={self.card_obj.pk}&tab=files',
+            response.redirect_chain[-1][0], f'{self.page_url}?card={self.card_obj.pk}&tab=chat',
         )
-        self.assertIn('data-board-tab="files"', response.content.decode())
+        self.assertIn('data-board-tab="chat"', response.content.decode())
         self.assertNotIn(EXECUTION_DRAFT_SESSION_KEY, self.client.session)
 
 

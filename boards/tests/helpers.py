@@ -79,11 +79,11 @@ def fragment_url(board, sub_board=None):
 
 # The live blocks of a sub-board page: the markup each one is drawn from in
 # the fragment, and the `data-*-revision` attribute the page carries for it.
-# The card panel is one block in two containers, with one fingerprint.
+# The card panel is one block in three containers, with one fingerprint.
 LIVE_BLOCKS = {
     'tabs': ('tabs_html',),
     'columns': ('columns_html',),
-    'panel': ('panel_html', 'card_html'),
+    'panel': ('panel_html', 'card_html', 'facts_html'),
     'comments': ('comments_html',),
     'log': ('log_html',),
 }
@@ -129,6 +129,30 @@ def new_card(board, actor, title='Карточка', *, assignees, stage='TODO',
         column=column if column is not None else column_of(board, stage, sub_board),
         **extra,
     )
+
+
+def legacy_attachment(task, user, name='акт.pdf', content=b'%PDF-1.4 legacy', content_type='application/pdf'):
+    """A `TaskAttachment` of a board card's task, as one added before files
+    moved into «Чат» — written directly, since `tasks:add_attachment` and
+    `add_task_attachment()` refuse a `BOARD` task now. The test sets
+    `MEDIA_ROOT`."""
+    from django.core.files.base import ContentFile
+
+    from tasks.models import TaskAttachment
+
+    attachment = TaskAttachment(
+        task=task, uploaded_by=user, original_name=name, file_size=len(content), content_type=content_type,
+    )
+    attachment.file.save(name, ContentFile(content), save=False)
+    attachment.save()
+    return attachment
+
+
+def chat_upload(name='схема.pdf', content=b'%PDF-1.4 chat', content_type='application/pdf'):
+    """One file as a browser posts it with a message of «Чат»."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    return SimpleUploadedFile(name, content, content_type=content_type)
 
 
 def department():

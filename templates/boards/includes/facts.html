@@ -1,0 +1,84 @@
+{% load people %}{% comment %}
+«Описание»'s facts, the result or the reason, and the card's tools — the
+third container of the guarded live block (`[data-live-board-facts]`, one
+fingerprint with the heading and the description). It comes after the card's
+«Чек-лист» in the markup, so the order of the focus is the order on screen.
+Drawn while a card is read (`panel == 'view'`); a form being edited has
+none. «Подписчики» are not here: they are a read-only block of their own
+(`boards/includes/followers.html`), so somebody starting to follow the card
+never moves this block's fingerprint.
+{% endcomment %}
+<section class="board-drawer__body board-drawer__facts-block" data-board-tab-body="description" aria-label="Сведения о карточке">
+    <dl class="board-drawer__facts">
+        <div><dt>Колонка</dt><dd class="user-text">{% if card.column %}{{ card.column.name }}{% else %}—{% endif %}</dd></div>
+        <div><dt>Исполнители</dt><dd class="board-drawer__people">
+            {% for user in card.assignees %}<span class="board-drawer__person"><span class="board-avatar" aria-hidden="true">{{ user|person_initials }}</span><span class="user-text">{{ user|person_name }}</span></span>{% empty %}—{% endfor %}
+        </dd></div>
+        <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=card.due_date done=card.is_closed %}</dd></div>
+        {% if card.department %}<div><dt>Подразделение</dt><dd class="user-text">{{ card.department.name }}</dd></div>{% endif %}
+        <div><dt>Создал</dt><dd>{{ card.card.created_by|person_name }}, {{ card.card.created_at|date:'d.m.Y H:i' }}</dd></div>
+        {% comment %}
+        The board's own fields the card holds a value of, in the fields' order
+        (`card.field_values`, `selectors.describe_field_value()`); an empty
+        one is no row and is not shown. A list option is its coloured chip.
+        An archived field or option still shows the value, marked.
+        {% endcomment %}
+        {% for value in card.field_values %}
+            <div class="board-drawer__field{% if value.is_archived %} board-drawer__field--archived{% endif %}"><dt class="user-text">{{ value.name }}</dt><dd>{% if value.color %}<span class="board-chip board-chip--{{ value.color }}">{{ value.text }}</span>{% else %}<span class="user-text">{{ value.text }}</span>{% endif %}{% if value.is_archived %} <span class="board-drawer__archived">(в архиве)</span>{% endif %}</dd></div>
+        {% endfor %}
+    </dl>
+
+    {% if card.task.is_cancelled %}
+        <section class="board-drawer__section">
+            <h3>Причина отмены</h3>
+            <div class="user-text">{{ card.task.cancellation_reason|linebreaksbr|default:'—' }}</div>
+            <p class="board-drawer__meta">Отменил {{ card.task.cancelled_by|person_name|default:'Система' }}, {{ card.task.cancelled_at|date:'d.m.Y H:i' }}</p>
+        </section>
+    {% elif card.task.completed_by %}
+        <section class="board-drawer__section">
+            <h3>Результат</h3>
+            <div class="user-text">{{ card.task.execution_comment|linebreaksbr }}</div>
+            <p class="board-drawer__meta">Завершил {{ card.task.completed_by|person_name }}, {{ card.task.completed_at|date:'d.m.Y H:i' }}</p>
+        </section>
+    {% endif %}
+
+    {% if can_edit_card or card.can_cancel %}
+        <div class="board-drawer__tools">
+            {% if can_edit_card %}
+                <a class="link-button link-button--secondary" href="{{ board_url }}?card={{ card.card.pk }}&amp;edit=1{% if filter_query %}&amp;{{ filter_query }}{% endif %}">Редактировать</a>
+                {% comment %}
+                «Переместить в…»: every working column of the board, grouped
+                by sub-board (`<optgroup>`, this one first) — a column of
+                another sub-board moves the card there, to the end. The label
+                is the select's `aria-label`, and the buttons are full-size
+                `.link-button`s, so the row is one line of controls of one
+                height (`--control-height`).
+                {% endcomment %}
+                <form class="board-drawer__move" method="post" action="{% url 'boards:card_move' board.pk card.card.pk %}{{ filter_suffix }}">
+                    {% csrf_token %}
+                    {{ move_form.column_id }}
+                    <button class="link-button link-button--secondary" type="submit">Переместить</button>
+                </form>
+            {% endif %}
+            {% comment %}
+            «Отменить карточку»: its author, the board's owner or an
+            administrator (`can_cancel_card()`), for an open card of a live
+            board. The shared modal asks for the reason and posts it as
+            `cancellation_reason`.
+            {% endcomment %}
+            {% if card.can_cancel %}
+                <button class="link-button link-button--danger" type="button"
+                        data-confirm
+                        data-confirm-title="Отменить карточку «{{ card.card.title }}»?"
+                        data-confirm-text="Карточка {{ card.card.code }} (задача №{{ card.task.pk }}) будет закрыта без выполнения и уйдёт с доски. Исполнители получат уведомление в колокольчике."
+                        data-confirm-label="Отменить карточку"
+                        data-confirm-cancel-label="Не отменять"
+                        data-confirm-variant="danger"
+                        data-confirm-comment="required"
+                        data-confirm-comment-label="Причина отмены"
+                        data-confirm-comment-name="cancellation_reason"
+                        data-confirm-url="{% url 'boards:card_cancel' board.pk card.card.pk %}{{ filter_suffix }}">Отменить карточку</button>
+            {% endif %}
+        </div>
+    {% endif %}
+</section>

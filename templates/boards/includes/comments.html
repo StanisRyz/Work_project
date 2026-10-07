@@ -1,31 +1,141 @@
 {% load people board_text %}{% comment %}
-The messages of a card's «Чат», oldest first: the live block
-`[data-live-board-comments]`. Read-only — the form to write one is the
-drawer's, below this block and outside every block the live client replaces —
-so it is replaced whenever its fingerprint moves. It is its own block, and no
-message appears in the guarded panel: a new message never changes
-`panel_revision`.
+A card's «Чат»: the live block `[data-live-board-comments]`. Read-only — the
+form to write a message (and to choose its files) is the drawer's, below this
+block and outside every block the live client replaces — so it is replaced
+whenever its fingerprint moves: a message, a file deleted. It is its own
+block, and nothing of it appears in the guarded panel: a message never
+changes `panel_revision`.
+
+Both views of the chat are here, and the chat's section says which one is
+shown (`data-board-chat-mode`, outside this block):
+- «Все сообщения» (`card.feed`, oldest first): every message with its files —
+  images as thumbnails (`boards:file_preview`, opened full size in a new tab),
+  any other file as a row (a badge by its type, the name cut to one line with
+  the whole on `title`, the size, «Скачать»), a deleted one greyed as «Файл
+  удалён» — and, among them by time, the files the card's task got before
+  files moved into the chat (`tasks:download_attachment`; removed by the
+  task's own rule and route). «×» beside a file is drawn for whoever may
+  delete it, and asks through the shared confirmation modal.
+- «Только файлы» (`card.files`, newest first): every live file of the card,
+  with who added it and when, and «К сообщению» — the row in the feed (every
+  message is asked for when it is older than those shown).
+
 «@Имя Фамилия» of the people a message really mentions is highlighted
-(`board_text.with_mentions`: the text escaped first, the names wrapped after;
-the mentions are one prefetch for all the messages shown).
-Only the newest `COMMENTS_LIMIT` are read; «Показать ранние (N)» is this panel
-with `comments=all`, built by the server with the board's filter kept.
+(`board_text.with_mentions`: the text escaped first, the names wrapped after).
+Only the newest `COMMENTS_LIMIT` messages are read; «Показать ранние (N)» is
+this panel with `comments=all`, built by the server with the board's filter
+kept. The files of every message shown are one query, the older attachments
+the list the panel has read anyway.
 {% endcomment %}
-{% if card.comments_earlier and all_comments_url %}
-    <p class="board-discussion__earlier"><a href="{{ all_comments_url }}">Показать ранние ({{ card.comments_earlier }})</a></p>
-{% endif %}
-{% if card.comments %}
-    <ol class="board-discussion__messages">
-        {% for comment in card.comments %}
-            <li class="board-discussion__message" data-comment-id="{{ comment.pk }}">
-                <span class="board-avatar" title="{{ comment.author|person_name }}">{{ comment.author|person_initials }}</span>
-                <div class="board-discussion__body">
-                    <p class="board-discussion__meta"><strong>{{ comment.author|person_name }}</strong> · {{ comment.created_at|date:'d.m.Y H:i' }}</p>
-                    <div class="board-discussion__text user-text">{{ comment|with_mentions }}</div>
-                </div>
-            </li>
-        {% endfor %}
-    </ol>
-{% else %}
-    <p class="board-discussion__empty">Сообщений пока нет.</p>
-{% endif %}
+<div class="board-chat__view" data-board-chat-view="messages">
+    {% if card.comments_earlier and all_comments_url %}
+        <p class="board-discussion__earlier"><a href="{{ all_comments_url }}">Показать ранние ({{ card.comments_earlier }})</a></p>
+    {% endif %}
+    {% if card.feed %}
+        <ol class="board-discussion__messages">
+            {% for row in card.feed %}
+                {% if row.kind == 'message' %}
+                    {% with comment=row.comment %}
+                        <li class="board-discussion__message" id="board-comment-{{ comment.pk }}" data-comment-id="{{ comment.pk }}">
+                            <span class="board-avatar" title="{{ comment.author|person_name }}">{{ comment.author|person_initials }}</span>
+                            <div class="board-discussion__body">
+                                <p class="board-discussion__meta"><strong>{{ comment.author|person_name }}</strong> · {{ comment.created_at|date:'d.m.Y H:i' }}</p>
+                                {% if comment.text %}<div class="board-discussion__text user-text">{{ comment|with_mentions }}</div>{% endif %}
+                                {% if row.images %}
+                                    <ul class="board-chat__images" aria-label="Изображения">
+                                        {% for entry in row.images %}
+                                            <li class="board-chat__image">
+                                                <a href="{% url 'boards:file_preview' board.pk card.card.pk entry.file.pk %}" target="_blank" rel="noopener" title="{{ entry.file.original_name }} — открыть в новой вкладке">
+                                                    <img src="{% url 'boards:file_preview' board.pk card.card.pk entry.file.pk %}" alt="{{ entry.file.original_name }}" loading="lazy">
+                                                </a>
+                                                <span class="board-chat__image-meta">
+                                                    <span class="board-file__name text-ellipsis" title="{{ entry.file.original_name }}">{{ entry.file.original_name }}</span>
+                                                    <span class="board-file__size">{{ entry.size_label }}</span>
+                                                    <a class="board-file__download" href="{% url 'boards:file_download' board.pk card.card.pk entry.file.pk %}">Скачать</a>
+                                                    {% if entry.can_delete %}{% include 'boards/includes/file_delete.html' with card_file=entry.file %}{% endif %}
+                                                </span>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% endif %}
+                                {% if row.documents %}
+                                    <ul class="board-chat__files" aria-label="Файлы">
+                                        {% for entry in row.documents %}
+                                            {% if entry.file.deleted_at %}
+                                                <li class="board-file board-file--deleted">Файл удалён</li>
+                                            {% else %}
+                                                <li class="board-file">
+                                                    <span class="board-file__badge board-file__badge--{{ entry.icon }}" aria-hidden="true">{{ entry.badge }}</span>
+                                                    <span class="board-file__name text-ellipsis" title="{{ entry.file.original_name }}">{{ entry.file.original_name }}</span>
+                                                    <span class="board-file__size">{{ entry.size_label }}</span>
+                                                    <a class="board-file__download" href="{% url 'boards:file_download' board.pk card.card.pk entry.file.pk %}" aria-label="Скачать {{ entry.file.original_name }}">Скачать</a>
+                                                    {% if entry.can_delete %}{% include 'boards/includes/file_delete.html' with card_file=entry.file %}{% endif %}
+                                                </li>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </ul>
+                                {% endif %}
+                            </div>
+                        </li>
+                    {% endwith %}
+                {% else %}
+                    {% with attachment=row.attachment.object %}
+                        <li class="board-discussion__message board-discussion__message--attachment" id="board-attachment-{{ attachment.pk }}">
+                            <span class="board-avatar" title="{{ attachment.uploaded_by|person_name|default:'Без автора' }}">{{ attachment.uploaded_by|person_initials }}</span>
+                            <div class="board-discussion__body">
+                                <p class="board-discussion__meta"><strong>{{ attachment.uploaded_by|person_name|default:'Без автора' }}</strong> · {{ attachment.created_at|date:'d.m.Y H:i' }} · добавлен файл к задаче</p>
+                                <ul class="board-chat__files" aria-label="Файл задачи">
+                                    <li class="board-file">
+                                        <span class="board-file__badge board-file__badge--{{ row.icon }}" aria-hidden="true">{{ row.badge }}</span>
+                                        <span class="board-file__name text-ellipsis" title="{{ attachment.original_name }}">{{ attachment.original_name }}</span>
+                                        <span class="board-file__size">{{ row.size_label }}</span>
+                                        <a class="board-file__download" href="{% url 'tasks:download_attachment' card.task.pk attachment.pk %}" aria-label="Скачать {{ attachment.original_name }}">Скачать</a>
+                                        {% if row.attachment.can_delete %}
+                                            <form id="board-attachment-delete-{{ attachment.pk }}" class="board-file__delete-form" method="post" action="{% url 'tasks:delete_attachment' card.task.pk attachment.pk %}">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="list_query" value="{{ list_query }}">
+                                                <button class="board-file__delete" type="submit" title="Удалить файл" aria-label="Удалить {{ attachment.original_name }}"
+                                                        data-confirm
+                                                        data-confirm-form="board-attachment-delete-{{ attachment.pk }}"
+                                                        data-confirm-title="Удалить файл?"
+                                                        data-confirm-text="Файл «{{ attachment.original_name }}» будет удалён из задачи №{{ card.task.pk }}."
+                                                        data-confirm-label="Удалить"
+                                                        data-confirm-variant="danger">×</button>
+                                            </form>
+                                        {% endif %}
+                                    </li>
+                                </ul>
+                            </div>
+                        </li>
+                    {% endwith %}
+                {% endif %}
+            {% endfor %}
+        </ol>
+    {% else %}
+        <p class="board-discussion__empty">Сообщений пока нет.</p>
+    {% endif %}
+</div>
+<div class="board-chat__view" data-board-chat-view="files">
+    {% if card.files %}
+        <ol class="board-chat__all-files">
+            {% for entry in card.files %}
+                <li class="board-file board-file--listed">
+                    <span class="board-file__badge board-file__badge--{{ entry.icon }}" aria-hidden="true">{{ entry.badge }}</span>
+                    <span class="board-file__main">
+                        <span class="board-file__name text-ellipsis" title="{{ entry.name }}">{{ entry.name }}</span>
+                        <span class="board-file__meta">{{ entry.author|person_name|default:'Без автора' }} · {{ entry.at|date:'d.m.Y H:i' }} · {{ entry.size_label }}</span>
+                    </span>
+                    {% if entry.kind == 'chat' %}
+                        <a class="board-file__download" href="{% url 'boards:file_download' board.pk card.card.pk entry.object.pk %}" aria-label="Скачать {{ entry.name }}">Скачать</a>
+                        <a class="board-file__goto" href="{% if entry.shown %}{{ chat_messages_url }}{% else %}{{ all_comments_url }}{% endif %}#board-comment-{{ entry.comment_id }}" data-board-chat-goto="board-comment-{{ entry.comment_id }}">К сообщению</a>
+                    {% else %}
+                        <a class="board-file__download" href="{% url 'tasks:download_attachment' card.task.pk entry.object.pk %}" aria-label="Скачать {{ entry.name }}">Скачать</a>
+                        <a class="board-file__goto" href="{% if entry.shown %}{{ chat_messages_url }}{% else %}{{ all_comments_url }}{% endif %}#board-attachment-{{ entry.attachment_id }}" data-board-chat-goto="board-attachment-{{ entry.attachment_id }}">К сообщению</a>
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ol>
+    {% else %}
+        <p class="board-discussion__empty">Файлов пока нет. Прикрепите файл к сообщению — 📎 под полем, перетаскиванием или Ctrl+V скриншота.</p>
+    {% endif %}
+</div>

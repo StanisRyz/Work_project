@@ -96,6 +96,9 @@ BOARD_CHANGE_STRUCTURE_CHANGED = 'structure_changed'
 # A card's «Чек-лист»: an item added, renamed, ticked or unticked, moved or
 # deleted.
 BOARD_CHANGE_CHECKLIST_CHANGED = 'checklist_changed'
+# A file of a card's «Чат» deleted (`delete_card_file()`). A file added comes
+# with its message, as `comment_added`.
+BOARD_CHANGE_FILE_DELETED = 'file_deleted'
 
 BOARD_CHANGES = frozenset(
     {
@@ -111,6 +114,7 @@ BOARD_CHANGES = frozenset(
         BOARD_CHANGE_COMMENT_ADDED,
         BOARD_CHANGE_STRUCTURE_CHANGED,
         BOARD_CHANGE_CHECKLIST_CHANGED,
+        BOARD_CHANGE_FILE_DELETED,
     }
 )
 

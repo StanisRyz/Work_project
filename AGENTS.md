@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`, and a «Застой» threshold, `stale_after_days`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|files|log`, «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`, the task's own attachment routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?stale`/`?q` and by its fields (`?f_<id>…`, one parse — `parse_board_filters()`), an open tile says how long it has stood in its column (`in_column_since()`, from `BoardCardEvent`), `?view=table` is the sub-board as rows («Таблица», `build_board_table()`) and `&export=xlsx` that table through `ecosystem.xlsx`, and `BoardCard.version` refuses a stale edit; a card's «Обсуждение» is `BoardCardComment`, written only by `post_card_comment()`, which also stores whom a message mentions with «@» (`BoardCardCommentMention`); a card's «Чек-лист» is `BoardCardChecklistItem` (`add_checklist_item()` and its siblings) and its followers `BoardCardSubscription` (`toggle_card_subscription()`), and who hears of a card is `selectors.card_audience()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat, its log and its checklist) and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
+| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`, and a «Застой» threshold, `stale_after_days`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|log` (the old `files` — «Чат» with `&chat=files`), «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`; its task's older attachments through the task's own routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?stale`/`?q` and by its fields (`?f_<id>…`, one parse — `parse_board_filters()`), an open tile says how long it has stood in its column (`in_column_since()`, from `BoardCardEvent`), `?view=table` is the sub-board as rows («Таблица», `build_board_table()`) and `&export=xlsx` that table through `ecosystem.xlsx`, and `BoardCard.version` refuses a stale edit; a card's «Чат» is `BoardCardComment`, written only by `post_card_comment()`, which also stores whom a message mentions with «@» (`BoardCardCommentMention`) and the files it carries (`BoardCardFile` — the board's own protected files, `boards:file_download`/`file_preview`, deleted to a tombstone by `delete_card_file()`; `static/js/board_chat_files.js` chooses them); a card's «Чек-лист» is `BoardCardChecklistItem` (`add_checklist_item()` and its siblings) and its followers `BoardCardSubscription` (`toggle_card_subscription()`), and who hears of a card is `selectors.card_audience()`. Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat with its files, its log, its checklist and its followers) and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -100,9 +100,10 @@ tasks never live inside `acts`.
 - **Attachments are protected media**, served only by
   `acts.views.act_download_attachment`,
   `protocols.views.protocol_download_attachment` and
-  `tasks.views.task_download_attachment` — and library files only by the
-  `documents` download, preview and ZIP views — each with a per-request
-  permission check. `MEDIA_ROOT` is never published by the web server and is a
+  `tasks.views.task_download_attachment` — library files only by the
+  `documents` download, preview and ZIP views, and the files of a board
+  card's «Чат» only by `boards.views.file_download`/`file_preview` — each
+  with a per-request permission check. `MEDIA_ROOT` is never published by the web server and is a
   different directory from `STATIC_ROOT`.
 - Django Templates and vanilla JavaScript only: no framework, bundler or npm.
 - **A live-replaced block and its initial server render share one markup
@@ -132,8 +133,9 @@ tasks never live inside `acts`.
   `static/js/attachment_upload.js`, loaded once in `base.html`, drives every
   `[data-attachment-upload]` form — акты, протоколы, задачи — and no module has
   an upload script of its own (`act_attachments.js` is gone; the documentation
-  library keeps its own `[data-document-upload]` control, which is a different
-  component). On `change` it writes the chosen names onto the form's hidden
+  library keeps its own `[data-document-upload]` control, and a board card's
+  «Чат» its `board_chat_files.js` — files chosen *for a message* and sent with
+  it, not uploaded on choice — each a different component). On `change` it writes the chosen names onto the form's hidden
   `[data-attachment-upload-confirm]` trigger and clicks it, so the confirmation
   is the shared `confirm_modal.js` dialog and not a second one: «Загрузить»
   submits the very form the file was picked in, «Нет» (the trigger's
@@ -868,12 +870,15 @@ tasks never live inside `acts`.
   contains the browser's name, `MEDIA_ROOT` unpublished — and are served only
   by `tasks.views.task_download_attachment`, which re-loads the row scoped to
   the task in the URL and asks permission again. `can_upload_task_attachment()`
-  **is** `can_complete_task()`: an assignee of an active ordinary task plus the
-  administrative fallback, which also means a routing task accepts no file at
-  all. Reading a task is open to every authenticated user, so downloading is
+  **is** `can_complete_task()` — except for a `BOARD` task, which takes no new
+  attachment at all (a card's files go into its «Чат», below): an assignee of
+  an active ordinary task plus the administrative fallback, which also means a
+  routing task accepts no file at all. Reading a task is open to every authenticated user, so downloading is
   too — and read access still grants no upload. There is no description and no
   second file-security implementation.
-- **`can_delete_task_attachment()` is that same answer, asked per row.** A
+- **`can_delete_task_attachment()` is `can_complete_task()`, asked per row** —
+  the upload rule without its `BOARD` exception, so the attachments a board
+  card's task got before stage 19 are removed exactly as before. A
   wrongly uploaded file is removed through `tasks:delete_attachment` (POST only)
   by an assignee or an administrator, and **only while the task is
   `IN_PROGRESS`** — a completed or cancelled task keeps its attachment history,
@@ -894,28 +899,34 @@ tasks never live inside `acts`.
   (`remember_execution_draft()`/`take_execution_draft()`), and the task page
   pops it back into the field. The board carries no draft: a `BOARD` task's
   result is typed into «Завершить» in the card drawer's heading, the chat's
-  form has no hidden field, and the drawer takes nothing from the session —
-  on the board the include's carry finds no `#task-execution-comment` and
-  posts it empty, which clears any stale draft. It is a draft and never a comment: `complete_task()` is still the only
+  form has no hidden field, the drawer takes nothing from the session, and an
+  older attachment's delete form in «Чат» carries no `execution_comment`,
+  which clears any stale draft. It is a draft and never a comment: `complete_task()` is still the only
   writer of `Task.execution_comment`, the upload still creates nothing but a
   `TaskAttachment`, and a browser without JavaScript posts an empty draft
   exactly as before.
 - **«Вложения» is one list and one include.** `tasks.presentation.task_attachment_cards()`
   builds the cards (size label, the per-row delete right from
   `can_delete_task_attachment()`), and `templates/tasks/includes/attachments.html`
-  draws them with the upload and delete forms; the task page and the board's
-  card drawer («Файлы») both include it, so a file is never handled two ways.
-  The task page names its «Выполнение» textarea `#task-execution-comment`,
-  which is what the include's `[data-attachment-carry-from]` reads; the board
-  has none. `list_query` brings the request back: the board passes
-  `tab=files`, and `tasks:detail?tab=files` leads to the card's «Файлы».
-  `attachment_upload.js` wires a form once, on load and through
-  `window.qualityFragments` for one that arrives later (the drawer opened
-  without a reload).
+  draws them with the upload and delete forms on the task page. The task page
+  names its «Выполнение» textarea `#task-execution-comment`, which is what the
+  include's `[data-attachment-carry-from]` reads. `attachment_upload.js` wires a
+  form once, on load and through `window.qualityFragments` for one that
+  arrives later. A board card's drawer no longer includes it: the same list is
+  read by `boards.selectors.build_chat()` and its rows stand in the card's
+  «Чат» by time, each downloaded through `tasks:download_attachment` and
+  removed through `tasks:delete_attachment` with `list_query=tab=chat` —
+  `tasks:detail?tab=chat` leads back to the card's «Чат».
 - **A `BOARD` task is worked on its board, and is not a routing task.**
   `is_routing_task` does not include it: it is completed by its исполнитель
-  through `complete_task()` with an execution comment, takes attachments and is
-  reopened by an administrator, under exactly the rules every ordinary task has.
+  through `complete_task()` with an execution comment and is reopened by an
+  administrator, under exactly the rules every ordinary task has. It takes no
+  new `TaskAttachment` (a card's files belong to its «Чат», `BoardCardFile`):
+  `tasks:add_attachment` creates nothing for it, puts «Файлы карточки
+  прикрепляют в чате» in `messages` and leads to the card's «Чат»
+  (`BOARD_ATTACHMENT_REFUSAL`), and `can_upload_task_attachment()` answers no;
+  the attachments it already has are listed, downloaded and removed as before.
+  It is never `requires_attachment`, so completing it asks for no file.
   Only *where* it is shown and worked differs: `tasks:detail` redirects it to
   `tasks.presentation.board_card_url(task, tab='')` (the card's sub-board with
   `?card=<pk>`, plus `&tab=` when `tasks:detail` was asked for one), and no
@@ -924,8 +935,7 @@ tasks never live inside `acts`.
   `complete_card()`, `boards:card_reopen` → `reopen_card()` — so the card's
   journal misses neither: `tasks:complete` and `tasks:reopen` change nothing
   for a `BOARD` task, put «Карточку доски завершают и возвращают на доске.» in
-  `messages` and redirect to the card (`BOARD_TASK_REFUSAL`); a refused upload
-  puts its message in `messages` and redirects to the card's «Файлы». `tasks` names the route and reads
+  `messages` and redirect to the card (`BOARD_TASK_REFUSAL`). `tasks` names the route and reads
   `Task.board_card`; its one module that asks `boards` is `tasks.permissions`
   (`tasks.selectors` takes `can_use_boards` from it):
   `get_readable_tasks_queryset()` and `get_visible_tasks_queryset()` keep a
@@ -1915,7 +1925,8 @@ tasks never live inside `acts`.
   `is_active_employee()` for one user and `active_employee_q(prefix)` as a
   filter; the services filter with the latter and never restate it.
 - **`build_board_state(board, sub_board, user)` is one read**: the tabs one
-  query, the columns of *every* sub-board of the board one query (the
+  query (none when the view has read them already to find the sub-board —
+  `board_tabs()`, passed as `tabs`), the columns of *every* sub-board of the board one query (the
   drawer's «Переместить в…» offers them all) and this sub-board's pins one
   prefetch, the open cards with their tasks and statuses in one query, the
   newest `done_limit` (`DONE_LIMIT`, 50) completed ones in another plus a
@@ -1923,9 +1934,9 @@ tasks never live inside `acts`.
   with its user joined — a tile draws no profile), the active members for
   the pin menus only for a manager, and the card `card_id` names in one more —
   whose исполнители are taken from the columns' own prefetch when it is among
-  them, so `tasks.permissions.can_complete_task()` (and through it the upload
-  and per-file delete rights) answers from those rows instead of asking the
-  database three times; writing in «Чат» is `can_work`, already asked for the
+  them, so `tasks.permissions.can_complete_task()` (and through it the
+  per-file delete right of the task's older attachments) answers from those
+  rows instead of asking the database again; writing in «Чат» is `can_work`, already asked for the
   page (`can_comment_card()` *is* `can_work_on_board()`). Its query count
   grows neither with the cards nor with the columns or tabs. Cards in a
   working column are in `position` order, the closing column newest
@@ -1934,10 +1945,13 @@ tasks never live inside `acts`.
   leads to the card's own tab); one standing on another sub-board — moved
   there while this page had it open — carries `moved_to`, and the heading
   says «Карточка перенесена на поддоску «…»» with a link there, the drawer
-  staying where it is. A cancelled card is found too, read-only. A
-  sub-board page with a card open is 38 on a board without card fields
-  (`boards/tests/test_journal.py`, `PAGE_QUERIES`, a card with messages) and
-  39 on one with them (no messages) —
+  staying where it is. A cancelled card is found too, read-only. The
+  heading's member avatars and the number behind «+N» are one query
+  (`member_preview()` reads the members once and counts them), the page's
+  only — the fragment pays for neither. A sub-board page with a card open is
+  37 on a board without card fields (`boards/tests/test_journal.py`,
+  `PAGE_QUERIES`, a card with messages and files) and 38 on one with them (no
+  messages) —
   the fields with their options and the values of every card on the page,
   the panel's included, are three queries however many there are
   (`boards/tests/test_fields.py`, `FieldQueryCountTests`). «В колонке с» and
@@ -1946,8 +1960,14 @@ tasks never live inside `acts`.
   either. The open card's «Чек-лист» is one query (its items, who ticked
   each joined), its followers one more — the board's readers who are active
   employees (`board_readers_q()`), each marked whether they follow, which is
-  also the list «@» offers in «Чат» — and the mentions of the messages shown
-  one prefetch; none of them grows with items, followers or mentions.
+  also the list «@» offers in «Чат» — the mentions of the messages shown
+  one prefetch, and the files of «Чат» one query (every `BoardCardFile` of
+  the card, shared out to its messages in Python, which is also «Только
+  файлы» and the files of «Лог»); the task's older attachments are the list
+  `task_attachment_cards()` read anyway, never read twice. None of them grows
+  with items, followers, mentions, messages or files
+  (`boards/tests/test_chat_files.py`: 0, 1 and 20 files). «📎 N» of a tile
+  is a subquery annotation like «☑ 2/5» (`file_count_annotation()`).
 - **The card drawer is where a `BOARD` task is worked — and the only place.**
   Its heading (`boards/includes/panel.html`, fixed while the tab below
   scrolls) is «Карточка ZAP-12» (the copying link above) and «задача №N»,
@@ -1964,11 +1984,12 @@ tasks never live inside `acts`.
   field starts from the posted text, else `task.execution_comment` (a
   reopened task shows its old result) — never from the session: there is no
   «Выполнение» field and no draft on the board. Every right shown
-  (`can_complete`, `can_reopen` — false on an archived board —,
-  `can_upload_attachment`, the per-row delete) comes from
-  `tasks.permissions`, carried on the panel card by `build_board_state()`. A
-  completed card shows the result and who finished it on «Описание» and
-  download-only files; a cancelled one shows the reason and no action.
+  (`can_complete`, `can_reopen` — false on an archived board —, the per-row
+  delete of an older task attachment) comes from `tasks.permissions`, and
+  the per-file delete of «Чат» from `boards.permissions.can_delete_card_file()`,
+  carried on the panel card by `build_board_state()`. A completed card shows
+  the result and who finished it on «Описание»; a cancelled one shows the
+  reason and no action — both are still discussed in «Чат», files included.
   `describe_task_source()` names the board and the card («Доска «X» ·
   ZAP-12») and links to the card, and the registry search finds a task by its
   board's name, its card's code or a live text field's value.
@@ -2008,27 +2029,30 @@ tasks never live inside `acts`.
   filter row's hidden `card`/`tab` (disabled while empty) and «Сбросить»
   follow the open card. Nothing in it is a rule: every address is the
   server's.
-- **The drawer has four tabs, and the tab is the drawer's, not a block's.**
-  «Описание», «Чат (N)», «Файлы (N)», «Лог», chosen by `?tab=` —
-  `views.parse_panel_tab()`, unknown → «Описание» — and drawn by the server
+- **The drawer has three tabs, and the tab is the drawer's, not a block's.**
+  «Описание», «Чат (N)», «Лог», chosen by `?tab=` —
+  `views.parse_panel_tab()`, unknown → «Описание», and the old `files` (every
+  link and notification that still says `tab=files`, `tasks:detail?tab=files`
+  included) → «Чат» showing «Только файлы» — and drawn by the server
   as links (`tab` on each, plus the tab's fragment URL in
-  `data-board-tab-fragment-url`). All four bodies are always rendered, so the
+  `data-board-tab-fragment-url`). All three bodies are always rendered, so the
   tab changes no query and no block: the server writes it as
   `data-board-tab` on the `<aside>`, CSS shows the matching
   `[data-board-tab-body]`, and `board_drawer.js` switches it in place —
   attribute, the active link, `[data-board]`'s page and fragment URLs, and
   `history.replaceState`. The `<aside>` is outside every live block, so no
-  replacement can change the tab. «Описание» holds the description, the
-  card's «Чек-лист» right under it (below), the facts
-  (column, исполнители with avatars, срок through `includes/due_date.html`,
-  who created it and when, «Подписчики» — up to `SUBSCRIBER_PREVIEW_LIMIT`
-  (5) avatars and «+N»), the result or the reason, then «Редактировать»
-  (`&edit=1`, the form on this same tab), «Переместить в…» and «Отменить
-  карточку» — one line of full-size controls of `--control-height`, the
-  select's label on its `aria-label`; «Чат» the messages with the form pinned below; «Файлы» the task
-  page's `attachments.html`; «Лог» the journal. `page_url`, `fragment_url`
-  and every redirect name the tab where it matters: a message lands on
-  `tab=chat`, a file on `tab=files` (through `tasks:detail?tab=files`). A tile
+  replacement can change the tab. «Описание» holds, in this order in the
+  markup — which is the order on screen and of the focus, no CSS `order` —
+  the description (or the card's form), the card's «Чек-лист» (below), the
+  facts (column, исполнители with avatars, срок through
+  `includes/due_date.html`, who created it and when, the board's own fields),
+  the result or the reason, then «Редактировать» (`&edit=1`, the form on this
+  same tab), «Переместить в…» and «Отменить карточку» — one line of
+  full-size controls of `--control-height`, the select's label on its
+  `aria-label` — and last «Подписчики» (up to `SUBSCRIBER_PREVIEW_LIMIT` (5)
+  avatars and «+N»); «Чат» the messages with their files and the form pinned
+  below (below); «Лог» the journal. `page_url`, `fragment_url` and every
+  redirect name the tab where it matters: a message lands on `tab=chat`. A tile
   clicked while a card is open opens the new card on the tab shown now —
   `board_drawer.js` adds the drawer's `tab` to the tile's own query (nothing
   for «Описание»); without JavaScript a tile opens «Описание».
@@ -2279,16 +2303,21 @@ tasks never live inside `acts`.
   `_board_blocks()` renders each block with its `content_revision()`, and the
   page prints that very markup inside its own containers:
   `[data-live-board-tabs]` (`tabs.html`), `[data-live-board-columns]`
-  (`columns.html`, `.board-structure`), the guarded panel in **two
+  (`columns.html`, `.board-structure`), the guarded panel in **three
   containers with one fingerprint** — `[data-live-board-panel]` (the
-  drawer's heading, `panel.html`) and `[data-live-board-card]` («Описание» and
-  «Файлы», `card.html`, `display: contents`) — `panel_revision` over both,
-  `[data-live-board-comments]` (`comments.html`), `[data-live-board-log]`
-  (`log.html`) and `[data-live-board-checklist]` (`checklist.html`, on
-  «Описание»). The blocks are rendered by `views._render_block()` — the
+  drawer's heading, `panel.html`), `[data-live-board-card]` (the description
+  or the card's form, `card.html`) and `[data-live-board-facts]` (the facts,
+  the result or reason and the tools, `facts.html`; both `display: contents`
+  in «Описание»'s pane) — `panel_revision` over all three,
+  `[data-live-board-comments]` (`comments.html`: the messages with their
+  files and «Только файлы»), `[data-live-board-log]` (`log.html`),
+  `[data-live-board-checklist]` (`checklist.html`, on «Описание» between the
+  description and the facts) and `[data-live-board-followers]`
+  (`followers.html`, «Подписчики», below the tools). The blocks are rendered by `views._render_block()` — the
   context plus `request`, `user` and the CSRF token, **without** the context
   processors (a `RequestContext` per block ran the bell's two queries seven
-  times); only the page around them is rendered with them. The fragment adds `chat_count`/`files_count`, `drawer_html`
+  times); only the page around them is rendered with them. The fragment adds `chat_count`/`files_count` (beside «Чат» and «Только
+  файлы»), `chat_mode`, `drawer_html`
   (`drawer.html`: the drawer around those blocks, with the tab strip and the
   chat's form), and `panel`, `card_id`, `task_id`, `tab`, `page_url`,
   `fragment_url`, `reset_url` — what `board_drawer.js` opens a card with. The
@@ -2300,8 +2329,8 @@ tasks never live inside `acts`.
   `quality:board-idle` or when the menu closes (a capturing `toggle`
   listener), never applied stale. The guarded panel holds forms and is
   guarded like the act work tab: unchanged fingerprint → nothing; changed and
-  clean → both containers replaced (and «Файлы (N)» set); changed with
-  unsaved input in either → the conflict banner, typed text kept. «Чат» and
+  clean → the three containers replaced; changed with unsaved input in any
+  → the conflict banner, typed text kept. «Чат» and
   «Лог» are read-only and replaced whenever their own fingerprint moved («Чат
   (N)» set with its block); no message and no journal entry is in the guarded
   panel, so neither moves `panel_revision` or raises the banner, and the
@@ -2309,7 +2338,11 @@ tasks never live inside `acts`.
   card's «Чек-лист» is the same kind of block (buttons and links only):
   replaced whenever `checklist_revision` moved — a tick never raises the
   banner over an edit — except while one item's «Изменить» form
-  (`[data-checklist-edit]`) is in it, which defers it like a menu. A
+  (`[data-checklist-edit]`) is in it, which defers it like a menu.
+  «Подписчики» are read-only and replaced whenever `followers_revision`
+  moved, outside the guarded panel, so a new follower — the colleague a
+  message mentions follows the card — never raises the banner over a result
+  being typed. A
   page whose panel holds input that is not stored — a bound form after a
   refusal, a refused result — says `data-panel-holds-input="true"` and takes
   its panel fingerprint from a clean render, exactly as the protocol page
@@ -2505,9 +2538,10 @@ tasks never live inside `acts`.
   panel with what was typed, the error and «Открыть текущую версию» in a new
   tab. `expected_version=None` (a call that is not a form) skips the check.
 - **«Чат» is a record of comments, not a chat engine.** `BoardCardComment`
-  (card, author, text, `created_at`; `PROTECT` both ways, indexed on
-  `(card, created_at)`) has no edit and no delete, and no files, reactions
-  or «typing»; the people it names with «@» are its `mentions` (below).
+  (card, author, text — empty only beside a file —, `created_at`; `PROTECT`
+  both ways, indexed on `(card, created_at)`) has no edit and no delete, and
+  no reactions or «typing»; it may carry files (`BoardCardFile`, below), and
+  the people it names with «@» are its `mentions` (below).
   `post_card_comment()` locks board → card, asks
   `can_comment_card()` after the locks — `can_work_on_board()`, so an active
   member or an administrator and never on an archived board, whatever the
@@ -2543,6 +2577,65 @@ tasks never live inside `acts`.
   the bottom of the list there and leaves one who scrolled up where they
   were; `board_drawer.js` opens the list at its newest message when «Чат» is
   shown.
+- **A card's files are attached to a message of its «Чат» — the board's own
+  files, not the task's.** `BoardCardFile` (card and message `PROTECT`,
+  `related_name='files'` on both; `uploaded_by`; `file` under
+  `boards/files/<card_id>/<uuid>.<ext>` — never the browser's name;
+  `original_name`, `size`, `content_type`, `created_at`; `deleted_at`/
+  `deleted_by`). Whoever may write in the chat may attach (`can_comment_card()`
+  — an open or a closed card alike, never an archived board), at most
+  `MAX_FILES_PER_MESSAGE` (10) per message, each checked by the one policy
+  (`ecosystem.attachments`: extension and size), with no second copy of it.
+  `post_card_comment(files=…)` refuses before writing anything — no row, no
+  file — writes the files before their rows, and removes the files it wrote
+  if anything after fails; a message is text, files or both, never neither
+  («Напишите сообщение или прикрепите файл.»). It is still one
+  `comment_added` and one notification per person per message, naming no
+  file. `delete_card_file()` — `permissions.can_delete_card_file()`: who
+  uploaded it while still an active member, or `is_act_admin()`; never on an
+  archived board — locks board → card → file, keeps the row as a tombstone
+  (`deleted_at`/`deleted_by`, `file` emptied), removes the file from the disk
+  `on_commit`, touches the card's `updated_at` (the `boards` sync revision)
+  and publishes one `board.updated(file_deleted)`; deleting twice stores and
+  publishes nothing. «Лог» writes nothing about files: it *reads* them —
+  «Добавлен файл «X»», a deleted one «(удалён)». Served only by
+  `boards:file_download` (`/<board>/cards/<card>/files/<file>/`, an
+  attachment) and `boards:file_preview` (`…/preview/`, inline, only `.png`,
+  `.jpg`, `.jpeg`, `.webp`, the type from the extension — `PREVIEW_IMAGE_TYPES`
+  — never the stored `content_type`, with `nosniff` and
+  `Content-Security-Policy: sandbox`): the row is found through the card in
+  the address, the right is `can_view_board()`, and a refusal, another card's
+  file, a deleted and a missing one are the same 404; the log line carries
+  identifiers and the size only. `boards:file_delete` (POST, the reading right
+  as a 404 and the delete right as a 403 before the method, a GET changes
+  nothing). **In «Чат»** a message's images are thumbnails (the preview,
+  bounded height, the full size in a new tab), any other file a row (a badge
+  by its type, the name `.text-ellipsis` with `title`, the size, «Скачать»),
+  «×» for whoever may delete it through the shared modal, a deleted one grey
+  «Файл удалён». The attachments a card's task got before stage 19
+  (`TaskAttachment`) stand among the messages by time — «добавлен файл к
+  задаче», downloaded through `tasks:download_attachment`, removed by
+  `can_delete_task_attachment()` through `tasks:delete_attachment` — nothing
+  is copied or migrated. «Все сообщения | Только файлы · N» above the list
+  (`&chat=files`, `views.parse_chat_mode()`): both lists are in the comments
+  block, the chat section's `data-board-chat-mode` says which is shown, the
+  server draws it and `board_drawer.js` switches it in place like a tab;
+  «Только файлы» is every live file of the card — the chat's and the
+  task's — newest first, who, when and «К сообщению» (the row's anchor, every
+  message asked for when it is older than those shown). A tile shows «📎 N»
+  (live chat files plus the task's attachments) beside «💬 N». **The form**
+  (`multipart/form-data`, `boards:card_comment`): without JavaScript an
+  ordinary `input type=file multiple`; `static/js/board_chat_files.js`
+  (delegated, a `window.qualityFragments` initialiser, the selection written
+  into that same input through `DataTransfer`) adds «📎» picks to the ones
+  before, files dropped on «Чат», an image pasted into the text (Ctrl+V of a
+  screenshot → `скриншот-ГГГГ-ММ-ДД-ЧЧММСС.png`; a clipboard that also holds
+  text is left to the text) and a chip per chosen file with «×» — and
+  checks nothing. A refusal comes back with the text and the message plus
+  «Выберите файлы заново.» — a browser keeps no file choice across a page.
+  The form is in no live block, so chosen files survive every refresh. Files
+  of boards are not in the documentation's «Вложения»
+  (`documents/references.py`): a later source.
 - **A card's «Чек-лист» is a working list, not a record.**
   `BoardCardChecklistItem` (card `PROTECT`, `related_name='checklist'`, text
   ≤ `CHECKLIST_TEXT_MAX_LENGTH` (200), `position`, `is_done` with
@@ -2968,7 +3061,9 @@ tasks never live inside `acts`.
 - Boards emit one event type, `board.updated` (`board_id`, `card_id` or null,
   `change` from the closed `realtime.events.BOARD_CHANGES`: `card_created`,
   `card_updated`, `card_moved`, `card_completed`, `card_reopened`, `card_cancelled`,
-  `members_changed`, `board_archived`, `board_restored`, `comment_added`,
+  `members_changed`, `board_archived`, `board_restored`, `comment_added` (a
+  message, with its files if it has any), `file_deleted` (a file of «Чат»
+  deleted, `delete_card_file()`),
   `checklist_changed` (a card's «Чек-лист» item added, renamed, ticked,
   moved or deleted; no subscription is an event — following is personal),
   `structure_changed` — a sub-board or a column created, renamed, moved or
@@ -2977,8 +3072,9 @@ tasks never live inside `acts`.
   `emit_board_updated()` from `boards/services.py` alone — inside the write's
   `atomic()` block, once per successful write that stored something. A refusal,
   a rollback, an edit that changes nothing and a drop where the card already
-  stood (`move_card()` detects it and writes nothing) publish nothing. A board
-  task changed elsewhere — an attachment added or removed — is its own
+  stood (`move_card()` detects it and writes nothing) publish nothing, and so
+  does a file deleted twice. A board
+  task changed elsewhere — an older attachment of it removed — is its own
   `task.*` and never a `board.updated` (completing and reopening go through
   the board's routes, `card_completed`/`card_reopened`). The audience is
   `board_targets(board)`: every active account with full access
@@ -2995,7 +3091,9 @@ tasks never live inside `acts`.
   fields and of a board's code touches the sub-boards' `updated_at` instead of
   costing an aggregate of its own) — the safety net for a lost
   `board.updated`. The card journal needs no aggregate of its own: every
-  entry is written with a card or task row whose `updated_at` already moves; for anybody else the
+  entry is written with a card or task row whose `updated_at` already moves;
+  nor do the files of «Чат»: one added comes with its message, one deleted
+  touches the card's `updated_at`; for anybody else the
   key is there but constant and costs no query. The left panel and the
   members page are not live.
 - A live refresh never replaces a form holding unsaved input: only read-only

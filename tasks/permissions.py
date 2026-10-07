@@ -169,7 +169,14 @@ def can_upload_task_attachment(task, user):
 
     Deliberately *not* wider than completion: every authenticated user may read
     a task, and read access has never granted a write.
+
+    Never a `BOARD` task: a card's files are attached to a message of its
+    «Чат» (the board's own files), and its task takes no new attachment. The
+    ones it already has stay, and are removed by `can_delete_task_attachment()`
+    as before.
     """
+    if task.source_type == Task.SourceType.BOARD:
+        return False
     return can_complete_task(task, user)
 
 
@@ -196,6 +203,8 @@ def can_delete_task_attachment(attachment, user):
     Deliberately *not* «whoever uploaded it»: a task is shared work, and an
     assignee correcting a colleague's mis-uploaded file is the normal case.
     Reading a task is open to every authenticated user and still grants nothing
-    here.
+    here. Asked of `can_complete_task()` directly rather than of the upload
+    rule: a `BOARD` task takes no new file, but the files it got before keep
+    being removable by the same people as ever.
     """
-    return can_upload_task_attachment(attachment.task, user)
+    return can_complete_task(attachment.task, user)

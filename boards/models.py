@@ -18,6 +18,7 @@ every mutation goes through `boards/services.py`.
 """
 
 import re
+from uuid import uuid4
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
@@ -405,12 +406,13 @@ class BoardCard(models.Model):
 
 
 class BoardCardComment(models.Model):
-    """One message of a card's «Обсуждение».
+    """One message of a card's «Чат».
 
-    A record of the discussion, not a chat: no editing, no deletion, no
-    files. People named with «@» are its `mentions`
-    (`BoardCardCommentMention`). Written only by `services.post_card_comment()`;
-    read by every reader of the board.
+    A record of the discussion: no editing, no deletion. It carries text,
+    files (`BoardCardFile`, at most `MAX_FILES_PER_MESSAGE`) or both — the
+    text is empty only beside at least one file. People named with «@» are
+    its `mentions` (`BoardCardCommentMention`). Written only by
+    `services.post_card_comment()`; read by every reader of the board.
     """
 
     card = models.ForeignKey(
@@ -425,7 +427,8 @@ class BoardCardComment(models.Model):
         related_name='board_card_comments',
         verbose_name='Автор',
     )
-    text = models.TextField('Текст')
+    # Empty only for a message that is files alone (`post_card_comment()`).
+    text = models.TextField('Текст', blank=True)
     created_at = models.DateTimeField('Создано', auto_now_add=True)
 
     class Meta:
@@ -438,6 +441,106 @@ class BoardCardComment(models.Model):
 
     def __str__(self):
         return f'Сообщение #{self.pk} в карточке #{self.card_id}'
+
+
+# How many files one message of «Чат» may carry.
+MAX_FILES_PER_MESSAGE = 10
+
+# The images «Чат» draws as thumbnails (`boards:file_preview`): the
+# extension decides the type served, never the stored `content_type`.
+PREVIEW_IMAGE_TYPES = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+}
+
+
+def board_card_file_upload_to(instance, filename):
+    """`boards/files/<card_id>/<uuid>.<ext>` — never the browser's name.
+
+    The same shape every attachment in the project has: a UUID name can
+    neither collide, escape its directory nor be guessed, and `MEDIA_ROOT`
+    is not published — the file is reached only through
+    `boards:file_download`/`file_preview`, which ask the right again.
+    """
+    from ecosystem.attachments import attachment_extension
+
+    card_id = instance.card_id or 'unassigned'
+    return f'boards/files/{card_id}/{uuid4().hex}{attachment_extension(filename)}'
+
+
+class BoardCardFile(models.Model):
+    """A file attached to a message of a card's «Чат».
+
+    The board's own file, not the task's (`tasks.TaskAttachment`): whoever
+    writes in the chat may attach one, on an open or a closed card alike,
+    and reading it is reading the board. Written only by
+    `services.post_card_comment()`, with its message, under the one upload
+    policy (`ecosystem.attachments`). Deleting it (`delete_card_file()`)
+    removes the file from the disk and keeps this row as a tombstone —
+    `deleted_at`/`deleted_by`, `file` emptied — so the message still says
+    that a file was there.
+    """
+
+    card = models.ForeignKey(
+        'BoardCard',
+        on_delete=models.PROTECT,
+        related_name='files',
+        verbose_name='Карточка',
+    )
+    comment = models.ForeignKey(
+        'BoardCardComment',
+        on_delete=models.PROTECT,
+        related_name='files',
+        verbose_name='Сообщение',
+    )
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_card_files',
+        verbose_name='Загрузил',
+    )
+    file = models.FileField('Файл', upload_to=board_card_file_upload_to, max_length=255, blank=True)
+    original_name = models.CharField('Исходное имя файла', max_length=255)
+    size = models.PositiveIntegerField('Размер', default=0)
+    content_type = models.CharField('Тип содержимого', max_length=120, blank=True)
+    created_at = models.DateTimeField('Загружен', auto_now_add=True)
+    deleted_at = models.DateTimeField('Удалён', null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='+',
+        verbose_name='Удалил',
+    )
+
+    class Meta:
+        ordering = ['comment_id', 'pk']
+        verbose_name = 'Файл в чате карточки'
+        verbose_name_plural = 'Файлы в чатах карточек'
+        indexes = [
+            models.Index(fields=['card', 'created_at'], name='board_card_file_time'),
+        ]
+
+    def __str__(self):
+        return f'Файл #{self.pk} карточки #{self.card_id}'
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    @property
+    def extension(self):
+        from ecosystem.attachments import attachment_extension
+
+        return attachment_extension(self.original_name)
+
+    @property
+    def is_image(self):
+        """Whether «Чат» draws it as a thumbnail (`PREVIEW_IMAGE_TYPES`)."""
+        return self.extension in PREVIEW_IMAGE_TYPES
 
 
 # How many items a card's «Чек-лист» may hold.

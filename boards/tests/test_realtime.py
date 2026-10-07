@@ -87,7 +87,7 @@ class BoardEventContractTests(TestCase):
             {
                 'card_created', 'card_updated', 'card_moved', 'card_completed', 'card_reopened',
                 'members_changed', 'card_cancelled', 'board_archived', 'board_restored',
-                'comment_added', 'structure_changed', 'checklist_changed',
+                'comment_added', 'structure_changed', 'checklist_changed', 'file_deleted',
             },
         )
         event = board_updated_event(7, 'card_moved', 12)
@@ -448,7 +448,10 @@ class BoardFragmentTests(BoardFixtureMixin, TestCase):
         self.assertIn(f'Карточка {self.a.code}', view['panel_html'])
         self.assertIn('id="board-complete-result"', view['panel_html'])
         self.assertIn('data-board-tab-body="description"', view['card_html'])
-        self.assertIn('data-board-tab-body="files"', view['card_html'])
+        # The facts and the tools are the guarded block's third container;
+        # there is no «Файлы» tab any more.
+        self.assertIn('class="board-drawer__facts"', view['facts_html'])
+        self.assertNotIn('data-board-tab-body="files"', view['card_html'] + view['drawer_html'])
         edit = self.client.get(self.url(card=self.a.pk, edit='1')).json()
         self.assertIn('редактирование', edit['panel_html'])
         self.assertIn('value="Альфа"', edit['card_html'])
@@ -456,7 +459,7 @@ class BoardFragmentTests(BoardFixtureMixin, TestCase):
         new = self.client.get(self.url(new=review.pk)).json()
         self.assertIn('Новая карточка', new['panel_html'])
         self.assertIn(f'name="column" value="{review.pk}"', new['card_html'])
-        self.assertNotIn('data-board-tab-body="files"', new['card_html'])
+        self.assertEqual(new['facts_html'], '')
         # Not a member: no edit, no new — the same answer as the page.
         self.client.force_login(self.outsider)
         self.assertEqual(self.client.get(self.url(card=self.a.pk, edit='1')).json()['panel'], 'view')

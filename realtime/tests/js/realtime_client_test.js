@@ -36,6 +36,8 @@ const BOARD_DRAWER_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_d
 // The checklist's tick through `fetch`, and «@» in «Чат».
 const BOARD_CHECKLIST_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_checklist.js'), 'utf8');
 const BOARD_MENTIONS_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_mentions.js'), 'utf8');
+// Files chosen for a message of «Чат»: «📎», a drop, a paste.
+const BOARD_CHAT_FILES_SOURCE = fs.readFileSync(path.join(CLIENT_DIR, '..', 'board_chat_files.js'), 'utf8');
 const DEFAULT_COORDINATION_EPOCH = 'test-session-epoch-000000000001';
 const coordinationChannelName = (epoch = DEFAULT_COORDINATION_EPOCH) =>
     `quality-realtime-v1:${epoch}`;
@@ -1425,16 +1427,20 @@ function boardEvent(boardId, change, eventId) {
     };
 }
 
-function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts, checklist } = {}) {
+function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts, checklist, followers } = {}) {
     const payload = {
         columns_html: `<section data-column-id="31"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
         columns_revision: columns,
         panel_html: `<textarea name="execution_comment" data-fresh-panel></textarea>`,
-        card_html: `<section data-board-tab-body="description" data-fresh-card>${panel}</section>`
-            + '<section data-board-tab-body="files">файлы</section>',
+        card_html: `<section data-board-tab-body="description" data-fresh-card>${panel}</section>`,
+        facts_html: `<section data-board-tab-body="description" data-fresh-facts>${panel}</section>`,
         panel_revision: panel,
         panel: 'view',
     };
+    if (followers) {
+        payload.followers_html = `<dl data-fresh-followers>${followers}</dl>`;
+        payload.followers_revision = followers;
+    }
     if (log) {
         payload.log_html = `<ol><li data-fresh-log>${log}</li></ol>`;
         payload.log_revision = log;
@@ -1778,7 +1784,7 @@ function loadDrawer(env) {
 /** `boards:fragment` for card 12, the second tile, opened from the board. */
 function drawerPayload(tab = 'description') {
     const query = `?card=12&tab=${tab}&mine=1`;
-    const links = ['description', 'chat', 'files', 'log'].map((name) => (
+    const links = ['description', 'chat', 'log'].map((name) => (
         `<a class="board-drawer__tab${name === tab ? ' is-active' : ''}" `
         + `href="/work/boards/4/7/?card=12&tab=${name}&mine=1" data-board-tab-link="${name}" `
         + `data-board-tab-fragment-url="/work/boards/4/7/fragment/?card=12&tab=${name}&mine=1">${name}</a>`
@@ -1798,9 +1804,10 @@ function drawerPayload(tab = 'description') {
             + '<div data-live-board-panel data-task-id="24"><a href="/work/boards/4/7/?mine=1" data-board-drawer-close>×</a>'
             + '<textarea name="execution_comment" data-opened-panel></textarea></div>'
             + `<nav>${links}</nav>`
-            + '<div data-live-board-card><section data-board-tab-body="description">описание 12</section>'
-            + '<section data-board-tab-body="files">файлы 12</section></div>'
-            + '<section data-board-tab-body="chat"><div data-live-board-comments><ol><li>сообщение 12</li></ol></div>'
+            + '<div data-live-board-card><section data-board-tab-body="description">описание 12</section></div>'
+            + '<div data-live-board-facts><section data-board-tab-body="description">факты 12</section></div>'
+            + '<div data-live-board-followers></div>'
+            + '<section data-board-tab-body="chat" data-board-chat-mode="messages"><div data-live-board-comments><ol><li>сообщение 12</li></ol></div>'
             + '<textarea name="text" data-opened-chat-form></textarea></section>'
             + '<section data-board-tab-body="log"><div data-live-board-log><ol><li>запись 12</li></ol></div></section>'
             + '</div>',
@@ -1980,8 +1987,8 @@ test('a message and a log entry replace their blocks and counters, never the typ
     assert.ok(env.live.comments.querySelector('[data-fresh-comment]'), 'the chat replaced');
     assert.ok(env.live.log.querySelector('[data-fresh-log]'), 'the log replaced');
     assert.equal(env.live.board.querySelector('[data-board-tab-count="chat"]').textContent, '5');
-    assert.equal(env.live.board.querySelector('[data-board-tab-count="files"]').textContent, '1',
-        'files follow their own block, which did not move');
+    assert.equal(env.live.board.querySelector('[data-board-chat-files-count]').textContent, '3',
+        '«Только файлы · N» follows the messages\' block, which holds the files');
     assert.equal(env.live.commentText.value, 'Пишу ответ', 'the message being typed is never redrawn');
     assert.equal(env.live.execution.value, 'Половина результата');
     assert.equal(env.live.panel.querySelector('[data-fresh-panel]'), null);
@@ -2078,6 +2085,256 @@ test('«Карточка ZAP-9» copies the link to the card, no dialog, no navi
     assert.equal(message.textContent, 'Ссылка на карточку ZAP-9 скопирована.');
     assert.deepEqual(env.window.location.assigned, []);
     assert.equal(env.live.drawer.hidden, false, 'the drawer stays open');
+});
+
+// ------------------------------------------- facts, followers, files in «Чат»
+
+test('the facts are the guarded panel: replaced clean, kept with the banner when a select moved', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment());
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_updated', 'facts-clean'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.facts.querySelector('[data-fresh-facts]'), 'a clean facts block is replaced with the panel');
+
+    // A choice in «Переместить в…» is unsaved input of the guarded block.
+    const env2 = load({ page: 'board' });
+    env2.setFetchHandler(() => boardFragment());
+    env2.document.dispatch('change', { target: env2.live.move });
+    env2.source.emitEvent('board.updated', boardEvent(4, 'card_updated', 'facts-dirty'));
+    env2.clock.advance(300);
+    await flush();
+    assert.equal(env2.live.facts.querySelector('[data-fresh-facts]'), null, 'kept');
+    assert.ok(env2.live.facts.querySelector('[name="column_id"]'));
+    assert.equal(env2.live.conflictBanner.hidden, false);
+});
+
+test('a new follower replaces «Подписчики» and never the dirty panel', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment({
+        columns: 'columns-rev-initial', panel: 'panel-rev-initial', followers: 'followers-rev-2',
+    }));
+
+    env.live.execution.value = 'Результат пишется';
+    env.document.dispatch('input', { target: env.live.execution });
+    env.source.emitEvent('board.updated', boardEvent(4, 'comment_added', 'follower'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.followers.querySelector('[data-fresh-followers]'), 'the followers replaced');
+    assert.equal(env.live.board.dataset.followersRevision, 'followers-rev-2');
+    assert.equal(env.live.execution.value, 'Результат пишется');
+    assert.equal(env.live.conflictBanner.hidden, true, 'a follower is no conflict');
+
+    // The same fingerprint again replaces nothing.
+    env.live.followers.innerHTML = '<dl data-kept>как было</dl>';
+    env.source.emitEvent('board.updated', boardEvent(4, 'comment_added', 'follower-again'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.followers.querySelector('[data-kept]'));
+});
+
+test('a file deleted elsewhere replaces the chat and keeps the files chosen for the message', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment({
+        columns: 'columns-rev-initial', panel: 'panel-rev-initial', comments: 'comments-rev-files', counts: { chat: 1, files: 0 },
+    }));
+    env.live.fileInput.files = [{ name: 'выбран.pdf', size: 10 }];
+
+    env.source.emitEvent('board.updated', boardEvent(4, 'file_deleted'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.comments.querySelector('[data-fresh-comment]'));
+    assert.equal(env.live.board.querySelector('[data-board-chat-files-count]').textContent, '0');
+    assert.deepEqual(env.live.fileInput.files.map((file) => file.name), ['выбран.pdf'], 'the form is in no block');
+    assert.equal(env.live.conflictBanner.hidden, true);
+});
+
+test('«Все сообщения | Только файлы» switches in place; the «Чат» tab and the address follow', async () => {
+    const env = load({ page: 'board' });
+    drawerHandler(env);
+    const drawer = loadDrawer(env);
+    click(env, env.live.drawer.querySelector('[data-board-tab-link="chat"]'));
+
+    const files = env.live.chat.querySelector('[data-board-chat-mode-link="files"]');
+    assert.equal(click(env, files), true, 'no navigation');
+    assert.equal(env.live.chat.getAttribute('data-board-chat-mode'), 'files');
+    assert.ok(files.classList.contains('is-active'));
+    assert.equal(files.getAttribute('aria-current'), 'true');
+    assert.equal(env.live.board.dataset.boardPageUrl, '/work/boards/4/7/?card=9&tab=chat&chat=files');
+    assert.equal(env.live.board.dataset.boardFragmentUrl, '/work/boards/4/7/fragment/?card=9&tab=chat&chat=files');
+    assert.equal(env.window.history.replaced.pop(), '/work/boards/4/7/?card=9&tab=chat&chat=files');
+    const chatTab = env.live.drawer.querySelector('[data-board-tab-link="chat"]');
+    assert.equal(chatTab.getAttribute('href'), '/work/boards/4/7/?card=9&tab=chat&chat=files');
+
+    // Away to «Лог» and back: the mode stays.
+    click(env, env.live.drawer.querySelector('[data-board-tab-link="log"]'));
+    click(env, chatTab);
+    assert.equal(env.live.board.dataset.boardPageUrl, '/work/boards/4/7/?card=9&tab=chat&chat=files');
+
+    assert.equal(drawer.setChatMode('messages'), true);
+    assert.equal(env.live.chat.getAttribute('data-board-chat-mode'), 'messages');
+    assert.equal(env.live.board.dataset.boardPageUrl, '/work/boards/4/7/?card=9&tab=chat');
+});
+
+test('«К сообщению» shows the messages at the row, or is a link when the row is not drawn', async () => {
+    const env = load({ page: 'board' });
+    drawerHandler(env);
+    loadDrawer(env);
+    click(env, env.live.drawer.querySelector('[data-board-tab-link="chat"]'));
+    click(env, env.live.chat.querySelector('[data-board-chat-mode-link="files"]'));
+    env.live.comments.innerHTML = '<ol><li id="board-comment-5" data-comment-id="5">сообщение</li></ol>'
+        + '<ol><li><a href="/work/boards/4/7/?card=9&tab=chat#board-comment-5" data-board-chat-goto="board-comment-5">К сообщению</a></li>'
+        + '<li><a href="/work/boards/4/7/?card=9&tab=chat&comments=all#board-comment-1" data-board-chat-goto="board-comment-1">К сообщению</a></li></ol>';
+    const row = env.live.comments.querySelector('[id="board-comment-5"]');
+    let scrolled = null;
+    row.scrollIntoView = (options) => { scrolled = options; };
+    const [shown, older] = env.live.comments.querySelectorAll('[data-board-chat-goto]');
+
+    assert.equal(click(env, shown), true);
+    assert.equal(env.live.chat.getAttribute('data-board-chat-mode'), 'messages');
+    assert.equal(scrolled.block, 'center');
+    assert.ok(row.classList.contains('is-highlighted'));
+
+    click(env, env.live.chat.querySelector('[data-board-chat-mode-link="files"]'));
+    assert.equal(click(env, older), false, 'an older message: the link asks for every one');
+});
+
+// --------------------------------------------- choosing files for a message
+
+class FakeFile {
+    constructor(parts, name, options = {}) {
+        this.name = name;
+        this.type = options.type || '';
+        this.size = parts.reduce((total, part) => total + (part.size || part.length || 0), 0);
+    }
+}
+
+class FakeDataTransfer {
+    constructor() {
+        const files = [];
+        this.files = files;
+        this.items = { add: (file) => files.push(file) };
+    }
+}
+
+function loadChatFiles(env, { transfer = true } = {}) {
+    if (transfer) {
+        env.window.DataTransfer = FakeDataTransfer;
+    }
+    env.window.File = FakeFile;
+    vm.runInContext(BOARD_CHAT_FILES_SOURCE, env.context, { filename: 'board_chat_files.js' });
+    return env.context.window.qualityBoardChatFiles;
+}
+
+const plain = (value) => JSON.parse(JSON.stringify(value));
+
+const chips = (env) => env.live.chosen.querySelectorAll('[data-chat-file]').map(
+    (chip) => [chip.querySelector('.board-chat__chip-name').textContent, chip.querySelector('.board-chat__chip-size').textContent],
+);
+
+test('picked files join the ones picked before, each a chip, and «×» takes one back', async () => {
+    const env = load({ page: 'board' });
+    const marked = [];
+    env.window.qualityUnsavedGuard = { markDirty: () => marked.push(true), get isDirty() { return marked.length > 0; } };
+    const chat = loadChatFiles(env);
+    assert.equal(env.live.chatForm.getAttribute('data-chat-files-ready'), '', 'enhanced');
+    assert.equal(env.live.chosen.hidden, true);
+
+    env.live.fileInput.files = [new FakeFile(['x'.repeat(2048)], 'схема.pdf'), new FakeFile(['abc'], 'акт.txt')];
+    env.document.dispatch('change', { target: env.live.fileInput });
+    env.live.fileInput.files = [new FakeFile(['y'.repeat(3 * 1024 * 1024)], 'фото.jpg')];
+    env.document.dispatch('change', { target: env.live.fileInput });
+
+    assert.deepEqual(chips(env), [['схема.pdf', '2.0 КБ'], ['акт.txt', '3 Б'], ['фото.jpg', '3.0 МБ']]);
+    assert.equal(env.live.chosen.hidden, false);
+    assert.deepEqual(plain(env.live.fileInput.files.map((file) => file.name)), ['схема.pdf', 'акт.txt', 'фото.jpg'],
+        'what the form posts is the whole selection');
+    assert.ok(marked.length > 0, 'a chosen file is unsaved input');
+
+    const remove = env.live.chosen.querySelector('[data-chat-file-remove="1"]');
+    assert.equal(remove.getAttribute('aria-label'), 'Убрать файл акт.txt');
+    let prevented = false;
+    env.document.dispatch('click', { target: remove, preventDefault: () => { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.deepEqual(chips(env).map(([name]) => name), ['схема.pdf', 'фото.jpg']);
+    assert.deepEqual(plain(env.live.fileInput.files.map((file) => file.name)), ['схема.pdf', 'фото.jpg']);
+    assert.deepEqual(plain(chat.filesOf(env.live.chatForm).map((file) => file.name)), ['схема.pdf', 'фото.jpg']);
+
+    env.document.dispatch('click', { target: env.live.chosen.querySelector('[data-chat-file-remove="0"]'), preventDefault: () => {} });
+    env.document.dispatch('click', { target: env.live.chosen.querySelector('[data-chat-file-remove="0"]'), preventDefault: () => {} });
+    assert.equal(env.live.chosen.hidden, true, 'nothing chosen, nothing shown');
+    assert.deepEqual(plain(env.live.fileInput.files), []);
+});
+
+test('a screenshot pasted into the message becomes «скриншот-ГГГГ-ММ-ДД-ЧЧММСС.png»', async () => {
+    const env = load({ page: 'board' });
+    const chat = loadChatFiles(env);
+    const blob = { type: 'image/png', size: 512 };
+    let prevented = false;
+    env.document.dispatch('paste', {
+        target: env.live.commentText,
+        clipboardData: {
+            items: [{ kind: 'file', type: 'image/png', getAsFile: () => blob }],
+            getData: () => '',
+        },
+        preventDefault: () => { prevented = true; },
+    });
+    assert.equal(prevented, true);
+    const [file] = chat.filesOf(env.live.chatForm);
+    assert.match(file.name, /^скриншот-\d{4}-\d{2}-\d{2}-\d{6}\.png$/);
+    assert.equal(file.type, 'image/png');
+    assert.deepEqual(plain(env.live.fileInput.files.map((item) => item.name)), [file.name]);
+    assert.equal(chat.screenshotName('image/png', 0, new Date(2026, 9, 7, 14, 25, 30)), 'скриншот-2026-10-07-142530.png');
+    assert.equal(chat.screenshotName('image/jpeg', 1, new Date(2026, 9, 7, 9, 5, 3)), 'скриншот-2026-10-07-090503-2.jpg');
+
+    // Text with a picture of itself (a table's cell): the text is what was meant.
+    prevented = false;
+    env.document.dispatch('paste', {
+        target: env.live.commentText,
+        clipboardData: {
+            items: [{ kind: 'string', type: 'text/plain' }, { kind: 'file', type: 'image/png', getAsFile: () => blob }],
+            getData: () => '3-1579',
+        },
+        preventDefault: () => { prevented = true; },
+    });
+    assert.equal(prevented, false);
+    assert.equal(chat.filesOf(env.live.chatForm).length, 1, 'nothing added');
+});
+
+test('files dropped on «Чат» are chosen; anything else dragged is left alone', async () => {
+    const env = load({ page: 'board' });
+    const chat = loadChatFiles(env);
+    const dropped = [new FakeFile(['pdf'], 'акт.pdf'), new FakeFile(['png'], 'фото.png')];
+    let prevented = false;
+    const dataTransfer = { types: ['Files'], files: dropped, dropEffect: 'none' };
+    env.document.dispatch('dragover', { target: env.live.comments, dataTransfer, preventDefault: () => { prevented = true; } });
+    assert.equal(prevented, true, 'the browser would open the file otherwise');
+    assert.ok(env.live.chat.classList.contains('is-dropping'));
+    env.document.dispatch('drop', { target: env.live.comments, dataTransfer, preventDefault: () => {} });
+    assert.equal(env.live.chat.classList.contains('is-dropping'), false);
+    assert.deepEqual(plain(chat.filesOf(env.live.chatForm).map((file) => file.name)), ['акт.pdf', 'фото.png']);
+
+    prevented = false;
+    env.document.dispatch('dragover', {
+        target: env.live.comments, dataTransfer: { types: ['text/plain'] }, preventDefault: () => { prevented = true; },
+    });
+    assert.equal(prevented, false, 'text dragged is not a file');
+    env.document.dispatch('dragover', { target: env.live.columns, dataTransfer, preventDefault: () => { prevented = true; } });
+    assert.equal(prevented, false, 'outside «Чат» nothing is taken');
+});
+
+test('without DataTransfer the ordinary file input stays as it is', async () => {
+    const env = load({ page: 'board' });
+    const chat = loadChatFiles(env, { transfer: false });
+    assert.equal(env.live.chatForm.getAttribute('data-chat-files-ready'), null);
+    env.live.fileInput.files = [new FakeFile(['x'], 'акт.pdf')];
+    env.document.dispatch('change', { target: env.live.fileInput });
+    assert.deepEqual(plain(chat.filesOf(env.live.chatForm)), []);
+    assert.equal(env.live.chosen.hidden, true);
+    assert.deepEqual(plain(env.live.fileInput.files.map((file) => file.name)), ['акт.pdf'], 'the browser\'s own choice posts');
 });
 
 // ------------------------------------------------------ the card's «Чек-лист»

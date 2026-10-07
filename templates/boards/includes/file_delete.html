@@ -1,0 +1,14 @@
+{% comment %}
+«×» beside a file of «Чат», drawn only for whoever may delete it
+(`permissions.can_delete_card_file()`: who uploaded it while still working on
+the board, or an administrator). An ordinary POST form to
+`boards:file_delete`, asked about first by the shared confirmation modal
+(`data-confirm-form`); without JavaScript it posts at once. The route asks
+the right again.
+{% endcomment %}<form id="board-file-delete-{{ card_file.pk }}" class="board-file__delete-form" method="post" action="{% url 'boards:file_delete' board.pk card.card.pk card_file.pk %}{{ filter_suffix }}">{% csrf_token %}<button class="board-file__delete" type="submit" title="Удалить файл" aria-label="Удалить {{ card_file.original_name }}"
+        data-confirm
+        data-confirm-form="board-file-delete-{{ card_file.pk }}"
+        data-confirm-title="Удалить файл?"
+        data-confirm-text="Файл «{{ card_file.original_name }}» будет удалён из сообщения. В чате останется отметка «Файл удалён»."
+        data-confirm-label="Удалить"
+        data-confirm-variant="danger">×</button></form>

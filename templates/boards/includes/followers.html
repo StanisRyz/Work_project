@@ -1,0 +1,12 @@
+{% load people %}{% comment %}
+«Подписчики» of a card: the live block `[data-live-board-followers]`, read
+only, on «Описание» below the facts. Its own fingerprint
+(`followers_revision`) — outside the guarded panel — so a new follower (a
+colleague mentioned in «Чат» follows the card) never raises the conflict
+banner over a result being typed. Up to `SUBSCRIBER_PREVIEW_LIMIT` avatars
+and «+N»; nothing at all while nobody follows.
+{% endcomment %}{% if card.subscriber_count %}<dl class="board-drawer__facts board-drawer__followers">
+    <div><dt>Подписчики</dt><dd class="board-drawer__people">
+        {% for user in card.subscribers %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}{% if card.subscribers_more %}<span class="board-drawer__more" title="Ещё подписчиков: {{ card.subscribers_more }}">+{{ card.subscribers_more }}</span>{% endif %}
+    </dd></div>
+</dl>{% endif %}

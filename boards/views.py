@@ -13,8 +13,9 @@ A board is read one sub-board at a time: `/work/boards/<board>/` sends the
 reader to its first tab (or to the tab of the card `?card=` names), and
 `/work/boards/<board>/<sub_board>/` is the page. The card drawer is part of
 it, chosen by the query string: `?card=<pk>` reads a card, `&edit=1` edits it,
-`?new=<column id>` creates one in that column, and `&tab=` names the drawer's
-tab («Описание», «Чат», «Файлы», «Лог»). A refused or invalid POST renders the
+`?new=<column id>` creates one in that column, `&tab=` names the drawer's
+tab («Описание», «Чат», «Лог»; the old `files` is «Чат» showing «Только
+файлы», `&chat=files`). A refused or invalid POST renders the
 sub-board again with the drawer open, the typed values in place and the error
 beside the form; a successful one redirects to the card's sub-board with the
 card open.
@@ -28,15 +29,20 @@ card with, without reloading the page.
 The structure routes (tabs and columns: create, rename, ←/→, delete) are small
 POST forms for whoever manages the board; a refusal comes back as a message on
 the sub-board.
+
+The files of «Чат» (`BoardCardFile`) are posted with a message and served
+only by `file_download`/`file_preview`, which ask reading the board again;
+`MEDIA_ROOT` is never published.
 """
 
+import logging
 from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.http import Http404, JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.middleware.csrf import get_token
 from django.template.loader import render_to_string
@@ -50,7 +56,7 @@ from ecosystem.templatetags.registry import plural_ru
 from ecosystem.xlsx import xlsx_response
 from realtime.auth import realtime_login_required
 from realtime.fragments import content_revision
-from tasks.forms import TaskAttachmentForm
+from ecosystem.logging_utils import log_event
 from tasks.permissions import can_reopen_task
 
 from .forms import (
@@ -71,9 +77,12 @@ from .forms import (
     custom_field_name,
 )
 from .models import (
+    MAX_FILES_PER_MESSAGE,
+    PREVIEW_IMAGE_TYPES,
     Board,
     BoardCard,
     BoardCardChecklistItem,
+    BoardCardFile,
     BoardCardFieldValue,
     BoardColumn,
     BoardField,
@@ -86,6 +95,7 @@ from .permissions import (
     can_cancel_card,
     can_comment_card,
     can_create_board,
+    can_delete_card_file,
     can_manage_board,
     can_restore_board,
     can_view_board,
@@ -94,6 +104,7 @@ from .permissions import (
 from .selectors import (
     NO_FILTERS,
     board_fields,
+    board_tabs,
     build_board_nav,
     build_board_state,
     build_board_table,
@@ -142,6 +153,7 @@ from .services import (
     create_card,
     create_column,
     create_sub_board,
+    delete_card_file,
     delete_column,
     delete_sub_board,
     move_card,
@@ -368,6 +380,9 @@ def _field_error(form, exc):
     return str(exc)
 
 
+# The files of «Чат» are logged as attachments are: identifiers and sizes.
+file_logger = logging.getLogger('ecosystem.attachments')
+
 TABS_TEMPLATE = 'boards/includes/tabs.html'
 COLUMNS_TEMPLATE = 'boards/includes/columns.html'
 PANEL_TEMPLATE = 'boards/includes/panel.html'
@@ -375,22 +390,39 @@ CARD_TEMPLATE = 'boards/includes/card.html'
 COMMENTS_TEMPLATE = 'boards/includes/comments.html'
 LOG_TEMPLATE = 'boards/includes/log.html'
 CHECKLIST_TEMPLATE = 'boards/includes/checklist.html'
+FACTS_TEMPLATE = 'boards/includes/facts.html'
+FOLLOWERS_TEMPLATE = 'boards/includes/followers.html'
 DRAWER_TEMPLATE = 'boards/includes/drawer.html'
 
 # The card panel's tabs, in order: `?tab=` names one, anything else is the
-# first. The counted ones show their number beside the name.
+# first. «Чат» shows its number beside the name.
 PANEL_TABS = (
     ('description', 'Описание'),
     ('chat', 'Чат'),
-    ('files', 'Файлы'),
     ('log', 'Лог'),
 )
 DEFAULT_PANEL_TAB = PANEL_TABS[0][0]
+# «Чат» shows every message, or — `&chat=files` — only the card's files.
+CHAT_MESSAGES = 'messages'
+CHAT_FILES = 'files'
+# The tab «Файлы» is gone; its address — every link and notification that
+# still says `tab=files` — is «Чат» showing «Только файлы».
+FILES_TAB_ALIAS = 'files'
 
 
 def parse_panel_tab(value):
-    """The tab `?tab=` names, or «Описание» for anything unknown."""
+    """The tab `?tab=` names, or «Описание» for anything unknown; the old
+    `tab=files` is «Чат»."""
+    if value == FILES_TAB_ALIAS:
+        return 'chat'
     return value if value in dict(PANEL_TABS) else DEFAULT_PANEL_TAB
+
+
+def parse_chat_mode(params):
+    """«Только файлы» (`chat=files`, or the old `tab=files`) or every message."""
+    if params.get('chat') == CHAT_FILES or params.get('tab') == FILES_TAB_ALIAS:
+        return CHAT_FILES
+    return CHAT_MESSAGES
 
 
 def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=None, panel=None,
@@ -398,7 +430,7 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
                    execution_error='', version_conflict=False,
                    comment_text='', comment_error='', comment_mentions=(),
                    checklist_text='', checklist_error='', edit_item=None,
-                   checklist_edit_text='', checklist_edit_error=''):
+                   checklist_edit_text='', checklist_edit_error='', tabs=None):
     """Everything the board page and its live fragment render.
 
     `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from `card_id`,
@@ -413,8 +445,13 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     from the session: the board carries no «Выполнение» draft.
 
     `?tab=` (`parse_panel_tab()`) says which of the panel's tabs is shown. It
-    changes no block — all four are drawn, the tab is an attribute of the
+    changes no block — all three are drawn, the tab is an attribute of the
     drawer around them — only the addresses the page builds for itself.
+    `&chat=files` (`parse_chat_mode()`; the old `tab=files` too) shows «Чат»
+    as «Только файлы»: an attribute of the chat's section likewise, both
+    lists being in its block.
+
+    `tabs` are the board's sub-boards when the view has read them already.
 
     The filters (`?mine=1`, `?overdue=1`, `?q=` and the field filters
     `f_<id>…`) are read from `request.GET` here and nowhere else — on a POST
@@ -439,7 +476,7 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     all_comments = request.GET.get('comments') == 'all'
     state = build_board_state(
         board, sub_board, request.user,
-        card_id=card_id, filters=filters, all_comments=all_comments, fields=fields,
+        card_id=card_id, filters=filters, all_comments=all_comments, fields=fields, tabs=tabs,
     )
     item = state['card']
     columns = [row['column'] for row in state['columns']]
@@ -477,6 +514,7 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     if item is not None and item['can_complete'] and execution_comment is None:
         execution_comment = item['task'].execution_comment
     tab = parse_panel_tab(request.GET.get('tab'))
+    chat_mode = parse_chat_mode(request.GET)
     # «Изменить» of one item of the card's «Чек-лист»: an id of an item of
     # this very card, while the list may be changed — anything else is none.
     raw_edit_item = str(edit_item if edit_item is not None else request.GET.get('edit_item') or '')
@@ -497,22 +535,19 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         'column_name_form': ColumnNameForm(),
         'can_edit_card': can_edit_card,
         'panel_error': error,
-        # The task's own names, so the shared «Вложения» include reads the
-        # same context here as on the task page.
         'task': item['task'] if item else None,
-        'attachments': item['attachments'] if item else [],
-        'can_upload_attachment': bool(item and item['can_upload_attachment']),
-        'attachment_form': TaskAttachmentForm(),
-        # Where `tasks:add_attachment`/`delete_attachment` send the user back:
-        # `tasks:detail?tab=files`, which leads to this card's «Файлы».
-        'list_query': 'tab=files',
+        # Where `tasks:delete_attachment` sends the user back after removing
+        # an older attachment of the card's task from «Чат»:
+        # `tasks:detail?tab=chat`, which leads to this card's «Чат».
+        'list_query': 'tab=chat',
+        'max_files_per_message': MAX_FILES_PER_MESSAGE,
         'execution_comment': execution_comment or '',
         'execution_error': execution_error,
         'board_url': board_url,
         'filter_query': filters.query,
         'filter_suffix': f'?{filters.query}' if filters.query else '',
         'version_conflict': version_conflict,
-        # The tabs «Чат», «Файлы», «Лог» exist for a card being read or edited;
+        # The tabs «Чат» and «Лог» exist for a card being read or edited;
         # a new card has only its form. The chat's form is outside every live
         # block, so a refresh never redraws what is being typed in it.
         'show_discussion': bool(item is not None and panel in ('view', 'edit')),
@@ -530,10 +565,12 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         'checklist_edit_text': checklist_edit_text,
         'checklist_edit_error': checklist_edit_error,
         'tab': tab if item is not None and panel in ('view', 'edit') else DEFAULT_PANEL_TAB,
+        'chat_mode': chat_mode if item is not None and panel in ('view', 'edit') else CHAT_MESSAGES,
     })
     fragment_base = reverse('boards:fragment', args=[board.pk, sub_board.pk])
     query = _panel_query(
         item, panel, new_column, filters, all_comments=all_comments, tab=state['tab'], edit_item=edit_item,
+        chat_mode=state['chat_mode'],
     )
     state['fragment_base'] = fragment_base
     state['fragment_url'] = fragment_base + query
@@ -565,35 +602,53 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
             row['remove_url'] = f'{board_url}?{encoded}' if encoded else board_url
     state['field_filters'] = field_filters
     state['field_filter_count'] = len(filters.fields)
+    def panel_query(**options):
+        values = {
+            'all_comments': all_comments, 'tab': state['tab'], 'edit_item': edit_item,
+            'chat_mode': state['chat_mode'], **options,
+        }
+        return _panel_query(item, panel, new_column, filters, **values)
+
     # The tab strip: each tab's own page and fragment address, built here.
     state['panel_tabs'] = [
         {
             'name': name,
             'label': label,
             'active': name == state['tab'],
-            'page_url': board_url + _panel_query(
-                item, panel, new_column, filters, all_comments=all_comments, tab=name, edit_item=edit_item,
-            ),
-            'fragment_url': fragment_base + _panel_query(
-                item, panel, new_column, filters, all_comments=all_comments, tab=name, edit_item=edit_item,
-            ),
-            'count': (
-                item['comment_count'] if name == 'chat'
-                else len(item['attachments']) if name == 'files' else None
-            ),
+            'page_url': board_url + panel_query(tab=name),
+            'fragment_url': fragment_base + panel_query(tab=name),
+            'count': item['comment_count'] if name == 'chat' else None,
         }
         for name, label in PANEL_TABS
     ] if state['show_discussion'] else []
+    # «Все сообщения | Только файлы» above the chat: each mode's page and
+    # fragment address, on «Чат» — switched in place by `board_drawer.js`,
+    # links without it.
+    state['chat_modes'] = [
+        {
+            'name': name,
+            'label': label,
+            'active': name == state['chat_mode'],
+            'page_url': board_url + panel_query(tab='chat', chat_mode=name),
+            'fragment_url': fragment_base + panel_query(tab='chat', chat_mode=name),
+        }
+        for name, label in ((CHAT_MESSAGES, 'Все сообщения'), (CHAT_FILES, 'Только файлы'))
+    ] if state['show_discussion'] else []
     # «Показать ранние (N)»: this very panel with every message, on «Чат».
     state['all_comments_url'] = (
-        board_url + _panel_query(item, panel, new_column, filters, all_comments=True, tab='chat')
+        board_url + panel_query(all_comments=True, tab='chat', chat_mode=CHAT_MESSAGES)
         if state['show_discussion'] else ''
+    )
+    # «К сообщению» of «Только файлы»: the chat's messages — every one when
+    # the message is older than those shown — and the anchor of the row.
+    state['chat_messages_url'] = (
+        board_url + panel_query(tab='chat', chat_mode=CHAT_MESSAGES) if state['show_discussion'] else ''
     )
     return state, holds_input
 
 
 def _panel_query(item, panel, new_column, filters, *, all_comments=False, tab=DEFAULT_PANEL_TAB,
-                 edit_item=None):
+                 edit_item=None, chat_mode=CHAT_MESSAGES):
     """The query string that asks for exactly the panel this page shows.
 
     It goes on the live fragment's URL and on the page's own address for a
@@ -609,6 +664,8 @@ def _panel_query(item, panel, new_column, filters, *, all_comments=False, tab=DE
         if all_comments:
             query['comments'] = 'all'
         query['tab'] = tab
+        if tab == 'chat' and chat_mode == CHAT_FILES:
+            query['chat'] = CHAT_FILES
         if edit_item is not None:
             query['edit_item'] = edit_item
     elif panel == 'new' and new_column is not None:
@@ -642,20 +699,24 @@ def _board_blocks(request, context):
     stands between them on the page), so a tab or a column created, renamed,
     moved or deleted by somebody else arrives with the cards.
 
-    The card panel is one guarded block in two containers — its heading
+    The card panel is one guarded block in three containers — its heading
     (`panel_html`: number, title, status, «Завершить», «Вернуть в работу»,
-    «×») and its forms and files (`card_html`: «Описание» and «Файлы») — with
-    one fingerprint over both, `panel_revision`. The messages of «Чат» and the
-    entries of «Лог» are read-only blocks of their own and appear in no other:
-    a new message or a new entry moves `comments_revision`/`log_revision`,
-    never `panel_revision`, so neither can raise the conflict banner over a
-    result or an edit being typed. `chat_count`/`files_count` are the numbers
-    beside «Чат» and «Файлы», for the client to set with their blocks.
+    «Следить», «×»), «Описание»'s text or the card's form (`card_html`), and
+    its facts, result and tools (`facts_html`) — with one fingerprint over
+    all three, `panel_revision`. The messages of «Чат» (with their files) and
+    the entries of «Лог» are read-only blocks of their own and appear in no
+    other: a new message, a file deleted or a new entry moves
+    `comments_revision`/`log_revision`, never `panel_revision`, so neither
+    can raise the conflict banner over a result or an edit being typed.
+    `chat_count`/`files_count` are the numbers beside «Чат» and «Файлы · N»,
+    for the client to set with their block.
 
-    The card's «Чек-лист» (`checklist_html`, on «Описание») is a block of its
-    own too, outside the guarded one: ticking an item moves
-    `checklist_revision` and the columns' (the tile's «☑ 2/5»), never
-    `panel_revision`.
+    The card's «Чек-лист» (`checklist_html`, on «Описание», between the text
+    and the facts) is a block of its own too, outside the guarded one:
+    ticking an item moves `checklist_revision` and the columns' (the tile's
+    «☑ 2/5»), never `panel_revision`. So are its «Подписчики»
+    (`followers_html`, below the facts): somebody starting to follow — a
+    colleague mentioned in «Чат» does — moves `followers_revision` alone.
 
     `drawer_html` is the whole drawer around those blocks — the tab strip and
     the chat's and the checklist's forms included — which the client inserts
@@ -666,11 +727,14 @@ def _board_blocks(request, context):
     panel = context['panel']
     panel_html = _render_block(PANEL_TEMPLATE, context, request) if panel else ''
     card_html = _render_block(CARD_TEMPLATE, context, request) if panel else ''
+    facts_html = _render_block(FACTS_TEMPLATE, context, request) if panel == 'view' else ''
     discussion = context['show_discussion']
     comments_html = _render_block(COMMENTS_TEMPLATE, context, request) if discussion else ''
     log_html = _render_block(LOG_TEMPLATE, context, request) if discussion else ''
     checklist = context['show_checklist']
     checklist_html = _render_block(CHECKLIST_TEMPLATE, context, request) if checklist else ''
+    followers = panel == 'view'
+    followers_html = _render_block(FOLLOWERS_TEMPLATE, context, request) if followers else ''
     item = context['card']
     blocks = {
         'tabs_html': tabs_html,
@@ -679,7 +743,8 @@ def _board_blocks(request, context):
         'columns_revision': content_revision(columns_html),
         'panel_html': panel_html,
         'card_html': card_html,
-        'panel_revision': content_revision(panel_html + card_html) if panel else '',
+        'facts_html': facts_html,
+        'panel_revision': content_revision(panel_html + card_html + facts_html) if panel else '',
         'comments_html': comments_html,
         'comments_revision': content_revision(comments_html) if comments_html else '',
         'log_html': log_html,
@@ -688,13 +753,27 @@ def _board_blocks(request, context):
         # change too.
         'checklist_html': checklist_html,
         'checklist_revision': content_revision(checklist_html) if checklist else '',
+        # Likewise for «Подписчики»: an empty list is drawn as nothing, and
+        # emptied is a change.
+        'followers_html': followers_html,
+        'followers_revision': content_revision(followers_html) if followers else '',
         'chat_count': item['comment_count'] if discussion else 0,
-        'files_count': len(item['attachments']) if discussion else 0,
+        'files_count': item['files_count'] if discussion else 0,
     }
     blocks['drawer_html'] = (
         _render_block(DRAWER_TEMPLATE, {**context, **blocks}, request) if panel else ''
     )
     return blocks
+
+
+def _member_heading(board):
+    """The heading's member avatars and their number — one query."""
+    members, count = member_preview(board)
+    return {
+        'member_preview': members,
+        'member_count': count,
+        'member_more': max(count - len(members), 0),
+    }
 
 
 def _render_board(request, board, sub_board, *, status=200, **options):
@@ -715,6 +794,7 @@ def _render_board(request, board, sub_board, *, status=200, **options):
             card_id=context['card']['card'].pk if context['card'] else None,
             edit=context['panel'] == 'edit',
             new=context['new_column'].pk if context['new_column'] else None,
+            tabs=options.get('tabs'),
         )
         blocks['panel_revision'] = _board_blocks(request, clean)['panel_revision']
         # The drawer printed on the page carries the bound form, not the clean one.
@@ -724,9 +804,7 @@ def _render_board(request, board, sub_board, *, status=200, **options):
     # The frame and the heading are the page's only — never part of a
     # fragment, so a live refresh never pays for them.
     context.update(_frame(request, board))
-    members = member_preview(board)
-    context['member_preview'] = members
-    context['member_more'] = max(context['member_count'] - len(members), 0)
+    context.update(_member_heading(board))
     request.session[LAST_SUB_BOARD_SESSION_KEY] = sub_board.pk
     return render(request, 'boards/detail.html', context, status=status)
 
@@ -790,8 +868,6 @@ def _render_table(request, board, sub_board):
         return _export_table(state)
     board_url = _sub_board_url(board, sub_board.pk)
     query = _table_query(filters, sort=sort, **options)
-    members = member_preview(board)
-    member_count = BoardMember.objects.filter(board=board).count()
     context = {
         **state,
         **_frame(request, board),
@@ -816,9 +892,7 @@ def _render_table(request, board, sub_board):
         'can_work': can_work_on_board(request.user, board),
         'can_manage': can_manage_board(request.user, board),
         'can_restore': can_restore_board(request.user, board),
-        'member_preview': members,
-        'member_count': member_count,
-        'member_more': max(member_count - len(members), 0),
+        **_member_heading(board),
         'panel': None,
     }
     for row in context['field_filters']:
@@ -931,18 +1005,28 @@ def board_detail(request, pk):
     return redirect(f'{url}?{query}' if query else url)
 
 
+def _tab_of(tabs, sub_pk):
+    """The sub-board `sub_pk` names among the board's `tabs`, else `None` —
+    read once for the page, which draws them all anyway."""
+    return next((tab for tab in tabs if tab.pk == sub_pk), None)
+
+
 @login_required
 def sub_board_detail(request, pk, sub_pk):
     board = _board_or_404(pk)
     _require(can_view_board(request.user, board))
-    sub_board = _sub_board_or_404(board, sub_pk)
     if request.GET.get('view') == TABLE_VIEW:
-        return _render_table(request, board, sub_board)
+        return _render_table(request, board, _sub_board_or_404(board, sub_pk))
+    tabs = board_tabs(board)
+    sub_board = _tab_of(tabs, sub_pk)
+    if sub_board is None:
+        raise Http404('Поддоска не найдена.')
     return _render_board(
         request, board, sub_board,
         card_id=request.GET.get('card'),
         edit=request.GET.get('edit') == '1',
         new=request.GET.get('new'),
+        tabs=tabs,
     )
 
 
@@ -965,7 +1049,8 @@ def board_fragment(request, pk, sub_pk):
     board = _board_or_404(pk)
     if not can_view_board(request.user, board):
         return _no_cache(JsonResponse({'error': 'forbidden'}, status=403))
-    sub_board = SubBoard.objects.filter(pk=sub_pk, board=board).first()
+    tabs = board_tabs(board)
+    sub_board = _tab_of(tabs, sub_pk)
     if sub_board is None:
         return _no_cache(JsonResponse({'error': 'not_found'}, status=404))
     context, _ = _board_context(
@@ -973,6 +1058,7 @@ def board_fragment(request, pk, sub_pk):
         card_id=request.GET.get('card'),
         edit=request.GET.get('edit') == '1',
         new=request.GET.get('new'),
+        tabs=tabs,
     )
     item = context['card']
     return _no_cache(JsonResponse({
@@ -981,6 +1067,7 @@ def board_fragment(request, pk, sub_pk):
         'card_id': item['card'].pk if item is not None and context['panel'] else None,
         'task_id': item['task'].pk if item is not None and context['panel'] else None,
         'tab': context['tab'],
+        'chat_mode': context['chat_mode'],
         'page_url': context['page_url'] if context['panel'] else context['close_url'],
         'fragment_url': context['fragment_url'],
         'reset_url': context['reset_url'],
@@ -1193,13 +1280,20 @@ def card_cancel(request, pk, card_pk):
     return redirect(_card_url(board, card, request))
 
 
+# Said beside a refused message that carried files: a browser never keeps a
+# file input's choice across a page, so the files have to be chosen again.
+CHOOSE_FILES_AGAIN = 'Выберите файлы заново.'
+
+
 @login_required
 def card_comment(request, pk, card_pk):
-    """«Отправить» in the card's «Обсуждение»: `post_card_comment()`.
+    """«Отправить» in the card's «Чат»: `post_card_comment()` — the text, the
+    people «@» named and the files chosen (`files`, a multipart form).
 
     The right (`can_comment_card()`) is asked before the method. Success goes
-    back to the card under the board's filter; a refusal re-renders the panel
-    with the text and the message beside the form.
+    back to the card's «Чат» under the board's filter; a refusal re-renders
+    the panel with the text and the message beside the form — and, when files
+    were sent, «Выберите файлы заново»: the browser has dropped them.
     """
     board = _board_or_404(pk)
     card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
@@ -1208,14 +1302,133 @@ def card_comment(request, pk, card_pk):
         return redirect(_card_url(board, card, request))
     text = request.POST.get('text', '')
     mentions = request.POST.getlist('mention')
+    files = request.FILES.getlist('files')
     try:
-        post_card_comment(card, actor=request.user, text=text, mentions=mentions)
+        post_card_comment(card, actor=request.user, text=text, mentions=mentions, files=files)
     except BoardError as exc:
+        error = f'{exc} {CHOOSE_FILES_AGAIN}' if files else str(exc)
         return _render_board(
             request, board, card.sub_board, card_id=card.pk, panel='view',
-            comment_text=text, comment_error=str(exc), comment_mentions=mentions,
+            comment_text=text, comment_error=error, comment_mentions=mentions,
         )
     return redirect(_card_url(board, card, request, tab='chat'))
+
+
+# --------------------------------------------------------------------------
+# Files of «Чат»: protected media
+# --------------------------------------------------------------------------
+#
+# A file of a card's chat is served only here, after reading the board is
+# asked again; the row is found through the card in the address, so a valid
+# id of another card is a 404, and a refusal, a deleted file and a missing
+# one are all the same 404. `MEDIA_ROOT` is never published.
+
+def _card_file_or_404(request, pk, card_pk, file_pk, operation):
+    board = _board_or_404(pk)
+    card_file = BoardCardFile.objects.select_related('card').filter(
+        pk=file_pk, card_id=card_pk, card__board=board,
+    ).first()
+    if card_file is None or not can_view_board(request.user, board):
+        if card_file is not None:
+            # Identifiers only — never the file's name, path or type.
+            log_event(
+                file_logger, 'WARNING', 'board.file_access_denied',
+                board_id=board.pk, board_card_id=card_pk, board_card_file_id=file_pk,
+                user_id=getattr(request.user, 'pk', None), operation=operation, outcome='denied',
+            )
+        raise Http404('Файл не найден.')
+    if card_file.deleted_at is not None or not card_file.file:
+        raise Http404('Файл не найден.')
+    card_file.card.board = board
+    return board, card_file
+
+
+def _open_card_file(request, board, card_file, operation):
+    try:
+        handle = card_file.file.open('rb')
+    except OSError as exc:
+        log_event(
+            file_logger, 'ERROR', 'board.file_storage_failed',
+            board_id=board.pk, board_card_id=card_file.card_id, board_card_file_id=card_file.pk,
+            user_id=request.user.pk, operation=operation, error_type=type(exc).__name__,
+            outcome='failed',
+        )
+        raise Http404('Файл не найден.') from exc
+    log_event(
+        file_logger, 'INFO', 'board.file_downloaded',
+        board_id=board.pk, board_card_id=card_file.card_id, board_card_file_id=card_file.pk,
+        user_id=request.user.pk, size_bytes=card_file.size, operation=operation, outcome='ok',
+    )
+    return handle
+
+
+@login_required
+@require_GET
+def file_download(request, pk, card_pk, file_pk):
+    """A file of «Чат», as a download — whoever reads the board."""
+    board, card_file = _card_file_or_404(request, pk, card_pk, file_pk, 'download')
+    handle = _open_card_file(request, board, card_file, 'download')
+    return FileResponse(
+        handle,
+        as_attachment=True,
+        filename=card_file.original_name,
+        content_type=card_file.content_type or 'application/octet-stream',
+    )
+
+
+@login_required
+@require_GET
+def file_preview(request, pk, card_pk, file_pk):
+    """An image of «Чат», inline — the thumbnail and «open in a new tab».
+
+    Only `.png`, `.jpg`, `.jpeg` and `.webp` (`PREVIEW_IMAGE_TYPES`), and the
+    type served is the extension's, never the stored `content_type` the
+    browser sent: anything else is a 404. `nosniff` and a sandboxing CSP keep
+    the response an image whatever its bytes are.
+    """
+    board, card_file = _card_file_or_404(request, pk, card_pk, file_pk, 'preview')
+    content_type = PREVIEW_IMAGE_TYPES.get(card_file.extension)
+    if content_type is None:
+        raise Http404('Предпросмотра у этого файла нет.')
+    handle = _open_card_file(request, board, card_file, 'preview')
+    response = FileResponse(handle, content_type=content_type)
+    response['Content-Disposition'] = 'inline'
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Content-Security-Policy'] = 'sandbox'
+    response['Cache-Control'] = 'private, max-age=300'
+    return response
+
+
+@login_required
+def file_delete(request, pk, card_pk, file_pk):
+    """«×» beside a file of «Чат»: `delete_card_file()`.
+
+    Asked before the method: reading the board (a 404 otherwise, as for a
+    download) and `can_delete_card_file()` (a 403). A GET changes nothing and
+    goes back to the chat; a refusal of the service comes back as a message.
+    `?chat=files` (the «×» of «Только файлы») returns there.
+    """
+    board = _board_or_404(pk)
+    card_file = get_object_or_404(
+        BoardCardFile.objects.select_related('card'), pk=file_pk, card_id=card_pk, card__board=board,
+    )
+    if not can_view_board(request.user, board):
+        raise Http404('Файл не найден.')
+    card = card_file.card
+    card.board = board
+    tab = 'files' if request.GET.get('chat') == CHAT_FILES else 'chat'
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request, tab=tab))
+    if card_file.deleted_at is None:
+        _require(can_delete_card_file(request.user, card_file, board))
+    try:
+        deleted = delete_card_file(card_file, actor=request.user)
+    except BoardError as exc:
+        messages.error(request, str(exc))
+    else:
+        if deleted:
+            messages.success(request, 'Файл удалён.')
+    return redirect(_card_url(board, card, request, tab=tab))
 
 
 @login_required
