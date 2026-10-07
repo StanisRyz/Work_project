@@ -301,6 +301,44 @@ class BoardColumnPin(models.Model):
         return f'{self.column}: {self.user}'
 
 
+class BoardColumnSubscription(models.Model):
+    """Somebody who asked to be told when a card enters a column («🔔
+    Сообщать о новых карточках») — a master of a shop following «Запуск в
+    работу» without being anybody's исполнитель.
+
+    Personal: written only by `services.toggle_column_subscription()`, with no
+    event and no journal entry; dropped with the membership by
+    `remove_board_member()` and with the column itself. Who is told is the
+    column's subscribers who still read the board, never whoever moved the
+    card (`services._notify_column_entered()`).
+    """
+
+    column = models.ForeignKey(
+        BoardColumn,
+        on_delete=models.CASCADE,
+        related_name='subscriptions',
+        verbose_name='Колонка',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_column_subscriptions',
+        verbose_name='Подписчик',
+    )
+    created_at = models.DateTimeField('Подписан', auto_now_add=True)
+
+    class Meta:
+        ordering = ['column_id', 'created_at', 'pk']
+        verbose_name = 'Подписка на колонку'
+        verbose_name_plural = 'Подписки на колонки'
+        constraints = [
+            models.UniqueConstraint(fields=['column', 'user'], name='unique_board_column_subscription'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} следит за колонкой #{self.column_id}'
+
+
 class BoardCard(models.Model):
     """Where one piece of board work stands: column and order.
 
@@ -820,6 +858,13 @@ class BoardCardEvent(models.Model):
         # subtask's `code` («ZAP-13», an identifier), written in the
         # transaction of the subtask's own change.
         SUBTASK = 'SUBTASK', 'Подзадача'
+        # «Связи»: a link to another card made or removed — `details.link`
+        # (`BLOCKS`/`RELATES`/`DUPLICATES`), `direction` (`out`: this card is
+        # the link's `from_card`, `in`: its `to_card`), the other card's
+        # `other_id` and `other_code` («СНБ-14», an identifier) — never its
+        # title. Written into both cards' journals, in the link's transaction.
+        LINKED = 'LINKED', 'Связь добавлена'
+        UNLINKED = 'UNLINKED', 'Связь удалена'
 
     card = models.ForeignKey(
         BoardCard,
@@ -847,6 +892,71 @@ class BoardCardEvent(models.Model):
 
     def __str__(self):
         return f'{self.get_kind_display()} карточки #{self.card_id}'
+
+
+class BoardCardLink(models.Model):
+    """A link between two cards — of one board or of two («Связи»).
+
+    `BLOCKS`: `to_card` waits for `from_card` («СНБ-14 блокирует ZAP-12»,
+    ZAP-12 «ждёт» СНБ-14) — a card is blocked while an incoming `BLOCKS`
+    comes from a card whose task is still `IN_PROGRESS`. `RELATES`: the two
+    are related, the order means nothing, and the services store it one way
+    only — the smaller id is `from_card` — so there is never a reverse copy.
+    `DUPLICATES`: `from_card` repeats `to_card`.
+
+    Written only by `services.link_cards()`/`unlink_cards()`: created and
+    deleted, never edited. Cards are never deleted, so `PROTECT` both ways.
+    """
+
+    class Kind(models.TextChoices):
+        BLOCKS = 'BLOCKS', 'Блокирует'
+        RELATES = 'RELATES', 'Связана'
+        DUPLICATES = 'DUPLICATES', 'Дубль'
+
+    from_card = models.ForeignKey(
+        BoardCard,
+        on_delete=models.PROTECT,
+        related_name='outgoing_links',
+        verbose_name='От карточки',
+    )
+    to_card = models.ForeignKey(
+        BoardCard,
+        on_delete=models.PROTECT,
+        related_name='incoming_links',
+        verbose_name='К карточке',
+    )
+    kind = models.CharField('Вид', max_length=12, choices=Kind.choices)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='+',
+        verbose_name='Связал',
+    )
+    created_at = models.DateTimeField('Создана', auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+        verbose_name = 'Связь карточек'
+        verbose_name_plural = 'Связи карточек'
+        indexes = [
+            models.Index(fields=['to_card', 'kind'], name='board_card_link_to'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(from_card=models.F('to_card')),
+                name='board_card_link_not_self',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(kind__in=['BLOCKS', 'RELATES', 'DUPLICATES']),
+                name='board_card_link_kind_known',
+            ),
+            models.UniqueConstraint(
+                fields=['from_card', 'to_card', 'kind'], name='unique_board_card_link',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.get_kind_display()}: #{self.from_card_id} → #{self.to_card_id}'
 
 
 # --------------------------------------------------------------------------
@@ -904,6 +1014,11 @@ class BoardField(models.Model):
     # Order on the card and on the tile, 1, 2, 3, … — renumbered by every move.
     position = models.PositiveIntegerField('Позиция')
     show_on_tile = models.BooleanField('Показывать на плитке', default=True)
+    # «Сумма в колонке»: a number field summed in every column header
+    # («Σ Сумма: 3 400 000») over the cards the column shows. `NUMBER` only,
+    # at most `services.MAX_SUMMED_FIELDS` per board — the services say so,
+    # and a check constraint keeps it off every other kind.
+    sum_in_column = models.BooleanField('Сумма в колонке', default=False)
     is_archived = models.BooleanField('В архиве', default=False)
     created_at = models.DateTimeField('Создано', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлено', auto_now=True)
@@ -916,6 +1031,10 @@ class BoardField(models.Model):
             models.CheckConstraint(
                 condition=models.Q(kind__in=['TEXT', 'NUMBER', 'DATE', 'SELECT']),
                 name='board_field_kind_known',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(sum_in_column=False) | models.Q(kind='NUMBER'),
+                name='board_field_sum_only_number',
             ),
         ]
 

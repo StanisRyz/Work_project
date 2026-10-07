@@ -1427,7 +1427,7 @@ function boardEvent(boardId, change, eventId) {
     };
 }
 
-function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts, checklist, followers, subtasks } = {}) {
+function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts, checklist, followers, links, subtasks } = {}) {
     const payload = {
         columns_html: `<section data-column-id="31"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
         columns_revision: columns,
@@ -1449,6 +1449,10 @@ function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comme
     if (followers) {
         payload.followers_html = `<dl data-fresh-followers>${followers}</dl>`;
         payload.followers_revision = followers;
+    }
+    if (links) {
+        payload.links_html = `<section data-fresh-links>${links}</section>`;
+        payload.links_revision = links;
     }
     if (log) {
         payload.log_html = `<ol><li data-fresh-log>${log}</li></ol>`;
@@ -2142,6 +2146,33 @@ test('a new follower replaces «Подписчики» and never the dirty panel
     env.clock.advance(300);
     await flush();
     assert.ok(env.live.followers.querySelector('[data-kept]'));
+});
+
+test('a link made elsewhere replaces «Связи», keeps «+ Связь» and never the dirty panel', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment({
+        columns: 'columns-rev-initial', panel: 'panel-rev-initial', links: 'links-rev-2',
+    }));
+
+    env.live.execution.value = 'Результат пишется';
+    env.document.dispatch('input', { target: env.live.execution });
+    env.live.linkCode.value = 'СНБ-1';
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_updated', 'linked'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.links.querySelector('[data-fresh-links]'), 'the links replaced');
+    assert.equal(env.live.board.dataset.linksRevision, 'links-rev-2');
+    assert.equal(env.live.linkCode.value, 'СНБ-1', 'the code being typed stays');
+    assert.equal(env.live.execution.value, 'Результат пишется');
+    assert.equal(env.live.conflictBanner.hidden, true, 'a link is no conflict');
+
+    // The same fingerprint again replaces nothing.
+    env.live.links.innerHTML = '<section data-kept>как было</section>';
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_updated', 'linked-again'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.links.querySelector('[data-kept]'));
 });
 
 // ------------------------------------------------------------- «Подзадачи»

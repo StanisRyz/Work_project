@@ -3229,3 +3229,182 @@ form[data-chat-files-ready] .board-chat__file-input {
     white-space: nowrap;
 }
 
+
+/* ---- «Связи», колонки под наблюдением, суммы ---- */
+
+/* «⛔ ждёт СНБ-14 +1» on a tile: the card waits for an open card. */
+.board-tile__blocked {
+    justify-self: start;
+    max-width: 100%;
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    background: var(--board-color-orange-bg);
+    color: var(--board-color-orange-text);
+    font-size: 12px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* «Связи» on «Описание»: groups of one-line rows, the label on the left. */
+.board-drawer__links {
+    display: none;
+    gap: 8px;
+}
+
+.board-links {
+    display: grid;
+    gap: 6px;
+}
+
+.board-links__title {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.board-links__blocked {
+    margin-left: 6px;
+    color: var(--board-color-orange-text);
+    font-weight: 600;
+}
+
+.board-links__group {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+}
+
+.board-links__label {
+    padding-top: 3px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-links__list {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-links__row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.board-links__row--waits .board-links__code {
+    color: var(--board-color-orange-text);
+}
+
+.board-links__code {
+    flex: 0 0 auto;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.board-links__text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.board-links__text--hidden {
+    color: var(--color-muted);
+    font-style: italic;
+}
+
+.board-links__board {
+    flex: 0 1 auto;
+    max-width: 160px;
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.board-links__remove {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+.board-links__remove-button {
+    border: 0;
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    cursor: pointer;
+}
+
+.board-links__remove-button:hover,
+.board-links__remove-button:focus-visible {
+    color: var(--color-text);
+}
+
+.board-links__add > summary {
+    width: max-content;
+    list-style: none;
+}
+
+.board-links__add > summary::-webkit-details-marker {
+    display: none;
+}
+
+.board-links__form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.board-links__field {
+    display: grid;
+    gap: 4px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-links__field input {
+    width: 140px;
+}
+
+.board-links__form .field-error {
+    flex-basis: 100%;
+    margin: 0;
+}
+
+/* «🔔» in a column's header: this reader follows the column. */
+.board-column__followed {
+    flex: 0 0 auto;
+    font-size: 12px;
+}
+
+/* «Σ Кол-во: 1 250 · Сумма: 3 400 000» under a column's header. */
+.board-column__sums {
+    margin: 0;
+    padding: 0 10px 6px;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.board-column__sum {
+    white-space: nowrap;
+}
+
+/* «Таблица»: «Ждёт» and the «Итого» row. */
+.board-table__waits-value {
+    color: var(--board-color-orange-text);
+    white-space: nowrap;
+}
+
+.board-table__totals th,
+.board-table__totals td {
+    border-top: 2px solid var(--color-border);
+    font-weight: 700;
+    background: var(--color-bg);
+}

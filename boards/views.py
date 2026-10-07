@@ -43,6 +43,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db.models import Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.middleware.csrf import get_token
@@ -86,6 +87,7 @@ from .models import (
     BoardCardChecklistItem,
     BoardCardFile,
     BoardCardFieldValue,
+    BoardCardLink,
     BoardColumn,
     BoardField,
     BoardFieldColor,
@@ -98,8 +100,10 @@ from .permissions import (
     can_comment_card,
     can_create_board,
     can_delete_card_file,
+    can_link_card,
     can_manage_board,
     can_restore_board,
+    can_unlink_cards,
     can_view_board,
     can_work_on_board,
 )
@@ -127,6 +131,7 @@ from .selectors import (
 from .services import (
     MAX_FIELDS,
     MAX_OPTIONS,
+    MAX_SUMMED_FIELDS,
     BoardCodeError,
     BoardError,
     DueReasonError,
@@ -142,6 +147,10 @@ from .services import (
     rename_checklist_item,
     toggle_card_subscription,
     toggle_checklist_item,
+    toggle_column_subscription,
+    LINK_CHOICES,
+    link_cards,
+    unlink_cards,
     archive_field,
     archive_option,
     create_field,
@@ -405,6 +414,7 @@ LOG_TEMPLATE = 'boards/includes/log.html'
 CHECKLIST_TEMPLATE = 'boards/includes/checklist.html'
 FACTS_TEMPLATE = 'boards/includes/facts.html'
 FOLLOWERS_TEMPLATE = 'boards/includes/followers.html'
+LINKS_TEMPLATE = 'boards/includes/links.html'
 SUBTASKS_TEMPLATE = 'boards/includes/subtasks.html'
 SUBTASK_SUMMARY_TEMPLATE = 'boards/includes/subtask_summary.html'
 SUBTASK_WARNING_TEMPLATE = 'boards/includes/subtask_warning.html'
@@ -453,7 +463,7 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
                    checklist_text='', checklist_error='', edit_item=None,
                    checklist_edit_text='', checklist_edit_error='', tabs=None,
                    subtask_form=None, subtask_error='', subtask_list_text='', subtask_list_error='',
-                   tab=None):
+                   tab=None, link_code='', link_kind='', link_error=''):
     """Everything the board page and its live fragment render.
 
     `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from `card_id`,
@@ -490,6 +500,10 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     refused form are filtered alike, and every link the panel and the tiles
     draw keeps them (`filter_query`). The board's fields are read once, for
     the parse and for the page.
+
+    «+ Связь» on «Описание» (outside the live «Связи») comes back after a
+    refusal with the code and the kind typed (`link_code`, `link_kind`) and
+    the message (`link_error`).
 
     `?edit_item=<id>` opens that item of the card's «Чек-лист» as a form
     (only while the list may be changed); the page's and the fragment's
@@ -617,6 +631,13 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         'subtask_error': subtask_error,
         'subtask_list_text': subtask_list_text,
         'subtask_list_error': subtask_list_error,
+        # «Связи» on «Описание» of a card being read: the list is a live
+        # read-only block, «+ Связь» a form below it in no block.
+        'show_links': bool(item is not None and panel == 'view'),
+        'link_code': link_code,
+        'link_kind': link_kind or LINK_CHOICES[0][0],
+        'link_error': link_error,
+        'link_choices': LINK_CHOICES,
         # «Открыто подзадач: 2 (ZAP-13, ZAP-15).» — what «Завершить» and
         # «Отменить карточку» of a card with open subtasks warn about.
         'subtask_warning_text': open_subtasks_warning(
@@ -799,7 +820,8 @@ def _board_blocks(request, context):
     ticking an item moves `checklist_revision` and the columns' (the tile's
     «☑ 2/5»), never `panel_revision`. So are its «Подписчики»
     (`followers_html`, below the facts): somebody starting to follow — a
-    colleague mentioned in «Чат» does — moves `followers_revision` alone.
+    colleague mentioned in «Чат» does — moves `followers_revision` alone. And
+    its «Связи» (`links_html`, above the facts): `links_revision`.
 
     `drawer_html` is the whole drawer around those blocks — the tab strip and
     the chat's and the checklist's forms included — which the client inserts
@@ -818,6 +840,11 @@ def _board_blocks(request, context):
     checklist_html = _render_block(CHECKLIST_TEMPLATE, context, request) if checklist else ''
     followers = panel == 'view'
     followers_html = _render_block(FOLLOWERS_TEMPLATE, context, request) if followers else ''
+    # «Связи» (on «Описание», above the facts): read-only, its own
+    # fingerprint — a link made from the other card, or the blocker closed on
+    # another board, moves `links_revision` alone.
+    links = context.get('show_links', False)
+    links_html = _render_block(LINKS_TEMPLATE, context, request) if links else ''
     item = context['card']
     # «Подзадачи»: the list (its tab), the line on «Описание» and the warning
     # of «Завершить» — one read-only block in three containers with one
@@ -858,6 +885,8 @@ def _board_blocks(request, context):
         # emptied is a change.
         'followers_html': followers_html,
         'followers_revision': content_revision(followers_html) if followers else '',
+        'links_html': links_html,
+        'links_revision': content_revision(links_html) if links else '',
         'chat_count': item['comment_count'] if discussion else 0,
         'files_count': item['files_count'] if discussion else 0,
         'subtasks_html': subtasks_html,
@@ -1042,6 +1071,7 @@ def table_headers(state):
         'Последняя причина',
         'В колонке, дн.',
         'Чек-лист',
+        'Ждёт',
         *(field.name for field in state['field_columns']),
         'Создана',
         'Завершена',
@@ -1064,6 +1094,7 @@ def table_cells(state, row):
         row['last_due_reason'] or None,
         row['in_column_days'],
         row['checklist_label'] or None,
+        row['waits_for'] or None,
         *(cell['raw'] for cell in row['cells']),
         row['created'],
         row['completed'],
@@ -1101,15 +1132,32 @@ def export_filename_stem(board, sub_board, *, whole_board):
     return '-'.join(part for part in (safe_file_part(board.code), second) if part) or 'board'
 
 
+def table_total_cells(state):
+    """The last row of the spreadsheet, «Итого»: each number field's total
+    under its column, every other cell empty — `None` when the board has no
+    number field, so no such row is written."""
+    if not state['has_totals']:
+        return None
+    headers = table_headers(state)
+    first_field = headers.index('Ждёт') + 1
+    row = [None] * len(headers)
+    row[0] = 'Итого'
+    for offset, total in enumerate(state['totals']):
+        row[first_field + offset] = total
+    return row
+
+
 def _export_table(state):
     """The table exactly as shown — the same rows, the same order, the same
-    filters — as `<код доски>-<поддоска>-<дата>.xlsx`."""
+    filters — as `<код доски>-<поддоска>-<дата>.xlsx`, with «Итого» last
+    when the board has number fields."""
     board, sub_board = state['board'], state['sub_board']
+    total = table_total_cells(state)
     return xlsx_response(
         export_filename_stem(board, sub_board, whole_board=state['whole_board']),
         board.name if state['whole_board'] else f'{board.code} {sub_board.name}',
         table_headers(state),
-        [table_cells(state, row) for row in state['rows']],
+        [table_cells(state, row) for row in state['rows']] + ([total] if total else []),
         stamp_separator='-',
         typed_dates=True,
     )
@@ -1632,6 +1680,96 @@ def file_delete(request, pk, card_pk, file_pk):
         if deleted:
             messages.success(request, 'Файл удалён.')
     return redirect(_card_url(board, card, request, tab=tab))
+
+
+@login_required
+def card_link(request, pk, card_pk):
+    """«+ Связь» on a card's «Описание»: `link_cards()` — the other card's
+    code («СНБ-14») and the kind («Ждёт», «Блокирует», «Связана с»,
+    «Дублирует»).
+
+    The right on this card (`can_link_card()`: working on its board) is asked
+    before the method; the other card's side is the service's. Success opens
+    the card again; a refusal — «Карточка не найдена» for a code nobody
+    answers to and for a card of a board the user does not read alike —
+    re-renders the panel with what was typed and the message beside the form.
+    """
+    board = _board_or_404(pk)
+    card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
+    _require(can_link_card(request.user, card))
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request))
+    code = (request.POST.get('code') or '').strip()[:40]
+    kind = request.POST.get('kind') or ''
+    try:
+        link_cards(card, actor=request.user, other_code=code, kind=kind)
+    except BoardError as exc:
+        return _render_board(
+            request, board, card.sub_board, card_id=card.pk, panel='view',
+            link_code=code, link_kind=kind, link_error=str(exc),
+        )
+    return redirect(_card_url(board, card, request))
+
+
+@login_required
+def card_unlink(request, pk, card_pk, link_pk):
+    """«×» beside a link in «Связи»: `unlink_cards()`.
+
+    The link must touch this card; the right (`can_unlink_cards()` — working
+    on one card's board and reading the other's) is asked before the method,
+    a link removed meanwhile is a 404. A refusal of the service is a message.
+    """
+    board = _board_or_404(pk)
+    card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
+    link = get_object_or_404(
+        BoardCardLink.objects.select_related('from_card__board', 'to_card__board')
+        .filter(Q(from_card=card) | Q(to_card=card)),
+        pk=link_pk,
+    )
+    _require(can_view_board(request.user, board) and can_unlink_cards(request.user, link))
+    if request.method == 'POST':
+        try:
+            unlink_cards(link, actor=request.user)
+        except BoardError as exc:
+            messages.error(request, str(exc))
+    return redirect(_card_url(board, card, request))
+
+
+@login_required
+def column_follow(request, pk, sub_pk, column_pk):
+    """«🔔 Сообщать о новых карточках» / «Не сообщать» in a column's «⋯»:
+    `toggle_column_subscription()`.
+
+    Reading the board is asked before the method — any reader may follow a
+    column, the closing one too; the service refuses an archived board. The
+    form posts the state it asks for (`subscribe` 1 or 0), and the open card
+    (`card`) comes back with the redirect.
+    """
+    board = _board_or_404(pk)
+    _require(can_view_board(request.user, board))
+    sub_board = _sub_board_or_404(board, sub_pk)
+    column = _column_or_404(sub_board, column_pk)
+    if request.method == 'POST':
+        wanted = request.POST.get('subscribe')
+        try:
+            following = toggle_column_subscription(
+                column, actor=request.user,
+                subscribe=None if wanted not in ('0', '1') else wanted == '1',
+            )
+        except BoardError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(
+                request,
+                f'Карточки, вошедшие в колонку «{column.name}», придут в колокольчик и на почту.'
+                if following else f'Вы больше не следите за колонкой «{column.name}».',
+            )
+    url = _sub_board_url(board, sub_board.pk)
+    params = [part for part in (
+        f'card={request.POST.get("card")}' if str(request.POST.get('card') or '').isdigit() else '',
+        _request_filters(request, board).query,
+    ) if part]
+    return redirect(f'{url}?{"&".join(params)}' if params else url)
 
 
 @login_required
@@ -2247,6 +2385,7 @@ def _render_fields(request, board, *, form=None, option_rows=None):
         'live_count': live,
         'can_add_field': live < MAX_FIELDS,
         'max_fields': MAX_FIELDS,
+        'max_summed': MAX_SUMMED_FIELDS,
         'max_options': MAX_OPTIONS,
     })
 
@@ -2280,7 +2419,7 @@ def field_create(request, pk):
             field = create_field(
                 board, actor=request.user,
                 name=form.cleaned_data['name'], kind=form.cleaned_data['kind'],
-                options=form.options(),
+                options=form.options(), sum_in_column=form.cleaned_data['sum_in_column'],
             )
         except BoardError as exc:
             form.add_error(None, str(exc))
@@ -2320,6 +2459,7 @@ def field_update(request, pk, field_pk):
         update_field(
             field, actor=request.user, name=form.cleaned_data['name'],
             kind=form.cleaned_data['kind'] or None, show_on_tile=form.cleaned_data['show_on_tile'],
+            sum_in_column=form.cleaned_data['sum_in_column'],
         )
     return _field_route(request, pk, field_pk, action)
 

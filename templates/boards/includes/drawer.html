@@ -25,7 +25,8 @@ read-only blocks of their own, and the chat's form is in no block at all, so a
 message being typed — and the files chosen for it — are never redrawn. So are
 the card's «Чек-лист» on «Описание» (`[data-live-board-checklist]`, between
 the description and the facts, with «Добавить пункт» below it in no block)
-and its «Подписчики» (`[data-live-board-followers]`, below the facts). The
+and its «Подписчики» (`[data-live-board-followers]`, below the facts); its
+«Связи» (`[data-live-board-links]`, above the facts, «+ Связь» below it). The
 markup is in the order of the screen, so the focus follows it.
 
 A card (never a subtask) has «Подзадачи»: the list is a read-only block of its
@@ -70,6 +71,38 @@ JavaScript, and a refusal comes back with what was typed.
         {% endif %}
         {% if show_subtasks %}
             <div class="board-drawer__subtask-summary" data-board-tab-body="description" data-live-board-subtask-summary>{{ subtask_summary_html }}</div>
+        {% endif %}
+        {% if show_links %}
+            {% comment %}
+            «Связи»: the list is the live block `[data-live-board-links]`
+            (`links.html`); «+ Связь» — the other card's code and the kind —
+            is an ordinary POST form below it, in no block, so a refresh never
+            redraws what is being typed. A refusal comes back here with the
+            code, the kind and the message.
+            {% endcomment %}
+            <section class="board-drawer__links" data-board-tab-body="description">
+                <div data-live-board-links>{{ links_html }}</div>
+                {% if card.can_link %}
+                    <details class="board-links__add"{% if link_error %} open{% endif %}>
+                        <summary class="link-button link-button--secondary link-button--compact">+ Связь</summary>
+                        <form class="board-links__form" method="post" action="{% url 'boards:card_link' board.pk card.card.pk %}{{ filter_suffix }}" data-unsaved-guard{% if link_error %}="dirty"{% endif %}>
+                            {% csrf_token %}
+                            <label class="board-links__field">
+                                <span>Вид</span>
+                                <select name="kind" aria-label="Вид связи">
+                                    {% for value, label in link_choices %}<option value="{{ value }}"{% if value == link_kind %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                                </select>
+                            </label>
+                            <label class="board-links__field">
+                                <span>Карточка</span>
+                                <input type="text" name="code" value="{{ link_code }}" maxlength="40" required placeholder="СНБ-14" aria-label="Код карточки" autocomplete="off">
+                            </label>
+                            <button class="link-button link-button--compact" type="submit">Связать</button>
+                            {% if link_error %}<p class="field-error">{{ link_error }}</p>{% endif %}
+                        </form>
+                    </details>
+                {% endif %}
+            </section>
         {% endif %}
         {% if panel == 'view' %}
             <div class="board-drawer__card" data-live-board-facts>{{ facts_html }}</div>

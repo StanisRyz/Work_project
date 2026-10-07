@@ -14,7 +14,7 @@ from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
 
 from ..services import create_board
 from .helpers import (
-    FOLLOW_FORM, BoardFixtureMixin, board_url, done_column_of, fresh_code, legacy_attachment, new_card,
+    FOLLOW_FORM, LINK_FORM, BoardFixtureMixin, board_url, done_column_of, fresh_code, legacy_attachment, new_card,
 )
 
 
@@ -248,7 +248,7 @@ class PanelWorkTests(PanelTestMixin, TestCase):
         for user in (self.member, self.admin):
             with self.subTest(user=user.username):
                 # «Следить» stays on a closed card: it may still be discussed.
-                content = FOLLOW_FORM.sub('', panel_of(main_of(self.panel(user))))
+                content = LINK_FORM.sub('', FOLLOW_FORM.sub('', panel_of(main_of(self.panel(user)))))
                 self.assertIn('Отозвано', content)
                 for marker in ('<form', 'data-confirm', 'edit=1'):
                     self.assertNotIn(marker, content)

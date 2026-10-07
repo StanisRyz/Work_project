@@ -28,7 +28,10 @@ its task (`item.file_count`, annotated likewise); a card with subtasks «⧉
 subtask counts in neither), green once every one is done. The completion
 dialog of a card with open subtasks names them; «↻2» says its срок was moved
 twice (`item.due_change_count`, annotated likewise) (`item.open_subtask_codes`):
-they stay in work, the card may be finished all the same. Every URL here carries the
+they stay in work, the card may be finished all the same. An open card that
+waits for an open card («Связи», `BLOCKS`) says «⛔ ждёт СНБ-14» — the first
+blocker on a board the reader reads, else «карточку другой доски» — and «+N»
+for the rest (`item.blocker_count`, annotated in the tiles' own query). Every URL here carries the
 board's filter, so the panel,
 the drag's counts and the redirect after completion stay filtered.
 {% endcomment %}
@@ -42,6 +45,9 @@ the drag's counts and the redirect after completion stay filtered.
                     {% else %}<span class="board-tile__field text-ellipsis" title="{{ value.name }}: {{ value.text }}">{{ value.name }}: {{ value.text }}</span>{% endif %}
                 {% endfor %}
             </span>
+        {% endif %}
+        {% if item.blocker_count %}
+            <span class="board-tile__blocked" data-tile-blocked title="Ждёт открытых карточек: {{ item.blocker_count }}">⛔ ждёт {% if item.first_blocker_code %}{{ item.first_blocker_code }}{% else %}карточку другой доски{% endif %}{% if item.blocker_more %} +{{ item.blocker_more }}{% endif %}</span>
         {% endif %}
         {% if not item.is_closed and item.in_column_days is not None %}
             <span class="board-tile__age{% if item.is_stale %} board-tile__age--stale{% endif %}" title="В колонке с {{ item.in_column_since|date:'d.m.Y' }}{% if item.is_stale %} — дольше порога «Застой»{% endif %}">{% if item.in_column_days %}в колонке {{ item.in_column_days }} дн.{% else %}в колонке сегодня{% endif %}</span>

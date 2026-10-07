@@ -547,6 +547,7 @@ function createEnvironment({
         board.setAttribute('data-log-revision', 'log-rev-initial');
         board.setAttribute('data-checklist-revision', 'checklist-rev-initial');
         board.setAttribute('data-followers-revision', 'followers-rev-initial');
+        board.setAttribute('data-links-revision', 'links-rev-initial');
         board.setAttribute('data-subtasks-revision', 'subtasks-rev-initial');
         board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
         // The sub-board tabs: a read-only live block of their own.
@@ -610,6 +611,13 @@ function createEnvironment({
         const followers = new Element('div');
         followers.setAttribute('data-live-board-followers', '');
         followers.innerHTML = '<dl>исходные подписчики</dl>';
+        // «Связи»: a read-only live block, «+ Связь» below it in no block.
+        const links = new Element('div');
+        links.setAttribute('data-live-board-links', '');
+        links.innerHTML = '<section>исходные связи</section>';
+        const linkCode = new Element('input');
+        linkCode.setAttribute('name', 'code');
+        linkCode.value = '';
         // «Описание»'s pane: the guarded bodies above, then the card's
         // «Чек-лист» — a live block of its own — and its «Добавить пункт»,
         // in no block, as `boards/includes/drawer.html` draws them.
@@ -624,7 +632,7 @@ function createEnvironment({
         const subtaskSummary = new Element('div');
         subtaskSummary.setAttribute('data-live-board-subtask-summary', '');
         subtaskSummary.innerHTML = '<p>Подзадачи: 0 из 1</p>';
-        pane.append(card, checklist, checklistText, subtaskSummary, facts, followers);
+        pane.append(card, checklist, checklistText, subtaskSummary, links, linkCode, facts, followers);
         // «Чат»: «Все сообщения | Только файлы · N», the read-only list and,
         // below it, its form with the file input and the chosen files —
         // outside every live block, as `boards/includes/drawer.html` draws them.
@@ -700,6 +708,8 @@ function createEnvironment({
             facts,
             move,
             followers,
+            links,
+            linkCode,
             execution,
             chat,
             comments,

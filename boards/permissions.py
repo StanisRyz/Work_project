@@ -319,3 +319,40 @@ def can_add_subtask(user, card, task, *, can_work=None):
     if card.parent_id is not None or task.status.code != 'IN_PROGRESS':
         return False
     return can_work_on_board(user, card.board) if can_work is None else bool(can_work)
+
+
+def can_link_card(user, card, *, can_work=None):
+    """«+ Связь» on a card: whoever may work on its board (an active member or
+    an administrator; never on an archived board) — a subtask's as well as a
+    card's, whatever the state of its task.
+
+    The other card's side is `can_view_board()` of *its* board, asked by
+    `services.link_cards()` once that card is found: a link never reaches a
+    board its author does not read. `can_work` is `can_work_on_board()`
+    already asked for the page.
+    """
+    return can_work_on_board(user, card.board) if can_work is None else bool(can_work)
+
+
+def can_unlink_cards(user, link):
+    """«×» beside a link: the same right as making it, from either side —
+    whoever works on one card's board and reads the other's.
+
+    `link.from_card.board` and `link.to_card.board` are read; an archived
+    board's side does not count, since nobody works on it.
+    """
+    one, other = link.from_card.board, link.to_card.board
+    return (
+        (can_work_on_board(user, one) and can_view_board(user, other))
+        or (can_work_on_board(user, other) and can_view_board(user, one))
+    )
+
+
+def can_follow_column(user, board, *, can_view=None):
+    """«🔔 Сообщать о новых карточках» of a column: any reader of the board —
+    a working column or the closing one — but never on an archived board,
+    where no card enters anything any more. `can_view` is `can_view_board()`
+    already asked for the page."""
+    if board.is_archived:
+        return False
+    return can_view_board(user, board) if can_view is None else bool(can_view)

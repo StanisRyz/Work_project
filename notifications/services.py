@@ -111,6 +111,14 @@ EMAIL_ELIGIBLE_EVENTS = {
     # stays in the bell.
     Notification.EventType.BOARD_DUE_SOON,
     Notification.EventType.BOARD_OVERDUE,
+    # A card that waited for another («ждёт СНБ-14») may now be started: its
+    # исполнители were held up by somebody else's work and are told the
+    # moment it is over — often from another board they do not watch. And a
+    # card entering a column somebody asked to hear about («🔔 Сообщать о
+    # новых карточках»): the master of a shop following «Запуск в работу»
+    # asked for exactly this, and is not necessarily on the board today.
+    Notification.EventType.BOARD_UNBLOCKED,
+    Notification.EventType.BOARD_COLUMN_ENTERED,
     # A bug report is exactly the kind of fact this list is for: somebody has
     # to look at it, and the people who must are often not in the application
     # when it arrives.
@@ -504,6 +512,68 @@ def notify_board_overdue(task, recipients):
     )
 
 
+def notify_board_unblocked(task, actor, recipients, *, blocker_id, blocker_code, cancelled, at):
+    """«Карточку ZAP-12 можно начинать: СНБ-14 выполнена» — the people of a
+    card that waited for another, once the last open card blocking it is
+    completed or cancelled.
+
+    `task` is the *blocked* card's task, still in work; `blocker_id` the card
+    whose closing freed it, `cancelled` whether it was cancelled rather than
+    completed («СНБ-14 отменена»). `blocker_code` is
+    its code for recipients who read its board and `''` for the others, who
+    read «карточка другой доски» instead — the caller
+    (`boards.services._notify_unblocked()`) splits them. Bell and mail.
+    Keyed on the blocked task, the blocker and the moment
+    (`task:<pk>:unblocked:<blocker pk>:<at>`), so one closing tells each
+    person once and a blocker reopened and closed again tells again. Whoever
+    closed the blocker is not told (`exclude_actor=True`).
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    state = 'отменена' if cancelled else 'выполнена'
+    stamp = at.isoformat() if at else ''
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_UNBLOCKED,
+        task=task,
+        actor=actor,
+        recipients=recipients,
+        source_key=f'task:{task.pk}:unblocked:{blocker_id}:{stamp}',
+        exclude_actor=True,
+        context={'blocker_code': blocker_code, 'blocker_state': state},
+    )
+
+
+def notify_board_column_entered(task, actor, recipients, *, column, at):
+    """«Карточка ZAP-12 вошла в колонку «Запуск в работу» на доске «X»» — for
+    the column's subscribers (`BoardColumnSubscription`) who still read the
+    board, never whoever moved it.
+
+    Bell and mail. Keyed on the task, the column and the moment
+    (`task:<pk>:column:<column pk>:<at>`): a card that comes back into the
+    column later says so again. Called by `boards.services` inside the
+    transaction that put the card there — created in it, moved into it, or
+    completed (the closing column) — after the people the same action tells
+    anyway were left out by the caller, so nobody hears of one move twice.
+    The column's name is stored in the text as it is now.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    stamp = at.isoformat() if at else ''
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_COLUMN_ENTERED,
+        task=task,
+        actor=actor,
+        recipients=recipients,
+        source_key=f'task:{task.pk}:column:{column.pk}:{stamp}',
+        exclude_actor=True,
+        context={'column': column.name},
+    )
+
+
 def notify_bug_reported(report, actor, recipients):
     """Tell the accounts responsible for bugs that a report has arrived.
 
@@ -612,11 +682,16 @@ def _resolve_source(act, protocol, task, bug_report, document=None):
 def create_notifications(
     *, event_type, actor, recipients, source_key,
     act=None, protocol=None, task=None, bug_report=None, document=None, exclude_actor=True,
+    context=None,
 ):
     """Create deduplicated in-app notifications and their independent email deliveries.
 
     Exactly one of `act`, `protocol`, `task`, `bug_report` or `document` names
-    what the notification is about; `source_type` follows from it.
+    what the notification is about; `source_type` follows from it. `context`
+    is what the text needs beyond the source and is not on it — a board
+    column's name, the code of the card that freed another — identifiers and
+    names only; it is written into the stored title and message and never
+    affects the required action, which is re-read from the source.
     """
     source_type, source = _resolve_source(act, protocol, task, bug_report, document)
     actor_id = getattr(actor, 'pk', None)
@@ -635,7 +710,7 @@ def create_notifications(
         is_active=True,
         userprofile__is_active=True,
     ).order_by('pk')
-    text = _event_text(event_type, source_type, source)
+    text = _event_text(event_type, source_type, source, context)
     created_notifications = []
     with transaction.atomic():
         for recipient in users:
@@ -977,7 +1052,7 @@ def _protocol_event_text(event_type, protocol):
     }[event_type]
 
 
-def _task_event_text(event_type, task):
+def _task_event_text(event_type, task, context=None):
     """Text for a task-sourced notification, without assuming a protocol.
 
     Four source types reach this — a protocol decision, a ПДО rejection, an
@@ -1008,8 +1083,10 @@ def _task_event_text(event_type, task):
         Notification.EventType.BOARD_DUE_CHANGED,
         Notification.EventType.BOARD_DUE_SOON,
         Notification.EventType.BOARD_OVERDUE,
+        Notification.EventType.BOARD_UNBLOCKED,
+        Notification.EventType.BOARD_COLUMN_ENTERED,
     ):
-        return _board_event_text(event_type, task)
+        return _board_event_text(event_type, task, context or {})
     label = _protocol_label(task.protocol)
     return {
         Notification.EventType.PROTOCOL_TASK_ASSIGNED: NotificationText(
@@ -1038,15 +1115,35 @@ def due_day_words(due_date, today=None):
     return _WEEKDAY_WORDS[due_date.weekday()]
 
 
-def _board_event_text(event_type, task):
+def _board_event_text(event_type, task, context=None):
     """A board card's notification: the board and the card's code («ZAP-12»).
 
     A subtask is named as one, with the card it lives in: «Назначена
-    подзадача ZAP-13 карточки ZAP-12».
+    подзадача ZAP-13 карточки ZAP-12». `context` carries what is not on the
+    card — the column a card entered, the card that freed it — and is absent
+    when only the required action is asked for.
     """
+    context = context or {}
     card = task.board_card
     name = card.board.name
     code = card.code
+    if event_type == Notification.EventType.BOARD_UNBLOCKED:
+        blocker = context.get('blocker_code') or 'карточка другой доски'
+        state = context.get('blocker_state') or 'выполнена'
+        return NotificationText(
+            f'Карточку {code} можно начинать: {blocker} {state}',
+            f'Карточку {code} на доске «{name}» можно начинать: {blocker} {state}, '
+            'других открытых блокирующих карточек нет.',
+            'Откройте карточку и начните работу.',
+        )
+    if event_type == Notification.EventType.BOARD_COLUMN_ENTERED:
+        column = context.get('column') or ''
+        return NotificationText(
+            f'Карточка {code} вошла в колонку «{column}» на доске «{name}»',
+            f'Карточка {code} вошла в колонку «{column}» на доске «{name}», '
+            'за которой вы следите.',
+            'Откройте карточку на доске.',
+        )
     if event_type == Notification.EventType.BOARD_TASK_ASSIGNED and card.parent_id:
         parent = card.parent_code
         return NotificationText(
@@ -1113,11 +1210,11 @@ def _board_event_text(event_type, task):
     )
 
 
-def _event_text(event_type, source_type, source):
+def _event_text(event_type, source_type, source, context=None):
     if source_type == Notification.SourceType.PROTOCOL:
         return _protocol_event_text(event_type, source)
     if source_type == Notification.SourceType.TASK:
-        return _task_event_text(event_type, source)
+        return _task_event_text(event_type, source, context)
     if source_type == Notification.SourceType.BUG:
         return _bug_event_text(event_type, source)
     if source_type == Notification.SourceType.DOCUMENT:

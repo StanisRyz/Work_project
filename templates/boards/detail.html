@@ -54,6 +54,7 @@ what is left — never the other way round.
      data-log-revision="{{ log_revision }}"
      data-checklist-revision="{{ checklist_revision }}"
      data-followers-revision="{{ followers_revision }}"
+     data-links-revision="{{ links_revision }}"
      data-subtasks-revision="{{ subtasks_revision }}"
      data-panel-holds-input="{% if panel_holds_input %}true{% else %}false{% endif %}">
     <div class="board-tabs-block" data-live-board-tabs>{{ tabs_html }}</div>
@@ -105,7 +106,7 @@ what is left — never the other way round.
 {# Dragging cards and the card drawer. The board works without them: links and forms do the same. #}
 <script src="{% static 'js/board_dnd.js' %}?v=20261013-1" defer></script>
 <script src="{% static 'js/board_menus.js' %}?v=20261016-1" defer></script>
-<script src="{% static 'js/board_drawer.js' %}?v=20261020-1" defer></script>
+<script src="{% static 'js/board_drawer.js' %}?v=20261022-1" defer></script>
 {# The checklist's tick without a reload, and «@» in «Чат». Both are forms without them. #}
 <script src="{% static 'js/board_checklist.js' %}?v=20261018-1" defer></script>
 <script src="{% static 'js/board_mentions.js' %}?v=20261018-1" defer></script>

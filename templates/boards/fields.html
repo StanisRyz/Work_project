@@ -13,7 +13,9 @@ field shows its options as coloured chips. Every reader of the board reads
 the page; whoever manages it (`can_manage`: the owner or an administrator,
 never on an archived board) also gets the forms — rename, kind (only while no
 card holds a value), «Показывать на плитке», ← →, «В архив» / «Вернуть»,
-«Удалить» (only while unused, through the shared confirmation modal) and the
+«Удалить» (only while unused, through the shared confirmation modal),
+«Сумма в колонке» for a number field (at most `max_summed` of them: each
+column header then reads «Σ Сумма: …») and the
 same for each option — and «+ Поле» at the end. Ordinary POST forms: it all
 works without JavaScript; `board_fields.js` only adds and removes option rows
 of «+ Поле» in place and hides them for a kind that is not a list. Every
@@ -34,6 +36,7 @@ route asks the right again, and a refusal is a message on this page.
     Поля общие для всех поддосок доски: значения вводят в карточке, на плитке видны до четырёх полей с пометкой «на плитке».
     Поле или вариант, у которых есть значения, удалить нельзя — их убирают в архив, а значения в карточках остаются.
     Живых полей: {{ live_count }} из {{ max_fields }}.
+    «Сумма в колонке» — у числовых полей, не больше {{ max_summed }}: заголовок каждой колонки показывает сумму по её карточкам.
 </p>
 
 {% if rows %}
@@ -46,6 +49,7 @@ route asks the right again, and a refusal is a message on this page.
             <dl class="board-field__facts">
                 <div><dt>Вид</dt><dd>{{ field.get_kind_display }}</dd></div>
                 <div><dt>На плитке</dt><dd>{% if field.show_on_tile %}да{% else %}нет{% endif %}</dd></div>
+                {% if field.kind == 'NUMBER' %}<div><dt>Сумма в колонке</dt><dd>{% if field.sum_in_column %}да{% else %}нет{% endif %}</dd></div>{% endif %}
                 <div><dt>Карточек со значением</dt><dd>{{ field.value_count }}</dd></div>
             </dl>
             {% if can_manage %}
@@ -118,6 +122,9 @@ route asks the right again, and a refusal is a message on this page.
                             </label>
                         {% endif %}
                         <label class="board-field__check"><input type="checkbox" name="show_on_tile" value="1"{% if field.show_on_tile %} checked{% endif %}> Показывать на плитке</label>
+                        {% if field.kind == 'NUMBER' or not field.value_count %}
+                            <label class="board-field__check" title="Только для вида «Число», не больше {{ max_summed }} полей на доске"><input type="checkbox" name="sum_in_column" value="1"{% if field.sum_in_column %} checked{% endif %}> Сумма в колонке</label>
+                        {% endif %}
                         <button class="link-button link-button--compact" type="submit">Сохранить</button>
                     </form>
 
@@ -214,6 +221,7 @@ route asks the right again, and a refusal is a message on this page.
                     {{ form.kind.errors }}
                 </label>
             </div>
+            <label class="board-field__check" title="Только для вида «Число», не больше {{ max_summed }} полей на доске"><input type="checkbox" name="sum_in_column" value="1"{% if form.sum_in_column.value %} checked{% endif %}> Сумма в колонке (для вида «Число»)</label>
             <fieldset class="board-field-new__options" data-board-field-options>
                 <legend>Варианты списка</legend>
                 <p class="board-form__hint">Только для вида «Список»: подпись и цвет, по строке на вариант. Пустые строки не сохраняются.</p>

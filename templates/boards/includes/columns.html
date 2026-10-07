@@ -17,6 +17,16 @@ flags only decide which buttons to draw; every route asks the service again.
 it moves this block's fingerprint with every change of «Поля карточек», even
 one no tile shows yet.
 
+Any reader of the board may follow a column — «🔔 Сообщать о новых
+карточках» in its «⋯», a working column or the closing one (`column_follow`,
+`can_follow_column`): a card entering it comes to the bell and the mail, and
+the header shows «🔔» while this reader follows it. For a reader who does not
+manage the board that item is the whole menu.
+
+Under the header, «Σ Кол-во: 1 250 · Сумма: 3 400 000»: the board's number
+fields marked «Сумма в колонке», summed over the cards the column shows under
+the filters (`column.sums`); nothing while the column is empty.
+
 A working column with people pinned to it («Закреплённые исполнители»: a card
 created here or moved here gets them) shows up to three of them in its header
 and «+N»; the full list is on the group's `title`. The manager sets them in the
@@ -34,6 +44,7 @@ are highlighted.
                 {% if not column.is_done and column.column.stale_after_days %}
                     <span class="board-column__stale" title="Застой: карточка подсвечивается, если стоит в колонке {{ column.column.stale_after_days }} дн. и дольше">⏱ {{ column.column.stale_after_days }} дн.</span>
                 {% endif %}
+                {% if column.is_followed %}<span class="board-column__followed" title="Вы следите за колонкой: новые карточки придут в колокольчик" aria-label="Вы следите за колонкой">🔔</span>{% endif %}
                 {% if column.pinned %}
                     <span class="board-column__pins" title="Закреплённые исполнители ({% if column.column.pinned_mode == 'REPLACE' %}заменяют{% else %}добавляются{% endif %}): {% for person in column.pinned_all %}{{ person|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}" aria-label="Закреплённые исполнители: {{ column.pinned_all|length }}">
                         {% for person in column.pinned %}<span class="board-avatar board-avatar--small" aria-hidden="true">{{ person|person_initials }}</span>{% endfor %}
@@ -44,16 +55,20 @@ are highlighted.
                     {% if can_work and not column.is_done %}
                         <a class="board-column__add" href="{{ board_url }}?new={{ column.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" title="Новая карточка в колонке «{{ column.name }}»" aria-label="Новая карточка в колонке «{{ column.name }}»">+</a>
                     {% endif %}
-                    {% if can_manage %}
+                    {% if can_manage or can_follow_column %}
                         {% url 'boards:column_rename' board.pk sub_board.pk column.pk as rename_url %}
                         {% url 'boards:column_move' board.pk sub_board.pk column.pk as move_url %}
                         {% url 'boards:column_delete' board.pk sub_board.pk column.pk as delete_url %}
                         {% url 'boards:column_pins' board.pk sub_board.pk column.pk as pins_url %}
                         {% url 'boards:column_stale' board.pk sub_board.pk column.pk as stale_url %}
-                        {% include 'boards/includes/structure_menu.html' with kind='column' object=column.column name=column.name max_length=60 can_move_left=column.can_move_left can_move_right=column.can_move_right can_delete=column.can_delete pin_row=column %}
+                        {% url 'boards:column_follow' board.pk sub_board.pk column.pk as follow_url %}
+                        {% include 'boards/includes/structure_menu.html' with kind='column' object=column.column name=column.name max_length=60 can_move_left=column.can_move_left can_move_right=column.can_move_right can_delete=column.can_delete pin_row=column follow_row=column %}
                     {% endif %}
                 </span>
             </header>
+            {% if column.sums %}
+                <p class="board-column__sums" data-column-sums title="Сумма по карточкам колонки{% if filters.is_active %} с учётом фильтра{% endif %}">Σ {% for sum in column.sums %}<span class="board-column__sum"><span class="user-text">{{ sum.name }}</span>: {{ sum.text }}</span>{% if not forloop.last %} · {% endif %}{% endfor %}</p>
+            {% endif %}
             <ol class="board-column__cards" data-column-list>
                 {% for item in column.cards %}
                     {% include 'boards/includes/tile.html' %}

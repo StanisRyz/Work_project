@@ -390,14 +390,16 @@ class TableExcelTests(TableMixin, TestCase):
                 rows, _ = read_xlsx(self.export(**query).content)
                 page = self.client.get(self.url(**query)).content.decode()
                 screen = re.findall(r'<a class="table-link" href="[^"]*" title="[^"]*">([^<]+)</a>', page)
-                self.assertEqual([row[0][1] for row in rows[1:]], screen)
+                # The last row is «Итого» (the board has a number field).
+                self.assertEqual(rows[-1][0], ('s', 'Итого'))
+                self.assertEqual([row[0][1] for row in rows[1:-1]], screen)
 
     def test_headers_and_cell_types(self):
         rows, styles = read_xlsx(self.export().content)
         self.assertEqual(values(rows)[0], [
             'Код', 'Название', 'Колонка', 'Статус', 'Исполнители', 'Срок',
             'Исходный срок', 'Переносов', 'Последняя причина', 'В колонке, дн.',
-            'Чек-лист', 'Номер заявки', 'Заказ покупателя', 'Срок изг.', 'Приоритет', 'Стоп', 'Сумма',
+            'Чек-лист', 'Ждёт', 'Номер заявки', 'Заказ покупателя', 'Срок изг.', 'Приоритет', 'Стоп', 'Сумма',
             'Создана', 'Завершена',
         ])
         self.assertIn('formatCode="dd.mm.yyyy"', styles)
@@ -416,18 +418,21 @@ class TableExcelTests(TableMixin, TestCase):
         self.assertEqual(alpha[9], ('n', Decimal(5)))
         # «Чек-лист»: no items, an empty cell (filled ones: `test_checklist.py`).
         self.assertEqual(alpha[10], ('', None))
-        self.assertEqual(alpha[11], ('s', '3-1579'))
-        self.assertEqual(alpha[12], ('', None))
-        self.assertEqual(alpha[13], ('d', datetime.date(2026, 11, 30)))
-        self.assertEqual(alpha[14], ('s', 'Высокий'))
-        self.assertEqual(alpha[15], ('', None))
-        self.assertEqual(alpha[16], ('n', Decimal(10)))
-        self.assertEqual(alpha[17], ('d', timezone.localdate()))
-        self.assertEqual(alpha[18], ('', None))
+        # Stage 22: «Ждёт» — the card waits for nothing, an empty cell
+        # (filled ones: `test_links.py`).
+        self.assertEqual(alpha[11], ('', None))
+        self.assertEqual(alpha[12], ('s', '3-1579'))
+        self.assertEqual(alpha[13], ('', None))
+        self.assertEqual(alpha[14], ('d', datetime.date(2026, 11, 30)))
+        self.assertEqual(alpha[15], ('s', 'Высокий'))
+        self.assertEqual(alpha[16], ('', None))
+        self.assertEqual(alpha[17], ('n', Decimal(10)))
+        self.assertEqual(alpha[18], ('d', timezone.localdate()))
+        self.assertEqual(alpha[19], ('', None))
         beta = rows[3]
-        self.assertEqual(beta[16], ('n', Decimal('2.5')))
+        self.assertEqual(beta[17], ('n', Decimal('2.5')))
         delta = rows[4]
-        self.assertEqual((delta[2], delta[3], delta[9], delta[18]), (
+        self.assertEqual((delta[2], delta[3], delta[9], delta[19]), (
             ('s', 'Готово'), ('s', 'Выполнена'), ('', None), ('d', timezone.localdate()),
         ))
 
@@ -437,7 +442,7 @@ class TableExcelTests(TableMixin, TestCase):
         archive_option(self.high, actor=self.owner)
         rows, _ = read_xlsx(self.export().content)
         self.assertEqual(rows[1][4], ('s', 'Иван Петров'))
-        self.assertEqual(rows[1][14], ('s', 'Высокий (в архиве)'))
+        self.assertEqual(rows[1][15], ('s', 'Высокий (в архиве)'))
 
     def test_empty_is_an_empty_cell_never_none_or_a_dash(self):
         content = self.export(cancelled=1).content
@@ -447,13 +452,13 @@ class TableExcelTests(TableMixin, TestCase):
         self.assertNotIn('>—<', sheet)
         self.assertNotIn('<v></v>', sheet)
         rows, _ = read_xlsx(content)
-        omega = rows[-1]
+        omega = rows[-2]
         self.assertEqual((omega[2], omega[3], omega[9]), (('s', 'Отменена'), ('s', 'Отменена'), ('', None)))
 
     def test_the_whole_board_adds_the_sub_board_after_the_code(self):
         rows, _ = read_xlsx(self.export(scope='board').content)
         self.assertEqual(values(rows)[0][:3], ['Код', 'Поддоска', 'Название'])
-        self.assertEqual(rows[-1][1], ('s', 'Цех ПиР'))
+        self.assertEqual(rows[-2][1], ('s', 'Цех ПиР'))
 
     def test_the_file_name(self):
         stamp = timezone.localdate().strftime('%Y-%m-%d')

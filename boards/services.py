@@ -64,6 +64,17 @@ A message of «Чат» carries files (`BoardCardFile`, the board's own — neve
 upload policy, writes them before their rows and removes them again if the
 transaction fails; `delete_card_file()` leaves a tombstone row, removes the
 file once committed and publishes `board.updated(file_deleted)`.
+
+Cards are linked («Связи», `BoardCardLink`) by `link_cards()`/
+`unlink_cards()` — across boards too, both boards locked in id order. A card
+waits («ждёт») while an incoming `BLOCKS` comes from an open card; when the
+last such blocker is completed or cancelled, `_after_blocker_closed()` tells
+the waiting card's исполнители (`BOARD_UNBLOCKED`) inside that transaction.
+A column may be followed («🔔 Сообщать о новых карточках»,
+`toggle_column_subscription()`): a card entering it — created in it, moved
+into it, completed into the closing column — tells its followers
+(`_notify_column_entered()`, `BOARD_COLUMN_ENTERED`), each person once per
+action.
 """
 
 import datetime
@@ -116,9 +127,11 @@ from .models import (
     BoardCardEvent,
     BoardCardFile,
     BoardCardFieldValue,
+    BoardCardLink,
     BoardCardSubscription,
     BoardColumn,
     BoardColumnPin,
+    BoardColumnSubscription,
     BoardField,
     BoardFieldColor,
     BoardFieldOption,
@@ -134,9 +147,14 @@ from .permissions import (
     can_create_board,
     can_delete_card_file,
     can_follow_card,
+    can_follow_column,
+    can_link_card,
     can_manage_board,
     can_restore_board,
+    can_unlink_cards,
+    can_view_board,
     can_work_on_board,
+    readable_boards_q,
 )
 
 
@@ -496,7 +514,8 @@ def remove_board_member(board, user, *, actor):
     Their pins (`BoardColumn.pinned_assignees`) go with them, in every column
     of the board and in the same transaction: a column must never put a card
     on somebody who is no longer on the board. So do their subscriptions to
-    the board's cards (`BoardCardSubscription`).
+    the board's cards (`BoardCardSubscription`) and columns
+    (`BoardColumnSubscription`).
     """
     from tasks.models import Task
 
@@ -529,6 +548,9 @@ def remove_board_member(board, user, *, actor):
         # `selectors.card_audience()` would leave them out anyway, but a
         # follower who reads nothing should not be listed as one.
         BoardCardSubscription.objects.filter(card__board=board, user=user).delete()
+        # So does their «🔔» on the board's columns: a person who no longer
+        # reads the board is told nothing about its cards.
+        BoardColumnSubscription.objects.filter(column__sub_board__board=board, user=user).delete()
         pins = BoardColumnPin.objects.filter(column__sub_board__board=board, user=user)
         pinned_columns = list(pins.values_list('column_id', flat=True))
         if pinned_columns:
@@ -774,6 +796,8 @@ def create_card(
     to its column (`_apply_pins()`); every исполнитель it ends up with is told
     once. `field_values` (`{field id: raw value}`) are the board's own fields,
     parsed by kind (`_clean_field_values()`); an empty one stores nothing.
+    The column's followers are told the card entered it
+    (`_notify_column_entered()`), except those already told as исполнители.
     """
     from notifications.services import notify_board_task_assigned
 
@@ -803,6 +827,8 @@ def create_card(
         # so a rollback leaves no notification about a card that never was —
         # and only the people the card really ended up with.
         notify_board_task_assigned(task, actor, _users(ids))
+        # The column's followers — but not its исполнители, just told.
+        _notify_column_entered(card, task, column, board, actor=actor, told=ids)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_CREATED, card.pk)
     log_event(
         logger,
@@ -1046,7 +1072,8 @@ def move_card(card, *, actor, column, before_card_id=None):
     same neighbours — writes nothing and announces nothing. A move into
     another column records one `MOVED` entry (the columns' names as they are
     now, and the sub-boards' when it changes them) and gives the card the
-    people pinned to the new column (`_apply_pins()`); those added are told.
+    people pinned to the new column (`_apply_pins()`); those added are told,
+    and the new column's followers hear the card entered it (once each).
     """
     from notifications.services import notify_board_task_assigned
     from tasks.models import TaskAssignee
@@ -1144,6 +1171,7 @@ def move_card(card, *, actor, column, before_card_id=None):
                 card.save(update_fields=['version'])
             if added:
                 notify_board_task_assigned(task, actor, _users(added))
+            _notify_column_entered(card, task, target, board, actor=actor, told=added)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_MOVED, card.pk)
     log_event(
         logger,
@@ -1171,7 +1199,9 @@ def complete_card(card, *, actor, execution_comment):
     returns it to the working column it came from. The card's followers and
     its author hear of it in the bell (`BOARD_CARD_COMPLETED`, keyed on the
     completion's time, so a card completed again after a reopening says so
-    again); whoever completed it is not told.
+    again); whoever completed it is not told. The closing column's followers
+    hear the card entered it, and the cards it blocked that now wait for
+    nobody tell their исполнители they may start (`_after_blocker_closed()`).
     """
     from notifications.services import notify_board_card_completed
     from tasks.services import TaskWorkflowError, complete_task
@@ -1191,12 +1221,22 @@ def complete_card(card, *, actor, execution_comment):
         card.board = board
         # A subtask's author is the card's people, who hear «все подзадачи
         # выполнены» at the end: a subtask tells its followers only.
-        notify_board_card_completed(
-            task, actor, card_audience(card, task, assignees=False, author=card.parent_id is None),
-        )
+        audience = card_audience(card, task, assignees=False, author=card.parent_id is None)
+        notify_board_card_completed(task, actor, audience)
         if card.parent_id is not None:
             parent = _record_subtask(card, 'completed', actor=actor)
             _ask_parent_done(parent, board, actor=actor, closed_at=task.completed_at)
+        else:
+            # The closing column's followers, but not whoever just heard of
+            # the completion as a follower or the author.
+            closing = next(
+                (column for column in _sub_board_columns(card.sub_board) if column.is_done), None,
+            )
+            if closing is not None:
+                _notify_column_entered(
+                    card, task, closing, board, actor=actor, told=[user.pk for user in audience],
+                )
+        _after_blocker_closed(card, board, actor=actor, at=task.completed_at, cancelled=False)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_COMPLETED, card.pk)
     log_event(
         logger,
@@ -1219,7 +1259,8 @@ def reopen_card(card, *, actor):
     board adds only that an archived board stays as it was shelved. The card
     returns to the working column it kept, or to the first one if that column
     was deleted meanwhile (`columns.card_column()` decides; nothing is
-    written to `column`), and the journal names that column.
+    written to `column`), and the journal names that column. The open cards
+    it blocks wait for it again, silently.
     """
     from tasks.services import TaskWorkflowError, reopen_task
 
@@ -1243,6 +1284,9 @@ def reopen_card(card, *, actor):
             if column is None and working:
                 column = working[0]
             _record(card, BoardCardEvent.Kind.REOPENED, actor=actor, **_column_snapshot('column', column))
+        # The cards it blocks wait again — without a word to anybody; only
+        # their tiles («⛔ ждёт …») change, on their own boards too.
+        _announce_blocked(card, board)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_REOPENED, card.pk)
     log_event(
         logger,
@@ -1265,7 +1309,8 @@ def cancel_card(card, *, actor, reason):
     the card leaves every column (`columns.card_column()`); its panel still
     reads the record by `?card=`. Who may do it is `can_cancel_card()`, asked
     after the locks; its исполнители and its followers get one bell entry
-    each (`notify_board_task_cancelled()`), never an email.
+    each (`notify_board_task_cancelled()`), never an email. A cancelled
+    blocker blocks nothing any more (`_after_blocker_closed()`).
     """
     from notifications.services import notify_board_task_cancelled
     from tasks.services import TaskWorkflowError, cancel_board_card_task
@@ -1294,6 +1339,7 @@ def cancel_card(card, *, actor, reason):
         if card.parent_id is not None:
             parent = _record_subtask(card, 'cancelled', actor=actor)
             _ask_parent_done(parent, board, actor=actor, closed_at=task.cancelled_at)
+        _after_blocker_closed(card, board, actor=actor, at=task.cancelled_at, cancelled=True)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_CANCELLED, card.pk)
     log_event(
         logger,
@@ -1916,6 +1962,8 @@ def set_column_stale_days(column, *, actor, days):
 # (`field_values`), parsed here by kind: `_clean_field_values()`.
 
 MAX_FIELDS = 20
+# «Сумма в колонке»: how many number fields of a board a column header sums.
+MAX_SUMMED_FIELDS = 2
 MAX_OPTIONS = 30
 FIELD_NAME_MAX_LENGTH = 60
 OPTION_LABEL_MAX_LENGTH = 60
@@ -2042,12 +2090,32 @@ def _has_values(field):
     return BoardCardFieldValue.objects.filter(field=field).exists()
 
 
-def create_field(board, *, actor, name, kind, show_on_tile=True, options=()):
+def _refuse_summed(board, kind, sum_in_column, operation, *, actor, exclude_pk=None):
+    """«Сумма в колонке» only for a number field, and on at most
+    `MAX_SUMMED_FIELDS` live fields of the board: a column header has room
+    for two sums, not for every number on the card."""
+    if not sum_in_column:
+        return
+    if kind != BoardField.Kind.NUMBER:
+        _rejected(operation, 'sum_not_number', actor=actor, board_id=board.pk)
+        raise BoardError('Сумму в колонке считают только для поля вида «Число».')
+    summed = BoardField.objects.filter(board=board, is_archived=False, sum_in_column=True)
+    if exclude_pk is not None:
+        summed = summed.exclude(pk=exclude_pk)
+    if summed.count() >= MAX_SUMMED_FIELDS:
+        _rejected(operation, 'sum_limit', actor=actor, board_id=board.pk)
+        raise BoardError(
+            f'Сумму в колонке можно считать не больше чем по {MAX_SUMMED_FIELDS} полям доски.'
+        )
+
+
+def create_field(board, *, actor, name, kind, show_on_tile=True, options=(), sum_in_column=False):
     """A new field at the end of the board's fields.
 
     `options` — `(label, colour)` pairs — only for a list (`SELECT`): any
     other kind takes none. At most `MAX_FIELDS` live fields per board and
-    `MAX_OPTIONS` options per field.
+    `MAX_OPTIONS` options per field. `sum_in_column` («Сумма в колонке»): a
+    number field only, at most `MAX_SUMMED_FIELDS` per board.
     """
     with transaction.atomic():
         board = _fields_board(board.pk, 'create_field', actor=actor)
@@ -2065,9 +2133,12 @@ def create_field(board, *, actor, name, kind, show_on_tile=True, options=()):
                 _clean_color(color),
             ))
         _refuse_field_limit(board, 'create_field', actor=actor)
+        sum_in_column = bool(sum_in_column)
+        _refuse_summed(board, kind, sum_in_column, 'create_field', actor=actor)
         last = BoardField.objects.filter(board=board).aggregate(last=Max('position'))['last'] or 0
         field = BoardField.objects.create(
             board=board, name=name, kind=kind, position=last + 1, show_on_tile=bool(show_on_tile),
+            sum_in_column=sum_in_column,
         )
         BoardFieldOption.objects.bulk_create([
             BoardFieldOption(field=field, label=label, color=color, position=index)
@@ -2077,12 +2148,14 @@ def create_field(board, *, actor, name, kind, show_on_tile=True, options=()):
     return field
 
 
-def update_field(field, *, actor, name, show_on_tile, kind=None):
-    """A field's name, whether its tile shows it, and — while no card holds a
-    value of it — its kind. `kind=None` keeps the kind.
+def update_field(field, *, actor, name, show_on_tile, kind=None, sum_in_column=None):
+    """A field's name, whether its tile shows it, whether its column headers
+    sum it, and — while no card holds a value of it — its kind. `kind=None`
+    keeps the kind, `sum_in_column=None` the sum.
 
     A list turned into another kind loses its options (none can be used: the
-    field has no values). The same values store and publish nothing.
+    field has no values); a number turned into another kind stops being
+    summed. The same values store and publish nothing.
     """
     with transaction.atomic():
         board = _fields_board(field.board_id, 'update_field', actor=actor)
@@ -2095,8 +2168,18 @@ def update_field(field, *, actor, name, show_on_tile, kind=None):
             raise BoardError(
                 f'В карточках уже есть значения поля «{field.name}» — его вид менять нельзя.'
             )
+        if sum_in_column is None:
+            sum_in_column = field.sum_in_column and kind == BoardField.Kind.NUMBER
+        sum_in_column = bool(sum_in_column)
+        if sum_in_column and not field.sum_in_column or kind != field.kind:
+            _refuse_summed(
+                board, kind, sum_in_column, 'update_field', actor=actor, exclude_pk=field.pk,
+            )
         changed = [
-            attribute for attribute, value in (('name', name), ('kind', kind), ('show_on_tile', show_on_tile))
+            attribute for attribute, value in (
+                ('name', name), ('kind', kind), ('show_on_tile', show_on_tile),
+                ('sum_in_column', sum_in_column),
+            )
             if getattr(field, attribute) != value
         ]
         if not changed:
@@ -2104,6 +2187,7 @@ def update_field(field, *, actor, name, show_on_tile, kind=None):
         if 'kind' in changed and field.kind == BoardField.Kind.SELECT:
             BoardFieldOption.objects.filter(field=field).delete()
         field.name, field.kind, field.show_on_tile = name, kind, show_on_tile
+        field.sum_in_column = sum_in_column
         field.save(update_fields=[*changed, 'updated_at'])
         _fields_changed(board, 'board.field_updated', actor=actor, field_id=field.pk)
     return field
@@ -2144,7 +2228,10 @@ def _set_field_archived(field, *, actor, archived):
         if not archived:
             _refuse_field_limit(board, operation, actor=actor)
         field.is_archived = archived
-        field.save(update_fields=['is_archived', 'updated_at'])
+        # An archived field is summed nowhere, and comes back without its sum:
+        # turning it on again is asked within `MAX_SUMMED_FIELDS`.
+        field.sum_in_column = False
+        field.save(update_fields=['is_archived', 'sum_in_column', 'updated_at'])
         _fields_changed(
             board, 'board.field_archived' if archived else 'board.field_restored',
             actor=actor, field_id=field.pk,
@@ -3038,3 +3125,352 @@ def send_due_reminders(today=None):
         outcome='ok',
     )
     return created
+
+
+# --------------------------------------------------------------------------
+# «Связи»: links between cards, and the blocking they carry
+# --------------------------------------------------------------------------
+#
+# A link is made from a card (`link_cards()`) to another one named by its
+# code («СНБ-14»), on this board or another the author reads, and removed
+# (`unlink_cards()`) from either end. Both write under the locks of both
+# boards (in id order, so two links made at once from the two ends never wait
+# on each other) and then both cards; both cards' journals get one entry
+# (`LINKED`/`UNLINKED`: the link's kind, the direction, the other card's id
+# and code — never its title), both cards' `updated_at` moves (the `boards`
+# sync revision) and each board hears one `board.updated(card_updated)` with
+# its own card's id.
+#
+# «Ждёт» is a `BLOCKS` link from a card still `IN_PROGRESS`. When a blocker
+# is completed or cancelled, `_after_blocker_closed()` — inside that very
+# transaction — tells the people of every card it blocked that no longer
+# waits for anybody (`BOARD_UNBLOCKED`); reopening a blocker blocks them
+# again and tells nobody. Either way the boards of the cards it blocks hear
+# `board.updated(card_updated)`, since their tiles («⛔ ждёт …») change.
+
+# What a person picks beside the other card's code: «Ждёт» stores a `BLOCKS`
+# link the other way round (the other card blocks this one).
+LINK_WAITS = 'WAITS'
+LINK_CHOICES = (
+    (LINK_WAITS, 'Ждёт'),
+    (BoardCardLink.Kind.BLOCKS, 'Блокирует'),
+    (BoardCardLink.Kind.RELATES, 'Связана с'),
+    (BoardCardLink.Kind.DUPLICATES, 'Дублирует'),
+)
+# One refusal for a code no card answers to and for a card of a board the
+# author does not read: the second must not be told apart from the first.
+LINK_NOT_FOUND = 'Карточка не найдена.'
+
+
+def _linked_card_id(code, actor):
+    """The id of the card `code` names on a board `actor` reads, or `None`.
+
+    Through `tasks.selectors.board_card_code_filter()` — the one parser of a
+    card's code — over the `BOARD` tasks, one task per card.
+    """
+    from tasks.models import Task
+    from tasks.selectors import board_card_code_filter
+
+    condition = board_card_code_filter(code)
+    if condition is None:
+        return None
+    return (
+        Task.objects.filter(condition)
+        .filter(readable_boards_q(actor, 'board_card__board_id'))
+        .values_list('board_card_id', flat=True)
+        .first()
+    )
+
+
+def _lock_link_cards(card_ids):
+    """`{card id: card}` with `board` attached, both boards and then both
+    cards locked, each pair in id order. Missing ids are simply absent."""
+    board_ids = sorted(set(
+        BoardCard.objects.filter(pk__in=card_ids).values_list('board_id', flat=True)
+    ))
+    boards = {board_id: _lock_board(board_id) for board_id in board_ids}
+    cards = {
+        card.pk: card
+        for card in BoardCard.objects.select_for_update().filter(pk__in=card_ids).order_by('pk')
+    }
+    for card in cards.values():
+        card.board = boards[card.board_id]
+    return cards
+
+
+def _link_written(link, kind, *, actor, from_card, to_card):
+    """The journal entries, the sync revision and the events of one link
+    made or removed — inside the caller's transaction."""
+    _record(
+        from_card, kind, actor=actor,
+        link=link.kind, direction='out', other_id=to_card.pk, other_code=to_card.code,
+    )
+    _record(
+        to_card, kind, actor=actor,
+        link=link.kind, direction='in', other_id=from_card.pk, other_code=from_card.code,
+    )
+    BoardCard.objects.filter(pk__in=[from_card.pk, to_card.pk]).update(updated_at=timezone.now())
+    emit_board_updated(from_card.board_id, BOARD_CHANGE_CARD_UPDATED, from_card.pk)
+    if to_card.board_id != from_card.board_id:
+        emit_board_updated(to_card.board_id, BOARD_CHANGE_CARD_UPDATED, to_card.pk)
+
+
+def link_cards(card, *, actor, other_code, kind):
+    """Link `card` to the card named `other_code` («СНБ-14»).
+
+    `kind` is one of `LINK_CHOICES`, read from `card`'s side: «Ждёт»
+    (`WAITS`: the other card blocks this one), «Блокирует» (`BLOCKS`),
+    «Связана с» (`RELATES`, stored with the smaller id as `from_card`, never
+    twice) and «Дублирует» (`DUPLICATES`: this card repeats the other). The
+    right is `can_link_card()` on `card` and `can_view_board()` on the
+    other's board — a card nobody may read and a code nobody answers to are
+    one refusal, «Карточка не найдена». Not a card with itself, not the same
+    link twice, and not a `BLOCKS` against one going the other way. Subtasks
+    may be linked like cards. Returns the link.
+    """
+    if kind not in {value for value, _label in LINK_CHOICES}:
+        raise BoardError('Выберите вид связи.')
+    other_id = _linked_card_id(other_code, actor)
+    if other_id is None:
+        _rejected('link_cards', 'not_found', actor=actor, board_id=card.board_id, card_id=card.pk)
+        raise BoardError(LINK_NOT_FOUND)
+    with transaction.atomic():
+        cards = _lock_link_cards([card.pk, other_id])
+        own = cards.get(card.pk)
+        other = cards.get(other_id)
+        if own is None or other is None:
+            raise BoardError(LINK_NOT_FOUND)
+        board = own.board
+        _refuse_archived('link_cards', board, actor=actor, card_id=own.pk)
+        if not can_link_card(actor, own):
+            _rejected('link_cards', 'not_permitted', actor=actor, board_id=board.pk, card_id=own.pk)
+            raise BoardError('Работа с карточками этой доски недоступна.')
+        if not can_view_board(actor, other.board):
+            _rejected('link_cards', 'not_found', actor=actor, board_id=board.pk, card_id=own.pk)
+            raise BoardError(LINK_NOT_FOUND)
+        if own.pk == other.pk:
+            _rejected('link_cards', 'self', actor=actor, board_id=board.pk, card_id=own.pk)
+            raise BoardError('Карточку нельзя связать с самой собой.')
+        if kind == LINK_WAITS:
+            stored, from_card, to_card = BoardCardLink.Kind.BLOCKS, other, own
+        elif kind == BoardCardLink.Kind.RELATES:
+            stored = kind
+            from_card, to_card = sorted((own, other), key=lambda item: item.pk)
+        else:
+            stored, from_card, to_card = kind, own, other
+        if BoardCardLink.objects.filter(from_card=from_card, to_card=to_card, kind=stored).exists():
+            _rejected('link_cards', 'duplicate', actor=actor, board_id=board.pk, card_id=own.pk)
+            raise BoardError('Такая связь уже есть.')
+        if stored == BoardCardLink.Kind.BLOCKS and BoardCardLink.objects.filter(
+            from_card=to_card, to_card=from_card, kind=stored,
+        ).exists():
+            _rejected('link_cards', 'cycle', actor=actor, board_id=board.pk, card_id=own.pk)
+            raise BoardError(
+                f'{to_card.code} уже блокирует {from_card.code} — две карточки не могут ждать друг друга.'
+            )
+        try:
+            with transaction.atomic():
+                link = BoardCardLink.objects.create(
+                    from_card=from_card, to_card=to_card, kind=stored, created_by=actor,
+                )
+        except IntegrityError as exc:
+            raise BoardError('Такая связь уже есть.') from exc
+        _link_written(link, BoardCardEvent.Kind.LINKED, actor=actor, from_card=from_card, to_card=to_card)
+    log_event(
+        logger,
+        'INFO',
+        'board.cards_linked',
+        board_id=board.pk,
+        board_card_id=own.pk,
+        other_board_id=other.board_id,
+        other_card_id=other.pk,
+        link_id=link.pk,
+        kind=stored,
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return link
+
+
+def unlink_cards(link, *, actor):
+    """Remove a link, from either of its cards: whoever works on one card's
+    board and reads the other's (`can_unlink_cards()`). A link removed
+    meanwhile is a refusal, not a second removal."""
+    link_id = getattr(link, 'pk', link)
+    ends = BoardCardLink.objects.filter(pk=link_id).values_list('from_card_id', 'to_card_id').first()
+    if ends is None:
+        raise BoardError('Связь уже удалена.')
+    with transaction.atomic():
+        cards = _lock_link_cards(list(ends))
+        link = BoardCardLink.objects.select_for_update().filter(pk=link_id).first()
+        if link is None or len(cards) != 2:
+            raise BoardError('Связь уже удалена.')
+        link.from_card = cards[link.from_card_id]
+        link.to_card = cards[link.to_card_id]
+        if not can_unlink_cards(actor, link):
+            board = link.from_card.board
+            _rejected('unlink_cards', 'not_permitted', actor=actor, board_id=board.pk, card_id=link.from_card_id)
+            if board.is_archived or link.to_card.board.is_archived:
+                raise BoardError(ARCHIVED_MESSAGE)
+            raise BoardError('Удалить связь может тот, кто работает с одной из карточек.')
+        link.delete()
+        link.pk = link_id
+        _link_written(
+            link, BoardCardEvent.Kind.UNLINKED, actor=actor,
+            from_card=link.from_card, to_card=link.to_card,
+        )
+    log_event(
+        logger,
+        'INFO',
+        'board.cards_unlinked',
+        board_id=link.from_card.board_id,
+        board_card_id=link.from_card_id,
+        other_board_id=link.to_card.board_id,
+        other_card_id=link.to_card_id,
+        link_id=link_id,
+        kind=link.kind,
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+
+
+def _blocked_tasks(card):
+    """The open `BOARD` tasks of the cards `card` blocks, cards and boards
+    joined — what its closing or reopening concerns."""
+    from tasks.models import Task
+
+    return list(
+        Task.objects.filter(
+            source_type=Task.SourceType.BOARD,
+            status__code='IN_PROGRESS',
+            board_card__incoming_links__from_card=card,
+            board_card__incoming_links__kind=BoardCardLink.Kind.BLOCKS,
+        )
+        .select_related('board_card__board')
+        .distinct()
+        .order_by('board_card_id')
+    )
+
+
+def _announce_blocked(card, board, tasks=None):
+    """`board.updated(card_updated)` for every *other* board holding a card
+    `card` blocks — its tile changed. The card's own board hears the caller's
+    own event."""
+    if tasks is None:
+        tasks = _blocked_tasks(card)
+    announced = {board.pk}
+    for task in tasks:
+        board_id = task.board_card.board_id
+        if board_id not in announced:
+            announced.add(board_id)
+            emit_board_updated(board_id, BOARD_CHANGE_CARD_UPDATED, task.board_card_id)
+
+
+def _after_blocker_closed(card, board, *, actor, at, cancelled):
+    """`card` (its task just completed or cancelled, under the caller's
+    locks) blocks nobody any more: every open card it blocked that now waits
+    for no open card tells its исполнители «можно начинать»
+    (`BOARD_UNBLOCKED`), inside the caller's transaction.
+
+    Who reads `card`'s board reads its code in the text; anybody else reads
+    «карточка другой доски». Whoever closed it is not told.
+    """
+    from notifications.services import notify_board_unblocked
+
+    from .selectors import card_audience, open_blockers_q
+
+    tasks = _blocked_tasks(card)
+    for task in tasks:
+        blocked = task.board_card
+        if BoardCardLink.objects.filter(open_blockers_q(), to_card=blocked).exists():
+            continue
+        recipients = card_audience(blocked, task, author=False, subscribers=False)
+        if not recipients:
+            continue
+        readers = set(
+            get_user_model().objects.filter(
+                board_readers_q(board.pk), pk__in=[user.pk for user in recipients],
+            ).values_list('pk', flat=True)
+        )
+        for group, code in (
+            ([user for user in recipients if user.pk in readers], card.code),
+            ([user for user in recipients if user.pk not in readers], ''),
+        ):
+            if group:
+                notify_board_unblocked(
+                    task, actor, group,
+                    blocker_id=card.pk, blocker_code=code, cancelled=cancelled, at=at,
+                )
+    _announce_blocked(card, board, tasks)
+
+
+# --------------------------------------------------------------------------
+# «🔔 Сообщать о новых карточках»: following a column
+# --------------------------------------------------------------------------
+
+
+def toggle_column_subscription(column, *, actor, subscribe=None):
+    """Follow a column — a working one or the closing one — or stop.
+
+    Any reader of the board (`can_follow_column()`), never on an archived
+    board. `subscribe` is the state asked for, so a double click asks the same
+    thing twice; `None` flips. Personal: no `board.updated` and no journal
+    entry. Returns whether `actor` follows the column afterwards.
+    """
+    column_id = getattr(column, 'pk', column)
+    board_id = BoardColumn.objects.filter(pk=column_id).values_list('sub_board__board_id', flat=True).first()
+    if board_id is None:
+        raise BoardError('Колонка не найдена на этой доске — возможно, её удалили.')
+    with transaction.atomic():
+        board = _lock_board(board_id)
+        column = _column_of(board, column_id, operation='toggle_column_subscription', actor=actor)
+        _refuse_archived('toggle_column_subscription', board, actor=actor)
+        if not can_follow_column(actor, board):
+            _rejected('toggle_column_subscription', 'not_permitted', actor=actor, board_id=board.pk)
+            raise BoardError('Следить за колонкой могут читатели доски.')
+        rows = BoardColumnSubscription.objects.filter(column=column, user=actor)
+        current = rows.exists()
+        wanted = (not current) if subscribe is None else bool(subscribe)
+        if wanted == current:
+            return current
+        if wanted:
+            BoardColumnSubscription.objects.create(column=column, user=actor)
+        else:
+            rows.delete()
+    log_event(
+        logger,
+        'INFO',
+        'board.column_subscription_changed',
+        board_id=board.pk,
+        column_id=column.pk,
+        actor_user_id=actor.pk,
+        subscribed=wanted,
+        outcome='ok',
+    )
+    return wanted
+
+
+def _notify_column_entered(card, task, column, board, *, actor, told=()):
+    """«Карточка ZAP-12 вошла в колонку …» for `column`'s followers who still
+    read the board, inside the caller's transaction.
+
+    `told` are the people the same action already tells (the исполнители of
+    a new card, those a move added, a completion's audience): one action, one
+    notification per person. Whoever acted is left out by the notification
+    itself. A subtask enters no column.
+    """
+    from notifications.services import notify_board_column_entered
+
+    if card.parent_id is not None:
+        return
+    recipients = list(
+        get_user_model().objects.filter(
+            board_readers_q(board.pk),
+            pk__in=BoardColumnSubscription.objects.filter(column=column).values('user_id'),
+        )
+        .exclude(pk__in=[getattr(user, 'pk', user) for user in told])
+        .distinct()
+        .order_by('pk')
+    )
+    if recipients:
+        notify_board_column_entered(task, actor, recipients, column=column, at=timezone.now())

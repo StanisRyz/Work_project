@@ -2,7 +2,8 @@
 `boards.0010`: the journal of cards stored before it; `boards.0015`: the card
 fields; `boards.0016`: «Застой» of a column; `boards.0017`: the checklist,
 the subscriptions and the mentions; `boards.0018`: the files of «Чат»;
-`boards.0019`: subtasks; `boards.0020`: the history of a card's срок.
+`boards.0019`: subtasks; `boards.0020`: the history of a card's срок;
+`boards.0021`: links between cards, following a column and column sums.
 
 Run through `MigrationExecutor` on the test database: the board app is taken
 back to `0005` (sub-boards exist, `stage` still rules), cards are written the
@@ -696,3 +697,78 @@ class DueChangesMigrationTests(TransactionTestCase):
         self.assertNotIn('boards_boardcardduechange', _table_names())
         self.assertNotIn('references_deviationreason', _table_names())
         self.assertTrue(apps.get_model('boards', 'BoardCard').objects.filter(pk=card.pk).exists())
+
+
+LINKS_BEFORE = [('boards', '0020_due_changes')]
+LINKS_AFTER = [('boards', '0021_links_column_subscriptions_sums')]
+
+
+class LinksSubscriptionsSumsMigrationTests(TransactionTestCase):
+    """`boards.0021`: two new tables — `BoardCardLink` (no self-link, one link
+    of a kind between two cards) and `BoardColumnSubscription` (one per column
+    and person) — and `BoardField.sum_in_column`, off on every field that
+    existed and only ever on a number. Nothing is classified. And back: the
+    tables and the column go, the cards and fields stay."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_forward_two_tables_a_flag_and_their_constraints_then_back(self):
+        from django.db import IntegrityError, transaction
+
+        apps = migrate(LINKS_BEFORE)
+        self.assertNotIn('boards_boardcardlink', _table_names())
+        self.assertNotIn('boards_boardcolumnsubscription', _table_names())
+        self.assertNotIn('sum_in_column', _columns_of('boards_boardfield'))
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        BoardField = apps.get_model('boards', 'BoardField')
+        owner = User.objects.create(username='links_migration_owner')
+        board = Board.objects.create(name='Доска', code='LK', owner=owner)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+        column = BoardColumn.objects.create(sub_board=sub_board, name='Сделать', position=1)
+        first, second = (
+            BoardCard.objects.create(
+                board=board, sub_board=sub_board, column=column, position=1024 * number, number=number,
+                title=f'Заказ {number}', created_by=owner,
+            )
+            for number in (1, 2)
+        )
+        amount = BoardField.objects.create(board=board, name='Сумма', kind='NUMBER', position=1)
+
+        apps = migrate(LINKS_AFTER)
+        BoardField = apps.get_model('boards', 'BoardField')
+        Link = apps.get_model('boards', 'BoardCardLink')
+        Subscription = apps.get_model('boards', 'BoardColumnSubscription')
+        self.assertFalse(BoardField.objects.get(pk=amount.pk).sum_in_column)
+        Link.objects.create(from_card_id=first.pk, to_card_id=second.pk, kind='BLOCKS', created_by_id=owner.pk)
+        for kwargs in (
+            {'from_card_id': first.pk, 'to_card_id': first.pk, 'kind': 'RELATES'},   # with itself
+            {'from_card_id': first.pk, 'to_card_id': second.pk, 'kind': 'BLOCKS'},  # twice
+            {'from_card_id': first.pk, 'to_card_id': second.pk, 'kind': 'OTHER'},   # unknown kind
+        ):
+            with self.subTest(**kwargs):
+                with self.assertRaises(IntegrityError), transaction.atomic():
+                    Link.objects.create(created_by_id=owner.pk, **kwargs)
+        Subscription.objects.create(column_id=column.pk, user_id=owner.pk)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Subscription.objects.create(column_id=column.pk, user_id=owner.pk)
+        text = BoardField.objects.create(board_id=board.pk, name='Заказ', kind='TEXT', position=2)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BoardField.objects.filter(pk=text.pk).update(sum_in_column=True)
+        BoardField.objects.filter(pk=amount.pk).update(sum_in_column=True)
+
+        # Back: the tables and the flag go; the cards and the fields stay.
+        apps = migrate(LINKS_BEFORE)
+        self.assertNotIn('boards_boardcardlink', _table_names())
+        self.assertNotIn('boards_boardcolumnsubscription', _table_names())
+        self.assertNotIn('sum_in_column', _columns_of('boards_boardfield'))
+        self.assertEqual(apps.get_model('boards', 'BoardCard').objects.filter(board_id=board.pk).count(), 2)
+        self.assertTrue(apps.get_model('boards', 'BoardField').objects.filter(pk=amount.pk).exists())

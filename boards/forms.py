@@ -394,6 +394,8 @@ class FieldForm(forms.Form):
 
     name = forms.CharField(label='Название', max_length=60)
     kind = forms.ChoiceField(label='Вид', choices=BoardField.Kind.choices)
+    # «Сумма в колонке»: a number only — the service says so for any other.
+    sum_in_column = forms.BooleanField(label='Сумма в колонке', required=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -414,11 +416,12 @@ class FieldForm(forms.Form):
 
 class FieldUpdateForm(forms.Form):
     """A field's name, its kind (offered only while it has no values) and
-    whether its tile shows it."""
+    whether its tile shows it, and «Сумма в колонке»."""
 
     name = forms.CharField(label='Название', max_length=60)
     kind = forms.ChoiceField(label='Вид', choices=BoardField.Kind.choices, required=False)
     show_on_tile = forms.BooleanField(label='Показывать на плитке', required=False)
+    sum_in_column = forms.BooleanField(label='Сумма в колонке', required=False)
 
 
 class OptionForm(forms.Form):

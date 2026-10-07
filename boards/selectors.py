@@ -17,6 +17,12 @@ their tasks, their исполнители) and its tile's «⧉ 1/3» two subque
 tiles' query; a subtask is never a tile — `_column_tasks()` is where the
 columns, their counts and the board's filters start. Who hears about a card
 is `card_audience()`, one query.
+
+A tile's «⛔ ждёт СНБ-14 +1» is two subquery annotations of the tiles' query
+(`blocker_annotations()`), the filter «Заблокированные» one `Exists()`, the
+open card's «Связи» one query (`card_links()`), the columns the user follows
+one query, and the column sums («Σ Сумма: …») one aggregate per sub-board
+grouped by column (`column_sums()`), none at all while no field is summed.
 """
 
 import datetime
@@ -28,11 +34,12 @@ from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
 from django.db.models import (
-    CharField, Count, DateTimeField, Exists, F, IntegerField, Max, OuterRef, Prefetch, Q, StringAgg,
-    Subquery, Value,
+    BooleanField, Case, CharField, Count, DateTimeField, Exists, F, IntegerField, Max, OuterRef,
+    Prefetch, Q, StringAgg, Subquery, Sum, Value, When,
 )
 from django.db.models import prefetch_related_objects
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast, Coalesce, Concat
+from django.urls import reverse
 from django.utils import timezone
 
 from .columns import MAX_COLUMNS, card_column
@@ -47,7 +54,9 @@ from .models import (
     BoardCardEvent,
     BoardCardFieldValue,
     BoardCardFile,
+    BoardCardLink,
     BoardColumn,
+    BoardColumnSubscription,
     BoardField,
     BoardFieldOption,
     BoardCardSubscription,
@@ -62,7 +71,10 @@ from .permissions import (
     can_delete_card_file,
     can_edit_checklist,
     can_follow_card,
+    can_follow_column,
+    can_link_card,
     can_manage_board,
+    has_full_board_access,
     readable_boards_q,
     can_restore_board,
     can_work_on_board,
@@ -177,19 +189,24 @@ class BoardFilters:
     mine: bool = False
     overdue: bool = False
     stale: bool = False
+    # «Заблокированные»: open cards that wait for an open card (`?blocked=1`).
+    blocked: bool = False
     q: str = ''
     fields: tuple = ()
 
     @property
     def is_active(self):
-        return self.mine or self.overdue or self.stale or bool(self.q) or bool(self.fields)
+        return (
+            self.mine or self.overdue or self.stale or self.blocked
+            or bool(self.q) or bool(self.fields)
+        )
 
     @property
     def query(self):
         """The filter as a query string without `?` — `''` when none is set.
 
-        Always in the same order — `mine`, `overdue`, `stale`, `q`, then the
-        fields by their position — so an address never changes by itself, and
+        Always in the same order — `mine`, `overdue`, `stale`, `blocked`, `q`,
+        then the fields by their position — so an address never changes by itself, and
         parsing it gives this very filter back.
         """
         params = []
@@ -199,6 +216,8 @@ class BoardFilters:
             params.append(('overdue', '1'))
         if self.stale:
             params.append(('stale', '1'))
+        if self.blocked:
+            params.append(('blocked', '1'))
         if self.q:
             params.append(('q', self.q))
         for field_filter in self.fields:
@@ -287,6 +306,7 @@ def parse_board_filters(params, fields=()):
         mine=params.get('mine') == '1',
         overdue=params.get('overdue') == '1',
         stale=params.get('stale') == '1',
+        blocked=params.get('blocked') == '1',
         q=(params.get('q') or '').strip()[:SEARCH_MAX_LENGTH],
         fields=tuple(
             field_filter
@@ -407,9 +427,77 @@ def stale_condition(columns, today=None):
     return condition
 
 
+def open_blockers_q(prefix=''):
+    """A `BLOCKS` link whose blocker is still in work — what makes its
+    `to_card` wait («ждёт»). `prefix` walks from another model to the link.
+    The one statement of «заблокирована»: the tiles, the filter, the panel
+    and `services._after_blocker_closed()` all ask it."""
+    return Q(**{
+        f'{prefix}kind': BoardCardLink.Kind.BLOCKS,
+        f'{prefix}from_card__tasks__status__code': 'IN_PROGRESS',
+    })
+
+
+def blocked_condition():
+    """«Заблокированные» as a condition on `BOARD` tasks: one `Exists()`."""
+    return Q(Exists(BoardCardLink.objects.filter(open_blockers_q(), to_card=OuterRef('board_card'))))
+
+
+def _code_expression(prefix):
+    """«СНБ-14» of the card `prefix` walks to, built by the database."""
+    return Concat(
+        F(f'{prefix}board__code'), Value('-'), Cast(f'{prefix}number', CharField()),
+        output_field=CharField(),
+    )
+
+
+def blocker_annotations(user):
+    """«⛔ ждёт СНБ-14 +1» of a tile: two subquery annotations of the tiles'
+    own query — how many open cards it waits for (`blocker_count`), and the
+    code of the first of them, by the link's age, on a board `user` reads
+    (`first_blocker_code`, NULL when none is readable: the tile then says
+    «карточку другой доски» and never a code it may not show)."""
+    links = BoardCardLink.objects.filter(open_blockers_q(), to_card=OuterRef('board_card'))
+    first_code = (
+        links.filter(readable_boards_q(user, 'from_card__board_id'))
+        .order_by('pk')
+        .annotate(code=_code_expression('from_card__'))
+        .values('code')[:1]
+    )
+    return {
+        'blocker_count': _count_subquery(links, 'to_card'),
+        'first_blocker_code': Subquery(first_code, output_field=CharField()),
+    }
+
+
+def blocker_codes_annotation(user):
+    """«Ждёт» of «Таблица»: the codes of the open cards a card waits for, on
+    the boards `user` reads, «СНБ-14,ZAP-3» — one subquery of the table's own
+    query, NULL without any. In no particular order: `blocker_codes()` sorts
+    them."""
+    codes = (
+        BoardCardLink.objects.filter(open_blockers_q(), to_card=OuterRef('board_card'))
+        .filter(readable_boards_q(user, 'from_card__board_id'))
+        .order_by().values('to_card')
+        .annotate(codes=StringAgg(_code_expression('from_card__'), Value(',')))
+        .values('codes')
+    )
+    return Subquery(codes, output_field=CharField())
+
+
+def blocker_codes(raw):
+    """«СНБ-14, ZAP-3» from `blocker_codes_annotation()`, ordered by board
+    code and number."""
+    def key(code):
+        prefix, _, number = code.rpartition('-')
+        return (prefix, int(number) if number.isdigit() else 0)
+
+    return ', '.join(sorted((part for part in (raw or '').split(',') if part), key=key))
+
+
 def _filtered(tasks, filters, user, *, open_work, columns=()):
-    """`tasks` narrowed by `filters`; `overdue` and `stale` only ever narrow
-    open work.
+    """`tasks` narrowed by `filters`; `overdue`, `stale` and `blocked` only
+    ever narrow open work — the closing column is never filtered by them.
 
     «Мои» is «I am an исполнитель» (`TaskAssignee`, one row per person, so the
     join adds no duplicates); `q` is a substring of the card's title, its
@@ -429,6 +517,8 @@ def _filtered(tasks, filters, user, *, open_work, columns=()):
         tasks = tasks.filter(due_date__lt=timezone.localdate())
     if filters.stale and open_work:
         tasks = tasks.alias(stale_since=in_column_since()).filter(stale_condition(columns))
+    if filters.blocked and open_work:
+        tasks = tasks.filter(blocked_condition())
     return tasks
 
 
@@ -589,6 +679,12 @@ def _item(task, board):
         'in_column_since': since,
         'in_column_days': days_in_column(since),
         'is_stale': False,
+        # «⛔ ждёт СНБ-14 +1»: the open cards it waits for, counted in the
+        # tiles' own query (`blocker_annotations()`); a closed card waits for
+        # nothing.
+        'blocker_count': 0 if is_closed else getattr(task, 'blocker_count', 0) or 0,
+        'first_blocker_code': getattr(task, 'first_blocker_code', None) or '',
+        'blocker_more': max((getattr(task, 'blocker_count', 0) or 0) - 1, 0),
     }
 
 
@@ -923,7 +1019,10 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
         ),
     )
     item.update(chat)
-    item['log'] = card_log(card, item['attachments'], card_files)
+    item['log'] = card_log(card, item['attachments'], card_files, user)
+    # «Связи»: one query, grouped; the other board's card named only for a
+    # reader of that board.
+    item.update(card_links(card, board, sub_board, user, can_work=can_work))
     # «Чек-лист»: the items in order, who ticked each one joined — one query.
     item['checklist'] = list(
         BoardCardChecklistItem.objects.filter(card=card).select_related('done_by').order_by('position', 'pk')
@@ -1054,6 +1153,112 @@ def card_subtasks(card, task, board):
     }
 
 
+# How a link reads from one of its cards — `(kind, direction)`, `out` for
+# the link's `from_card`: the log's words and the groups of «Связи».
+LINK_RELATION_LABELS = {
+    ('BLOCKS', 'out'): 'блокирует',
+    ('BLOCKS', 'in'): 'ждёт',
+    ('RELATES', 'out'): 'связана с',
+    ('RELATES', 'in'): 'связана с',
+    ('DUPLICATES', 'out'): 'дублирует',
+    ('DUPLICATES', 'in'): 'повторена в',
+}
+
+LINK_STATUS_BADGES = {'IN_PROGRESS': 'in_progress', 'COMPLETED': 'completed', 'CANCELLED': 'archived'}
+
+# The groups of «Связи», in the order «Описание» draws them.
+LINK_GROUPS = (
+    ('waits', 'Ждёт'),
+    ('blocks', 'Блокирует'),
+    ('relates', 'Связана'),
+    ('duplicates', 'Дубль'),
+)
+
+
+def _link_group(kind, direction):
+    if kind == BoardCardLink.Kind.BLOCKS:
+        return 'blocks' if direction == 'out' else 'waits'
+    if kind == BoardCardLink.Kind.RELATES:
+        return 'relates'
+    return 'duplicates'
+
+
+def _readable_case(user, field):
+    """Whether `user` reads the board `field` names — an annotation, so a
+    list of links costs no query per board."""
+    if has_full_board_access(user):
+        return Value(True, output_field=BooleanField())
+    return Case(
+        When(readable_boards_q(user, field), then=Value(True)),
+        default=Value(False), output_field=BooleanField(),
+    )
+
+
+def card_links(card, board, sub_board, user, *, can_work):
+    """«Связи» of a card on «Описание»: one query, grouped.
+
+    `link_groups` are `LINK_GROUPS` that hold something, each `{'key',
+    'label', 'rows'}`; a row is `{'link', 'code', 'title', 'status',
+    'is_open', 'board_name', 'url', 'same_page', 'readable', 'relation',
+    'can_unlink'}`. A card of a board `user` does not read is only
+    «карточка другой доски» — no code, no title, no link. `blocked_by` is how
+    many open cards this one waits for. `can_unlink` is `can_work` and the
+    other side readable — presentation; `services.unlink_cards()` asks
+    `can_unlink_cards()` again. `can_link` draws «+ Связь».
+    """
+    links = (
+        BoardCardLink.objects.filter(Q(from_card=card) | Q(to_card=card))
+        .select_related('from_card__board', 'to_card__board')
+        .annotate(
+            from_status=F('from_card__tasks__status__code'),
+            to_status=F('to_card__tasks__status__code'),
+            from_readable=_readable_case(user, 'from_card__board_id'),
+            to_readable=_readable_case(user, 'to_card__board_id'),
+        )
+        .order_by('created_at', 'pk')
+    )
+    groups = {key: [] for key, _label in LINK_GROUPS}
+    blocked_by = 0
+    for link in links:
+        outgoing = link.from_card_id == card.pk
+        other = link.to_card if outgoing else link.from_card
+        status = link.to_status if outgoing else link.from_status
+        readable = link.to_readable if outgoing else link.from_readable
+        direction = 'out' if outgoing else 'in'
+        group = _link_group(link.kind, direction)
+        is_open = status == 'IN_PROGRESS'
+        if group == 'waits' and is_open:
+            blocked_by += 1
+        foreign = other.board_id != board.pk
+        groups[group].append({
+            'link': link,
+            'readable': readable,
+            'code': other.code if readable else '',
+            'title': other.title if readable else '',
+            'status': TABLE_STATUS_LABELS.get(status, '') if readable else '',
+            # The shared `.status-badge--*`: a cancelled card reads as archived.
+            'status_code': LINK_STATUS_BADGES.get(status, '') if readable else '',
+            'is_open': is_open,
+            'board_name': other.board.name if readable and foreign else '',
+            'url': (
+                reverse('boards:sub_board', args=[other.board_id, other.sub_board_id]) + f'?card={other.pk}'
+                if readable else ''
+            ),
+            'same_page': readable and other.sub_board_id == sub_board.pk,
+            'relation': LINK_RELATION_LABELS.get((link.kind, direction), ''),
+            'can_unlink': bool(can_work) and readable,
+        })
+    return {
+        'link_groups': [
+            {'key': key, 'label': label, 'rows': groups[key]}
+            for key, label in LINK_GROUPS if groups[key]
+        ],
+        'link_count': sum(len(rows) for rows in groups.values()),
+        'blocked_by': blocked_by,
+        'can_link': can_link_card(user, card, can_work=can_work),
+    }
+
+
 # The fields an «Изменение» entry names, in the edit form's order.
 EDITED_FIELD_LABELS = {
     'title': 'заголовок',
@@ -1070,17 +1275,26 @@ def _place(details, prefix):
     return f'{sub_board} / {column}' if sub_board else column
 
 
-def describe_card_event(event, code=''):
+def describe_card_event(event, code='', *, hide_other=False):
     """The sentence «Лог» shows for one `BoardCardEvent`.
 
     Built from the kind and the stored snapshots only — a column's or a
     sub-board's name is the one it had then — and neutral in person:
     «Перенос: «Сделать» → «В работе»», never a verb that would need the
     actor's gender. `code` is the card's («ZAP-12»), named by the entry of
-    its creation.
+    its creation. `hide_other` puts «карточка другой доски» in place of the
+    other card's code in an entry about a link, for a reader of this board
+    who does not read that one.
     """
     details = event.details if isinstance(event.details, dict) else {}
     kind = event.kind
+    if kind in (BoardCardEvent.Kind.LINKED, BoardCardEvent.Kind.UNLINKED):
+        other = 'карточка другой доски' if hide_other else (details.get('other_code') or '—')
+        relation = LINK_RELATION_LABELS.get(
+            (details.get('link'), details.get('direction')), 'связана с',
+        )
+        prefix = 'Связь' if kind == BoardCardEvent.Kind.LINKED else 'Связь удалена'
+        return f'{prefix}: {relation} {other}'
     if kind == BoardCardEvent.Kind.CREATED:
         if details.get('parent'):
             # A subtask: created inside its card, in no column.
@@ -1144,7 +1358,7 @@ SUBTASK_ACTION_LABELS = {
 }
 
 
-def card_log(card, attachments, card_files=()):
+def card_log(card, attachments, card_files=(), user=None):
     """«Лог» of a card, newest first: its journal and its files.
 
     The journal is one query (`BoardCardEvent`, its authors joined); the files
@@ -1153,16 +1367,38 @@ def card_log(card, attachments, card_files=()):
     no query here. They are not journal entries, only shown beside them, by
     time: who added which file and when. Nothing about a file is ever written
     into the journal.
+
+    An entry about a link names the other card by its code only when `user`
+    reads that card's board — one more query, and only when the journal has
+    such entries and `user` lacks full access; anybody else reads «карточка
+    другой доски».
     """
+    events = list(BoardCardEvent.objects.filter(card=card).select_related('actor'))
+    link_kinds = (BoardCardEvent.Kind.LINKED, BoardCardEvent.Kind.UNLINKED)
+    other_ids = {
+        event.details.get('other_id') for event in events
+        if event.kind in link_kinds and isinstance(event.details, dict)
+    } - {None}
+    if not other_ids or user is None or has_full_board_access(user):
+        readable = other_ids
+    else:
+        readable = set(
+            BoardCard.objects.filter(pk__in=other_ids)
+            .filter(readable_boards_q(user, 'board_id'))
+            .values_list('pk', flat=True)
+        )
     entries = [
         {
             'kind': event.kind.lower(),
             'actor': event.actor,
             'at': event.created_at,
-            'text': describe_card_event(event, card.code),
+            'text': describe_card_event(
+                event, card.code,
+                hide_other=event.kind in link_kinds and event.details.get('other_id') not in readable,
+            ),
             'order': (event.created_at, 1, event.pk),
         }
-        for event in BoardCardEvent.objects.filter(card=card).select_related('actor')
+        for event in events
     ]
     entries.extend(
         {
@@ -1380,6 +1616,11 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
     and `can_complete` (`tasks.permissions.can_complete_task()`, asked for the
     whole sub-board in one query through `completable_task_ids()`).
 
+    Each column also carries `sums` («Σ Кол-во: 1 250 · Сумма: 3 400 000»,
+    `column_sums()`, one aggregate; empty for an empty column) and
+    `is_followed` (this user's «🔔», one query for the sub-board); each open
+    tile `blocker_count`/`first_blocker_code` («⛔ ждёт СНБ-14 +1»).
+
     The board's columns are one query for all its sub-boards — the panel's
     «Переместить в…» offers them all — and the pins of this sub-board's
     columns one more.
@@ -1410,7 +1651,10 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
     ))
     tasks = _board_tasks(sub_board)
     open_tasks = list(
-        _filtered(tasks.filter(status__is_final=False), filters, user, open_work=True, columns=columns)
+        _filtered(
+            tasks.filter(status__is_final=False).annotate(**blocker_annotations(user)),
+            filters, user, open_work=True, columns=columns,
+        )
     )
     done_tasks = _filtered(tasks.filter(status__code='COMPLETED'), filters, user, open_work=False)
     completable = completable_task_ids([task.pk for task in open_tasks], user)
@@ -1444,6 +1688,23 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
         for item in cards:
             attach_field_values(item, fields, field_rows.get(item['card'].pk, {}))
     working = [column for column in columns if not column.is_done]
+    # «Σ Сумма: …» of each column, over the cards it shows under the filters:
+    # one aggregate for the sub-board, none while no field is summed.
+    sums = column_sums(
+        fields, columns,
+        open_card_columns={
+            item['card'].pk: column_id
+            for column_id, cards in cards_by_column.items()
+            for item in cards if not item['is_closed']
+        },
+        done_tasks=done_tasks,
+    )
+    # «🔔»: the columns of this sub-board this user follows — one query.
+    followed = set(
+        BoardColumnSubscription.objects.filter(user=user, column__sub_board=sub_board)
+        .values_list('column_id', flat=True)
+    ) if getattr(user, 'pk', None) else set()
+    can_follow = can_follow_column(user, board, can_view=True)
     rows = []
     for column in columns:
         cards = cards_by_column[column.pk]
@@ -1465,6 +1726,8 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
             'pinned_more': max(len(pinned) - PIN_PREVIEW_LIMIT, 0),
             'pinned_all': pinned,
             'pinned_ids': {person.pk for person in pinned},
+            'sums': sums.get(column.pk, []) if total else [],
+            'is_followed': column.pk in followed,
         })
     loaded = {task.board_card_id: task for task in [*open_tasks, *done_list]}
     return {
@@ -1508,8 +1771,80 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
         'can_work': can_work,
         'can_manage': can_manage,
         'can_restore': can_restore_board(user, board),
+        # «🔔 Сообщать о новых карточках» in every column's «⋯»: any reader,
+        # never on an archived board.
+        'can_follow_column': can_follow,
         'filters': filters,
     }
+
+
+def summed_fields(fields):
+    """The live number fields a column header sums («Сумма в колонке»), in
+    the fields' order — at most `services.MAX_SUMMED_FIELDS`."""
+    return [
+        field for field in fields
+        if field.sum_in_column and not field.is_archived and field.kind == BoardField.Kind.NUMBER
+    ]
+
+
+def column_sums(fields, columns, *, open_card_columns, done_tasks):
+    """`{column id: [{'field', 'name', 'value', 'text'}]}` — «Σ Кол-во:
+    1 250 · Сумма: 3 400 000» of each column.
+
+    Over exactly the cards each column shows under the board's filters: the
+    open cards by the column they were drawn in (`open_card_columns`, `{card
+    id: column id}`), and for the closing column every completed card the
+    filters keep (`done_tasks`, a queryset) — the very number its header
+    counts, not only the `DONE_LIMIT` drawn. One aggregate, grouped by
+    column and by whether the card is completed; no query at all while no
+    field is summed. A column without a value of a field sums to 0.
+    """
+    summed = summed_fields(fields)
+    if not summed:
+        return {}
+    done_column = next((column for column in columns if column.is_done), None)
+    totals = {}
+    rows = (
+        BoardCardFieldValue.objects.filter(field__in=summed, value_number__isnull=False)
+        .filter(
+            Q(card_id__in=list(open_card_columns))
+            | Q(card_id__in=done_tasks.order_by().values('board_card_id'))
+        )
+        .values('field_id', 'card__column_id')
+        .annotate(
+            done=Case(
+                When(card__tasks__status__code='COMPLETED', then=Value(True)),
+                default=Value(False), output_field=BooleanField(),
+            ),
+            total=Sum('value_number'),
+        )
+        .order_by()
+    )
+    # A row groups by the stored column, which is the drawn one except for a
+    # card whose column was deleted — drawn, and summed, in the first working
+    # column.
+    first_working = next((column.pk for column in columns if not column.is_done), None)
+    for row in rows:
+        if row['done']:
+            column_id = done_column.pk if done_column is not None else None
+        else:
+            column_id = row['card__column_id'] or first_working
+        if column_id is None:
+            continue
+        key = (column_id, row['field_id'])
+        totals[key] = totals.get(key, Decimal(0)) + (row['total'] or Decimal(0))
+    result = {}
+    for column in columns:
+        result[column.pk] = [
+            {
+                'field': field,
+                'name': field.name,
+                'value': totals.get((column.pk, field.pk), Decimal(0)),
+                'text': format_number(totals.get((column.pk, field.pk), Decimal(0))),
+            }
+            for field in summed
+        ]
+    return result
 
 
 def open_subtasks_warning(codes, *, total=None):
@@ -1804,6 +2139,13 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
     values of every row — none of them grows with the rows, the fields or the
     values; `fields` read by the caller (to parse the field filters) are not
     read again.
+
+    `waits_for` of a row is «Ждёт» — the codes of the open cards it waits for
+    on boards `user` reads (`blocker_codes_annotation()`, a subquery of the
+    same query); «Заблокированные» narrows to open work like «Просроченные».
+    `totals` (`total_cells` for the page) is «Итого»: every live number field
+    summed over the cards, never their subtask rows; `has_totals` whether the
+    board has one.
     """
     tabs = list(SubBoard.objects.filter(board=board).order_by('position', 'pk'))
     tab_of = {tab.pk: tab for tab in tabs}
@@ -1816,9 +2158,11 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
     live_fields = [field for field in fields if not field.is_archived]
 
     scope = {'board_card__board': board} if whole_board else {'board_card__sub_board': sub_board}
-    tasks = _tasks_with_cards(_column_tasks().filter(**scope)).annotate(last_due_reason=last_due_reason())
+    tasks = _tasks_with_cards(_column_tasks().filter(**scope)).annotate(
+        last_due_reason=last_due_reason(), blocker_codes=blocker_codes_annotation(user),
+    )
     shown_columns = all_columns if whole_board else columns_of.get(sub_board.pk, [])
-    open_only = filters.overdue or filters.stale
+    open_only = filters.overdue or filters.stale or filters.blocked
     codes = ['IN_PROGRESS', 'COMPLETED'] + (['CANCELLED'] if cancelled else [])
     states = Q(status__is_final=False) if open_only else Q(status__is_final=False) | Q(status__code__in=codes)
     if open_only:
@@ -1831,7 +2175,9 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
         subtask_tasks = list(
             _tasks_with_cards(
                 _all_board_tasks().filter(states, board_card__parent_id__in=[task.board_card_id for task in tasks])
-            ).select_related('board_card__parent').annotate(last_due_reason=last_due_reason())
+            ).select_related('board_card__parent').annotate(
+                last_due_reason=last_due_reason(), blocker_codes=blocker_codes_annotation(user),
+            )
         )
     field_rows = card_field_rows(
         live_fields, [task.board_card_id for task in [*tasks, *subtask_tasks]],
@@ -1889,6 +2235,8 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
         item['checklist_label'] = (
             f"{item['checklist_done']}/{item['checklist_total']}" if item['checklist_total'] else ''
         )
+        # «Ждёт»: the open cards it waits for, on boards this user reads.
+        item['waits_for'] = '' if item['is_closed'] else blocker_codes(getattr(task, 'blocker_codes', ''))
         item['board_order'] = (*place, *within)
         item['sort_keys'] = {
             'code': card.number,
@@ -1918,11 +2266,26 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
                 key=lambda child: (child['is_closed'], child['card'].position, child['card'].pk),
             ))
         rows = ordered
+    # «Итого»: every number field summed over the cards of the table — a
+    # subtask's value is part of its card's work and is not added twice.
+    totals = [
+        sum(
+            (row['cells'][index]['raw'] or Decimal(0) for row in rows if not row['is_subtask']),
+            Decimal(0),
+        ) if field.kind == BoardField.Kind.NUMBER else None
+        for index, field in enumerate(live_fields)
+    ]
     return {
         'board': board,
         'sub_board': sub_board,
         'sub_boards': [{'sub_board': tab, 'is_active': tab.pk == sub_board.pk} for tab in tabs],
         'rows': rows,
+        'totals': totals,
+        'total_cells': [
+            {'value': total, 'text': format_number(total) if total is not None else ''}
+            for total in totals
+        ],
+        'has_totals': any(total is not None for total in totals),
         'first_working_column': next(
             (column for column in columns_of.get(sub_board.pk, []) if not column.is_done), None,
         ),

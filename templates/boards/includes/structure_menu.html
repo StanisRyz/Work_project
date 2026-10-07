@@ -16,6 +16,11 @@ A working column's menu holds «Застой» as well (`stale_url`): «подс
 через N дней», 1–365, empty to switch it off — one ordinary POST form to
 `boards:column_stale`.
 
+A column's menu, for every reader of the board (`follow_row`, `follow_url`,
+`can_follow_column`), starts with «🔔 Сообщать о новых карточках» / «Не
+сообщать» — one POST form to `boards:column_follow` carrying the open card;
+everything else in it is drawn for the manager only (`can_manage`).
+
 Takes `object`, `name`, `max_length`, `rename_url`, `move_url`, `delete_url`,
 `can_move_left`, `can_move_right`, `can_delete`; every action keeps the
 board's filter (`filter_suffix`).
@@ -23,6 +28,15 @@ board's filter (`filter_suffix`).
 <details class="board-menu" data-board-menu>
     <summary class="board-menu__toggle" title="{% if kind == 'column' %}Колонка{% else %}Поддоска{% endif %} «{{ name }}»: действия" aria-label="{% if kind == 'column' %}Колонка{% else %}Поддоска{% endif %} «{{ name }}»: действия">⋯</summary>
     <div class="board-menu__body">
+        {% if follow_row and can_follow_column %}
+            <form class="board-menu__form board-menu__follow" method="post" action="{{ follow_url }}{{ filter_suffix }}">
+                {% csrf_token %}
+                <input type="hidden" name="subscribe" value="{% if follow_row.is_followed %}0{% else %}1{% endif %}">
+                {% if card %}<input type="hidden" name="card" value="{{ card.card.pk }}">{% endif %}
+                <button class="link-button link-button--secondary link-button--compact" type="submit">{% if follow_row.is_followed %}🔕 Не сообщать о новых карточках{% else %}🔔 Сообщать о новых карточках{% endif %}</button>
+            </form>
+        {% endif %}
+        {% if can_manage %}
         <form class="board-menu__form" method="post" action="{{ rename_url }}{{ filter_suffix }}">
             {% csrf_token %}
             <label class="board-menu__label" for="board-rename-{{ kind }}-{{ object.pk }}">Переименовать</label>
@@ -89,6 +103,7 @@ board's filter (`filter_suffix`).
                             data-confirm-variant="danger">Удалить</button>
                 </form>
             {% endif %}
+        {% endif %}
         {% endif %}
     </div>
 </details>

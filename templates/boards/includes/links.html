@@ -1,0 +1,41 @@
+{% comment %}
+«Связи» of a card: the live block `[data-live-board-links]`, read only, on
+«Описание» above the facts. Its own fingerprint (`links_revision`) — outside
+the guarded panel — so a link made from the other card, or a blocker closed
+on another board, redraws this list and never raises the conflict banner.
+
+Grouped «Ждёт» (open blockers count: «ждёт 1»), «Блокирует», «Связана»,
+«Дубль» (`selectors.card_links()`); each row is the other card's code (a
+link), its title, its status and — for a card of another board — that
+board's name. A card of a board the reader does not read is «карточка другой
+доски», no code, no title, no link. «×» is a small POST form to
+`boards:card_unlink` for whoever may remove it (presentation: the route asks
+`can_unlink_cards()` again). «+ Связь» is below this block, in none.
+{% endcomment %}{% if card.link_groups %}<section class="board-links" aria-label="Связи">
+    <h3 class="board-links__title">Связи{% if card.blocked_by %} <span class="board-links__blocked">⛔ ждёт открытых: {{ card.blocked_by }}</span>{% endif %}</h3>
+    {% for group in card.link_groups %}
+        <div class="board-links__group board-links__group--{{ group.key }}">
+            <span class="board-links__label">{{ group.label }}</span>
+            <ul class="board-links__list">
+                {% for row in group.rows %}
+                    <li class="board-links__row{% if group.key == 'waits' and row.is_open %} board-links__row--waits{% endif %}">
+                        {% if row.readable %}
+                            <a class="board-links__code" href="{{ row.url }}"{% if row.same_page %} data-board-drawer-link{% endif %}>{{ row.code }}</a>
+                            <span class="board-links__text user-text text-ellipsis" title="{{ row.title }}">{% if group.key == 'duplicates' %}{{ row.relation }}: {% endif %}{{ row.title }}</span>
+                            {% if row.status %}<span class="status-badge status-badge--{{ row.status_code }}">{{ row.status }}</span>{% endif %}
+                            {% if row.board_name %}<span class="board-links__board user-text text-ellipsis" title="Доска «{{ row.board_name }}»">{{ row.board_name }}</span>{% endif %}
+                        {% else %}
+                            <span class="board-links__text board-links__text--hidden">карточка другой доски</span>
+                        {% endif %}
+                        {% if row.can_unlink %}
+                            <form class="board-links__remove" method="post" action="{% url 'boards:card_unlink' board.pk card.card.pk row.link.pk %}{{ filter_suffix }}">
+                                {% csrf_token %}
+                                <button class="board-links__remove-button" type="submit" title="Удалить связь с {{ row.code }}" aria-label="Удалить связь с {{ row.code }}">×</button>
+                            </form>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endfor %}
+</section>{% endif %}

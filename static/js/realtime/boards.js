@@ -44,6 +44,10 @@
  *   [data-live-board-followers] «Подписчики» on «Описание»: read-only,
  *                              replaced whenever its fingerprint moved — a new
  *                              follower never raises the banner either.
+ *   [data-live-board-links]    «Связи» on «Описание»: read-only, replaced
+ *                              whenever its fingerprint moved — a link made
+ *                              from the other card, or a blocker closed on
+ *                              another board; «+ Связь» is outside it.
  *   [data-live-board-log]      «Лог»: read-only, replaced whenever its
  *                              fingerprint moved; no entry is part of the
  *                              guarded block either.
@@ -111,6 +115,7 @@
     const cardElement = () => root.querySelector('[data-live-board-card]');
     const factsElement = () => root.querySelector('[data-live-board-facts]');
     const followersElement = () => root.querySelector('[data-live-board-followers]');
+    const linksElement = () => root.querySelector('[data-live-board-links]');
     const commentsElement = () => root.querySelector('[data-live-board-comments]');
     const logElement = () => root.querySelector('[data-live-board-log]');
     const checklistElement = () => root.querySelector('[data-live-board-checklist]');
@@ -307,6 +312,23 @@
     };
 
     /**
+     * «Связи»: links and «×» forms only, so replaced whenever the fingerprint
+     * moved — never the «+ Связь» form below it, which is in no block.
+     */
+    const applyLinks = (payload) => {
+        const links = linksElement();
+        if (!links || typeof payload.links_html !== 'string') {
+            return;
+        }
+        const next = revisionOf(payload.links_revision);
+        if (next && next === revision('linksRevision')) {
+            return;
+        }
+        links.innerHTML = payload.links_html;
+        setRevision('linksRevision', next);
+    };
+
+    /**
      * The card's «Чек-лист»: buttons and links only, so replaced whenever its
      * fingerprint moved — except while an item's «Изменить» form is open,
      * which holds typed text: then the refresh waits, like the menus.
@@ -446,6 +468,7 @@
             applyLog(payload);
             applyChecklist(payload);
             applyFollowers(payload);
+            applyLinks(payload);
             applySubtasks(payload);
         },
         // A lost session stops the whole client; a board that is gone stops

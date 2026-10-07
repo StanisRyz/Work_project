@@ -56,8 +56,10 @@ from .helpers import (
 # «Подзадачи» — its subtasks with their tasks and statuses, and their
 # исполнители — whatever their number (`test_subtasks`), so 39. Stage 21:
 # one more for the card's «Переносы» — the moves of its срок with their
-# reasons and authors, one query whatever their number — so 40.
-PAGE_QUERIES = 40
+# reasons and authors, one query whatever their number — so 40. Stage 22:
+# two more — the columns this reader follows («🔔», one query) and the
+# card's «Связи» (one query, whatever their number) — so 42.
+PAGE_QUERIES = 42
 
 MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-journal-'))
 

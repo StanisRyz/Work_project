@@ -63,6 +63,8 @@ class Notification(models.Model):
         BOARD_DUE_CHANGED = 'BOARD_DUE_CHANGED', 'Срок карточки перенесён'
         BOARD_DUE_SOON = 'BOARD_DUE_SOON', 'Подходит срок карточки'
         BOARD_OVERDUE = 'BOARD_OVERDUE', 'Карточка просрочена'
+        BOARD_UNBLOCKED = 'BOARD_UNBLOCKED', 'Карточку можно начинать'
+        BOARD_COLUMN_ENTERED = 'BOARD_COLUMN_ENTERED', 'Карточка вошла в колонку'
         BUG_REPORTED = 'BUG_REPORTED', 'Сообщение об ошибке в системе'
         DOCUMENT_ACK_REQUIRED = 'DOCUMENT_ACK_REQUIRED', 'Требуется ознакомление с документом'
         DOCUMENT_APPROVAL_REQUIRED = 'DOCUMENT_APPROVAL_REQUIRED', 'Требуется согласование документа'

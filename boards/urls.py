@@ -56,6 +56,11 @@ urlpatterns = [
         '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/delete/',
         views.column_delete, name='column_delete',
     ),
+    # «🔔 Сообщать о новых карточках»: any reader of the board.
+    path(
+        '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/follow/',
+        views.column_follow, name='column_follow',
+    ),
     # «Поля карточек»: the board's own card fields. Read by every reader of
     # the board, changed by whoever manages it.
     path('<int:pk>/fields/', views.board_fields_page, name='fields'),
@@ -114,6 +119,12 @@ urlpatterns = [
     ),
     # «Следить» / «Вы следите»: any reader of a live board.
     path('<int:pk>/cards/<int:card_pk>/subscribe/', views.card_subscribe, name='card_subscribe'),
+    # «Связи»: a link to another card by its code, and «×» beside one.
+    path('<int:pk>/cards/<int:card_pk>/links/create/', views.card_link, name='card_link'),
+    path(
+        '<int:pk>/cards/<int:card_pk>/links/<int:link_pk>/delete/',
+        views.card_unlink, name='card_unlink',
+    ),
     # The card's «Чек-лист»: whoever works on the board, an open card only.
     # The checkbox answers a `fetch` in JSON, like a drag.
     path('<int:pk>/cards/<int:card_pk>/checklist/add/', views.checklist_add, name='checklist_add'),

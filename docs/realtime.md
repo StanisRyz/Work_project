@@ -129,6 +129,24 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 Напоминания `board_due_reminders` создают только уведомления — `board.updated`
 они не публикуют (уведомление само приходит как `notification.created`).
 Страница «Отклонения» не живая.
+Связь карточек (`link_cards()`/`unlink_cards()`) — `card_updated` на каждой
+из двух досок со своей карточкой (одно событие, если обе на одной доске), а
+`updated_at` обеих карточек сдвигается — ревизия `boards` замечает связь и у
+пропустившего событие. «Связи» на «Описании» — отдельный блок только для
+чтения (`links_html`/`links_revision`, `[data-live-board-links]`) вне
+охраняемой панели: связь, сделанная с другой карточки, или закрытая на другой
+доске блокирующая карточка перерисовывают его и не поднимают баннер; форма
+«+ Связь» — ни в одном блоке. Завершение, отмена и возврат в работу
+блокирующей карточки, кроме своего события, публикуют `card_updated` на каждую
+*другую* доску, где есть карточка, которую она блокирует (плитка «⛔ ждёт …»
+изменилась); строк той доски это не меняет, поэтому её ревизия `boards` не
+двигается и пропущенное событие там ждёт следующего или перезагрузки.
+«Заблокированные» (`blocked=1`) — фильтр, как остальные: он в `fragment_url`
+и в JSON перетаскивания. Подписка на колонку («🔔 Сообщать о новых
+карточках») — личное дело, событий не порождает; «🔔» в шапке колонки — часть
+блока колонок. Флажок «Сумма в колонке» — `structure_changed`; строка «Σ …»
+под шапкой колонки — часть блока колонок, её отпечаток двигается вместе с
+суммой.
 Порог «Застой» колонки (`set_column_stale_days()`) — тоже `structure_changed`
 и сдвиг `updated_at` колонки (агрегат структуры в ревизии `boards`); пометка
 «⏱ N дн.» в шапке колонки и подсветка плиток входят в блок колонок, поэтому
@@ -163,7 +181,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `delete_card_file`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_stale_days`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item`, `create_subtask`, `create_subtasks_from_list`, `checklist_item_to_subtask` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `delete_card_file`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_stale_days`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `link_cards`, `unlink_cards`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item`, `create_subtask`, `create_subtasks_from_list`, `checklist_item_to_subtask` — ровно одно событие на успешную запись внутри её `atomic()` (связь и закрытие блокирующей карточки — по событию на каждую затронутую доску); отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.
@@ -405,6 +423,9 @@ read-only набор авторизованного пользователя, д
   Добавленный или удалённый файл меняет отпечаток блока;
 - `log_html`/`log_revision` — «Лог» карточки (журнал `BoardCardEvent` и, по
   времени рядом, файлы «Чата» и старые вложения задачи);
+- `links_html`/`links_revision` — «Связи» на «Описании»
+  (`[data-live-board-links]`): только чтение, вне охраняемой панели; поле
+  «+ Связь» ни в одном блоке;
 - `followers_html`/`followers_revision` — «Подписчики» внизу «Описания»
   (`[data-live-board-followers]`): только чтение, вне охраняемой панели —
   новый подписчик (например, упомянутый в сообщении) не меняет

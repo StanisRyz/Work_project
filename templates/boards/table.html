@@ -26,6 +26,9 @@ on the board.
 «Срок»: the first срок (— where unknown), how many times it moved, and the
 reason of the latest move.
 
+«Ждёт» names the open cards each one waits for (on boards the reader reads),
+and «Итого» under the rows sums every number field.
+
 «Подзадачи» (`subtasks=1`, off by default) puts each card's subtasks right
 under it, indented, with a «Родитель» column; the Excel holds the same rows.
 {% endcomment %}
@@ -60,6 +63,7 @@ under it, indented, with a «Родитель» column; the Excel holds the same
                         <th class="board-table__reason">Последняя причина</th>
                         {% sortable_th 'В колонке' 'days' sort 'board-table__days' %}
                         <th class="board-table__checklist">Чек-лист</th>
+                        <th class="board-table__waits">Ждёт</th>
                         {% for column in table_fields %}
                             {% sortable_th column.field.name column.sort_key sort 'board-table__field' %}
                         {% endfor %}
@@ -83,6 +87,7 @@ under it, indented, with a «Родитель» column; the Excel holds the same
                         <td>{% if row.last_due_reason %}<span class="user-text text-clamp-2" title="{{ row.last_due_reason }}">{{ row.last_due_reason }}</span>{% else %}—{% endif %}</td>
                         <td class="board-table__number">{% if row.in_column_days is not None %}<span class="board-table__days{% if row.is_stale %} board-table__days--stale{% endif %}" title="В колонке с {{ row.in_column_since|date:'d.m.Y' }}">{% if row.in_column_days %}{{ row.in_column_days }} дн.{% else %}сегодня{% endif %}</span>{% else %}—{% endif %}</td>
                         <td class="board-table__number">{% if row.checklist_label %}<span class="board-table__checklist-value{% if row.checklist_done == row.checklist_total %} is-complete{% endif %}" title="Чек-лист: сделано {{ row.checklist_done }} из {{ row.checklist_total }}">{{ row.checklist_label }}</span>{% else %}—{% endif %}</td>
+                        <td>{% if row.waits_for %}<span class="board-table__waits-value">⛔ {{ row.waits_for }}</span>{% else %}—{% endif %}</td>
                         {% for cell in row.cells %}
                             <td{% if cell.value.kind == 'NUMBER' %} class="board-table__number"{% endif %}>{% if cell.value %}{% if cell.value.color %}<span class="board-chip board-chip--{{ cell.value.color }}{% if cell.value.is_archived %} board-chip--archived{% endif %}"{% if cell.value.is_archived %} title="Вариант в архиве"{% endif %}>{{ cell.value.text }}</span>{% else %}<span class="user-text text-clamp-2" title="{{ cell.value.text }}">{{ cell.value.text }}</span>{% endif %}{% else %}—{% endif %}</td>
                         {% endfor %}
@@ -91,6 +96,19 @@ under it, indented, with a «Родитель» column; the Excel holds the same
                     </tr>
                 {% endfor %}
                 </tbody>
+                {% if has_totals %}
+                {% comment %}«Итого»: each number field summed over the cards above (a subtask's value is its card's work, not added twice); the Excel's last row is the same.{% endcomment %}
+                <tfoot>
+                    <tr class="board-table__totals">
+                        <th scope="row">Итого</th>
+                        {% if whole_board %}<td></td>{% endif %}
+                        {% if subtasks %}<td></td>{% endif %}
+                        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                        {% for cell in total_cells %}<td{% if cell.value is not None %} class="board-table__number"{% endif %}>{{ cell.text }}</td>{% endfor %}
+                        <td></td><td></td>
+                    </tr>
+                </tfoot>
+                {% endif %}
             </table>
         </section>
         {% else %}

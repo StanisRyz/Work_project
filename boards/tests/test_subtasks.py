@@ -717,7 +717,8 @@ class SubtaskLiveTests(SubtaskMixin, TestCase):
 # tile's «⧉ k/n» and the codes its drop dialog names are subqueries of the
 # tiles' own query; «+ Подзадача» offers the members the panel has read.
 # Stage 21: one more for the card's «Переносы» (the moves of its срок).
-SUBTASK_PAGE_QUERIES = 40
+# Stage 22: two more — the columns this reader follows («🔔», one query) and the card's «Связи» (one query).
+SUBTASK_PAGE_QUERIES = 42
 
 
 class SubtaskQueryCountTests(SubtaskMixin, TestCase):

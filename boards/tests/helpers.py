@@ -90,8 +90,20 @@ LIVE_BLOCKS = {
 
 CSRF_INPUT = re.compile(r'<input\b[^>]*\bname="csrfmiddlewaretoken"[^>]*>')
 
-# The panel heading's «Следить» / «Вы следите» form — every reader's own.
-FOLLOW_FORM = re.compile(r'<form class="board-follow".*?</form>', re.S)
+# The panel heading's «Следить» / «Вы следите» form — every reader's own —
+# and, since stage 22, a column's «🔔 Сообщать о новых карточках» in its «⋯»
+# (every reader's own too) with the `<details>` that holds it for a reader
+# who manages nothing.
+FOLLOW_FORM = re.compile(
+    r'<form class="board-follow".*?</form>'
+    r'|<form class="board-menu__form board-menu__follow".*?</form>',
+    re.S,
+)
+
+# «+ Связь» on «Описание» of a card being read: whoever works on the board,
+# whatever the state of the card — a cancelled card is often exactly the
+# duplicate of another (`test_links.py`).
+LINK_FORM = re.compile(r'<details class="board-links__add".*?</details>', re.S)
 
 
 def page_attribute(content, name):
