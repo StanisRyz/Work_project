@@ -344,15 +344,15 @@ class ColumnPinsForm(forms.Form):
     mode = forms.ChoiceField(choices=BoardColumn.PinnedMode.choices)
 
 
-class ColumnStaleForm(forms.Form):
-    """«Застой» of a column: a number of days, or empty to switch it off.
+class ColumnNormForm(forms.Form):
+    """«Норматив этапа» of a column: a number of working days, or empty for none.
 
     Only that it is a whole number is checked here; the range and that the
-    column is a working one are `services.set_column_stale_days()`'s, in its
+    column is a working one are `services.set_column_norm()`'s, in its
     own words.
     """
 
-    days = forms.IntegerField(label='Застой: подсвечивать через, дней', required=False)
+    days = forms.IntegerField(label='Норматив этапа, рабочих дней', required=False)
 
 
 class SubBoardNameForm(forms.Form):

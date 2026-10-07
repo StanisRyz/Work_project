@@ -12,9 +12,9 @@ members as tick boxes and the mode — «Добавить к исполните�
 исполнителей» — one ordinary POST form to `boards:column_pins`. The cards
 already standing in the column keep their people.
 
-A working column's menu holds «Застой» as well (`stale_url`): «подсвечивать
-через N дней», 1–365, empty to switch it off — one ordinary POST form to
-`boards:column_stale`.
+A working column's menu holds «Норматив этапа» as well (`norm_url`): N
+working days, 1–365, empty for none — one ordinary POST form to
+`boards:column_norm`.
 
 A column's menu, for every reader of the board (`follow_row`, `follow_url`,
 `can_follow_column`), starts with «🔔 Сообщать о новых карточках» / «Не
@@ -79,15 +79,15 @@ board's filter (`filter_suffix`).
                     <button class="link-button link-button--compact" type="submit">Сохранить</button>
                 </form>
             {% endif %}
-            {% if kind == 'column' and stale_url %}
-                <form class="board-menu__form board-stale" method="post" action="{{ stale_url }}{{ filter_suffix }}">
+            {% if kind == 'column' and norm_url %}
+                <form class="board-menu__form board-norm" method="post" action="{{ norm_url }}{{ filter_suffix }}">
                     {% csrf_token %}
-                    <label class="board-menu__label" for="board-stale-{{ object.pk }}">Застой: подсвечивать через N дней</label>
-                    <span class="board-stale__row">
-                        <input id="board-stale-{{ object.pk }}" class="board-stale__days" type="number" name="days" min="1" max="365" step="1" inputmode="numeric" value="{{ object.stale_after_days|default_if_none:'' }}" placeholder="выкл.">
-                        <span class="board-pins__hint">дн.</span>
+                    <label class="board-menu__label" for="board-norm-{{ object.pk }}">Норматив этапа: N раб. дн.</label>
+                    <span class="board-norm__row">
+                        <input id="board-norm-{{ object.pk }}" class="board-norm__days" type="number" name="days" min="1" max="365" step="1" inputmode="numeric" value="{{ object.norm_working_days|default_if_none:'' }}" placeholder="нет">
+                        <span class="board-pins__hint">раб. дн.</span>
                     </span>
-                    <span class="board-pins__hint">Карточка, простоявшая в колонке столько дней, подсвечивается. Пусто — не отслеживать.</span>
+                    <span class="board-pins__hint">Сколько рабочих дней карточка должна стоять в колонке. Плитка показывает светофор и плановую дату выхода. Пусто — без норматива.</span>
                     <button class="link-button link-button--compact" type="submit">Сохранить</button>
                 </form>
             {% endif %}

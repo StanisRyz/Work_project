@@ -32,7 +32,7 @@ from ..services import (
     cancel_card,
     create_sub_board,
     move_card,
-    set_column_stale_days,
+    set_column_norm,
 )
 from ..views import export_filename_stem, safe_file_part
 from .helpers import board_url, column_of, done_column_of, new_card
@@ -265,10 +265,12 @@ class TableFilterTests(TableMixin, TestCase):
     def test_overdue_and_stale_keep_open_work_only(self):
         self.assertEqual(self.titles(self.table(filters=BoardFilters(overdue=True))), ['Alpha'])
         self.assertEqual(self.titles(self.table(filters=BoardFilters(stale=True))), [])
-        set_column_stale_days(column_of(self.board, 'TODO'), actor=self.owner, days=3)
+        # Alpha stood 5 calendar days: past a norm of 2 working days whatever
+        # the weekday (two working days are at most four calendar days).
+        set_column_norm(column_of(self.board, 'TODO'), actor=self.owner, days=2)
         state = self.table(filters=BoardFilters(stale=True), cancelled=True)
         self.assertEqual(self.titles(state), ['Alpha'])
-        self.assertTrue(state['rows'][0]['is_stale'])
+        self.assertTrue(state['rows'][0]['is_late'])
 
     def test_the_filter_travels_with_the_switch_and_the_tabs(self):
         self.client.force_login(self.member)
@@ -399,7 +401,8 @@ class TableExcelTests(TableMixin, TestCase):
         self.assertEqual(values(rows)[0], [
             'Код', 'Название', 'Колонка', 'Статус', 'Исполнители', 'Срок',
             'Исходный срок', 'Переносов', 'Последняя причина', 'В колонке, дн.',
-            'Чек-лист', 'Ждёт', 'Номер заявки', 'Заказ покупателя', 'Срок изг.', 'Приоритет', 'Стоп', 'Сумма',
+            'План выхода из этапа', 'Отклонение этапа, р.д.', 'Чек-лист', 'Ждёт',
+            'Номер заявки', 'Заказ покупателя', 'Срок изг.', 'Приоритет', 'Стоп', 'Сумма',
             'Создана', 'Завершена',
         ])
         self.assertIn('formatCode="dd.mm.yyyy"', styles)
@@ -416,23 +419,26 @@ class TableExcelTests(TableMixin, TestCase):
         self.assertEqual(alpha[7], ('n', Decimal(0)))
         self.assertEqual(alpha[8], ('', None))
         self.assertEqual(alpha[9], ('n', Decimal(5)))
+        # Stage 23: «План выхода из этапа» and «Отклонение этапа, р.д.» — the
+        # column has no norm: two empty cells (filled ones: `test_stages.py`).
+        self.assertEqual((alpha[10], alpha[11]), (('', None), ('', None)))
         # «Чек-лист»: no items, an empty cell (filled ones: `test_checklist.py`).
-        self.assertEqual(alpha[10], ('', None))
+        self.assertEqual(alpha[12], ('', None))
         # Stage 22: «Ждёт» — the card waits for nothing, an empty cell
         # (filled ones: `test_links.py`).
-        self.assertEqual(alpha[11], ('', None))
-        self.assertEqual(alpha[12], ('s', '3-1579'))
         self.assertEqual(alpha[13], ('', None))
-        self.assertEqual(alpha[14], ('d', datetime.date(2026, 11, 30)))
-        self.assertEqual(alpha[15], ('s', 'Высокий'))
-        self.assertEqual(alpha[16], ('', None))
-        self.assertEqual(alpha[17], ('n', Decimal(10)))
-        self.assertEqual(alpha[18], ('d', timezone.localdate()))
-        self.assertEqual(alpha[19], ('', None))
+        self.assertEqual(alpha[14], ('s', '3-1579'))
+        self.assertEqual(alpha[15], ('', None))
+        self.assertEqual(alpha[16], ('d', datetime.date(2026, 11, 30)))
+        self.assertEqual(alpha[17], ('s', 'Высокий'))
+        self.assertEqual(alpha[18], ('', None))
+        self.assertEqual(alpha[19], ('n', Decimal(10)))
+        self.assertEqual(alpha[20], ('d', timezone.localdate()))
+        self.assertEqual(alpha[21], ('', None))
         beta = rows[3]
-        self.assertEqual(beta[17], ('n', Decimal('2.5')))
+        self.assertEqual(beta[19], ('n', Decimal('2.5')))
         delta = rows[4]
-        self.assertEqual((delta[2], delta[3], delta[9], delta[19]), (
+        self.assertEqual((delta[2], delta[3], delta[9], delta[21]), (
             ('s', 'Готово'), ('s', 'Выполнена'), ('', None), ('d', timezone.localdate()),
         ))
 
@@ -442,7 +448,7 @@ class TableExcelTests(TableMixin, TestCase):
         archive_option(self.high, actor=self.owner)
         rows, _ = read_xlsx(self.export().content)
         self.assertEqual(rows[1][4], ('s', 'Иван Петров'))
-        self.assertEqual(rows[1][15], ('s', 'Высокий (в архиве)'))
+        self.assertEqual(rows[1][17], ('s', 'Высокий (в архиве)'))
 
     def test_empty_is_an_empty_cell_never_none_or_a_dash(self):
         content = self.export(cancelled=1).content

@@ -19,8 +19,9 @@ inside it is the no-JavaScript path. The button counts the fields that
 filter, and the chips under the row name them, each «×» the same address
 without that field.
 
-«Застрявшие» (`stale=1`) keeps the open cards that have stood in their column
-at least its «Застой» threshold; «Заблокированные» (`blocked=1`) the open
+«Просрочен этап» (`stale=1`) keeps the open cards whose planned exit from
+their column («Норматив этапа») is past — the red lights; «Заблокированные»
+(`blocked=1`) the open
 cards that wait for an open card. Neither touches the closing column. «Доска | Таблица» are two links to the same
 sub-board under the same filter, and «Excel» is the table of it as a
 spreadsheet (`?view=table&export=xlsx`): what the table shows, with every
@@ -41,10 +42,23 @@ view in hidden fields; the board carries the open card and its tab instead.
         <input type="hidden" name="card" value="{% if panel == 'view' and card %}{{ card.card.pk }}{% endif %}" data-board-filter-card{% if panel != 'view' or not card %} disabled{% endif %}>
         <input type="hidden" name="tab" value="{% if panel == 'view' and card %}{{ tab }}{% endif %}" data-board-filter-tab{% if panel != 'view' or not card %} disabled{% endif %}>
     {% endif %}
-    <label class="board-filters__check"><input type="checkbox" name="mine" value="1"{% if filters.mine %} checked{% endif %}> Мои</label>
-    <label class="board-filters__check"><input type="checkbox" name="overdue" value="1"{% if filters.overdue %} checked{% endif %}> Просроченные</label>
-    <label class="board-filters__check" title="Открытые карточки, простоявшие в своей колонке не меньше её порога «Застой»"><input type="checkbox" name="stale" value="1"{% if filters.stale %} checked{% endif %}> Застрявшие</label>
-    <label class="board-filters__check" title="Открытые карточки, которые ждут открытую карточку (связь «Ждёт»)"><input type="checkbox" name="blocked" value="1"{% if filters.blocked %} checked{% endif %}> Заблокированные</label>
+    {% comment %}
+    «Показать»: «Мои», «Просроченные», «Просрочен этап», «Заблокированные» in
+    one `<details>` — four boxes in a row pushed the search and «Поля» onto a
+    second line at 1536. The summary counts the boxes ticked. A box applies
+    at once (`registry_tools.js` reopens the panel after the reload); without
+    JavaScript «Применить» in it posts the form.
+    {% endcomment %}
+    <details class="board-menu board-filters__show" data-board-menu data-board-menu-keep-focus data-registry-keep-open>
+        <summary class="board-filters__show-toggle{% if filters.flag_count %} board-filters__show-toggle--active{% endif %}" title="Какие карточки показать">Показать{% if filters.flag_count %} · {{ filters.flag_count }}{% endif %}</summary>
+        <div class="board-menu__body board-filters__show-body">
+            <label class="board-filters__check"><input type="checkbox" name="mine" value="1"{% if filters.mine %} checked{% endif %}> Мои</label>
+            <label class="board-filters__check" title="Открытые карточки, у которых прошёл срок"><input type="checkbox" name="overdue" value="1"{% if filters.overdue %} checked{% endif %}> Просроченные</label>
+            <label class="board-filters__check" title="Открытые карточки, у которых прошла плановая дата выхода из этапа (красный светофор)"><input type="checkbox" name="stale" value="1"{% if filters.stale %} checked{% endif %}> Просрочен этап</label>
+            <label class="board-filters__check" title="Открытые карточки, которые ждут открытую карточку (связь «Ждёт»)"><input type="checkbox" name="blocked" value="1"{% if filters.blocked %} checked{% endif %}> Заблокированные</label>
+            <button class="link-button link-button--compact" type="submit">Применить</button>
+        </div>
+    </details>
     <input class="board-filters__search" type="search" name="q" value="{{ filters.q }}" placeholder="Название, {{ board.code }}-12 или значение поля" aria-label="Поиск карточки по названию, номеру или значению текстового поля" maxlength="200" data-registry-search data-registry-omit-empty>
     {% if field_filters %}
         <details class="board-menu board-filters__fields" data-board-menu data-board-menu-keep-focus data-registry-keep-open>

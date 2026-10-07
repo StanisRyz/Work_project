@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>Дайджест досок за {{ today|date:"d.m.Y" }}</title></head>
+<body style="margin:0;padding:24px;background:#f4f7fc;color:#1f2937;font-family:Arial,sans-serif">
+    <table role="presentation" style="width:100%;max-width:720px;margin:0 auto;border-collapse:collapse;background:#fff;border:1px solid #dce3ef">
+        <tr><td style="padding:24px">
+            <h1 style="margin:0 0 8px;font-size:22px;color:#183b73">Дайджест досок за {{ today|date:"d.m.Y" }}</h1>
+            <p style="margin:0 0 20px">Здравствуйте, {{ user_name }}!</p>
+            {% for section in sections %}
+                <h2 style="margin:24px 0 4px;font-size:18px;color:#183b73">Доска «{{ section.board.name }}» <span style="color:#64748b;font-weight:normal">({{ section.board.code }})</span></h2>
+                <p style="margin:0 0 12px;color:#64748b;font-size:13px">Период {{ section.since|date:"d.m.Y" }} — {{ section.until|date:"d.m.Y" }} · <a href="{{ section.board_url }}" style="color:#2459a9">открыть доску</a></p>
+                {% if section.overdue %}
+                    <h3 style="margin:16px 0 6px;font-size:15px">Просроченные карточки — {{ section.overdue|length }}{% if section.overdue_more %} и ещё {{ section.overdue_more }}{% endif %} · <a href="{{ section.overdue_url }}" style="color:#2459a9;font-weight:normal">в «Таблице»</a></h3>
+                    <table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px">
+                        {% for row in section.overdue %}<tr><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2;white-space:nowrap"><strong>{{ row.code }}</strong></td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2">{{ row.title }}</td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2;white-space:nowrap;color:#b91c1c">{{ row.due_date|date:"d.m.Y" }}</td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2">{{ row.assignees }}</td></tr>{% endfor %}
+                    </table>
+                {% endif %}
+                {% if section.late %}
+                    <h3 style="margin:16px 0 6px;font-size:15px">Просрочен этап — {{ section.late|length }}{% if section.late_more %} и ещё {{ section.late_more }}{% endif %} · <a href="{{ section.late_url }}" style="color:#2459a9;font-weight:normal">в «Таблице»</a></h3>
+                    <table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px">
+                        {% for row in section.late %}<tr><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2;white-space:nowrap"><strong>{{ row.code }}</strong></td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2">{{ row.title }}</td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2">«{{ row.column }}», план до {{ row.plan|date:"d.m.Y" }}</td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2;white-space:nowrap;color:#b91c1c">+{{ row.late_by }} р.д.</td></tr>{% endfor %}
+                    </table>
+                {% endif %}
+                {% if section.blocked %}
+                    <h3 style="margin:16px 0 6px;font-size:15px">Заблокированные — {{ section.blocked|length }}{% if section.blocked_more %} и ещё {{ section.blocked_more }}{% endif %} · <a href="{{ section.blocked_url }}" style="color:#2459a9;font-weight:normal">в «Таблице»</a></h3>
+                    <table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px">
+                        {% for row in section.blocked %}<tr><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2;white-space:nowrap"><strong>{{ row.code }}</strong></td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2">{{ row.title }}</td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2">ждёт {{ row.waits_for }}</td></tr>{% endfor %}
+                    </table>
+                {% endif %}
+                {% if section.moves %}
+                    <h3 style="margin:16px 0 6px;font-size:15px">Переносы срока за период — {{ section.moves|length }}{% if section.moves_more %} и ещё {{ section.moves_more }}{% endif %}</h3>
+                    <table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px">
+                        {% for row in section.moves %}<tr><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2;white-space:nowrap"><strong>{{ row.code }}</strong></td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2">{{ row.title }}</td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2;white-space:nowrap">{{ row.old_due|date:"d.m.Y"|default:"—" }} → {{ row.new_due|date:"d.m.Y"|default:"—" }}</td><td style="padding:4px 6px;border-bottom:1px solid #e5e9f2">{{ row.reason|default:"—" }}</td></tr>{% endfor %}
+                    </table>
+                {% endif %}
+                <p style="margin:12px 0 0"><strong>Выполнено за период:</strong> {{ section.completed }}</p>
+            {% endfor %}
+            <p style="margin:24px 0 0;color:#64748b;font-size:13px">Для просмотра требуется вход в систему. Отписаться — «⋯» доски → «Дайджест на почту: выключен».</p>
+        </td></tr>
+    </table>
+</body>
+</html>

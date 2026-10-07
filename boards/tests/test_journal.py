@@ -58,8 +58,10 @@ from .helpers import (
 # one more for the card's «Переносы» — the moves of its срок with their
 # reasons and authors, one query whatever their number — so 40. Stage 22:
 # two more — the columns this reader follows («🔔», one query) and the
-# card's «Связи» (one query, whatever their number) — so 42.
-PAGE_QUERIES = 42
+# card's «Связи» (one query, whatever their number) — so 42. Stage 23: one
+# more — the reader's «Дайджест на почту» in the heading's «⋯» — so 43 (the
+# card's «Этапы» read the journal «Лог» already reads: no query).
+PAGE_QUERIES = 43
 
 MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-journal-'))
 

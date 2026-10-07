@@ -447,7 +447,7 @@ class ChecklistDisplayTests(ChecklistMixin, TestCase):
         )
         header = [value for _, value in rows[0]]
         column = header.index('Чек-лист')
-        self.assertEqual(header[column - 1], 'В колонке, дн.')
+        self.assertEqual(header[column - 1], 'Отклонение этапа, р.д.')
         cells = {row[0][1]: row[column] for row in rows[1:]}
         self.assertEqual(cells[self.card_obj.code], ('s', '2/5'))
         self.assertIn(('', None), cells.values())

@@ -1427,7 +1427,7 @@ function boardEvent(boardId, change, eventId) {
     };
 }
 
-function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts, checklist, followers, links, subtasks } = {}) {
+function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts, checklist, followers, links, stages, subtasks } = {}) {
     const payload = {
         columns_html: `<section data-column-id="31"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
         columns_revision: columns,
@@ -1453,6 +1453,10 @@ function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comme
     if (links) {
         payload.links_html = `<section data-fresh-links>${links}</section>`;
         payload.links_revision = links;
+    }
+    if (stages) {
+        payload.stages_html = `<section data-fresh-stages>${stages}</section>`;
+        payload.stages_revision = stages;
     }
     if (log) {
         payload.log_html = `<ol><li data-fresh-log>${log}</li></ol>`;
@@ -2173,6 +2177,30 @@ test('a link made elsewhere replaces «Связи», keeps «+ Связь» and 
     env.clock.advance(300);
     await flush();
     assert.ok(env.live.links.querySelector('[data-kept]'));
+});
+
+test('the card moved on elsewhere replaces «Этапы» and never the dirty panel', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment({
+        columns: 'columns-rev-initial', panel: 'panel-rev-initial', stages: 'stages-rev-2',
+    }));
+
+    env.live.execution.value = 'Результат пишется';
+    env.document.dispatch('input', { target: env.live.execution });
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_moved', 'stages'));
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.stages.querySelector('[data-fresh-stages]'), 'the stages replaced');
+    assert.equal(env.live.board.dataset.stagesRevision, 'stages-rev-2');
+    assert.equal(env.live.execution.value, 'Результат пишется');
+    assert.equal(env.live.conflictBanner.hidden, true, 'a stage is no conflict');
+
+    env.live.stages.innerHTML = '<section data-kept>как было</section>';
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_moved', 'stages-again'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.stages.querySelector('[data-kept]'), 'the same fingerprint replaces nothing');
 });
 
 // ------------------------------------------------------------- «Подзадачи»

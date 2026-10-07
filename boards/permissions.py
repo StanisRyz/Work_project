@@ -356,3 +356,13 @@ def can_follow_column(user, board, *, can_view=None):
     if board.is_archived:
         return False
     return can_view_board(user, board) if can_view is None else bool(can_view)
+
+
+def can_subscribe_digest(user, board, *, can_view=None):
+    """«Дайджест на почту» of a board: any reader — a head who reads the
+    board need not work on it — but never on an archived board, which has
+    nothing left to report. `can_view` is `can_view_board()` already asked
+    for the page."""
+    if board.is_archived:
+        return False
+    return can_view_board(user, board) if can_view is None else bool(can_view)

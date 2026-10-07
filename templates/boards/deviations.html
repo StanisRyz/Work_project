@@ -15,6 +15,12 @@ sub-board or all (`sub`). The summary per reason — moves, their summed shift
 in calendar days, cards — most moves first; then every move, newest first.
 «Excel» is that list. Read by every reader of the board; nothing here writes.
 The filter is an ordinary GET form, so the period is a link to send.
+
+Two tabs, links under the same period and sub-board: «Переносы» (the above)
+and «Этапы» (`?view=stages`, `selectors.build_stage_report()`): per working
+column, the cards that left it in the period, the average and longest stay in
+working days, the share within the column's current «Норматив этапа», and
+how many stand in it now past their plan. «Excel» of that tab is that table.
 {% endcomment %}
 <header class="board-head">
     <div class="board-head__title">
@@ -26,7 +32,12 @@ The filter is an ordinary GET form, so the period is a link to send.
 </header>
 
 <div class="board-scroll board-deviations">
+    <nav class="board-view-switch board-deviations__tabs" aria-label="Отчёт">
+        <a class="board-view-switch__link{% if not report_view %} is-active{% endif %}" href="{{ moves_url }}"{% if not report_view %} aria-current="page"{% endif %}>Переносы</a>
+        <a class="board-view-switch__link{% if report_view == 'stages' %} is-active{% endif %}" href="{{ stages_url }}"{% if report_view == 'stages' %} aria-current="page"{% endif %}>Этапы</a>
+    </nav>
     <form class="board-filters board-deviations__filters" method="get" action="{% url 'boards:deviations' board.pk %}">
+        {% if report_view %}<input type="hidden" name="view" value="{{ report_view }}">{% endif %}
         <label>с <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}" aria-label="Период: с"></label>
         <label>по <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}" aria-label="Период: по"></label>
         <select name="sub" aria-label="Поддоска">
@@ -34,8 +45,42 @@ The filter is an ordinary GET form, so the period is a link to send.
             {% for tab in tabs %}<option value="{{ tab.pk }}"{% if sub_board and sub_board.pk == tab.pk %} selected{% endif %}>{{ tab.name }}</option>{% endfor %}
         </select>
         <button class="link-button link-button--secondary link-button--compact" type="submit">Показать</button>
-        <a class="link-button link-button--secondary link-button--compact" href="{{ export_url }}" download title="Список переносов за период — в Excel">Excel</a>
+        <a class="link-button link-button--secondary link-button--compact" href="{{ export_url }}" download title="{% if report_view %}Таблица этапов за период — в Excel{% else %}Список переносов за период — в Excel{% endif %}">Excel</a>
     </form>
+
+    {% if report_view == 'stages' %}
+    <p class="board-table-meta">
+        <span>{{ date_from|date:'d.m.Y' }} — {{ date_to|date:'d.m.Y' }}{% if sub_board %}, поддоска «<span class="user-text">{{ sub_board.name }}</span>»{% endif %}: вышло из этапов {{ stage_exits }}, сейчас просрочен этап — {{ stage_late_now }}. Время — в рабочих днях, норматив — текущий.</span>
+    </p>
+    <section class="table-card board-deviations__stages" aria-label="Этапы">
+        <table class="data-table">
+            <thead><tr>
+                <th>Колонка</th>
+                <th class="board-table__number">Норматив, р.д.</th>
+                <th class="board-table__number">Вышло</th>
+                <th class="board-table__number">Среднее, р.д.</th>
+                <th class="board-table__number">Максимум, р.д.</th>
+                <th class="board-table__number">В нормативе</th>
+                <th class="board-table__number">Сейчас просрочен этап</th>
+            </tr></thead>
+            <tbody>
+                {% for row in stage_rows %}
+                    <tr>
+                        <td>{% if not sub_board %}<span class="board-drawer__archived user-text">{{ row.sub_board.name }} /</span> {% endif %}<span class="user-text">{{ row.column.name }}</span></td>
+                        <td class="board-table__number">{{ row.norm|default:'—' }}</td>
+                        <td class="board-table__number">{{ row.exits }}</td>
+                        <td class="board-table__number">{% if row.average is not None %}{{ row.average }}{% else %}—{% endif %}</td>
+                        <td class="board-table__number">{% if row.longest is not None %}{{ row.longest }}{% else %}—{% endif %}</td>
+                        <td class="board-table__number">{% if row.within_share is not None %}{{ row.within_share }} % ({{ row.within }} из {{ row.exits }}){% else %}—{% endif %}</td>
+                        <td class="board-table__number">{% if row.late_now %}<span class="board-table__deviation--late">{{ row.late_now }}</span>{% else %}0{% endif %}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="7">Рабочих колонок нет.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% else %}
 
     <p class="board-table-meta">
         <span>{{ date_from|date:'d.m.Y' }} — {{ date_to|date:'d.m.Y' }}{% if sub_board %}, поддоска «<span class="user-text">{{ sub_board.name }}</span>»{% endif %}: {{ moves_label }}, карточек {{ cards }}, суммарный сдвиг {{ shift }} дн.</span>
@@ -77,6 +122,7 @@ The filter is an ordinary GET form, so the period is a link to send.
         </section>
     {% else %}
         {% include 'acts/includes/empty_state.html' with title='Переносов нет' message='За выбранный период сроки карточек этой доски не переносили.' %}
+    {% endif %}
     {% endif %}
 </div>
 {% endblock %}

@@ -88,7 +88,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 удаление ничего не публикует), `checklist_changed` (пункт чек-листа карточки добавлен,
 переименован, отмечен или снят, переставлен или удалён), `structure_changed` (поддоска или колонка создана,
 переименована, переставлена или удалена, доска переименована или сменила
-код, у колонки изменены закреплённые исполнители или порог «Застой», на странице «Поля карточек»
+код, у колонки изменены закреплённые исполнители или «Норматив этапа», на странице «Поля карточек»
 создано, изменено, переставлено, убрано в архив, возвращено или удалено поле
 или вариант списка);
 неизвестный код фабрика отклоняет. Ни заголовка карточки,
@@ -147,13 +147,17 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 блока колонок. Флажок «Сумма в колонке» — `structure_changed`; строка «Σ …»
 под шапкой колонки — часть блока колонок, её отпечаток двигается вместе с
 суммой.
-Порог «Застой» колонки (`set_column_stale_days()`) — тоже `structure_changed`
-и сдвиг `updated_at` колонки (агрегат структуры в ревизии `boards`); пометка
-«⏱ N дн.» в шапке колонки и подсветка плиток входят в блок колонок, поэтому
-его отпечаток двигается вместе с порогом. «В колонке N дн.» на плитке —
-календарные дни по дате, а не по секундам: отпечаток колонок сам по себе не
-меняется в течение дня; новое число дней появляется со следующим обновлением
-блока или перезагрузкой. «Застрявшие» (`stale=1`) — такой же фильтр, как
+«Норматив этапа» колонки (`set_column_norm()`) — тоже `structure_changed` и
+сдвиг `updated_at` колонки (агрегат структуры в ревизии `boards`); пометка
+«⏱ N р.д.» в шапке колонки, светофор и «план до …» на плитках входят в блок
+колонок, поэтому его отпечаток двигается вместе с нормативом. «В колонке N
+дн.» и цвет светофора считаются по дате, а не по секундам: отпечаток колонок
+сам по себе не меняется в течение дня; новый день — новый цвет — появляется
+со следующим обновлением блока или перезагрузкой. «Этапы» на «Описании» —
+отдельный блок только для чтения (`stages_html`/`stages_revision`,
+`[data-live-board-stages]`) вне охраняемой панели: карточку перенесли или
+наступил новый день — блок перерисовывается без баннера. «Просрочен этап»
+(`stale=1`) — такой же фильтр, как
 остальные: он есть в `fragment_url`, а фрагмент и JSON перетаскивания
 фильтруют так же, как страница. «Таблица» поддоски (`?view=table`) и её Excel
 живыми не являются: страница строится по запросу, «Обновить» — обычная
@@ -181,7 +185,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `delete_card_file`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_stale_days`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `link_cards`, `unlink_cards`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item`, `create_subtask`, `create_subtasks_from_list`, `checklist_item_to_subtask` — ровно одно событие на успешную запись внутри её `atomic()` (связь и закрытие блокирующей карточки — по событию на каждую затронутую доску); отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `delete_card_file`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_norm`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `link_cards`, `unlink_cards`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item`, `create_subtask`, `create_subtasks_from_list`, `checklist_item_to_subtask` — ровно одно событие на успешную запись внутри её `atomic()` (связь и закрытие блокирующей карточки — по событию на каждую затронутую доску); отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.
@@ -423,6 +427,9 @@ read-only набор авторизованного пользователя, д
   Добавленный или удалённый файл меняет отпечаток блока;
 - `log_html`/`log_revision` — «Лог» карточки (журнал `BoardCardEvent` и, по
   времени рядом, файлы «Чата» и старые вложения задачи);
+- `stages_html`/`stages_revision` — «Этапы» на «Описании»
+  (`[data-live-board-stages]`): путь карточки по колонкам, только чтение,
+  вне охраняемой панели;
 - `links_html`/`links_revision` — «Связи» на «Описании»
   (`[data-live-board-links]`): только чтение, вне охраняемой панели; поле
   «+ Связь» ни в одном блоке;

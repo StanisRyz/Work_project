@@ -548,6 +548,7 @@ function createEnvironment({
         board.setAttribute('data-checklist-revision', 'checklist-rev-initial');
         board.setAttribute('data-followers-revision', 'followers-rev-initial');
         board.setAttribute('data-links-revision', 'links-rev-initial');
+        board.setAttribute('data-stages-revision', 'stages-rev-initial');
         board.setAttribute('data-subtasks-revision', 'subtasks-rev-initial');
         board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
         // The sub-board tabs: a read-only live block of their own.
@@ -615,6 +616,9 @@ function createEnvironment({
         const links = new Element('div');
         links.setAttribute('data-live-board-links', '');
         links.innerHTML = '<section>исходные связи</section>';
+        const stages = new Element('div');
+        stages.setAttribute('data-live-board-stages', '');
+        stages.innerHTML = '<section>исходные этапы</section>';
         const linkCode = new Element('input');
         linkCode.setAttribute('name', 'code');
         linkCode.value = '';
@@ -632,7 +636,7 @@ function createEnvironment({
         const subtaskSummary = new Element('div');
         subtaskSummary.setAttribute('data-live-board-subtask-summary', '');
         subtaskSummary.innerHTML = '<p>Подзадачи: 0 из 1</p>';
-        pane.append(card, checklist, checklistText, subtaskSummary, links, linkCode, facts, followers);
+        pane.append(card, checklist, checklistText, subtaskSummary, links, stages, linkCode, facts, followers);
         // «Чат»: «Все сообщения | Только файлы · N», the read-only list and,
         // below it, its form with the file input and the chosen files —
         // outside every live block, as `boards/includes/drawer.html` draws them.
@@ -709,6 +713,7 @@ function createEnvironment({
             move,
             followers,
             links,
+            stages,
             linkCode,
             execution,
             chat,

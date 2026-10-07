@@ -37,6 +37,7 @@ only by `file_download`/`file_preview`, which ask reading the board again;
 """
 
 import logging
+from decimal import Decimal
 from urllib.parse import urlencode
 
 from django.contrib import messages
@@ -72,7 +73,7 @@ from .forms import (
     FieldUpdateForm,
     OptionForm,
     ColumnPinsForm,
-    ColumnStaleForm,
+    ColumnNormForm,
     DirectionForm,
     MoveCardForm,
     SubBoardNameForm,
@@ -89,6 +90,7 @@ from .models import (
     BoardCardFieldValue,
     BoardCardLink,
     BoardColumn,
+    BoardDigestSubscription,
     BoardField,
     BoardFieldColor,
     BoardFieldOption,
@@ -102,6 +104,7 @@ from .permissions import (
     can_delete_card_file,
     can_link_card,
     can_manage_board,
+    can_subscribe_digest,
     can_restore_board,
     can_unlink_cards,
     can_view_board,
@@ -114,6 +117,7 @@ from .selectors import (
     board_tabs,
     build_board_nav,
     build_deviation_report,
+    build_stage_report,
     build_board_state,
     build_board_table,
     checklist_counts,
@@ -150,6 +154,7 @@ from .services import (
     toggle_column_subscription,
     LINK_CHOICES,
     link_cards,
+    set_digest_subscription,
     unlink_cards,
     archive_field,
     archive_option,
@@ -185,7 +190,7 @@ from .services import (
     reopen_card,
     restore_board,
     set_column_pins,
-    set_column_stale_days,
+    set_column_norm,
     update_card,
 )
 
@@ -415,6 +420,9 @@ CHECKLIST_TEMPLATE = 'boards/includes/checklist.html'
 FACTS_TEMPLATE = 'boards/includes/facts.html'
 FOLLOWERS_TEMPLATE = 'boards/includes/followers.html'
 LINKS_TEMPLATE = 'boards/includes/links.html'
+STAGES_TEMPLATE = 'boards/includes/stages.html'
+# «Отклонения» → «Этапы»: `?view=stages` of the deviations page.
+STAGES_VIEW = 'stages'
 SUBTASKS_TEMPLATE = 'boards/includes/subtasks.html'
 SUBTASK_SUMMARY_TEMPLATE = 'boards/includes/subtask_summary.html'
 SUBTASK_WARNING_TEMPLATE = 'boards/includes/subtask_warning.html'
@@ -821,7 +829,8 @@ def _board_blocks(request, context):
     «☑ 2/5»), never `panel_revision`. So are its «Подписчики»
     (`followers_html`, below the facts): somebody starting to follow — a
     colleague mentioned in «Чат» does — moves `followers_revision` alone. And
-    its «Связи» (`links_html`, above the facts): `links_revision`.
+    its «Связи» (`links_html`, above the facts): `links_revision`; its
+    «Этапы» (`stages_html`, below «Связи»): `stages_revision`.
 
     `drawer_html` is the whole drawer around those blocks — the tab strip and
     the chat's and the checklist's forms included — which the client inserts
@@ -845,6 +854,9 @@ def _board_blocks(request, context):
     # another board, moves `links_revision` alone.
     links = context.get('show_links', False)
     links_html = _render_block(LINKS_TEMPLATE, context, request) if links else ''
+    # «Этапы» likewise: the card moved on, or a day passing, moves
+    # `stages_revision` alone.
+    stages_html = _render_block(STAGES_TEMPLATE, context, request) if links else ''
     item = context['card']
     # «Подзадачи»: the list (its tab), the line on «Описание» and the warning
     # of «Завершить» — one read-only block in three containers with one
@@ -887,6 +899,8 @@ def _board_blocks(request, context):
         'followers_revision': content_revision(followers_html) if followers else '',
         'links_html': links_html,
         'links_revision': content_revision(links_html) if links else '',
+        'stages_html': stages_html,
+        'stages_revision': content_revision(stages_html) if links else '',
         'chat_count': item['comment_count'] if discussion else 0,
         'files_count': item['files_count'] if discussion else 0,
         'subtasks_html': subtasks_html,
@@ -905,14 +919,24 @@ def _board_blocks(request, context):
     return blocks
 
 
-def _member_heading(board):
-    """The heading's member avatars and their number — one query."""
+def _member_heading(board, user=None):
+    """The heading's member avatars and their number — one query — and, for
+    `user`, their «Дайджест на почту» (`digest_frequency`, `''` when off) —
+    one more. The page is drawn for a reader of the board only."""
     members, count = member_preview(board)
-    return {
+    heading = {
         'member_preview': members,
         'member_count': count,
         'member_more': max(count - len(members), 0),
     }
+    if user is not None:
+        heading['can_subscribe_digest'] = can_subscribe_digest(user, board, can_view=True)
+        heading['digest_frequency'] = (
+            BoardDigestSubscription.objects.filter(board=board, user=user)
+            .values_list('frequency', flat=True).first() or ''
+        ) if heading['can_subscribe_digest'] else ''
+        heading['digest_choices'] = BoardDigestSubscription.Frequency.choices
+    return heading
 
 
 def _render_board(request, board, sub_board, *, status=200, **options):
@@ -943,7 +967,7 @@ def _render_board(request, board, sub_board, *, status=200, **options):
     # The frame and the heading are the page's only — never part of a
     # fragment, so a live refresh never pays for them.
     context.update(_frame(request, board))
-    context.update(_member_heading(board))
+    context.update(_member_heading(board, request.user))
     request.session[LAST_SUB_BOARD_SESSION_KEY] = sub_board.pk
     return render(request, 'boards/detail.html', context, status=status)
 
@@ -1034,7 +1058,7 @@ def _render_table(request, board, sub_board):
         'can_work': can_work_on_board(request.user, board),
         'can_manage': can_manage_board(request.user, board),
         'can_restore': can_restore_board(request.user, board),
-        **_member_heading(board),
+        **_member_heading(board, request.user),
         'panel': None,
     }
     for row in context['field_filters']:
@@ -1070,6 +1094,8 @@ def table_headers(state):
         'Переносов',
         'Последняя причина',
         'В колонке, дн.',
+        'План выхода из этапа',
+        'Отклонение этапа, р.д.',
         'Чек-лист',
         'Ждёт',
         *(field.name for field in state['field_columns']),
@@ -1093,6 +1119,8 @@ def table_cells(state, row):
         row['due_change_count'],
         row['last_due_reason'] or None,
         row['in_column_days'],
+        row['plan_exit'],
+        row['stage_deviation'],
         row['checklist_label'] or None,
         row['waits_for'] or None,
         *(cell['raw'] for cell in row['cells']),
@@ -1736,6 +1764,37 @@ def card_unlink(request, pk, card_pk, link_pk):
 
 
 @login_required
+def board_digest_subscribe(request, pk):
+    """«Дайджест на почту: ежедневно / еженедельно / выключен» in the board's
+    «⋯»: `set_digest_subscription()`.
+
+    Reading the board is asked before the method — any reader may subscribe;
+    the service refuses an archived board. `frequency` is `DAILY`, `WEEKLY`
+    or empty; `?sub=` brings the redirect back to the tab.
+    """
+    board = _board_or_404(pk)
+    _require(can_view_board(request.user, board))
+    if request.method == 'POST':
+        try:
+            frequency = set_digest_subscription(
+                board, actor=request.user, frequency=request.POST.get('frequency', ''),
+            )
+        except BoardError as exc:
+            messages.error(request, str(exc))
+        else:
+            label = dict(BoardDigestSubscription.Frequency.choices).get(frequency)
+            messages.success(
+                request,
+                f'Дайджест доски «{board.name}» будет приходить на почту: {label.lower()}.'
+                if label else f'Дайджест доски «{board.name}» больше не приходит.',
+            )
+    sub_pk = request.GET.get('sub', '')
+    if sub_pk.isdigit() and board.sub_boards.filter(pk=int(sub_pk)).exists():
+        return redirect(_sub_board_url(board, int(sub_pk)))
+    return redirect('boards:detail', pk=board.pk)
+
+
+@login_required
 def column_follow(request, pk, sub_pk, column_pk):
     """«🔔 Сообщать о новых карточках» / «Не сообщать» in a column's «⋯»:
     `toggle_column_subscription()`.
@@ -2195,8 +2254,8 @@ def column_pins(request, pk, sub_pk, column_pk):
 
 
 @login_required
-def column_stale(request, pk, sub_pk, column_pk):
-    """«Застой» in a column's «⋯» menu: `set_column_stale_days()`.
+def column_norm(request, pk, sub_pk, column_pk):
+    """«Норматив этапа» in a column's «⋯» menu: `set_column_norm()`.
 
     The manager's right, asked before the method like every structure route;
     an empty number switches it off. A refusal (out of 1–365, the closing
@@ -2205,19 +2264,19 @@ def column_stale(request, pk, sub_pk, column_pk):
     board, sub_board = _structure_request(request, pk, sub_pk)
     column = _column_or_404(sub_board, column_pk)
     if request.method == 'POST':
-        form = ColumnStaleForm(request.POST)
+        form = ColumnNormForm(request.POST)
         if not form.is_valid():
-            _refused(request, 'Застой задаётся целым числом дней или не задаётся вовсе.')
+            _refused(request, 'Норматив этапа — целое число рабочих дней или пусто.')
         else:
             try:
-                updated = set_column_stale_days(column, actor=request.user, days=form.cleaned_data['days'])
+                updated = set_column_norm(column, actor=request.user, days=form.cleaned_data['days'])
             except BoardError as exc:
                 _refused(request, str(exc))
             else:
                 messages.success(
                     request,
-                    f'Колонка «{column.name}»: подсвечивать карточки через {updated.stale_after_days} дн.'
-                    if updated.stale_after_days else f'Колонка «{column.name}»: подсветка застоя выключена.',
+                    f'Колонка «{column.name}»: норматив этапа — {updated.norm_working_days} раб. дн.'
+                    if updated.norm_working_days else f'Колонка «{column.name}»: норматив этапа снят.',
                 )
     return _back(board, sub_board.pk, request)
 
@@ -2583,6 +2642,28 @@ def _report_date(value, default):
         return default
 
 
+def _export_stage_report(board, sub_board, report):
+    """«Этапы» of «Отклонения» as a spreadsheet: the very rows of the page."""
+    stem = '-'.join(part for part in (
+        safe_file_part(board.code), 'etapy', safe_file_part(sub_board.name) if sub_board else '',
+    ) if part)
+    return xlsx_response(
+        stem,
+        f'{board.code} Этапы',
+        ['Поддоска', 'Колонка', 'Норматив, р.д.', 'Вышло карточек', 'Среднее, р.д.',
+         'Максимум, р.д.', 'В нормативе, %', 'Сейчас просрочен этап'],
+        [
+            [
+                row['sub_board'].name, row['column'].name, row['norm'], row['exits'],
+                Decimal(str(row['average'])) if row['average'] is not None else None,
+                row['longest'], row['within_share'], row['late_now'],
+            ]
+            for row in report['stage_rows']
+        ],
+        stamp_separator='-',
+    )
+
+
 @login_required
 def board_deviations(request, pk):
     import datetime
@@ -2597,11 +2678,36 @@ def board_deviations(request, pk):
     tabs = board_tabs(board)
     sub_pk = request.GET.get('sub', '')
     sub_board = _tab_of(tabs, int(sub_pk)) if sub_pk.isdigit() else None
-    report = build_deviation_report(board, date_from=date_from, date_to=date_to, sub_board=sub_board)
+    stages = request.GET.get('view') == STAGES_VIEW
     query = urlencode([
         ('from', date_from.isoformat()), ('to', date_to.isoformat()),
         *([('sub', sub_board.pk)] if sub_board is not None else []),
     ])
+    base_url = reverse('boards:deviations', args=[board.pk])
+    if stages:
+        report = build_stage_report(board, date_from=date_from, date_to=date_to, sub_board=sub_board)
+        if request.GET.get('export') == 'xlsx':
+            return _export_stage_report(board, sub_board, report)
+    else:
+        report = build_deviation_report(board, date_from=date_from, date_to=date_to, sub_board=sub_board)
+    common = {
+        **_frame(request, board),
+        **report,
+        'board': board,
+        'tabs': tabs,
+        'sub_board': sub_board,
+        'date_from': date_from,
+        'date_to': date_to,
+        'report_view': STAGES_VIEW if stages else '',
+        'moves_url': f'{base_url}?{query}',
+        'stages_url': f'{base_url}?{query}&view={STAGES_VIEW}',
+    }
+    if stages:
+        return render(request, 'boards/deviations.html', {
+            **common,
+            'header_title': f'Этапы · {board.name}',
+            'export_url': f'{base_url}?{query}&view={STAGES_VIEW}&export=xlsx',
+        })
     if request.GET.get('export') == 'xlsx':
         stem = '-'.join(part for part in (
             safe_file_part(board.code), 'otkloneniya', safe_file_part(sub_board.name) if sub_board else '',
@@ -2624,15 +2730,9 @@ def board_deviations(request, pk):
             typed_dates=True,
         )
     return render(request, 'boards/deviations.html', {
-        **_frame(request, board),
-        **report,
+        **common,
         'header_title': f'Отклонения · {board.name}',
-        'board': board,
-        'tabs': tabs,
-        'sub_board': sub_board,
-        'date_from': date_from,
-        'date_to': date_to,
-        'export_url': f"{reverse('boards:deviations', args=[board.pk])}?{query}&export=xlsx",
+        'export_url': f'{base_url}?{query}&export=xlsx',
         'moves_label': f"{report['moves']} {plural_ru(report['moves'], 'перенос', 'переноса', 'переносов')}",
     })
 

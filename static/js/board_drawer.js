@@ -280,6 +280,7 @@
         root.dataset.checklistRevision = payload.checklist_revision || '';
         root.dataset.followersRevision = payload.followers_revision || '';
         root.dataset.linksRevision = payload.links_revision || '';
+        root.dataset.stagesRevision = payload.stages_revision || '';
         root.dataset.subtasksRevision = payload.subtasks_revision || '';
         root.dataset.panelHoldsInput = 'false';
         markTile(payload.card_id);
@@ -314,6 +315,7 @@
         root.dataset.checklistRevision = '';
         root.dataset.followersRevision = '';
         root.dataset.linksRevision = '';
+        root.dataset.stagesRevision = '';
         root.dataset.subtasksRevision = '';
         root.dataset.panelHoldsInput = 'false';
         markTile(null);

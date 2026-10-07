@@ -398,7 +398,7 @@ class SubtasksDoneTests(SubtaskMixin, TestCase):
 
 
 # --------------------------------------------------------------------------
-# Where subtasks are not: columns, counts, filters, «Застой»
+# Where subtasks are not: columns, counts, filters, «Норматив этапа»
 # --------------------------------------------------------------------------
 
 
@@ -422,7 +422,7 @@ class NotOnTheBoardTests(SubtaskMixin, TestCase):
         self.parent = self.card('Чужой заказ', assignees=[self.colleague])
         self.sub('Моя позиция', assignees=[self.member])
         column = self.column()
-        column.stale_after_days = 1
+        column.norm_working_days = 1
         column.save()
         old = timezone_now() - timedelta(days=5)
         BoardCardEvent.objects.filter(card__parent=self.parent).update(created_at=old)
@@ -718,7 +718,8 @@ class SubtaskLiveTests(SubtaskMixin, TestCase):
 # tiles' own query; «+ Подзадача» offers the members the panel has read.
 # Stage 21: one more for the card's «Переносы» (the moves of its срок).
 # Stage 22: two more — the columns this reader follows («🔔», one query) and the card's «Связи» (one query).
-SUBTASK_PAGE_QUERIES = 42
+# Stage 23: one more — the reader's «Дайджест на почту» in the heading's «⋯» (the page's own, never the fragment's).
+SUBTASK_PAGE_QUERIES = 43
 
 
 class SubtaskQueryCountTests(SubtaskMixin, TestCase):

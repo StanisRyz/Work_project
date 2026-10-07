@@ -54,7 +54,7 @@ class BoardColumnPinInline(ReadOnlyAdminMixin, admin.TabularInline):
 
 @admin.register(BoardColumn)
 class BoardColumnAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
-    list_display = ('pk', 'sub_board', 'name', 'position', 'is_done', 'pinned_mode', 'stale_after_days')
+    list_display = ('pk', 'sub_board', 'name', 'position', 'is_done', 'pinned_mode', 'norm_working_days')
     list_filter = ('is_done', 'pinned_mode')
     inlines = (BoardColumnPinInline,)
 

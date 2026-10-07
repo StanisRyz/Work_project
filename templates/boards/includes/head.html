@@ -45,6 +45,19 @@ manages or may restore it. The page's own, never part of a live block.
                         </form>
                     {% endif %}
                     <a class="board-menu__link" href="{% url 'boards:members' board.pk %}">Участники ({{ member_count }})</a>
+                    {% if can_subscribe_digest %}
+                        {% comment %}«Дайджест на почту»: every reader's own, an ordinary form to `boards:digest`.{% endcomment %}
+                        <form class="board-menu__form board-digest" method="post" action="{% url 'boards:digest' board.pk %}?sub={{ sub_board.pk }}">
+                            {% csrf_token %}
+                            <label class="board-menu__label" for="board-digest">Дайджест на почту</label>
+                            <select id="board-digest" name="frequency">
+                                {% for value, label in digest_choices %}<option value="{{ value }}"{% if value == digest_frequency %} selected{% endif %}>{{ label|lower }}</option>{% endfor %}
+                                <option value=""{% if not digest_frequency %} selected{% endif %}>выключен</option>
+                            </select>
+                            <span class="board-pins__hint">Просроченные карточки и этапы, блокировки, переносы срока — утром по рабочим дням или по понедельникам.</span>
+                            <button class="link-button link-button--compact" type="submit">Сохранить</button>
+                        </form>
+                    {% endif %}
                     <a class="board-menu__link" href="{% url 'boards:deviations' board.pk %}">Отклонения</a>
                     {% if can_manage %}<a class="board-menu__link" href="{% url 'boards:fields' board.pk %}">Поля карточек</a>{% endif %}
                     {% if can_manage %}

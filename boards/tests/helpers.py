@@ -93,10 +93,12 @@ CSRF_INPUT = re.compile(r'<input\b[^>]*\bname="csrfmiddlewaretoken"[^>]*>')
 # The panel heading's «Следить» / «Вы следите» form — every reader's own —
 # and, since stage 22, a column's «🔔 Сообщать о новых карточках» in its «⋯»
 # (every reader's own too) with the `<details>` that holds it for a reader
-# who manages nothing.
+# who manages nothing; since stage 23 the board's «Дайджест на почту» in
+# the heading's «⋯», every reader's own as well.
 FOLLOW_FORM = re.compile(
     r'<form class="board-follow".*?</form>'
-    r'|<form class="board-menu__form board-menu__follow".*?</form>',
+    r'|<form class="board-menu__form board-menu__follow".*?</form>'
+    r'|<form class="board-menu__form board-digest".*?</form>',
     re.S,
 )
 

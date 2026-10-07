@@ -1,0 +1,36 @@
+{% comment %}
+«Этапы» of a card: the live block `[data-live-board-stages]`, read only, on
+«Описание» below «Связи». Its own fingerprint (`stages_revision`) — outside
+the guarded panel — so the card moved on by a colleague, or a day passing,
+redraws it and never raises the conflict banner.
+
+One row per column the card has stood in, from its journal
+(`selectors.card_stages()`): the column's name then, entered, the planned
+exit by the column's **current** «Норматив этапа» (a norm is not kept from
+before — said under the table), the actual exit, the working days in the
+stage and the deviation in working days (above zero — late; for the stage
+the card is in now, as of today, with its light). A subtask stands in no
+column and has no block.
+{% endcomment %}{% if card.stages %}<section class="board-stages" aria-label="Этапы">
+    <h3 class="board-stages__title">Этапы</h3>
+    <div class="board-stages__wrap">
+        <table class="board-stages__table">
+            <thead>
+                <tr><th>Колонка</th><th>Вошла</th><th>План выхода</th><th>Вышла</th><th>Р.д.</th><th>Откл.</th></tr>
+            </thead>
+            <tbody>
+                {% for row in card.stages %}
+                    <tr class="{% if row.is_current %}board-stages__row--current{% endif %}{% if row.deviation and row.deviation > 0 %} board-stages__row--late{% endif %}">
+                        <td><span class="user-text">{{ row.column|default:'—' }}</span></td>
+                        <td>{{ row.entered|date:'d.m.Y' }}</td>
+                        <td>{% if row.plan %}<span class="board-stages__plan">{% if row.light %}<span class="board-light board-light--{{ row.light }}" aria-hidden="true"></span>{% endif %}{{ row.plan|date:'d.m.Y' }}</span>{% else %}—{% endif %}</td>
+                        <td>{% if row.exited %}{{ row.exited|date:'d.m.Y' }}{% elif row.is_done %}—{% else %}в этапе{% endif %}</td>
+                        <td class="board-stages__number">{% if row.days is not None %}{{ row.days }}{% else %}—{% endif %}</td>
+                        <td class="board-stages__number">{% if row.deviation is not None %}{% if row.deviation > 0 %}+{% endif %}{{ row.deviation }}{% else %}—{% endif %}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="board-stages__note">План и отклонение — по текущему нормативу колонки, в рабочих днях; больше нуля — опоздание.</p>
+</section>{% endif %}

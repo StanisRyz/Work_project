@@ -35,6 +35,12 @@
     --board-color-purple-text: #5b21b6;
     --board-color-teal-bg: #ccfbf1;
     --board-color-teal-text: #115e59;
+    /* The traffic light of «Норматив этапа»: a dot has to read as green,
+       yellow or red at 8px, which the options' text colours (dark, for
+       contrast on their soft backgrounds) do not — yellow's is brown. */
+    --board-light-green: #16a34a;
+    --board-light-yellow: #eab308;
+    --board-light-red: #dc2626;
 }
 
 .board-chip {
@@ -367,7 +373,8 @@
 /* «Поля»: the field filters, a `<details>` of the same form. The panel lies
    over the columns under its button (a `.board-menu__body`), so the row keeps
    its height and its width whatever the board's fields are. */
-.board-filters__fields > .board-filters__fields-toggle {
+.board-filters__fields > .board-filters__fields-toggle,
+.board-filters__show > .board-filters__show-toggle {
     display: inline-flex;
     height: var(--control-height);
     align-items: center;
@@ -382,20 +389,37 @@
     cursor: pointer;
 }
 
-.board-filters__fields > .board-filters__fields-toggle::-webkit-details-marker {
+.board-filters__fields > .board-filters__fields-toggle::-webkit-details-marker,
+.board-filters__show > .board-filters__show-toggle::-webkit-details-marker {
     display: none;
 }
 
-.board-filters__fields > .board-filters__fields-toggle::after {
+.board-filters__fields > .board-filters__fields-toggle::after,
+.board-filters__show > .board-filters__show-toggle::after {
     margin-left: 6px;
     color: var(--color-muted);
     content: '▾';
 }
 
-.board-filters__fields > .board-filters__fields-toggle--active {
+.board-filters__fields > .board-filters__fields-toggle--active,
+.board-filters__show > .board-filters__show-toggle--active {
     border-color: var(--color-primary);
     color: var(--color-primary);
     font-weight: 600;
+}
+
+/* «Показать»: the four flags, one under another, in the same kind of panel. */
+.board-filters__show .board-filters__show-body {
+    right: auto;
+    left: 0;
+    display: grid;
+    gap: 8px;
+    width: max-content;
+    min-width: 220px;
+}
+
+.board-filters__show-body > .link-button {
+    justify-self: start;
 }
 
 .board-filters__fields .board-field-filters {
@@ -2017,36 +2041,54 @@
     display: none;
 }
 
-/* ---- Time in the column and «Застой» (stage 17) ----
-   An open tile says how long it has stood in its column; one past the
-   column's threshold takes the warning colours — the orange pair of the
-   option tokens above, no new hex. The column header names the threshold. */
+/* ---- Time in the column and the stage's traffic light ----
+   An open tile says how long it has stood in its column; in a column with
+   a «Норматив этапа» the line opens with the traffic light and the planned
+   exit. A red one — the stage past its plan — takes the red pair of the
+   option tokens above, no new hex. The column header names the norm. */
 
 .board-tile__age {
     justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: var(--color-muted);
     font-size: 12px;
     line-height: 1.4;
 }
 
-.board-tile__age--stale {
+.board-tile__age--late {
     padding: 1px 6px;
     border-radius: var(--radius);
-    background: var(--board-color-orange-bg);
-    color: var(--board-color-orange-text);
+    background: var(--board-color-red-bg);
+    color: var(--board-color-red-text);
     font-weight: 700;
 }
 
-.board-tile.board-tile--stale {
-    border-color: var(--board-color-orange-text);
-    box-shadow: inset 3px 0 0 var(--board-color-orange-text);
+.board-tile.board-tile--late {
+    border-color: var(--board-color-red-text);
+    box-shadow: inset 3px 0 0 var(--board-color-red-text);
 }
 
-.board-tile.board-tile--stale.board-tile--open {
+.board-tile.board-tile--late.board-tile--open {
     box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
-.board-column__stale {
+/* The light itself: a dot in the text colour of the green, yellow or red
+   option pair. */
+.board-light {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.board-light--green { background: var(--board-light-green); }
+.board-light--yellow { background: var(--board-light-yellow); }
+.board-light--red { background: var(--board-light-red); }
+
+.board-column__norm {
     flex: 0 0 auto;
     color: var(--color-muted);
     font-size: 12px;
@@ -2054,13 +2096,13 @@
     white-space: nowrap;
 }
 
-.board-stale__row {
+.board-norm__row {
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
-.board-stale__days {
+.board-norm__days {
     width: 96px;
 }
 
@@ -2160,11 +2202,11 @@
     text-align: right;
 }
 
-.board-table__days--stale {
+.board-table__days--late {
     padding: 1px 6px;
     border-radius: var(--radius);
-    background: var(--board-color-orange-bg);
-    color: var(--board-color-orange-text);
+    background: var(--board-color-red-bg);
+    color: var(--board-color-red-text);
     font-weight: 700;
 }
 
@@ -3407,4 +3449,79 @@ form[data-chat-files-ready] .board-chat__file-input {
     border-top: 2px solid var(--color-border);
     font-weight: 700;
     background: var(--color-bg);
+}
+
+/* «Таблица»: the stage's planned exit with its light, and the deviation. */
+.board-table__plan {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.board-table__deviation--late {
+    color: var(--board-color-red-text);
+    font-weight: 700;
+}
+
+/* «Этапы» on «Описание»: a compact table of the card's stays in columns. */
+.board-stages {
+    display: grid;
+    gap: 6px;
+}
+
+.board-stages__title {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.board-stages__wrap {
+    overflow-x: auto;
+}
+
+.board-stages__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.board-stages__table th,
+.board-stages__table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--color-border);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.board-stages__table th {
+    color: var(--color-muted);
+    font-weight: 600;
+}
+
+.board-stages__number {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.board-stages__row--current td {
+    font-weight: 600;
+}
+
+.board-stages__row--late td:last-child {
+    color: var(--board-color-red-text);
+    font-weight: 700;
+}
+
+.board-stages__plan {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-stages__note {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 12px;
 }

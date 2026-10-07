@@ -113,8 +113,8 @@ from .models import (
     MAX_CHECKLIST_ITEMS,
     MAX_FILES_PER_MESSAGE,
     MAX_SUBTASKS,
-    STALE_DAYS_MAX,
-    STALE_DAYS_MIN,
+    NORM_DAYS_MAX,
+    NORM_DAYS_MIN,
     BOARD_CODE_MAX_LENGTH,
     BOARD_CODE_MIN_LENGTH,
     BOARD_CODE_PATTERN,
@@ -132,6 +132,7 @@ from .models import (
     BoardColumn,
     BoardColumnPin,
     BoardColumnSubscription,
+    BoardDigestSubscription,
     BoardField,
     BoardFieldColor,
     BoardFieldOption,
@@ -149,6 +150,7 @@ from .permissions import (
     can_follow_card,
     can_follow_column,
     can_link_card,
+    can_subscribe_digest,
     can_manage_board,
     can_restore_board,
     can_unlink_cards,
@@ -515,7 +517,8 @@ def remove_board_member(board, user, *, actor):
     of the board and in the same transaction: a column must never put a card
     on somebody who is no longer on the board. So do their subscriptions to
     the board's cards (`BoardCardSubscription`) and columns
-    (`BoardColumnSubscription`).
+    (`BoardColumnSubscription`), and their digest of it
+    (`BoardDigestSubscription`).
     """
     from tasks.models import Task
 
@@ -551,6 +554,9 @@ def remove_board_member(board, user, *, actor):
         # So does their «🔔» on the board's columns: a person who no longer
         # reads the board is told nothing about its cards.
         BoardColumnSubscription.objects.filter(column__sub_board__board=board, user=user).delete()
+        # And their digest of this board: a person who no longer reads it is
+        # mailed nothing about it.
+        BoardDigestSubscription.objects.filter(board=board, user=user).delete()
         pins = BoardColumnPin.objects.filter(column__sub_board__board=board, user=user)
         pinned_columns = list(pins.values_list('column_id', flat=True))
         if pinned_columns:
@@ -1904,15 +1910,18 @@ def set_column_pins(column, *, actor, user_ids, mode):
     return column
 
 
-def set_column_stale_days(column, *, actor, days):
-    """«Застой» of a working column: highlight a card standing in it `days`
-    calendar days or more; `None` (or an empty value) switches it off.
+def set_column_norm(column, *, actor, days):
+    """«Норматив этапа» of a working column: a card should stand in it at
+    most `days` working days (`ecosystem.workdays`); `None` (or an empty
+    value) removes the norm.
 
     The manager's, like every other part of the structure: one board lock,
-    never an archived board, never the closing column (a completed card is not
-    stuck), 1 to `STALE_DAYS_MAX` days. The same threshold again stores and
-    announces nothing; a change publishes one `board.updated(structure_changed)`
-    and touches the column's `updated_at` (the `boards` sync revision).
+    never an archived board, never the closing column (a completed card has
+    no stage left to be late in), 1 to `NORM_DAYS_MAX` working days. The same
+    norm again stores and announces nothing; a change publishes one
+    `board.updated(structure_changed)` and touches the column's `updated_at`
+    (the `boards` sync revision). Only the current norm is kept: the stage
+    path and the report read past stays against it.
     """
     if days in (None, ''):
         days = None
@@ -1920,28 +1929,28 @@ def set_column_stale_days(column, *, actor, days):
         try:
             days = int(days)
         except (TypeError, ValueError):
-            raise BoardError('Укажите число дней или оставьте поле пустым.') from None
+            raise BoardError('Укажите число рабочих дней или оставьте поле пустым.') from None
     with transaction.atomic():
-        board = _manageable_board(column.sub_board.board_id, 'set_column_stale_days', actor=actor)
-        column = _column_of(board, column, operation='set_column_stale_days', actor=actor)
+        board = _manageable_board(column.sub_board.board_id, 'set_column_norm', actor=actor)
+        column = _column_of(board, column, operation='set_column_norm', actor=actor)
         if column.is_done:
-            _rejected('set_column_stale_days', 'done_column', actor=actor, board_id=board.pk)
+            _rejected('set_column_norm', 'done_column', actor=actor, board_id=board.pk)
             raise BoardError(
-                'В завершающей колонке работа уже выполнена — застоя в ней не бывает.'
+                'В завершающей колонке работа уже выполнена — норматива этапа у неё нет.'
             )
-        if days is not None and not STALE_DAYS_MIN <= days <= STALE_DAYS_MAX:
-            _rejected('set_column_stale_days', 'out_of_range', actor=actor, board_id=board.pk)
+        if days is not None and not NORM_DAYS_MIN <= days <= NORM_DAYS_MAX:
+            _rejected('set_column_norm', 'out_of_range', actor=actor, board_id=board.pk)
             raise BoardError(
-                f'Застой задаётся числом дней от {STALE_DAYS_MIN} до {STALE_DAYS_MAX} '
-                'или не задаётся вовсе.'
+                f'Норматив этапа — число рабочих дней от {NORM_DAYS_MIN} до {NORM_DAYS_MAX} '
+                'или пусто.'
             )
-        if column.stale_after_days == days:
+        if column.norm_working_days == days:
             return column
-        column.stale_after_days = days
-        column.save(update_fields=['stale_after_days', 'updated_at'])
+        column.norm_working_days = days
+        column.save(update_fields=['norm_working_days', 'updated_at'])
         _structure_changed(
-            board, 'board.column_stale_days_changed', actor=actor,
-            column_id=column.pk, stale_after_days=days,
+            board, 'board.column_norm_changed', actor=actor,
+            column_id=column.pk, norm_working_days=days,
         )
     return column
 
@@ -3474,3 +3483,52 @@ def _notify_column_entered(card, task, column, board, *, actor, told=()):
     )
     if recipients:
         notify_board_column_entered(task, actor, recipients, column=column, at=timezone.now())
+
+
+# --------------------------------------------------------------------------
+# «Дайджест на почту»
+# --------------------------------------------------------------------------
+
+
+def set_digest_subscription(board, *, actor, frequency):
+    """«Дайджест на почту: ежедневно / еженедельно / выключен» of a board.
+
+    `frequency` is `DAILY`, `WEEKLY`, or empty (`''`/`None`) to stop. Any
+    reader of a live board (`can_subscribe_digest()`), under the board lock;
+    personal — no event, no journal entry. Changing the frequency keeps the
+    day it was last handled, so switching does not send twice in one day.
+    Returns the frequency afterwards (`''` when off). The letters themselves
+    are `boards.digest.send_digests()`, run by `manage.py board_digest`.
+    """
+    frequency = (frequency or '').strip().upper()
+    if frequency and frequency not in BoardDigestSubscription.Frequency.values:
+        raise BoardError('Выберите, как часто присылать дайджест.')
+    with transaction.atomic():
+        board = _lock_board(board.pk)
+        _refuse_archived('set_digest_subscription', board, actor=actor)
+        if not can_subscribe_digest(actor, board):
+            _rejected('set_digest_subscription', 'not_permitted', actor=actor, board_id=board.pk)
+            raise BoardError('Дайджест доски получают её читатели.')
+        current = BoardDigestSubscription.objects.filter(board=board, user=actor).first()
+        if not frequency:
+            if current is None:
+                return ''
+            current.delete()
+        elif current is None:
+            BoardDigestSubscription.objects.create(board=board, user=actor, frequency=frequency)
+        elif current.frequency == frequency:
+            return frequency
+        else:
+            current.frequency = frequency
+            current.save(update_fields=['frequency'])
+    log_event(
+        logger,
+        'INFO',
+        'board.digest_subscription_changed',
+        board_id=board.pk,
+        actor_user_id=actor.pk,
+        frequency=frequency or 'OFF',
+        outcome='ok',
+    )
+    return frequency
+

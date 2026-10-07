@@ -22,7 +22,9 @@ same address. A row opens its card on the board (`data-row-url`, the shared
 to the other sub-boards' tables and carry no menus — the structure is managed
 on the board.
 
-«Исходный срок», «Переносов» (sortable) and «Последняя причина» follow
+«План выхода из этапа» and «Отклонение этапа, р.д.» (sortable; above zero is
+late) follow «В колонке» for an open card in a column with a «Норматив
+этапа». «Исходный срок», «Переносов» (sortable) and «Последняя причина» follow
 «Срок»: the first срок (— where unknown), how many times it moved, and the
 reason of the latest move.
 
@@ -62,6 +64,8 @@ under it, indented, with a «Родитель» column; the Excel holds the same
                         {% sortable_th 'Переносов' 'changes' sort 'board-table__changes' %}
                         <th class="board-table__reason">Последняя причина</th>
                         {% sortable_th 'В колонке' 'days' sort 'board-table__days' %}
+                        <th class="board-table__date">План выхода из этапа</th>
+                        {% sortable_th 'Отклонение этапа, р.д.' 'stage' sort 'board-table__stage' %}
                         <th class="board-table__checklist">Чек-лист</th>
                         <th class="board-table__waits">Ждёт</th>
                         {% for column in table_fields %}
@@ -74,7 +78,7 @@ under it, indented, with a «Родитель» column; the Excel holds the same
                 <tbody>
                 {% for row in rows %}
                     {% url 'boards:sub_board' board.pk row.card.sub_board_id as card_board_url %}
-                    <tr class="{% if row.is_closed %}board-table__row--closed{% endif %}{% if row.is_stale %} board-table__row--stale{% endif %}{% if row.is_subtask %} board-table__row--subtask{% endif %}" data-row-url="{{ card_board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">
+                    <tr class="{% if row.is_closed %}board-table__row--closed{% endif %}{% if row.is_late %} board-table__row--late{% endif %}{% if row.is_subtask %} board-table__row--subtask{% endif %}" data-row-url="{{ card_board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">
                         <td><a class="table-link" href="{{ card_board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" title="Задача №{{ row.task.pk }}">{{ row.card.code }}</a></td>
                         {% if whole_board %}<td><span class="user-text">{{ row.sub_board.name }}</span></td>{% endif %}
                         {% if subtasks %}<td>{% if row.is_subtask %}{{ row.parent_code }}{% else %}—{% endif %}</td>{% endif %}
@@ -85,7 +89,9 @@ under it, indented, with a «Родитель» column; the Excel holds the same
                         <td>{% if row.original_due_date %}{{ row.original_due_date|date:'d.m.Y' }}{% else %}—{% endif %}</td>
                         <td class="board-table__number"{% if row.due_change_count %} title="{{ row.due_change_hint }}"{% endif %}>{{ row.due_change_count }}</td>
                         <td>{% if row.last_due_reason %}<span class="user-text text-clamp-2" title="{{ row.last_due_reason }}">{{ row.last_due_reason }}</span>{% else %}—{% endif %}</td>
-                        <td class="board-table__number">{% if row.in_column_days is not None %}<span class="board-table__days{% if row.is_stale %} board-table__days--stale{% endif %}" title="В колонке с {{ row.in_column_since|date:'d.m.Y' }}">{% if row.in_column_days %}{{ row.in_column_days }} дн.{% else %}сегодня{% endif %}</span>{% else %}—{% endif %}</td>
+                        <td class="board-table__number">{% if row.in_column_days is not None %}<span class="board-table__days{% if row.is_late %} board-table__days--late{% endif %}" title="В колонке с {{ row.in_column_since|date:'d.m.Y' }}">{% if row.in_column_days %}{{ row.in_column_days }} дн.{% else %}сегодня{% endif %}</span>{% else %}—{% endif %}</td>
+                        <td>{% if row.plan_exit %}<span class="board-table__plan">{% if row.light %}<span class="board-light board-light--{{ row.light }}" aria-label="{{ row.light_label }}"></span>{% endif %}{{ row.plan_exit|date:'d.m.Y' }}</span>{% else %}—{% endif %}</td>
+                        <td class="board-table__number">{% if row.stage_deviation is not None %}<span class="board-table__deviation{% if row.stage_deviation > 0 %} board-table__deviation--late{% endif %}" title="Рабочих дней от плановой даты выхода до сегодня: больше нуля — опоздание">{% if row.stage_deviation > 0 %}+{% endif %}{{ row.stage_deviation }}</span>{% else %}—{% endif %}</td>
                         <td class="board-table__number">{% if row.checklist_label %}<span class="board-table__checklist-value{% if row.checklist_done == row.checklist_total %} is-complete{% endif %}" title="Чек-лист: сделано {{ row.checklist_done }} из {{ row.checklist_total }}">{{ row.checklist_label }}</span>{% else %}—{% endif %}</td>
                         <td>{% if row.waits_for %}<span class="board-table__waits-value">⛔ {{ row.waits_for }}</span>{% else %}—{% endif %}</td>
                         {% for cell in row.cells %}

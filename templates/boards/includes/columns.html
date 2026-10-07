@@ -30,9 +30,9 @@ the filters (`column.sums`); nothing while the column is empty.
 A working column with people pinned to it («Закреплённые исполнители»: a card
 created here or moved here gets them) shows up to three of them in its header
 and «+N»; the full list is on the group's `title`. The manager sets them in the
-column's «⋯» menu, and «Застой» there too: a working column with a threshold
-shows «⏱ N дн.» in its header, and its tiles that have stood here that long
-are highlighted.
+column's «⋯» menu, and «Норматив этапа» there too: a working column with a
+norm shows «⏱ N р.д.» in its header, and each open tile in it its traffic
+light (`tile.html`).
 {% endcomment %}
 <div class="board-columns" aria-label="Колонки поддоски «{{ sub_board.name }}»" data-board-columns data-fields-stamp="{{ fields_stamp }}">
     {% for column in columns %}
@@ -41,8 +41,8 @@ are highlighted.
             <header class="board-column__header">
                 <h2 id="board-column-{{ column.pk }}" class="user-text">{{ column.name }}</h2>
                 <span class="tab-count" data-column-count>{{ column.count }}</span>
-                {% if not column.is_done and column.column.stale_after_days %}
-                    <span class="board-column__stale" title="Застой: карточка подсвечивается, если стоит в колонке {{ column.column.stale_after_days }} дн. и дольше">⏱ {{ column.column.stale_after_days }} дн.</span>
+                {% if not column.is_done and column.column.norm_working_days %}
+                    <span class="board-column__norm" title="Норматив этапа: {{ column.column.norm_working_days }} раб. дн. в колонке">⏱ {{ column.column.norm_working_days }} р.д.</span>
                 {% endif %}
                 {% if column.is_followed %}<span class="board-column__followed" title="Вы следите за колонкой: новые карточки придут в колокольчик" aria-label="Вы следите за колонкой">🔔</span>{% endif %}
                 {% if column.pinned %}
@@ -60,7 +60,7 @@ are highlighted.
                         {% url 'boards:column_move' board.pk sub_board.pk column.pk as move_url %}
                         {% url 'boards:column_delete' board.pk sub_board.pk column.pk as delete_url %}
                         {% url 'boards:column_pins' board.pk sub_board.pk column.pk as pins_url %}
-                        {% url 'boards:column_stale' board.pk sub_board.pk column.pk as stale_url %}
+                        {% url 'boards:column_norm' board.pk sub_board.pk column.pk as norm_url %}
                         {% url 'boards:column_follow' board.pk sub_board.pk column.pk as follow_url %}
                         {% include 'boards/includes/structure_menu.html' with kind='column' object=column.column name=column.name max_length=60 can_move_left=column.can_move_left can_move_right=column.can_move_right can_delete=column.can_delete pin_row=column follow_row=column %}
                     {% endif %}

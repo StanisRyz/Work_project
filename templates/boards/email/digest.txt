@@ -1,0 +1,24 @@
+{% autoescape off %}Экосистема качества — дайджест досок за {{ today|date:"d.m.Y" }}
+
+Здравствуйте, {{ user_name }}!
+{% for section in sections %}
+==============================
+Доска «{{ section.board.name }}» ({{ section.board.code }}), период {{ section.since|date:"d.m.Y" }} — {{ section.until|date:"d.m.Y" }}
+Доска: {{ section.board_url }}
+{% if section.overdue %}
+Просроченные карточки ({{ section.overdue|length }}{% if section.overdue_more %} и ещё {{ section.overdue_more }}{% endif %}): {{ section.overdue_url }}
+{% for row in section.overdue %}- {{ row.code }} {{ row.title }} — срок {{ row.due_date|date:"d.m.Y" }}{% if row.assignees %}; исполнители: {{ row.assignees }}{% endif %}
+{% endfor %}{% endif %}{% if section.late %}
+Просрочен этап ({{ section.late|length }}{% if section.late_more %} и ещё {{ section.late_more }}{% endif %}): {{ section.late_url }}
+{% for row in section.late %}- {{ row.code }} {{ row.title }} — «{{ row.column }}», план до {{ row.plan|date:"d.m.Y" }}, опоздание {{ row.late_by }} р.д.
+{% endfor %}{% endif %}{% if section.blocked %}
+Заблокированные ({{ section.blocked|length }}{% if section.blocked_more %} и ещё {{ section.blocked_more }}{% endif %}): {{ section.blocked_url }}
+{% for row in section.blocked %}- {{ row.code }} {{ row.title }} — ждёт {{ row.waits_for }}
+{% endfor %}{% endif %}{% if section.moves %}
+Переносы срока за период ({{ section.moves|length }}{% if section.moves_more %} и ещё {{ section.moves_more }}{% endif %}):
+{% for row in section.moves %}- {{ row.code }} {{ row.title }}: {{ row.old_due|date:"d.m.Y"|default:"—" }} → {{ row.new_due|date:"d.m.Y"|default:"—" }}{% if row.reason %} ({{ row.reason }}){% endif %}
+{% endfor %}{% endif %}
+Выполнено за период: {{ section.completed }}
+{% endfor %}
+Для просмотра требуется вход в систему: {{ app_url }}
+Это автоматическая рассылка. Отписаться — «⋯» доски → «Дайджест на почту: выключен».{% endautoescape %}

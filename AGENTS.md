@@ -18,7 +18,7 @@ model without explicit approval.
 
 | App | Owns |
 | --- | --- |
-| `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware, working-day arithmetic (`workdays.py`), the registry template tags (`templatetags/registry.py`: sortable headers, the query-string rewrite, the deadline in words) and the dependency-free `.xlsx` writer for registry exports (`xlsx.py`). No models |
+| `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware, working-day arithmetic (`workdays.py`: `add_working_days()` and its inverse `working_days_between()`), the registry template tags (`templatetags/registry.py`: sortable headers, the query-string rewrite, the deadline in words) and the dependency-free `.xlsx` writer for registry exports (`xlsx.py`). No models |
 | `dashboard` | the landing page at `/`: the «Быстрый доступ» grid declared in `dashboard/sections.py` (each card carries the owning section's existing permission rule), the shortened «Мои задачи» block in `dashboard/selectors.py` (the task registry's own queryset and `tasks.presentation.describe_task()`), the «Что ждёт меня» counts in `dashboard/summary.py` (the menu badges and the «Сегодня» strip) and the topbar quick search at `/search/` in `dashboard/search.py`. Read-only. No models, no migrations, no services |
 | `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`). No user-facing pages beyond login/logout — user/department management is Django Admin only |
 | `references` | operations, defect types, act/task statuses, priorities, the reasons a board card's срок moves (`DeviationReason`, «Причины отклонений»: `code`, `name`, `is_active`, `display_order`; eight seeded by `references.0005` from `DEVIATION_REASONS`); `seed_references`. No user-facing pages — reference management is Django Admin only |
@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`, and a «Застой» threshold, `stale_after_days`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description; a subtask — `parent` — stands in no column and lives in its card's «Подзадачи»), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|subtasks|log` (the old `files` — «Чат» with `&chat=files`; «Подзадачи» only for a card, never a subtask), «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`; its task's older attachments through the task's own routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?stale`/`?blocked`/`?q` and by its fields (`?f_<id>…`, one parse — `parse_board_filters()`), an open tile says how long it has stood in its column (`in_column_since()`, from `BoardCardEvent`), `?view=table` is the sub-board as rows («Таблица», `build_board_table()`) and `&export=xlsx` that table through `ecosystem.xlsx`, and `BoardCard.version` refuses a stale edit; a card's «Чат» is `BoardCardComment`, written only by `post_card_comment()`, which also stores whom a message mentions with «@» (`BoardCardCommentMention`) and the files it carries (`BoardCardFile` — the board's own protected files, `boards:file_download`/`file_preview`, deleted to a tombstone by `delete_card_file()`; `static/js/board_chat_files.js` chooses them); a card's «Подзадачи» are cards with a `parent` (`create_subtask()`, `create_subtasks_from_list()`, `checklist_item_to_subtask()`; one level, no column, `MAX_SUBTASKS`); a card's «Чек-лист» is `BoardCardChecklistItem` (`add_checklist_item()` and its siblings) and its followers `BoardCardSubscription` (`toggle_card_subscription()`), and who hears of a card is `selectors.card_audience()`; cards are linked across boards by `BoardCardLink` (`link_cards()`/`unlink_cards()`: «Ждёт»/«Блокирует»/«Связана»/«Дубль», blocking and `BOARD_UNBLOCKED`), a column is followed by `BoardColumnSubscription` (`toggle_column_subscription()`, `BOARD_COLUMN_ENTERED`), and a number field may be summed in every column header (`BoardField.sum_in_column`). Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat with its files, its log, its checklist, its followers, its «Связи» and its «Подзадачи») and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
+| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`, and a «Норматив этапа», `norm_working_days`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description; a subtask — `parent` — stands in no column and lives in its card's «Подзадачи»), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|subtasks|log` (the old `files` — «Чат» with `&chat=files`; «Подзадачи» only for a card, never a subtask), «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`; its task's older attachments through the task's own routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?stale`/`?blocked`/`?q` and by its fields (`?f_<id>…`, one parse — `parse_board_filters()`), an open tile says how long it has stood in its column (`in_column_since()`, from `BoardCardEvent`) and, under a «Норматив этапа», when it should leave it (the traffic light; a card's «Этапы», the «Этапы» tab of «Отклонения»), `?view=table` is the sub-board as rows («Таблица», `build_board_table()`) and `&export=xlsx` that table through `ecosystem.xlsx`, and `BoardCard.version` refuses a stale edit; a card's «Чат» is `BoardCardComment`, written only by `post_card_comment()`, which also stores whom a message mentions with «@» (`BoardCardCommentMention`) and the files it carries (`BoardCardFile` — the board's own protected files, `boards:file_download`/`file_preview`, deleted to a tombstone by `delete_card_file()`; `static/js/board_chat_files.js` chooses them); a card's «Подзадачи» are cards with a `parent` (`create_subtask()`, `create_subtasks_from_list()`, `checklist_item_to_subtask()`; one level, no column, `MAX_SUBTASKS`); a card's «Чек-лист» is `BoardCardChecklistItem` (`add_checklist_item()` and its siblings) and its followers `BoardCardSubscription` (`toggle_card_subscription()`), and who hears of a card is `selectors.card_audience()`; cards are linked across boards by `BoardCardLink` (`link_cards()`/`unlink_cards()`: «Ждёт»/«Блокирует»/«Связана»/«Дубль», blocking and `BOARD_UNBLOCKED`), a column is followed by `BoardColumnSubscription` (`toggle_column_subscription()`, `BOARD_COLUMN_ENTERED`), a number field may be summed in every column header (`BoardField.sum_in_column`), and a reader may take the board's «Дайджест на почту» (`BoardDigestSubscription`, `boards/digest.py`, `manage.py board_digest` — a letter, never a `Notification`). Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat with its files, its log, its checklist, its followers, its «Связи», its «Этапы» and its «Подзадачи») and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -1962,9 +1962,10 @@ tasks never live inside `acts`.
   heading's member avatars and the number behind «+N» are one query
   (`member_preview()` reads the members once and counts them), the page's
   only — the fragment pays for neither. A sub-board page with a card open is
-  40 on a board without card fields (`boards/tests/test_journal.py`,
-  `PAGE_QUERIES`, a card with messages and files) and 41 on one with them (no
-  messages) — two of them the card's «Подзадачи» (below), at 0, 1 or 20
+  43 on a board without card fields (`boards/tests/test_journal.py`,
+  `PAGE_QUERIES`, a card with messages and files) and 44 on one with them (no
+  messages) — one of them the heading's «Дайджест на почту» (this reader's
+  subscription), two of them the card's «Подзадачи» (below), at 0, 1 or 20
   subtasks alike (`boards/tests/test_subtasks.py`), one its «Переносы» (the
   moves of its срок with their reasons and authors, however many) —
   the fields with their options and the values of every card on the page,
@@ -2120,31 +2121,126 @@ tasks never live inside `acts`.
   колонке сегодня» / «в колонке N дн.» (`.board-tile__age`, the date on
   `title`); a completed or cancelled card says nothing. Nothing is stored for
   it — no field, no migration, no hook.
-- **«Застой» is a working column's threshold, and «Застрявшие» finds what
-  passed it.** `BoardColumn.stale_after_days` (`boards.0016`, nullable — NULL
-  is off — 1 to `STALE_DAYS_MAX` (365), never on the closing column:
-  `board_column_stale_days_valid`). `set_column_stale_days(column, actor=…,
-  days=…)` is the one writer: `can_manage_board()` under one board lock,
-  never an archived board, never the closing column, an empty value switches
-  it off, the same threshold stores and publishes nothing, a change saves
-  `updated_at` (the structure aggregate of the sync revision) and publishes
-  one `board.updated(structure_changed)`. The column's «⋯» menu holds it
-  («Застой: подсвечивать через N дней», an ordinary POST form to
-  `boards:column_stale`, the right before the method, a GET changes nothing,
-  a refusal a message); the header shows «⏱ N дн.». An open tile that has
-  stood there at least N days (`selectors.is_stale()`: exactly at the
-  threshold, not a day earlier) is `board-tile--stale` with its age line
-  highlighted — the orange pair of the option tokens, no new hex. Both are in
-  the columns block, so its fingerprint moves with the threshold.
-  «Застрявшие» (`?stale=1`, `BoardFilters.stale`) is
-  `selectors.stale_condition(columns)`: one `OR` over the working columns
-  that have a threshold, already read by the caller, on the same journal
-  subquery (`localdate(since) <= today - N`, i.e. `since` before the start of
-  day `today - N + 1`); a card whose column is NULL is judged by the first
-  working column it stands in. It narrows open work only, like `overdue` —
-  the closing column keeps every completed card — and applies wherever the
-  other filters do: the page, the fragment, `column_counts()` and a drag's
-  JSON, every address the page draws.
+- **«Норматив этапа» is a working column's norm in working days, and the
+  traffic light is the plan it gives.** `BoardColumn.norm_working_days`
+  (`boards.0022` renamed it from `stale_after_days`, values kept — a
+  calendar threshold read from then on as working days; nullable — NULL is
+  no norm — 1 to `NORM_DAYS_MAX` (365), never on the closing column:
+  `board_column_norm_days_valid`). `set_column_norm(column, *, actor, days)`
+  is the one writer: `can_manage_board()` under one board lock, never an
+  archived board, never the closing column, an empty value removes it, the
+  same norm stores and publishes nothing, a change saves `updated_at` (the
+  structure aggregate of the sync revision) and publishes one
+  `board.updated(structure_changed)`. The column's «⋯» menu holds it
+  («Норматив этапа: N раб. дн.», an ordinary POST form to
+  `boards:column_norm`, the right before the method, a GET changes nothing,
+  a refusal a message); the header shows «⏱ N р.д.». **Only the current norm
+  is kept** — no history of norms: every plan, past ones included, is read
+  against the norm as it is now, and the pages say «по текущему нормативу».
+  An open card's **plan** is `selectors.stage_plan(since, norm)` —
+  `add_working_days(localdate(«В колонке с»), norm)` — and its **light**
+  `stage_light(plan, today)`: red once the plan is past, yellow when it is
+  today or the next working day (`working_days_between(today, plan) <= 1`, so
+  a plan on Monday is yellow on Friday), green further away; no norm, a
+  closed card or the closing column — no light. `apply_stage()` puts `norm`,
+  `plan_exit`, `light`, `light_label` («В нормативе» / «Срок этапа подходит»
+  / «Просрочен этап»), `is_late` and `stage_deviation` (working days past
+  the plan, negative ahead) on each tile of `build_board_state()` and each
+  card row of «Таблица» — computed in Python from the annotation already
+  read, no query. The tile draws the dot (`.board-light--<colour>`, three
+  `--board-light-*` tokens declared beside the option colours) and «план до ДД.ММ»; a red one
+  is `board-tile--late` with its age line `board-tile__age--late`. «в колонке
+  N дн.» on the tile stays **calendar** days (`days_in_column()`), the norm
+  and the plan are working days. All of it is in the columns block, so its
+  fingerprint moves with the norm and with the day. **«Просрочен этап»**
+  (`?stale=1`, `BoardFilters.stale` — the parameter kept) is exactly the red
+  ones: `selectors.stale_condition(columns)`, one `OR` over the working
+  columns with a norm, already read by the caller, on the same journal
+  subquery — `localdate(since) < late_cutoff(norm, today)`, the first day a
+  card may have entered and not be late (a binary search over
+  `add_working_days()`, which never decreases); a card whose column is NULL
+  is judged by the first working column it stands in. It narrows open work
+  only, like `overdue`, and applies wherever the other filters do: the page,
+  the fragment, `column_counts()` and a drag's JSON, every address the page
+  draws. `ecosystem.workdays` has no holiday calendar, and neither has this.
+- **A card's «Этапы» are its path through the columns, read off «Лог».**
+  `selectors.stage_stays(events)` turns a card's `CREATED`/`MOVED`/
+  `COMPLETED`/`REOPENED`/`CANCELLED` entries (`STAGE_EVENT_KINDS`) into stays
+  — `CREATED` in a column opens one, `MOVED` closes it and opens the next
+  (the names *as they were*, a move across sub-boards included), `COMPLETED`
+  opens a stay in the closing column, `REOPENED` returns to the working
+  column it names, `CANCELLED` closes the stay and opens none — and
+  `card_stages()` makes the rows: column, entered, plan by the column's
+  current norm, exited («в этапе» for the current one), working days in it
+  (`working_days_between`), deviation (above zero late; the current one as of
+  today, with its light). Read from the very journal list the panel reads
+  for «Лог» (`_panel_card()` reads the events once and gives them to
+  `card_log(events=…)` too), so it costs **no query**. A subtask, created in
+  no column, has none. On «Описание», below «Связи»: the read-only live block
+  `[data-live-board-stages]` (`stages.html`, `stages_html`/`stages_revision`
+  in the fragment, `data-stages-revision` on `[data-board]`), outside the
+  guarded panel — a colleague moving the card, or the day turning, redraws it
+  and never raises the conflict banner. «Таблица» and its Excel add «План
+  выхода из этапа» (a date) and «Отклонение этапа, р.д.» (a number) after
+  «В колонке» — empty for a closed card, a subtask or a column without a
+  norm — and `TABLE_SORTS` takes `stage` (by the deviation); a late row is
+  `board-table__row--late`.
+- **«Отклонения» → «Этапы» is how long the cards stayed in each stage.**
+  `?view=stages` on `boards:deviations` («Переносы | Этапы», the same period
+  `from`/`to` and `sub`, the same right — `can_view_board()`, a 403 otherwise,
+  nothing written): `selectors.build_stage_report(board, date_from=…,
+  date_to=…, sub_board=…)` — per working column of the board (or of one
+  sub-board), in the board's order: the cards that **left** it in the period
+  (moved on, completed or cancelled; subtasks are in no column), their
+  average and longest stay in working days, the share within the column's
+  current norm (a stay of at most N working days; «—» without a norm) and how
+  many open cards are red there now. Three queries whatever the number of
+  cards (the columns; the stage entries of the cards that left a column in
+  the period, up to its end, so a stay that began earlier is read whole; the
+  open cards with «В колонке с»), the rest counted in Python by
+  `stage_stays()` — `boards/tests/test_stages.py` holds it at three with and
+  without five more cards. `&export=xlsx` is that table through `ecosystem.xlsx`: sub-board,
+  column, norm, exits, average (a `Decimal`), maximum, «В нормативе, %»,
+  «Сейчас просрочен этап»; the file `<код>-etapy[-<поддоска>]-<date>.xlsx`.
+- **«Дайджест на почту» is a letter, not a notification.**
+  `BoardDigestSubscription` (board `PROTECT`, `related_name=
+  'digest_subscriptions'`; user `PROTECT`; `frequency` `DAILY`/`WEEKLY` —
+  `board_digest_frequency_known`; `created_at`; `last_sent_on`;
+  `unique_board_digest_subscription`), written by
+  `set_digest_subscription(board, *, actor, frequency)` (`''` switches it
+  off): any reader of a live board (`permissions.can_subscribe_digest()`),
+  under the board lock; personal, so no event and no journal entry;
+  `remove_board_member()` drops it with the person's other subscriptions.
+  The board's «⋯» holds the form for every reader («Дайджест на почту: не
+  присылать / ежедневно / еженедельно», POST to `boards:digest`, the reading
+  right before the method, a GET changes nothing). **`manage.py
+  board_digest [--date ГГГГ-ММ-ДД]`** → `boards.digest.send_digests()`:
+  `DAILY` on every working day, `WEEKLY` on Mondays (`due_frequencies()`),
+  one letter per person (`templates/boards/email/digest.{txt,html}`) with a
+  section per board they are due and **still read** (a live board,
+  `can_view_board()` asked again at send time — a subscription left behind
+  on a board one no longer reads sends nothing): open cards past their срок,
+  red stages, blocked cards, the moves of a срок in the period with their
+  reasons, how many were completed, and links to the board and to «Таблица»
+  under the matching filter (absolute, `APP_BASE_URL`); at most
+  `SECTION_LIMIT` (30) cards a list, the rest counted. The period is since
+  `last_sent_on`, else the previous working day (`DAILY`) or a week
+  (`WEEKLY`), up to yesterday. A letter with nothing to say is **not sent**;
+  `last_sent_on = today` is written after a send or an empty digest, so a
+  second run the same day sends nothing, and left alone after a failure or a
+  missing address, so the next run tries again. **Why not a `Notification`**:
+  a notification is one business fact addressed to the people it concerns,
+  deduplicated per fact, shown in the bell and mailed by the matrix above;
+  the digest is a periodic *report* over facts already recorded — the bell
+  would gain a «дайджест» entry that nobody's action produced, and every fact
+  in it has already notified whom it concerns. It is therefore sent the way
+  `send_welcome_email` sends: straight through the configured backend, one
+  personalized message per person, refused while
+  `EMAIL_NOTIFICATIONS_ENABLED=false` (`DigestDisabled`, a `CommandError`),
+  failures scrubbed by `sanitize_error()`, and only counters in the log
+  (`board.digest`; per failure `board.digest_failed` with the user id and the
+  error type) — no address, subject or body. Scheduled with the other daily
+  commands (`docs/operations.md`, «Ежедневные задания»).
 - **«Таблица» is the sub-board as rows, and its Excel is the same state.**
   `?view=table` on the sub-board's own address (`sub_board_detail()` →
   `views._render_table()`, `templates/boards/table.html`, the same frame,
@@ -2156,16 +2252,17 @@ tasks never live inside `acts`.
   of every sub-board under «Все поддоски» (`scope=board`, a «Поддоска» column
   right after the code). The board's filters apply as `_filtered()` applies
   them — «Мои», the search, the fields to every row; «Просроченные» and
-  «Застрявшие» describe open work, so under either only open cards remain.
+  «Просрочен этап» describe open work, so under either only open cards remain.
   Columns: code (a real link to `?card=` on the card's own sub-board), title
   (`.user-text.text-clamp-2` with `title`), column (`card_column()`: the
   closing one for a completed card, «Отменена» for a cancelled one),
-  исполнители, срок (`includes/due_date.html`), «В колонке», each **live**
+  исполнители, срок (`includes/due_date.html`), «В колонке», «План выхода
+  из этапа», «Отклонение этапа, р.д.» (above), each **live**
   field in order (a list option as its `board-chip--<colour>`), created,
   completed. The order is the board's — sub-board, column, place, the closing
   column newest completion first, the cancelled last — unless `sort` names
-  one of `TABLE_SORTS` (`code`, `title`, `column`, `due`, `days`, `created`,
-  `completed`) or `field_<id>` of a live field of this board
+  one of `TABLE_SORTS` (`code`, `title`, `column`, `due`, `days`, `stage`,
+  `changes`, `created`, `completed`) or `field_<id>` of a live field of this board
   (`parse_table_sort()`; anything else is `''` and draws no arrow): the rows
   are already all read, so they are ordered in Python by those keys alone —
   a list by its option's place, a number as a number, a date as a date, a
@@ -2181,7 +2278,8 @@ tasks never live inside `acts`.
   (`views._export_table()`, `table_headers()`/`table_cells()`), through
   `xlsx_response(…, typed_dates=True)`: the code, [«Поддоска»], title,
   column, «Статус» («В работе»/«Выполнена»/«Отменена»), исполнители by
-  `person_name` joined with commas, срок, «В колонке, дн.» (a number), each
+  `person_name` joined with commas, срок, «В колонке, дн.» (a number), «План
+  выхода из этапа» (a date), «Отклонение этапа, р.д.» (a number), each
   live field (a date, a `Decimal`, a list option's label — «(в архиве)» after
   an archived option —, a text), created and completed as dates; empty is an
   empty cell, never `None` or «—». The file is `<код доски>-<поддоска>-<ГГГГ-ММ-ДД>.xlsx`
@@ -2457,7 +2555,8 @@ tasks never live inside `acts`.
   `board-option--<colour>` and «●» — a native `<option>` holds no markup);
   a refused POST keeps every value typed. The eight colours are token pairs
   declared once at the top of `static/css/boards.css`
-  (`--board-color-<code>-bg`/`-text`, the only hex values there), drawn
+  (`--board-color-<code>-bg`/`-text`, with the three `--board-light-*` of the
+  traffic light the only hex values there), drawn
   through `.board-chip--<code>`. The columns block carries
   `data-fields-stamp` (`selectors.fields_stamp()`, read off the fields in
   memory), so its fingerprint moves with any setup change as well as with a
@@ -2494,7 +2593,7 @@ tasks never live inside `acts`.
   no tile (`_column_tasks()`): «Мои», the search and the fields never bring
   a card to the board because of its subtask. `selectors.parse_board_filters(params,
   fields)` reads `mine=1` (I am an исполнитель), `overdue=1` (an open task
-  past its срок), `stale=1` («Застрявшие», above), `blocked=1`
+  past its срок), `stale=1` («Просрочен этап» — the red lights, above), `blocked=1`
   («Заблокированные», below), `q` and the field filters into a
   `BoardFilters`, and
   `build_board_state(filters=…)` and `column_counts(sub_board, …, filters)`
@@ -2530,7 +2629,11 @@ tasks never live inside `acts`.
   links and form actions, the drag's move URL, the fragment URL and
   `data-board-page-url`, so redirects after a POST land on the same filtered
   board. The form is `form[data-registry-filter]` of `registry_tools.js` under
-  the tabs, with no memory; «Поля» in it — only while the board has a live
+  the tabs, with no memory; «Мои», «Просроченные», «Просрочен этап» and
+  «Заблокированные» are tick boxes in one «Показать» menu
+  (`<details data-board-menu data-registry-keep-open>`, «Показать · N» for N
+  ticked — `BoardFilters.flag_count`), because four boxes in a row pushed the
+  search and «Поля» onto a second line at 1536; «Поля» in it — only while the board has a live
   field — is a `<details data-board-menu data-registry-keep-open>` over the
   columns (`selectors.describe_field_filters()`: a list's tick boxes with
   their colour chips and «не задано», «с»/«по», «от»/«до», a text box); a
@@ -2718,7 +2821,7 @@ tasks never live inside `acts`.
   **Where they are not — one point each side**: `selectors._column_tasks()`
   (every `BOARD` task but a subtask's) is what the columns, their counts
   (`build_board_state()`, `column_counts()`, a drag's JSON), the board's
-  filters — «Мои», the search, the fields, «Застрявшие» — and «В колонке с»
+  filters — «Мои», the search, the fields, «Просрочен этап» — and «В колонке с»
   start from, and `services._in_column_q()` keeps subtasks out of a column's
   positions, renumbering and «удалить колонку»; `_apply_pins()` is called
   only for a card created in or moved into a column, never for a subtask. The
@@ -2810,7 +2913,7 @@ tasks never live inside `acts`.
   through the panel's own query (`board_card__parent`, its срок a subquery).
   **«Таблица»** has «Подзадачи» (`subtasks=1`, off by default): each card's
   subtasks right under it — the same states as the cards (the cancelled
-  under «Отменённые», only the open under «Просроченные»/«Застрявшие») —
+  under «Отменённые», only the open under «Просроченные»/«Просрочен этап») —
   indented, with a «Родитель» column after the code, no column and no time
   in one; sorting orders the cards and their subtasks stay under them; one
   query more. Its Excel holds the same rows with «Родитель» (empty for a
@@ -3379,7 +3482,7 @@ tasks never live inside `acts`.
   `checklist_changed` (a card's «Чек-лист» item added, renamed, ticked,
   moved or deleted; no subscription is an event — following is personal),
   `structure_changed` — a sub-board or a column created, renamed, moved or
-  deleted, a column's pins or «Застой» set, the board's code changed, its card
+  deleted, a column's pins or «Норматив этапа» set, the board's code changed, its card
   fields or their options set up), through
   `emit_board_updated()` from `boards/services.py` alone — inside the write's
   `atomic()` block, once per successful write that stored something. A refusal,

@@ -1,11 +1,13 @@
-"""Stage 17: how long a card has stood in its column, and «Застой».
+"""How long a card has stood in its column (stage 17), and the column's
+«Норматив этапа» (stage 23, formerly «Застой»).
 
 «В колонке с» is the latest `CREATED`/`MOVED`/`REOPENED` entry of the card's
-journal, read by one subquery of the tasks' own query; days are calendar days
-by the local date. A working column may carry a threshold
-(`BoardColumn.stale_after_days`): a tile that has stood there that long is
-highlighted, and «Застрявшие» (`?stale=1`) keeps exactly those — on the page,
-in its fragment and in a drag's counts.
+journal, read by one subquery of the tasks' own query; «в колонке N дн.» is
+calendar days by the local date. A working column may carry a norm in
+working days (`BoardColumn.norm_working_days`): a tile past its planned exit
+is red (`board-tile--late`), and «Просрочен этап» (`?stale=1`) keeps exactly
+those — on the page, in its fragment and in a drag's counts. The traffic
+light's boundaries are `test_stages.py`'s.
 """
 
 import datetime
@@ -22,7 +24,7 @@ from realtime.events import RealtimeEventType
 from realtime.testing import capture_realtime_events
 from tasks.services import complete_task
 
-from ..models import STALE_DAYS_MAX, BoardCard, BoardCardEvent, BoardColumn
+from ..models import NORM_DAYS_MAX, BoardCard, BoardCardEvent, BoardColumn
 from ..selectors import (
     BoardFilters,
     build_board_state,
@@ -37,7 +39,7 @@ from ..services import (
     move_card,
     reopen_card,
     set_column_pins,
-    set_column_stale_days,
+    set_column_norm,
 )
 from .helpers import (
     BoardFixtureMixin,
@@ -169,7 +171,7 @@ class InColumnSinceTests(ColumnTimeMixin, TestCase):
         state = self.state()
         done_item = tile_items(state)[done.pk]
         self.assertIsNone(done_item['in_column_days'])
-        self.assertFalse(done_item['is_stale'])
+        self.assertFalse(done_item['is_late'])
         page = self.client_page()
         self.assertNotIn('в колонке', page.split('data-card-id="%d"' % done.pk, 1)[1].split('</li>', 1)[0])
 
@@ -204,7 +206,7 @@ class InColumnSinceTests(ColumnTimeMixin, TestCase):
 
 
 # --------------------------------------------------------------------------
-# «Застой»: the threshold of a column
+# «Норматив этапа»: the norm of a column
 # --------------------------------------------------------------------------
 
 
@@ -212,93 +214,93 @@ class StaleServiceTests(ColumnTimeMixin, TestCase):
     def test_owner_and_administrator_set_it_one_event_each(self):
         column = self.column('IN_PROGRESS')
         with self.published() as publisher:
-            set_column_stale_days(column, actor=self.owner, days=3)
+            set_column_norm(column, actor=self.owner, days=3)
         self.assertEqual(len(structure_events(publisher)), 1)
         column.refresh_from_db()
-        self.assertEqual(column.stale_after_days, 3)
+        self.assertEqual(column.norm_working_days, 3)
         with self.published() as publisher:
-            set_column_stale_days(column, actor=self.admin, days=5)
+            set_column_norm(column, actor=self.admin, days=5)
         self.assertEqual(len(structure_events(publisher)), 1)
         column.refresh_from_db()
-        self.assertEqual(column.stale_after_days, 5)
+        self.assertEqual(column.norm_working_days, 5)
 
     def test_the_same_threshold_again_is_nothing(self):
         column = self.column('IN_PROGRESS')
-        set_column_stale_days(column, actor=self.owner, days=3)
+        set_column_norm(column, actor=self.owner, days=3)
         column.refresh_from_db()
         stamp = column.updated_at
         with self.published() as publisher:
-            set_column_stale_days(column, actor=self.owner, days='3')
+            set_column_norm(column, actor=self.owner, days='3')
         self.assertEqual(structure_events(publisher), [])
         column.refresh_from_db()
         self.assertEqual(column.updated_at, stamp)
 
     def test_empty_switches_it_off(self):
         column = self.column('IN_PROGRESS')
-        set_column_stale_days(column, actor=self.owner, days=3)
+        set_column_norm(column, actor=self.owner, days=3)
         for empty in (None, ''):
-            set_column_stale_days(column, actor=self.owner, days=3)
+            set_column_norm(column, actor=self.owner, days=3)
             with self.published() as publisher:
-                set_column_stale_days(column, actor=self.owner, days=empty)
+                set_column_norm(column, actor=self.owner, days=empty)
             self.assertEqual(len(structure_events(publisher)), 1)
             column.refresh_from_db()
-            self.assertIsNone(column.stale_after_days)
+            self.assertIsNone(column.norm_working_days)
         with self.published() as publisher:
-            set_column_stale_days(column, actor=self.owner, days=None)
+            set_column_norm(column, actor=self.owner, days=None)
         self.assertEqual(structure_events(publisher), [])
 
     def test_bounds(self):
         column = self.column('TODO')
-        for days in (1, STALE_DAYS_MAX):
-            set_column_stale_days(column, actor=self.owner, days=days)
+        for days in (1, NORM_DAYS_MAX):
+            set_column_norm(column, actor=self.owner, days=days)
             column.refresh_from_db()
-            self.assertEqual(column.stale_after_days, days)
-        for days in (0, -1, STALE_DAYS_MAX + 1, 'abc', '2.5'):
+            self.assertEqual(column.norm_working_days, days)
+        for days in (0, -1, NORM_DAYS_MAX + 1, 'abc', '2.5'):
             with self.subTest(days=days):
                 with self.published() as publisher, self.assertRaises(BoardError):
-                    set_column_stale_days(column, actor=self.owner, days=days)
+                    set_column_norm(column, actor=self.owner, days=days)
                 self.assertEqual(structure_events(publisher), [])
         column.refresh_from_db()
-        self.assertEqual(column.stale_after_days, STALE_DAYS_MAX)
+        self.assertEqual(column.norm_working_days, NORM_DAYS_MAX)
 
     def test_a_member_and_an_archived_board_are_refused(self):
         column = self.column('TODO')
         with self.published() as publisher:
             with self.assertRaises(BoardError):
-                set_column_stale_days(column, actor=self.member, days=3)
+                set_column_norm(column, actor=self.member, days=3)
             with self.assertRaises(BoardError):
-                set_column_stale_days(column, actor=self.outsider, days=3)
+                set_column_norm(column, actor=self.outsider, days=3)
         self.assertEqual(structure_events(publisher), [])
         archive_board(self.board, actor=self.owner)
         with self.assertRaisesMessage(BoardError, 'Доска в архиве'):
-            set_column_stale_days(column, actor=self.owner, days=3)
+            set_column_norm(column, actor=self.owner, days=3)
         column.refresh_from_db()
-        self.assertIsNone(column.stale_after_days)
+        self.assertIsNone(column.norm_working_days)
 
     def test_never_the_closing_column(self):
         done = done_column_of(self.board)
         with self.assertRaisesMessage(BoardError, 'завершающей колонке'):
-            set_column_stale_days(done, actor=self.owner, days=3)
+            set_column_norm(done, actor=self.owner, days=3)
         done.refresh_from_db()
-        self.assertIsNone(done.stale_after_days)
+        self.assertIsNone(done.norm_working_days)
 
     def test_the_database_holds_the_same_rule(self):
         for column, days in ((self.column('TODO'), 0), (self.column('TODO'), 366), (done_column_of(self.board), 3)):
             with self.subTest(days=days, done=column.is_done), self.assertRaises(IntegrityError):
                 with transaction.atomic():
-                    BoardColumn.objects.filter(pk=column.pk).update(stale_after_days=days)
+                    BoardColumn.objects.filter(pk=column.pk).update(norm_working_days=days)
 
     def test_the_sync_revision_moves(self):
         from realtime.sync import build_sync_state
 
         before = build_sync_state(self.owner)['revisions']['boards']
-        set_column_stale_days(self.column('TODO'), actor=self.owner, days=2)
+        set_column_norm(self.column('TODO'), actor=self.owner, days=2)
         self.assertNotEqual(build_sync_state(self.owner)['revisions']['boards'], before)
 
 
 class StaleRouteTests(ColumnTimeMixin, TestCase):
     def url(self, column):
-        return reverse('boards:column_stale', args=[self.board.pk, self.main.pk, column.pk])
+        return reverse('boards:column_norm', args=[self.board.pk, self.main.pk, column.pk])
 
     def test_the_right_is_asked_before_the_method(self):
         column = self.column('TODO')
@@ -309,7 +311,7 @@ class StaleRouteTests(ColumnTimeMixin, TestCase):
                     response = getattr(self.client, method)(self.url(column), {'days': '3'})
                     self.assertEqual(response.status_code, 403)
         column.refresh_from_db()
-        self.assertIsNone(column.stale_after_days)
+        self.assertIsNone(column.norm_working_days)
 
     def test_a_get_changes_nothing(self):
         column = self.column('TODO')
@@ -317,7 +319,7 @@ class StaleRouteTests(ColumnTimeMixin, TestCase):
         response = self.client.get(self.url(column), {'days': '3'})
         self.assertRedirects(response, board_url(self.board), fetch_redirect_response=False)
         column.refresh_from_db()
-        self.assertIsNone(column.stale_after_days)
+        self.assertIsNone(column.norm_working_days)
 
     def test_post_sets_and_clears_and_keeps_the_filter(self):
         column = self.column('TODO')
@@ -325,62 +327,66 @@ class StaleRouteTests(ColumnTimeMixin, TestCase):
         response = self.client.post(self.url(column) + '?stale=1', {'days': '4'})
         self.assertRedirects(response, board_url(self.board) + '?stale=1', fetch_redirect_response=False)
         column.refresh_from_db()
-        self.assertEqual(column.stale_after_days, 4)
+        self.assertEqual(column.norm_working_days, 4)
         self.client.post(self.url(column), {'days': ''})
         column.refresh_from_db()
-        self.assertIsNone(column.stale_after_days)
+        self.assertIsNone(column.norm_working_days)
 
     def test_a_refusal_is_a_message(self):
         column = self.column('TODO')
         self.client.force_login(self.owner)
         for days in ('400', 'много'):
             response = self.client.post(self.url(column), {'days': days}, follow=True)
-            self.assertContains(response, 'Застой задаётся')
+            self.assertContains(response, 'Норматив этапа —')
         response = self.client.post(
-            reverse('boards:column_stale', args=[self.board.pk, self.main.pk, done_column_of(self.board).pk]),
+            reverse('boards:column_norm', args=[self.board.pk, self.main.pk, done_column_of(self.board).pk]),
             {'days': '3'}, follow=True,
         )
         self.assertContains(response, 'завершающей колонке')
 
     def test_the_menu_offers_it_to_the_manager_only_and_not_on_the_closing_column(self):
-        set_column_stale_days(self.column('IN_PROGRESS'), actor=self.owner, days=3)
+        set_column_norm(self.column('IN_PROGRESS'), actor=self.owner, days=3)
         self.client.force_login(self.owner)
         page = self.client.get(board_url(self.board)).content.decode()
-        self.assertEqual(page.count('Застой: подсвечивать через N дней'), 3)
-        self.assertIn('value="3" placeholder="выкл."', page)
+        self.assertEqual(page.count('Норматив этапа: N раб. дн.'), 3)
+        self.assertIn('value="3" placeholder="нет"', page)
         self.assertNotIn(
-            reverse('boards:column_stale', args=[self.board.pk, self.main.pk, done_column_of(self.board).pk]),
+            reverse('boards:column_norm', args=[self.board.pk, self.main.pk, done_column_of(self.board).pk]),
             page,
         )
         self.client.force_login(self.member)
         page = self.client.get(board_url(self.board)).content.decode()
-        self.assertNotIn('Застой: подсвечивать через N дней', page)
+        self.assertNotIn('Норматив этапа: N раб. дн.', page)
         # The header mark is everybody's.
-        self.assertIn('⏱ 3 дн.', page)
+        self.assertIn('⏱ 3 р.д.', page)
 
 
 class StaleTileTests(ColumnTimeMixin, TestCase):
     def setUp(self):
         self.todo = self.column('TODO')
-        set_column_stale_days(self.todo, actor=self.owner, days=3)
+        set_column_norm(self.todo, actor=self.owner, days=3)
 
-    def test_exactly_at_the_threshold_and_not_a_day_earlier(self):
-        cards = {days: self.card(f'{days} дн.') for days in (2, 3, 4)}
+    def test_red_once_the_planned_exit_is_past(self):
+        # Entered today: three working days ahead, never red. Six and nine
+        # calendar days back: three working days are at most five calendar
+        # days, so the plan is past whatever today's weekday.
+        cards = {days: self.card(f'{days} дн.') for days in (0, 6, 9)}
         for days, card in cards.items():
             age(card, days=days)
         items = tile_items(self.state())
-        self.assertFalse(items[cards[2].pk]['is_stale'])
-        self.assertTrue(items[cards[3].pk]['is_stale'])
-        self.assertTrue(items[cards[4].pk]['is_stale'])
+        self.assertFalse(items[cards[0].pk]['is_late'])
+        self.assertEqual(items[cards[0].pk]['light'], 'green')
+        self.assertTrue(items[cards[6].pk]['is_late'])
+        self.assertTrue(items[cards[9].pk]['is_late'])
         self.client.force_login(self.member)
         page = self.client.get(board_url(self.board)).content.decode()
-        self.assertEqual(page.count('board-tile--stale'), 2)
-        self.assertEqual(page.count('board-tile__age--stale'), 2)
+        self.assertEqual(page.count('board-tile--late'), 2)
+        self.assertEqual(page.count('board-tile__age--late'), 2)
 
     def test_a_column_without_a_threshold_never_highlights(self):
         card = self.card(stage='IN_PROGRESS')
         age(card, days=100)
-        self.assertFalse(self.item(card)['is_stale'])
+        self.assertFalse(self.item(card)['is_late'])
 
 
 class StaleFilterTests(ColumnTimeMixin, TestCase):
@@ -389,9 +395,10 @@ class StaleFilterTests(ColumnTimeMixin, TestCase):
 
     def setUp(self):
         self.todo = self.column('TODO')
-        set_column_stale_days(self.todo, actor=self.owner, days=3)
+        set_column_norm(self.todo, actor=self.owner, days=3)
         self.stuck = self.card('Застряла')
-        age(self.stuck, days=3)
+        # Six calendar days: past three working days whatever the weekday.
+        age(self.stuck, days=6)
         self.fresh = self.card('Свежая')
         self.unwatched = self.card('Без порога', stage='IN_PROGRESS')
         age(self.unwatched, days=9)
@@ -417,11 +424,11 @@ class StaleFilterTests(ColumnTimeMixin, TestCase):
 
     def test_a_card_whose_column_is_null_is_judged_by_the_first_working_column(self):
         BoardCard.objects.filter(pk=self.fresh.pk).update(column=None)
-        age(self.fresh, days=5)
+        age(self.fresh, days=7)
         self.assertIn('Свежая', self.titles(self.state(stale=True)))
 
     def test_no_threshold_anywhere_keeps_no_open_card(self):
-        set_column_stale_days(self.todo, actor=self.owner, days=None)
+        set_column_norm(self.todo, actor=self.owner, days=None)
         self.assertEqual(self.titles(self.state(stale=True)), ['Сделано'])
 
     def test_column_counts_agree_with_the_page(self):
@@ -445,7 +452,7 @@ class StaleFilterTests(ColumnTimeMixin, TestCase):
 
     def test_the_drag_json_counts_under_the_filter(self):
         other = self.card('Ещё одна')
-        age(other, days=4)
+        age(other, days=7)
         self.client.force_login(self.member)
         response = self.client.post(
             reverse('boards:card_move', args=[self.board.pk, other.pk]) + '?stale=1',
@@ -480,8 +487,8 @@ class StaleFingerprintTests(ColumnTimeMixin, TestCase):
         later = timezone.now() + datetime.timedelta(minutes=1)
         with mock.patch('django.utils.timezone.now', return_value=later):
             self.assertEqual(self.revision(), first)
-        set_column_stale_days(self.column('TODO'), actor=self.owner, days=5)
+        set_column_norm(self.column('TODO'), actor=self.owner, days=5)
         second = self.revision()
         self.assertNotEqual(second, first)
-        set_column_stale_days(self.column('TODO'), actor=self.owner, days=2)
+        set_column_norm(self.column('TODO'), actor=self.owner, days=2)
         self.assertNotEqual(self.revision(), second)

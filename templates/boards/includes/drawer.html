@@ -26,7 +26,8 @@ message being typed — and the files chosen for it — are never redrawn. So ar
 the card's «Чек-лист» on «Описание» (`[data-live-board-checklist]`, between
 the description and the facts, with «Добавить пункт» below it in no block)
 and its «Подписчики» (`[data-live-board-followers]`, below the facts); its
-«Связи» (`[data-live-board-links]`, above the facts, «+ Связь» below it). The
+«Связи» (`[data-live-board-links]`, above the facts, «+ Связь» below it) and
+«Этапы» (`[data-live-board-stages]`, under «Связи»). The
 markup is in the order of the screen, so the focus follows it.
 
 A card (never a subtask) has «Подзадачи»: the list is a read-only block of its
@@ -82,6 +83,8 @@ JavaScript, and a refusal comes back with what was typed.
             {% endcomment %}
             <section class="board-drawer__links" data-board-tab-body="description">
                 <div data-live-board-links>{{ links_html }}</div>
+                {% comment %}«Этапы»: the card's path through the columns, a read-only live block of its own.{% endcomment %}
+                <div class="board-drawer__stages" data-live-board-stages>{{ stages_html }}</div>
                 {% if card.can_link %}
                     <details class="board-links__add"{% if link_error %} open{% endif %}>
                         <summary class="link-button link-button--secondary link-button--compact">+ Связь</summary>

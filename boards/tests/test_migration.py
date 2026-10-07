@@ -3,7 +3,9 @@
 fields; `boards.0016`: «Застой» of a column; `boards.0017`: the checklist,
 the subscriptions and the mentions; `boards.0018`: the files of «Чат»;
 `boards.0019`: subtasks; `boards.0020`: the history of a card's срок;
-`boards.0021`: links between cards, following a column and column sums.
+`boards.0021`: links between cards, following a column and column sums;
+`boards.0022`: «Застой» renamed «Норматив этапа»; `boards.0023`: the digest
+subscriptions.
 
 Run through `MigrationExecutor` on the test database: the board app is taken
 back to `0005` (sub-boards exist, `stage` still rules), cards are written the
@@ -772,3 +774,61 @@ class LinksSubscriptionsSumsMigrationTests(TransactionTestCase):
         self.assertNotIn('sum_in_column', _columns_of('boards_boardfield'))
         self.assertEqual(apps.get_model('boards', 'BoardCard').objects.filter(board_id=board.pk).count(), 2)
         self.assertTrue(apps.get_model('boards', 'BoardField').objects.filter(pk=amount.pk).exists())
+
+
+NORM_BEFORE = [('boards', '0021_links_column_subscriptions_sums')]
+NORM_AFTER = [('boards', '0023_board_digest_subscriptions')]
+
+
+class NormAndDigestMigrationTests(TransactionTestCase):
+    """`boards.0022`: `stale_after_days` renamed `norm_working_days`, every
+    value where it was, the same check under its new name; `boards.0023`: the
+    digest subscriptions, one per board and person. And back: the old column
+    with its values, no digest table."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_values_stay_through_the_rename_both_ways(self):
+        from django.db import IntegrityError, transaction
+
+        apps = migrate(NORM_BEFORE)
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        owner = User.objects.create(username='norm_migration_owner')
+        board = Board.objects.create(name='Доска', code='NM', owner=owner)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+        with_norm = BoardColumn.objects.create(sub_board=sub_board, name='Запуск', position=1, stale_after_days=4)
+        without = BoardColumn.objects.create(sub_board=sub_board, name='Сборка', position=2)
+        BoardColumn.objects.create(sub_board=sub_board, name='Готово', position=3, is_done=True)
+
+        apps = migrate(NORM_AFTER)
+        self.assertNotIn('stale_after_days', _columns_of('boards_boardcolumn'))
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        self.assertEqual(BoardColumn.objects.get(pk=with_norm.pk).norm_working_days, 4)
+        self.assertIsNone(BoardColumn.objects.get(pk=without.pk).norm_working_days)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BoardColumn.objects.filter(pk=without.pk).update(norm_working_days=400)
+        Digest = apps.get_model('boards', 'BoardDigestSubscription')
+        Digest.objects.create(board_id=board.pk, user_id=owner.pk, frequency='DAILY')
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Digest.objects.create(board_id=board.pk, user_id=owner.pk, frequency='WEEKLY')
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Digest.objects.filter(board_id=board.pk).update(frequency='HOURLY')
+        BoardColumn.objects.filter(pk=without.pk).update(norm_working_days=2)
+
+        apps = migrate(NORM_BEFORE)
+        self.assertNotIn('boards_boarddigestsubscription', _table_names())
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        self.assertEqual(
+            list(BoardColumn.objects.filter(pk__in=[with_norm.pk, without.pk]).order_by('pk')
+                 .values_list('stale_after_days', flat=True)),
+            [4, 2],
+        )
+

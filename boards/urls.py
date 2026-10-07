@@ -27,6 +27,8 @@ urlpatterns = [
     path('<int:pk>/rename/', views.board_rename, name='rename'),
     path('<int:pk>/code/', views.board_change_code, name='change_code'),
     path('<int:pk>/archive/', views.board_archive, name='archive'),
+    # «Дайджест на почту»: any reader of a live board.
+    path('<int:pk>/digest/', views.board_digest_subscribe, name='digest'),
     path('<int:pk>/restore/', views.board_restore, name='restore'),
     path('<int:pk>/members/add/', views.members_add, name='members_add'),
     path('<int:pk>/members/<int:user_pk>/remove/', views.member_remove, name='member_remove'),
@@ -49,8 +51,8 @@ urlpatterns = [
         views.column_pins, name='column_pins',
     ),
     path(
-        '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/stale/',
-        views.column_stale, name='column_stale',
+        '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/norm/',
+        views.column_norm, name='column_norm',
     ),
     path(
         '<int:pk>/<int:sub_pk>/columns/<int:column_pk>/delete/',

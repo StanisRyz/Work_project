@@ -191,9 +191,9 @@ class SubBoard(models.Model):
         return f'{self.board}: {self.name}'
 
 
-# «Застой» of a working column: a threshold of 1 to 365 calendar days.
-STALE_DAYS_MIN = 1
-STALE_DAYS_MAX = 365
+# «Норматив этапа» of a working column: 1 to 365 working days.
+NORM_DAYS_MIN = 1
+NORM_DAYS_MAX = 365
 
 
 class BoardColumn(models.Model):
@@ -236,12 +236,16 @@ class BoardColumn(models.Model):
     pinned_mode = models.CharField(
         'Режим закрепления', max_length=8, choices=PinnedMode.choices, default=PinnedMode.ADD,
     )
-    # «Застой»: a working column's threshold in calendar days — a card that has
-    # stood here at least this long is highlighted on its tile, and «Застрявшие»
-    # (`?stale=1`) finds it. NULL is off. 1–365, never on the closing column:
-    # `services.set_column_stale_days()` writes it, a check constraint says so.
-    stale_after_days = models.PositiveSmallIntegerField(
-        'Застой: подсвечивать через, дней', null=True, blank=True,
+    # «Норматив этапа»: how many working days a card should stand in this
+    # working column (`ecosystem.workdays`). Entering the column gives the
+    # card a planned exit date — `add_working_days(the day it entered, N)` —
+    # and the tile's traffic light reads it; «Просрочен этап» (`?stale=1`)
+    # finds the cards past it. NULL is no norm. 1–365, never on the closing
+    # column: `services.set_column_norm()` writes it, a check constraint says
+    # so. Only the current norm is kept — the stage path reads every past
+    # stay against it.
+    norm_working_days = models.PositiveSmallIntegerField(
+        'Норматив этапа, рабочих дней', null=True, blank=True,
     )
     created_at = models.DateTimeField('Создана', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлена', auto_now=True)
@@ -251,14 +255,14 @@ class BoardColumn(models.Model):
         verbose_name = 'Колонка доски'
         verbose_name_plural = 'Колонки досок'
         constraints = [
-            # A threshold is 1–365 days, and only ever a working column's.
+            # A norm is 1–365 working days, and only ever a working column's.
             models.CheckConstraint(
-                condition=models.Q(stale_after_days__isnull=True) | models.Q(
-                    stale_after_days__gte=STALE_DAYS_MIN,
-                    stale_after_days__lte=STALE_DAYS_MAX,
+                condition=models.Q(norm_working_days__isnull=True) | models.Q(
+                    norm_working_days__gte=NORM_DAYS_MIN,
+                    norm_working_days__lte=NORM_DAYS_MAX,
                     is_done=False,
                 ),
-                name='board_column_stale_days_valid',
+                name='board_column_norm_days_valid',
             ),
             # At most one closing column per sub-board; the services create
             # it with the sub-board and never delete it, so there is exactly one.
@@ -337,6 +341,57 @@ class BoardColumnSubscription(models.Model):
 
     def __str__(self):
         return f'{self.user} следит за колонкой #{self.column_id}'
+
+
+class BoardDigestSubscription(models.Model):
+    """Somebody who asked for the board's digest by mail («Дайджест на
+    почту: ежедневно / еженедельно»), usually a head who does not open the
+    system every day.
+
+    Written only by `services.set_digest_subscription()` (any reader of a live
+    board), dropped by `remove_board_member()`. Sent by `manage.py
+    board_digest` (`boards/digest.py`): `DAILY` on every working day, `WEEKLY`
+    on Mondays, one letter per person for all their boards; `last_sent_on` is
+    the day it was last handled, so a second run that day sends nothing. The
+    digest is a summary, not a business fact: no `Notification` is made.
+    """
+
+    class Frequency(models.TextChoices):
+        DAILY = 'DAILY', 'Ежедневно'
+        WEEKLY = 'WEEKLY', 'Еженедельно'
+
+    board = models.ForeignKey(
+        Board,
+        on_delete=models.PROTECT,
+        related_name='digest_subscriptions',
+        verbose_name='Доска',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_digest_subscriptions',
+        verbose_name='Получатель',
+    )
+    frequency = models.CharField('Как часто', max_length=8, choices=Frequency.choices)
+    created_at = models.DateTimeField('Подписан', auto_now_add=True)
+    # The day the digest of this subscription was last handled — sent, or
+    # found empty — by `board_digest`; NULL until the first run.
+    last_sent_on = models.DateField('Обработан за дату', null=True, blank=True)
+
+    class Meta:
+        ordering = ['board_id', 'user_id']
+        verbose_name = 'Подписка на дайджест доски'
+        verbose_name_plural = 'Подписки на дайджест досок'
+        constraints = [
+            models.UniqueConstraint(fields=['board', 'user'], name='unique_board_digest_subscription'),
+            models.CheckConstraint(
+                condition=models.Q(frequency__in=['DAILY', 'WEEKLY']),
+                name='board_digest_frequency_known',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.user}: дайджест доски #{self.board_id} ({self.get_frequency_display()})'
 
 
 class BoardCard(models.Model):

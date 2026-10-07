@@ -42,6 +42,8 @@ from django.db.models.functions import Cast, Coalesce, Concat
 from django.urls import reverse
 from django.utils import timezone
 
+from ecosystem.workdays import add_working_days, working_days_between
+
 from .columns import MAX_COLUMNS, card_column
 from .models import (
     MAX_SUBTASKS,
@@ -200,6 +202,12 @@ class BoardFilters:
             self.mine or self.overdue or self.stale or self.blocked
             or bool(self.q) or bool(self.fields)
         )
+
+    @property
+    def flag_count(self):
+        """How many of «Мои», «Просроченные», «Просрочен этап» and
+        «Заблокированные» are ticked — the number beside «Показать»."""
+        return sum((self.mine, self.overdue, self.stale, self.blocked))
 
     @property
     def query(self):
@@ -397,17 +405,199 @@ def _start_of_day(day):
     return timezone.make_aware(datetime.datetime.combine(day, datetime.time.min))
 
 
+# The traffic light of an open card in a column with a «Норматив этапа»:
+# its planned exit more than one working day away, today or the next working
+# day, or past. What each colour says, in words.
+LIGHT_LABELS = {
+    'green': 'В нормативе',
+    'yellow': 'Срок этапа подходит',
+    'red': 'Просрочен этап',
+}
+
+
+def stage_plan(since, norm):
+    """The planned exit from a stage: `norm` working days after the local day
+    the card entered it (`ecosystem.workdays.add_working_days()`); `None`
+    without a norm or an entry."""
+    if since is None or not norm:
+        return None
+    return add_working_days(timezone.localtime(since).date(), norm)
+
+
+def stage_light(plan, today=None):
+    """`'green'`, `'yellow'`, `'red'` — or `None` without a plan.
+
+    Red: the planned exit is past. Yellow: it is today or the next working
+    day (Friday → Monday is one working day). Green: further away.
+    """
+    if plan is None:
+        return None
+    today = today or timezone.localdate()
+    if plan < today:
+        return 'red'
+    if working_days_between(today, plan) <= 1:
+        return 'yellow'
+    return 'green'
+
+
+def late_cutoff(norm, today):
+    """The first local day a card may have entered a column with `norm` and
+    not be late today: entered before it, `stage_plan()` is past.
+
+    `add_working_days(d, norm)` never decreases with `d`, so this is a
+    binary search between a day surely late and today (never late).
+    """
+    low = today - datetime.timedelta(days=norm * 2 + 14)
+    high = today
+    while low < high:
+        middle = low + datetime.timedelta(days=(high - low).days // 2)
+        if add_working_days(middle, norm) < today:
+            low = middle + datetime.timedelta(days=1)
+        else:
+            high = middle
+    return low
+
+
+def apply_stage(item, column, today=None):
+    """Put the stage's plan on an open card of the board (`_item()`) standing
+    in `column`: `norm`, `plan_exit`, `light`, `light_label`, `is_late` and
+    `stage_deviation` — working days past the plan as of today (positive
+    late, negative ahead)."""
+    norm = getattr(column, 'norm_working_days', None) if column is not None and not column.is_done else None
+    plan = stage_plan(item.get('in_column_since'), norm) if not item['is_closed'] else None
+    today = today or timezone.localdate()
+    light = stage_light(plan, today)
+    item.update({
+        'norm': norm if plan else None,
+        'plan_exit': plan,
+        'light': light,
+        'light_label': LIGHT_LABELS.get(light, ''),
+        'is_late': light == 'red',
+        'stage_deviation': working_days_between(plan, today) if plan else None,
+    })
+    return item
+
+
+# The journal entries a card's path through the columns is read from.
+STAGE_EVENT_KINDS = (
+    BoardCardEvent.Kind.CREATED,
+    BoardCardEvent.Kind.MOVED,
+    BoardCardEvent.Kind.REOPENED,
+    BoardCardEvent.Kind.COMPLETED,
+    BoardCardEvent.Kind.CANCELLED,
+)
+
+
+def stage_stays(events):
+    """A card's stays in columns, oldest first, read off its journal.
+
+    `events` are `(kind, details, created_at)` in time order — any of a
+    card's entries; only `STAGE_EVENT_KINDS` count. `CREATED` in a column
+    opens a stay, `MOVED` closes it and opens the next (the column's name *as
+    it was*), `COMPLETED` closes it and opens a stay in the closing column
+    (`is_done`, no name: the caller knows it), `REOPENED` closes that one and
+    opens the working column it returned to, `CANCELLED` closes it. Each stay
+    is `{'column_id', 'column', 'is_done', 'entered_at', 'exited_at'}`,
+    `exited_at` `None` for the one the card is in now. A subtask, created in
+    no column, has none.
+    """
+    stays = []
+    current = None
+
+    def close(at):
+        if current is not None:
+            current['exited_at'] = at
+
+    def open_stay(column_id, name, at, *, is_done=False):
+        stay = {'column_id': column_id, 'column': name or '', 'is_done': is_done,
+                'entered_at': at, 'exited_at': None}
+        stays.append(stay)
+        return stay
+
+    for kind, details, at in events:
+        details = details if isinstance(details, dict) else {}
+        if kind == BoardCardEvent.Kind.CREATED:
+            if details.get('parent') or not (details.get('column_id') or details.get('column')):
+                continue
+            close(at)
+            current = open_stay(details.get('column_id'), details.get('column'), at)
+        elif kind == BoardCardEvent.Kind.MOVED:
+            close(at)
+            current = open_stay(details.get('to_column_id'), details.get('to_column'), at)
+        elif kind == BoardCardEvent.Kind.COMPLETED:
+            if current is None:
+                continue
+            close(at)
+            current = open_stay(None, '', at, is_done=True)
+        elif kind == BoardCardEvent.Kind.REOPENED:
+            if current is None:
+                continue
+            close(at)
+            current = (
+                open_stay(details.get('column_id'), details.get('column'), at)
+                if details.get('column_id') or details.get('column') else None
+            )
+        elif kind == BoardCardEvent.Kind.CANCELLED:
+            close(at)
+            current = None
+    return stays
+
+
+def stay_days(stay, today=None):
+    """Working days a stay lasted — from the local day it began to the day
+    it ended, or to today for the current one."""
+    entered = timezone.localtime(stay['entered_at']).date()
+    end = timezone.localtime(stay['exited_at']).date() if stay['exited_at'] else (today or timezone.localdate())
+    return working_days_between(entered, end)
+
+
+def card_stages(card, events, columns_by_id, done_column=None, today=None):
+    """«Этапы» on «Описание»: the card's stays (`stage_stays()`) as rows.
+
+    Each row is `{'column', 'is_done', 'is_current', 'entered', 'plan',
+    'exited', 'days', 'deviation', 'light'}`: the column's name as the
+    journal has it (the closing column's as it is now), the local dates in
+    and out, the planned exit by the column's **current** «Норматив этапа»
+    (none kept from before — the block says so), the working days in the
+    stage and the deviation from the plan in working days (positive late; for
+    the current stay as of today). A column deleted since has no norm. Read
+    off the panel's own journal list — no query. A subtask has no rows.
+    """
+    today = today or timezone.localdate()
+    rows = []
+    for stay in stage_stays([(event.kind, event.details, event.created_at) for event in events]):
+        column = columns_by_id.get(stay['column_id']) if stay['column_id'] else None
+        norm = column.norm_working_days if column is not None and not column.is_done else None
+        plan = stage_plan(stay['entered_at'], norm) if not stay['is_done'] else None
+        exited = timezone.localtime(stay['exited_at']).date() if stay['exited_at'] else None
+        is_current = stay['exited_at'] is None
+        deviation = working_days_between(plan, exited or today) if plan else None
+        rows.append({
+            'column': (done_column.name if done_column is not None else 'Завершена') if stay['is_done'] else stay['column'],
+            'is_done': stay['is_done'],
+            'is_current': is_current,
+            'entered': timezone.localtime(stay['entered_at']).date(),
+            'plan': plan,
+            'norm': norm,
+            'exited': exited,
+            'days': None if stay['is_done'] else stay_days(stay, today),
+            'deviation': deviation,
+            'light': stage_light(plan, today) if plan and is_current else None,
+        })
+    return rows
+
+
 def stale_condition(columns, today=None):
-    """«Застрявшие» as a condition on the tasks: an open card standing at least
-    its column's threshold (`BoardColumn.stale_after_days`) in that column.
+    """«Просрочен этап» (`?stale=1`) as a condition on the tasks: an open card
+    whose planned exit from its column (`stage_plan()`, by the column's
+    «Норматив этапа») is past — the red ones.
 
     `columns` are the columns already read (of one sub-board or of the whole
     board), so the condition is one `OR` over the working columns that have a
-    threshold — no query of its own. A card whose column was deleted while it
+    norm — no query of its own. A card whose column was deleted while it
     was closed stands in the first working column of its sub-board
-    (`columns.card_column()`), and is judged by that one. «At least N days» is
-    `localdate(since) <= today - N`, i.e. `since` before the start of day
-    `today - N + 1`. No threshold anywhere keeps no card.
+    (`columns.card_column()`), and is judged by that one. «Past» is «entered
+    before `late_cutoff()`». No norm anywhere keeps no card.
     """
     today = today or timezone.localdate()
     first_working = {}
@@ -416,13 +606,13 @@ def stale_condition(columns, today=None):
             first_working.setdefault(column.sub_board_id, column.pk)
     condition = Q(pk__isnull=True)  # nothing: no column has a threshold
     for column in columns:
-        days = column.stale_after_days
+        days = column.norm_working_days
         if column.is_done or not days:
             continue
         place = Q(board_card__column_id=column.pk)
         if first_working.get(column.sub_board_id) == column.pk:
             place |= Q(board_card__column__isnull=True, board_card__sub_board_id=column.sub_board_id)
-        threshold = _start_of_day(today - datetime.timedelta(days=days - 1))
+        threshold = _start_of_day(late_cutoff(days, today))
         condition |= place & Q(stale_since__lt=threshold)
     return condition
 
@@ -503,7 +693,7 @@ def _filtered(tasks, filters, user, *, open_work, columns=()):
     join adds no duplicates); `q` is a substring of the card's title, its
     code or a text field's value (`card_search_q()`); each field filter is
     one `Exists()` of the same query (`FieldFilter.condition()`), so neither
-    the number of filters nor the number of fields adds a query. «Застрявшие»
+    the number of filters nor the number of fields adds a query. «Просрочен этап»
     is `stale_condition()` over `columns` — the columns the caller has read
     already — on the same journal subquery the tiles read (`in_column_since()`).
     """
@@ -566,7 +756,7 @@ def _column_tasks():
 
     The read side's one point of «подзадач в колонках нет»: the columns and
     their counts (`build_board_state()`, `column_counts()`, a drag's JSON),
-    the board's filters — «Мои», the search, the fields, «Застрявшие» — and
+    the board's filters — «Мои», the search, the fields, «Просрочен этап» — and
     the time in a column all start here, so a subtask is never a tile, never
     counted and never stuck. A subtask is read by its card's «Подзадачи»
     (`card_subtasks()`), by its own panel and by «Задачи». The write side's
@@ -678,7 +868,14 @@ def _item(task, board):
         # or cancelled card stands nowhere it could be stuck.
         'in_column_since': since,
         'in_column_days': days_in_column(since),
-        'is_stale': False,
+        # The stage's plan and traffic light (`apply_stage()`), for an open
+        # card in a column with a «Норматив этапа»; nothing otherwise.
+        'norm': None,
+        'plan_exit': None,
+        'light': None,
+        'light_label': '',
+        'is_late': False,
+        'stage_deviation': None,
         # «⛔ ждёт СНБ-14 +1»: the open cards it waits for, counted in the
         # tiles' own query (`blocker_annotations()`); a closed card waits for
         # nothing.
@@ -1019,7 +1216,17 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
         ),
     )
     item.update(chat)
-    item['log'] = card_log(card, item['attachments'], card_files, user)
+    # The journal, one query: «Лог» and «Этапы» both read it.
+    events = list(BoardCardEvent.objects.filter(card=card).select_related('actor'))
+    item['log'] = card_log(card, item['attachments'], card_files, user, events=events)
+    if not item['is_subtask']:
+        columns_by_id = {column.pk: column for columns in columns_of.values() for column in columns}
+        done_column = next(
+            (column for column in columns_of.get(card.sub_board_id, []) if column.is_done), None,
+        )
+        item['stages'] = card_stages(card, events, columns_by_id, done_column)
+    else:
+        item['stages'] = []
     # «Связи»: one query, grouped; the other board's card named only for a
     # reader of that board.
     item.update(card_links(card, board, sub_board, user, can_work=can_work))
@@ -1358,7 +1565,7 @@ SUBTASK_ACTION_LABELS = {
 }
 
 
-def card_log(card, attachments, card_files=(), user=None):
+def card_log(card, attachments, card_files=(), user=None, events=None):
     """«Лог» of a card, newest first: its journal and its files.
 
     The journal is one query (`BoardCardEvent`, its authors joined); the files
@@ -1373,7 +1580,8 @@ def card_log(card, attachments, card_files=(), user=None):
     such entries and `user` lacks full access; anybody else reads «карточка
     другой доски».
     """
-    events = list(BoardCardEvent.objects.filter(card=card).select_related('actor'))
+    if events is None:
+        events = list(BoardCardEvent.objects.filter(card=card).select_related('actor'))
     link_kinds = (BoardCardEvent.Kind.LINKED, BoardCardEvent.Kind.UNLINKED)
     other_ids = {
         event.details.get('other_id') for event in events
@@ -1665,7 +1873,7 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
             item = _item(task, board)
             item['is_movable'] = can_work
             item['can_complete'] = task.pk in completable
-            item['is_stale'] = is_stale(item['in_column_days'], column)
+            apply_stage(item, column)
             cards_by_column[column.pk].append(item)
     for cards in cards_by_column.values():
         cards.sort(key=lambda item: (item['card'].position, item['card'].pk))
@@ -1971,13 +2179,6 @@ def checklist_counts(card):
     return counts['done'], counts['total']
 
 
-def is_stale(days, column):
-    """Whether an open card `days` in `column` is stuck: at least the column's
-    threshold, not a day earlier. A column without one never says so."""
-    threshold = getattr(column, 'stale_after_days', None)
-    return bool(threshold) and days is not None and days >= threshold
-
-
 def _count_subquery(queryset, group_by):
     """`queryset` (filtered on an `OuterRef`) counted, 0 when empty."""
     counted = queryset.order_by().values(group_by).annotate(n=Count('pk')).values('n')
@@ -2008,7 +2209,7 @@ def resolve_new_column(columns, value):
 # outside `field_<id>` of a live field of the board) is ignored: the rows are
 # ordered in Python by these keys alone, so nothing the address says ever
 # reaches `order_by()`.
-TABLE_SORTS = ('code', 'title', 'column', 'due', 'days', 'changes', 'created', 'completed')
+TABLE_SORTS = ('code', 'title', 'column', 'due', 'days', 'stage', 'changes', 'created', 'completed')
 TABLE_FIELD_SORT_PREFIX = 'field_'
 
 # The words the table and its Excel use for a task's state.
@@ -2108,13 +2309,13 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
     completed one (no `DONE_LIMIT`), the cancelled ones only under
     `cancelled` (`?cancelled=1`). The board's filters apply as on the board
     (`_filtered()`): «Мои», the search and the field filters to every row;
-    «Просроченные» and «Застрявшие» describe open work, so under either the
+    «Просроченные» and «Просрочен этап» describe open work, so under either the
     table holds the open cards that match — a completed card is neither late
     nor stuck.
 
     Each row is `{'card', 'task', 'sub_board', 'column', 'column_label',
     'status', 'status_label', 'assignees', 'due_date', 'is_closed',
-    'in_column_days', 'is_stale', 'checklist_label', 'cells', 'created',
+    'in_column_days', 'plan_exit', 'light', 'is_late', 'stage_deviation', 'checklist_label', 'cells', 'created',
     'completed'}`: `column`
     is where the board shows the card (`columns.card_column()` — the closing
     column for a completed one), `column_label` its name or «Отменена»;
@@ -2128,7 +2329,7 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
     `parent_code` («Родитель»), no column and no time in one; they are read
     for the cards the filters kept (the filters describe the tiles) with the
     same states as the cards — the open and completed, the cancelled under
-    «Отменённые», only the open under «Просроченные»/«Застрявшие» — in one
+    «Отменённые», only the open under «Просроченные»/«Просрочен этап» — in one
     query more. Sorting orders the cards; a card's subtasks stay under it.
 
     The order is the board's — sub-board, column, place in it, the closing
@@ -2207,13 +2408,16 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
             'parent_code': card.parent_code if is_subtask else '',
             'status': status,
             'status_label': TABLE_STATUS_LABELS.get(status, task.status.name),
-            'is_stale': is_stale(item['in_column_days'], column) if not item['is_closed'] else False,
             'created': timezone.localtime(card.created_at).date(),
             'completed': (
                 timezone.localtime(task.completed_at).date()
                 if status == 'COMPLETED' and task.completed_at else None
             ),
         })
+        if not is_subtask:
+            # «План выхода из этапа» and «Отклонение этапа, р.д.»: an open
+            # card in a column with a «Норматив этапа».
+            apply_stage(item, column)
         values = field_rows.get(card.pk, {})
         cells = [_table_cell(field, values.get(field.pk)) for field in live_fields]
         item['cells'] = cells
@@ -2244,6 +2448,8 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
             'column': item['board_order'] if column is not None else None,
             'due': task.due_date,
             'days': item['in_column_days'],
+            # «Отклонение этапа, р.д.»: the most late first under `-stage`.
+            'stage': item['stage_deviation'],
             'changes': item['due_change_count'],
             'created': card.created_at,
             'completed': task.completed_at if status == 'COMPLETED' else None,
@@ -2370,3 +2576,99 @@ def build_deviation_report(board, *, date_from, date_to, sub_board=None):
         'shift': sum(row['shift'] or 0 for row in rows),
     }
 
+
+
+# --------------------------------------------------------------------------
+# «Отклонения» → «Этапы»: how long the cards stayed in each stage
+# --------------------------------------------------------------------------
+
+
+def build_stage_report(board, *, date_from, date_to, sub_board=None, today=None):
+    """The «Этапы» tab of «Отклонения» — and what its Excel holds.
+
+    For every working column of the board (or of `sub_board`), in the
+    board's order: how many cards **left** it during `date_from`…`date_to`
+    (local dates, inclusive) — moved on, completed or cancelled — the average
+    and the longest stay of those in working days (`stay_days()`), the share
+    that kept within the column's **current** «Норматив этапа» (a stay of at
+    most N working days; none without a norm), and how many open cards stand
+    in it now past their plan (the red lights). Rows are `{'column',
+    'sub_board', 'norm', 'exits', 'average', 'longest', 'within',
+    'within_share', 'late_now'}`.
+
+    Three queries whatever the number of cards: the columns, the journal
+    entries of the cards that left a column in the period (every one of
+    their stage entries up to the end of the period, so a stay that began
+    before it is read whole), and the open cards with their «В колонке с».
+    Everything else is counted in Python (`stage_stays()`). Subtasks stand in
+    no column and are not in it.
+    """
+    today = today or timezone.localdate()
+    start = _start_of_day(date_from)
+    end = _start_of_day(date_to + datetime.timedelta(days=1))
+    columns = list(
+        BoardColumn.objects.filter(sub_board__board=board, is_done=False)
+        .select_related('sub_board')
+        .order_by('sub_board__position', 'sub_board_id', 'position', 'pk')
+    )
+    if sub_board is not None:
+        columns = [column for column in columns if column.sub_board_id == sub_board.pk]
+    by_id = {column.pk: column for column in columns}
+    exit_kinds = (BoardCardEvent.Kind.MOVED, BoardCardEvent.Kind.COMPLETED, BoardCardEvent.Kind.CANCELLED)
+    leaving = BoardCardEvent.objects.filter(
+        card__board=board, card__parent__isnull=True, kind__in=exit_kinds,
+        created_at__gte=start, created_at__lt=end,
+    ).values('card_id')
+    entries = (
+        BoardCardEvent.objects.filter(
+            card_id__in=leaving, kind__in=STAGE_EVENT_KINDS, created_at__lt=end,
+        )
+        .order_by('card_id', 'created_at', 'pk')
+        .values_list('card_id', 'kind', 'details', 'created_at')
+    )
+    per_card = {}
+    for card_id, kind, details, at in entries:
+        per_card.setdefault(card_id, []).append((kind, details, at))
+    durations = {column.pk: [] for column in columns}
+    for events in per_card.values():
+        for stay in stage_stays(events):
+            exited = stay['exited_at']
+            if exited is None or not start <= exited < end or stay['column_id'] not in durations:
+                continue
+            durations[stay['column_id']].append(stay_days(stay))
+    late_now = {column.pk: 0 for column in columns}
+    first_working = {}
+    for column in columns:
+        first_working.setdefault(column.sub_board_id, column.pk)
+    open_cards = (
+        _column_tasks().filter(board_card__board=board, status__code='IN_PROGRESS')
+        .annotate(since=in_column_since())
+        .values_list('board_card__column_id', 'board_card__sub_board_id', 'since')
+    )
+    for column_id, sub_board_id, since in open_cards:
+        column = by_id.get(column_id or first_working.get(sub_board_id))
+        if column is None or not column.norm_working_days:
+            continue
+        if stage_light(stage_plan(since, column.norm_working_days), today) == 'red':
+            late_now[column.pk] += 1
+    rows = []
+    for column in columns:
+        days = durations[column.pk]
+        norm = column.norm_working_days
+        within = sum(1 for value in days if value <= norm) if norm else None
+        rows.append({
+            'column': column,
+            'sub_board': column.sub_board,
+            'norm': norm,
+            'exits': len(days),
+            'average': round(sum(days) / len(days), 1) if days else None,
+            'longest': max(days) if days else None,
+            'within': within,
+            'within_share': round(100 * within / len(days)) if norm and days else None,
+            'late_now': late_now[column.pk],
+        })
+    return {
+        'stage_rows': rows,
+        'stage_exits': sum(row['exits'] for row in rows),
+        'stage_late_now': sum(row['late_now'] for row in rows),
+    }

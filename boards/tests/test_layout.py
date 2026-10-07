@@ -26,7 +26,7 @@ from ..services import (
     rename_board,
 )
 from ..views import LAST_SUB_BOARD_SESSION_KEY
-from .helpers import BoardFixtureMixin, board_url, fragment_url, fresh_code, main_sub_board, make_user
+from .helpers import FOLLOW_FORM, BoardFixtureMixin, board_url, fragment_url, fresh_code, main_sub_board, make_user
 
 
 def task_of(card):
@@ -280,8 +280,9 @@ class HeadingTests(BoardFixtureMixin, TestCase):
             self.assertIn(marker, head)
         self.assertNotIn(reverse('boards:restore', args=[self.board.pk]), head)
         self.client.force_login(self.member)
-        head = head_of(self.client.get(board_url(self.board)))
-        # A reader's «⋯» holds «Участники» and «Отклонения», nothing that writes.
+        head = FOLLOW_FORM.sub('', head_of(self.client.get(board_url(self.board))))
+        # A reader's «⋯» holds «Участники», «Отклонения» and their own
+        # «Дайджест на почту», nothing else that writes.
         self.assertIn(reverse('boards:deviations', args=[self.board.pk]), head)
         for marker in (reverse('boards:rename', args=[self.board.pk]), reverse('boards:archive', args=[self.board.pk]), 'method="post"'):
             self.assertNotIn(marker, head)
