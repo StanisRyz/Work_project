@@ -162,7 +162,8 @@
 | 19 | `tasks/stage-19.md` | `main` (`2343e2b..fb146b4`) | принят (`reviews/stage-19.md`) |
 | 20 | `tasks/stage-20.md` | `main` (`c2aaa37..508ef21`) | принят (`reviews/stage-20.md`) |
 | 21 | `tasks/stage-21.md` | `main` (`8f1f3e8..3302b3c`) | принят (`reviews/stage-21.md`) |
-| 22 | `tasks/stage-22.md` | `main` | ждёт передачи владельцем |
+| 22 | `tasks/stage-22.md` | `main` (`1bcbe0f..c81bf32`) | принят (`reviews/stage-22.md`) |
+| 23 | `tasks/stage-23.md` | `main` | ждёт передачи владельцем |
 
 ## Принятые ограничения (к пилоту)
 
