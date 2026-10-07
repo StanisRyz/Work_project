@@ -1,0 +1,79 @@
+
+=== 1920×1080 ===
+PASS  three tabs: Описание, Чат, Лог  — ['description', 'chat', 'log']
+PASS  the task's older attachment stands in the feed  — ['ИИ\n\nИван Иванов · 05.10.2026 10:26 · добавлен файл к задаче\n\nPDF\nспецификация-ZAP-1.pdf\n25 Б\nСкачать\n×']
+PASS  it downloads through the task
+PASS  «📎 Файлы» stands for the file input, which is visually hidden  — {'x': 1288, 'y': 1019.5, 'width': 1, 'height': 1}
+PASS  two picks — two chips  — ['чертёж-ZAP-1.pdf', 'фото-заготовки.png']
+PASS  a file dropped on «Чат» is taken and the area lit  — {'accepted': True, 'lit': True}
+PASS  it is a chip too  — ['чертёж-ZAP-1.pdf', 'фото-заготовки.png', 'лишний.pdf']
+PASS  «×» takes it back before sending  — ['чертёж-ZAP-1.pdf', 'фото-заготовки.png']
+PASS  the form posts exactly the chosen files  — 2
+PASS  Ctrl+V of a screenshot becomes «скриншот-ГГГГ-ММ-ДД-ЧЧММСС.png»  — ['скриншот-2026-10-07-053017.png']
+PASS  two messages  — 2
+PASS  on «Чат» nothing of «Описание» shows
+PASS  two thumbnails (the photo and the screenshot)  — 2
+PASS  the thumbnails load through the protected preview
+PASS  a thumbnail is at most 160 px high  — 139.5
+PASS  the PDF is a row: badge, name, size, «Скачать»  — ['PDF\nчертёж-ZAP-1.pdf\n77 Б\nСкачать\n×']
+PASS  the screenshot message has no text of its own
+PASS  no sideways scroll of the page
+PASS  a thumbnail opens the image inline, sandboxed  — {'date': 'Wed, 07 Oct 2026 05:30:19 GMT', 'server': 'uvicorn', 'content-type': 'image/png', 'content-length': '71080', 'content-disposition': 'inline', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'cache-control': 'private, max-age=300', 'x-frame-options': 'DENY', 'x-request-id': 'ad7c054d78624b679324509e873d5be2', 'vary': 'Cookie', 'referrer-policy': 'same-origin', 'cross-origin-opener-policy': 'same-origin'}
+PASS  admin1 sees the messages with their files without a reload
+PASS  and «Только файлы · 4» (three of the chat, one of the task)  — 4
+PASS  «Только файлы» switches in place  — http://127.0.0.1:8765/work/boards/1/1/?card=1&tab=chat&chat=files
+PASS  every file, newest first, the task's attachment last  — ['скриншот-2026-10-07-053017.png', 'фото-заготовки.png', 'чертёж-ZAP-1.pdf', 'спецификация-ZAP-1.pdf']
+PASS  who and when beside each  — Иван Иванов · 07.10.2026 10:30 · 69.4 КБ
+PASS  «К сообщению» shows the messages at that message
+PASS  the shared confirmation asks first
+PASS  «Файл удалён» in its place
+PASS  the PDF is gone from the message
+PASS  admin1 sees «Файл удалён» without a reload
+PASS  and «Только файлы · 3»
+PASS  ?tab=files opens «Чат» on its files
+PASS  «📎 3» on the tile  — ['📎\n3']
+PASS  description → checklist → facts → tools → «Подписчики», top to bottom  — [412.6875, 466.6875, 700.6875, 1000.28125, 1059.28125]
+PASS  the checklist comes before «Редактировать» in the markup (the order of Tab)
+PASS  «Подписчики» with the avatar «ОА»  — Подписчики
+ОА
+
+=== 1536×864 ===
+PASS  three tabs: Описание, Чат, Лог  — ['description', 'chat', 'log']
+PASS  the task's older attachment stands in the feed  — ['ИИ\n\nИван Иванов · 05.10.2026 10:26 · добавлен файл к задаче\n\nPDF\nспецификация-ZAP-1.pdf\n25 Б\nСкачать\n×']
+PASS  it downloads through the task
+PASS  «📎 Файлы» stands for the file input, which is visually hidden  — {'x': 923, 'y': 803.5, 'width': 1, 'height': 1}
+PASS  two picks — two chips  — ['чертёж-ZAP-1.pdf', 'фото-заготовки.png']
+PASS  a file dropped on «Чат» is taken and the area lit  — {'accepted': True, 'lit': True}
+PASS  it is a chip too  — ['чертёж-ZAP-1.pdf', 'фото-заготовки.png', 'лишний.pdf']
+PASS  «×» takes it back before sending  — ['чертёж-ZAP-1.pdf', 'фото-заготовки.png']
+PASS  the form posts exactly the chosen files  — 2
+PASS  Ctrl+V of a screenshot becomes «скриншот-ГГГГ-ММ-ДД-ЧЧММСС.png»  — ['скриншот-2026-10-07-053040.png']
+PASS  two messages  — 2
+PASS  on «Чат» nothing of «Описание» shows
+PASS  two thumbnails (the photo and the screenshot)  — 2
+PASS  the thumbnails load through the protected preview
+PASS  a thumbnail is at most 160 px high  — 139.5
+PASS  the PDF is a row: badge, name, size, «Скачать»  — ['PDF\nчертёж-ZAP-1.pdf\n77 Б\nСкачать\n×']
+PASS  the screenshot message has no text of its own
+PASS  no sideways scroll of the page
+PASS  a thumbnail opens the image inline, sandboxed  — {'date': 'Wed, 07 Oct 2026 05:30:42 GMT', 'server': 'uvicorn', 'content-type': 'image/png', 'content-length': '71080', 'content-disposition': 'inline', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'cache-control': 'private, max-age=300', 'x-frame-options': 'DENY', 'x-request-id': '4bb51f3c00af42858bd592b2002dc9ba', 'vary': 'Cookie', 'referrer-policy': 'same-origin', 'cross-origin-opener-policy': 'same-origin'}
+PASS  admin1 sees the messages with their files without a reload
+PASS  and «Только файлы · 4» (three of the chat, one of the task)  — 4
+PASS  «Только файлы» switches in place  — http://127.0.0.1:8765/work/boards/1/1/?card=1&tab=chat&chat=files
+PASS  every file, newest first, the task's attachment last  — ['скриншот-2026-10-07-053040.png', 'фото-заготовки.png', 'чертёж-ZAP-1.pdf', 'спецификация-ZAP-1.pdf']
+PASS  who and when beside each  — Иван Иванов · 07.10.2026 10:30 · 69.4 КБ
+PASS  «К сообщению» shows the messages at that message
+PASS  the shared confirmation asks first
+PASS  «Файл удалён» in its place
+PASS  the PDF is gone from the message
+PASS  admin1 sees «Файл удалён» without a reload
+PASS  and «Только файлы · 3»
+PASS  ?tab=files opens «Чат» on its files
+PASS  «📎 3» on the tile  — ['📎\n3']
+PASS  description → checklist → facts → tools → «Подписчики», top to bottom  — [412.6875, 466.6875, 700.6875, 1000.28125, 1059.28125]
+PASS  the checklist comes before «Редактировать» in the markup (the order of Tab)
+PASS  «Подписчики» with the avatar «ОА»  — Подписчики
+ОА
+PASS  no JavaScript errors and no browser dialogs
+
+71/71 PASS

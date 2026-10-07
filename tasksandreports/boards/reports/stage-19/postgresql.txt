@@ -1,0 +1,59 @@
+$ python manage.py migrate   # с нуля, PostgreSQL 16
+  Applying accounts.0001_initial... OK
+  Applying tasks.0001_initial... OK
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying boards.0015_board_fields... OK
+  Applying boards.0016_column_stale_days... OK
+  Applying boards.0017_checklist_subscriptions_mentions... OK
+  Applying boards.0018_chat_files... OK
+  Applying notifications.0010_board_task_assigned... OK
+  Applying notifications.0011_board_cancel_and_comment_events... OK
+  Applying notifications.0012_board_mention_and_completed_events... OK
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-19/seed_demo.py
+76 objects imported automatically (use -v 2 for details).
+
+seeded
+seeded stage 16
+seeded stage 17
+seeded stage 18
+seeded stage 19
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-19/pg_checks.py
+76 objects imported automatically (use -v 2 for details).
+
+сообщение с файлами: [('чертёж.pdf', 11, ['boards', 'files', '1']), ('фото.png', 7, ['boards', 'files', '1'])]
+только файл, текст: '' файлов: 1
+пустое: Напишите сообщение или прикрепите файл.
+11 файлов: К одному сообщению — не больше 10 файлов.
+exe: Файл «вирус.exe»: Недопустимый тип файла.
+после сбоя строк столько же: True
+чужой файл: Удалить файл может тот, кто его прикрепил, или администратор.
+удалено: True
+надгробие: True ivanov '' файл на диске: False
+повтор: False
+📎 на плитке (живые файлы чата + вложение задачи): 3 = 2 + 1
+«Только файлы»: ['скриншот-2026-10-07-101500.png', 'фото.png', 'спецификация-ZAP-1.pdf']
+лента: ['attachment', 'message', 'message']
+запросов build_board_state с карточкой: до 21 после 15 сообщений с файлами 21
+
+$ python manage.py migrate boards 0017   # откат миграции этапа
+Operations to perform:
+  Target specific migration: 0017_checklist_subscriptions_mentions, from boards
+Running migrations:
+  Rendering model states... DONE
+  Unapplying boards.0018_chat_files... OK
+$ python manage.py shell -c "<таблица boards_boardcardfile, сообщения ZAP-1>"
+
+False 17 1
+
+$ python manage.py migrate   # вперёд
+  Applying boards.0018_chat_files... OK
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test boards dashboard tasks notifications realtime --parallel 4   # PostgreSQL 16
+Found 1095 test(s).
+Ran 1095 tests in 225.525s
+OK (skipped=3)
