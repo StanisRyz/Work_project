@@ -46,7 +46,6 @@ from ..services import (
     update_card,
 )
 from .helpers import (
-    fresh_code,
     CSRF_INPUT,
     LIVE_BLOCKS,
     BoardFixtureMixin,
@@ -54,7 +53,9 @@ from .helpers import (
     board_url,
     due,
     fragment_url,
+    fresh_code,
     make_user,
+    reason_id,
 )
 
 
@@ -170,7 +171,7 @@ class BoardEmissionTests(BoardFixtureMixin, TestCase):
         self.assert_one(
             lambda: update_card(
                 self.a, actor=self.member, title='A', description='', due_date=due(9),
-                assignee_ids=[self.member.pk],
+                assignee_ids=[self.member.pk], due_reason_id=reason_id(),
             ),
             'card_updated', self.a,
         )

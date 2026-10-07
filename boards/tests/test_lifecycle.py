@@ -56,6 +56,7 @@ from .helpers import (
     expected_counts,
     fragment_url,
     make_user,
+    reason_id,
 )
 
 
@@ -496,7 +497,7 @@ class CardVersionTests(BoardFixtureMixin, TestCase):
         return update_card(
             self.card_obj, actor=actor or self.member, title=title, description='',
             due_date=due_date or task_of(self.card_obj).due_date,
-            assignee_ids=[self.member.pk], expected_version=version,
+            assignee_ids=[self.member.pk], expected_version=version, due_reason_id=reason_id(),
         )
 
     def test_two_tabs_the_second_is_refused(self):

@@ -98,6 +98,7 @@ from realtime.events import (
 from .columns import DEFAULT_COLUMNS, MAX_COLUMNS
 from .models import (
     CHECKLIST_TEXT_MAX_LENGTH,
+    DUE_COMMENT_MAX_LENGTH,
     MAX_CHECKLIST_ITEMS,
     MAX_FILES_PER_MESSAGE,
     MAX_SUBTASKS,
@@ -111,6 +112,7 @@ from .models import (
     BoardCardChecklistItem,
     BoardCardComment,
     BoardCardCommentMention,
+    BoardCardDueChange,
     BoardCardEvent,
     BoardCardFile,
     BoardCardFieldValue,
@@ -166,6 +168,11 @@ class StaleCardError(BoardError):
 
 class BoardCodeError(BoardError):
     """A board code refused: badly formed, or taken by another board."""
+
+
+class DueReasonError(BoardError):
+    """A move of the срок refused for its reason (missing, unknown, inactive)
+    or its comment; the form puts it beside «Причина переноса»."""
 
 
 def _rejected(operation, reason, *, actor, board_id=None, card_id=None):
@@ -726,6 +733,8 @@ def _new_card(board, sub_board, *, actor, title, description, due_date, ids, val
         number=_next_number(board),
         title=title,
         description=description,
+        # The first срок — what «перенесён N раз» is counted from.
+        original_due_date=due_date,
         created_by=actor,
     )
     card.clean()
@@ -812,7 +821,7 @@ def create_card(
 
 
 def update_card(card, *, actor, title, description, due_date, assignee_ids,
-                expected_version=None, field_values=None):
+                expected_version=None, field_values=None, due_reason_id=None, due_comment=''):
     """Correct a live card, and its task with it.
 
     `expected_version` is the `BoardCard.version` the edit form was drawn with.
@@ -828,14 +837,27 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
     edit: the same version step, the same `card_updated`, and the journal's
     `EDITED` entry adds `custom` to `fields` and the fields' names as they
     are now to `custom_fields` («Изменено: Номер заявки, Срок изг.»).
+
+    **A срок that existed moves only with a reason** (`due_reason_id`, an
+    active `references.DeviationReason`; `due_comment` up to
+    `DUE_COMMENT_MAX_LENGTH`, optional): without one the whole edit is
+    refused with `DueReasonError`, before anything is written. A срок set
+    where there was none needs no reason (`reason` NULL). Each move is one
+    `BoardCardDueChange` in the edit's transaction; the `EDITED` entry names
+    `due_reason_id` (never the comment), and the card's author, исполнители
+    and followers but the editor hear of it (`BOARD_DUE_CHANGED`, bell only).
+    The срок of a card is required, so a срок is neither cleared nor — on a
+    card — ever set from nothing today; the rule says what it would be.
     """
-    from notifications.services import notify_board_task_assigned
+    from notifications.services import notify_board_due_changed, notify_board_task_assigned
     from tasks.models import TaskAssignee
     from tasks.services import (
         TaskWorkflowError,
         replace_task_assignees,
         update_board_card_task,
     )
+
+    from .selectors import card_audience
 
     with transaction.atomic():
         board = _lock_board(card.board_id)
@@ -876,6 +898,12 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
         # Each of the three writes below is itself a no-op when its part did
         # not change; this is what tells the caller whether anything did.
         due_changed = task.due_date != due_date
+        old_due = task.due_date
+        # A reason sent with a срок left as it was is no move and is ignored.
+        reason = _clean_due_reason(
+            due_reason_id, needed=old_due is not None, actor=actor, board=board, card=card,
+        ) if due_changed else None
+        due_comment = _clean_due_comment(due_comment) if due_changed else ''
         task_changed = task.task_text != task_text or due_changed
         assignees_changed = set(ids) != current_ids
         stored = bool(changed or task_changed or assignees_changed or custom_changes)
@@ -903,11 +931,26 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
             if assignees_changed:
                 fields.append('assignees')
             details = {}
+            if due_changed:
+                # Which reason, by id — never the comment's words.
+                details['due_reason_id'] = getattr(reason, 'pk', None)
             if custom_changes:
                 # The board's own fields, by their names as they are now.
                 fields.append('custom')
                 details['custom_fields'] = [field.name for field, _ in custom_changes]
             _record(card, BoardCardEvent.Kind.EDITED, actor=actor, fields=fields, **details)
+            if due_changed:
+                change = BoardCardDueChange.objects.create(
+                    card=card, old_due=old_due, new_due=due_date, reason=reason,
+                    comment=due_comment, changed_by=actor,
+                )
+                if card.original_due_date is None and old_due is None:
+                    # A срок set where there was none is the first one.
+                    card.original_due_date = due_date
+                    card.save(update_fields=['original_due_date'])
+                card.board = board
+                task.due_date = due_date
+                notify_board_due_changed(change, task, actor, card_audience(card, task))
             emit_board_updated(board.pk, BOARD_CHANGE_CARD_UPDATED, card.pk)
     log_event(
         logger,
@@ -920,6 +963,37 @@ def update_card(card, *, actor, title, description, due_date, assignee_ids,
         outcome='ok' if stored else 'unchanged',
     )
     return card
+
+
+def _clean_due_reason(raw, *, needed, actor, board, card):
+    """The `DeviationReason` a move of the срок names — refused when one is
+    needed and missing, or when the id is not an active reason. `None` when
+    the move needs none and none was sent."""
+    from references.models import DeviationReason
+
+    try:
+        reason_id = int(getattr(raw, 'pk', raw)) if raw not in (None, '') else None
+    except (TypeError, ValueError):
+        reason_id = None
+        if needed:
+            raise DueReasonError('Выберите причину переноса срока из списка.') from None
+    if reason_id is None:
+        if needed:
+            _rejected('update_card', 'due_reason_missing', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise DueReasonError('Срок переносится только с причиной: выберите причину переноса.')
+        return None
+    reason = DeviationReason.objects.filter(pk=reason_id, is_active=True).first()
+    if reason is None:
+        _rejected('update_card', 'due_reason_unknown', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise DueReasonError('Такой причины переноса нет среди действующих — выберите другую.')
+    return reason
+
+
+def _clean_due_comment(comment):
+    comment = (comment or '').strip()
+    if len(comment) > DUE_COMMENT_MAX_LENGTH:
+        raise DueReasonError(f'Комментарий к переносу — не длиннее {DUE_COMMENT_MAX_LENGTH} символов.')
+    return comment
 
 
 def _board_working_column(board, column, *, operation, actor, card_id=None):
@@ -1115,7 +1189,11 @@ def complete_card(card, *, actor, execution_comment):
         _record(card, BoardCardEvent.Kind.COMPLETED, actor=actor)
         # Its followers and its author, in the bell; whoever finished it knows.
         card.board = board
-        notify_board_card_completed(task, actor, card_audience(card, task, assignees=False))
+        # A subtask's author is the card's people, who hear «все подзадачи
+        # выполнены» at the end: a subtask tells its followers only.
+        notify_board_card_completed(
+            task, actor, card_audience(card, task, assignees=False, author=card.parent_id is None),
+        )
         if card.parent_id is not None:
             parent = _record_subtask(card, 'completed', actor=actor)
             _ask_parent_done(parent, board, actor=actor, closed_at=task.completed_at)
@@ -2903,3 +2981,60 @@ def checklist_item_to_subtask(item, *, actor):
             subtask_id=subtask.pk, code=subtask.code,
         )
     return subtask
+
+
+# --------------------------------------------------------------------------
+# Напоминания о сроке
+# --------------------------------------------------------------------------
+
+
+def send_due_reminders(today=None):
+    """What `manage.py board_due_reminders` does once a day.
+
+    Every open `BOARD` task (`IN_PROGRESS`) of a live board — a card or a
+    subtask alike:
+    - due today or on the next working day
+      (`ecosystem.workdays.add_working_days(today, 1)`: a Friday reaches
+      Monday) → «Завтра срок карточки ZAP-12» (`BOARD_DUE_SOON`) to its
+      исполнители;
+    - past its срок → «Карточка ZAP-12 просрочена» (`BOARD_OVERDUE`) to its
+      исполнители, author and followers.
+    Only people who still read the board (`selectors.card_audience()`). Both
+    are keyed on the task and its срок, so running again the same day creates
+    nothing, and a срок moved asks again. Writes notifications and nothing
+    else — no journal entry, no `board.updated`. Returns
+    `{'due_soon': n, 'overdue': n}`, the notifications created; one log line,
+    numbers only.
+    """
+    from ecosystem.workdays import add_working_days
+    from notifications.services import notify_board_due_soon, notify_board_overdue
+    from tasks.models import Task
+
+    from .selectors import card_audience
+
+    today = today or timezone.localdate()
+    horizon = add_working_days(today, 1)
+    open_tasks = (
+        Task.objects.filter(
+            source_type=Task.SourceType.BOARD,
+            status__code='IN_PROGRESS',
+            board_card__board__status=Board.Status.ACTIVE,
+        )
+        .select_related('board_card__board', 'board_card__parent')
+        .order_by('due_date', 'pk')
+    )
+    created = {'due_soon': 0, 'overdue': 0}
+    for task in open_tasks.filter(due_date__gte=today, due_date__lte=horizon):
+        recipients = card_audience(task.board_card, task, author=False, subscribers=False)
+        created['due_soon'] += len(notify_board_due_soon(task, recipients))
+    for task in open_tasks.filter(due_date__lt=today):
+        created['overdue'] += len(notify_board_overdue(task, card_audience(task.board_card, task)))
+    log_event(
+        logger,
+        'INFO',
+        'board.due_reminders',
+        due_soon_count=created['due_soon'],
+        overdue_count=created['overdue'],
+        outcome='ok',
+    )
+    return created

@@ -173,7 +173,7 @@ def _check_migrations():
 
 def _check_reference_data():
     from acts.models import ACT_STATUS_CODES
-    from references.models import ActStatus, DefectType, Operation, TaskStatus
+    from references.models import ActStatus, DefectType, DeviationReason, Operation, TaskStatus
 
     # The full set the workflow depends on (`acts.models.get_act_status`), not
     # a second, independently maintained list.
@@ -197,7 +197,11 @@ def _check_reference_data():
         else:
             results.append(_result(name, PASS, f'Все обязательные коды присутствуют ({len(codes)}).'))
 
-    for model, name in ((Operation, 'operations'), (DefectType, 'defect_types')):
+    for model, name in (
+        (Operation, 'operations'), (DefectType, 'defect_types'),
+        # A board's deadline is moved only with a reason from this list.
+        (DeviationReason, 'deviation_reasons'),
+    ):
         try:
             count = model.objects.count()
         except Exception as exc:  # noqa: BLE001

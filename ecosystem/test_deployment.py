@@ -472,6 +472,25 @@ class ActStatusRequirementTests(TestCase):
         self.assertIn('3', result['detail'])
 
 
+class DeviationReasonBootstrapTests(TestCase):
+    """A fresh installation has the reasons a board's deadline move asks for."""
+
+    def _result(self):
+        results = run_fresh_bootstrap_checks(allow_sqlite=True)
+        return next(item for item in results if item['check'] == 'deviation_reasons')
+
+    def test_seeded_by_the_migration_and_blocking_when_empty(self):
+        from references.models import DeviationReason
+
+        self.assertEqual(self._result()['status'], BOOTSTRAP_PASS)
+        DeviationReason.objects.all().delete()
+        result = self._result()
+        self.assertEqual(result['status'], BOOTSTRAP_BLOCKING)
+        self.assertIn('seed_references', result['detail'])
+        call_command('seed_references', stdout=StringIO())
+        self.assertEqual(self._result()['status'], BOOTSTRAP_PASS)
+
+
 class ProductionReadinessCommandTests(TestCase):
     def _run(self, **options):
         buffer = StringIO()

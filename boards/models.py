@@ -361,6 +361,12 @@ class BoardCard(models.Model):
         null=True,
         blank=True,
     )
+    # The card's first срок, written when it is created (`create_card()`,
+    # `create_subtask()`). NULL for the cards that existed before stage 21 —
+    # their current срок is not necessarily their first, and none is made up:
+    # the page reads «—». The срок itself is the task's (`Task.due_date`);
+    # every move of it is a `BoardCardDueChange`.
+    original_due_date = models.DateField('Исходный срок', null=True, blank=True)
     # Grows by one with every edit that stored something (`update_card()`), and
     # only then: a move or a completion does not touch the text an editor is
     # holding. The edit form carries the number it was drawn with, and
@@ -461,6 +467,65 @@ class BoardCard(models.Model):
         if self.column_id is not None:
             errors['column'] = 'Подзадача живёт в своей карточке, а не в колонке доски.'
         return errors
+
+
+# The longest comment a deadline move takes.
+DUE_COMMENT_MAX_LENGTH = 500
+
+
+class BoardCardDueChange(models.Model):
+    """One move of a card's срок: was, became, why, who and when.
+
+    Append-only, written by `services.update_card()` alone, in the transaction
+    of the edit that moved it. A срок that existed is moved only with a reason
+    from `references.DeviationReason`; `reason` is NULL only for a срок set
+    where there was none. The comment is the editor's own words, shown on the
+    card and in «Отклонения» — never in a notification, a log line or the
+    journal's `details`.
+    """
+
+    card = models.ForeignKey(
+        BoardCard,
+        on_delete=models.PROTECT,
+        related_name='due_changes',
+        verbose_name='Карточка',
+    )
+    old_due = models.DateField('Было', null=True, blank=True)
+    new_due = models.DateField('Стало', null=True, blank=True)
+    reason = models.ForeignKey(
+        'references.DeviationReason',
+        on_delete=models.PROTECT,
+        related_name='board_due_changes',
+        verbose_name='Причина',
+        null=True,
+        blank=True,
+    )
+    comment = models.CharField('Комментарий', max_length=DUE_COMMENT_MAX_LENGTH, blank=True)
+    changed_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_due_changes',
+        verbose_name='Кто перенёс',
+    )
+    changed_at = models.DateTimeField('Когда', auto_now_add=True)
+
+    class Meta:
+        ordering = ['changed_at', 'pk']
+        verbose_name = 'Перенос срока карточки'
+        verbose_name_plural = 'Переносы сроков карточек'
+        indexes = [
+            models.Index(fields=['card', 'changed_at'], name='board_due_change_time'),
+        ]
+
+    def __str__(self):
+        return f'Перенос срока карточки #{self.card_id}'
+
+    @property
+    def shift_days(self):
+        """How many calendar days later (negative: earlier) the срок became."""
+        if self.old_due is None or self.new_due is None:
+            return None
+        return (self.new_due - self.old_due).days
 
 
 class BoardCardComment(models.Model):

@@ -1,7 +1,8 @@
 """`boards.0006`–`0008`: the four fixed columns become «Основная» and back;
 `boards.0010`: the journal of cards stored before it; `boards.0015`: the card
 fields; `boards.0016`: «Застой» of a column; `boards.0017`: the checklist,
-the subscriptions and the mentions; `boards.0018`: the files of «Чат».
+the subscriptions and the mentions; `boards.0018`: the files of «Чат»;
+`boards.0019`: subtasks; `boards.0020`: the history of a card's срок.
 
 Run through `MigrationExecutor` on the test database: the board app is taken
 back to `0005` (sub-boards exist, `stage` still rules), cards are written the
@@ -635,3 +636,63 @@ class SubtasksMigrationTests(TransactionTestCase):
         self.assertNotIn('parent_id', _columns_of('boards_boardcard'))
         self.assertEqual(apps.get_model('boards', 'BoardCard').objects.filter(board_id=board.pk).count(), 2)
         self.assertEqual(apps.get_model('boards', 'BoardCardEvent').objects.filter(kind='SUBTASK').count(), 1)
+
+
+DUE_BEFORE = [('boards', '0019_card_subtasks'), ('references', '0004_cancelled_task_status')]
+DUE_AFTER = [('boards', '0020_due_changes')]
+
+
+class DueChangesMigrationTests(TransactionTestCase):
+    """`boards.0020`: `BoardCard.original_due_date` (NULL on the cards that
+    existed — their first срок is not known, nothing is invented) and the
+    history of moves; `references.0005`: the eight reasons. And back: the
+    column and the table go, the cards stay."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_forward_nullable_original_due_and_the_history_then_back(self):
+        apps = migrate(DUE_BEFORE)
+        self.assertNotIn('original_due_date', _columns_of('boards_boardcard'))
+        self.assertNotIn('boards_boardcardduechange', _table_names())
+        self.assertNotIn('references_deviationreason', _table_names())
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        owner = User.objects.create(username='due_migration_owner')
+        board = Board.objects.create(name='Доска', code='DU', owner=owner)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+        column = BoardColumn.objects.create(sub_board=sub_board, name='Сделать', position=1)
+        card = BoardCard.objects.create(
+            board=board, sub_board=sub_board, column=column, position=1024, number=1,
+            title='Заказ', created_by=owner,
+        )
+
+        apps = migrate(DUE_AFTER)
+        Reason = apps.get_model('references', 'DeviationReason')
+        self.assertEqual(
+            list(Reason.objects.order_by('display_order').values_list('code', flat=True)),
+            ['MATERIAL', 'DESIGN', 'DEFECT', 'EQUIPMENT', 'PAYMENT', 'CUSTOMER_CHANGE', 'CAPACITY', 'OTHER'],
+        )
+        # The card that existed: no original срок, no history — «—».
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        self.assertIsNone(BoardCard.objects.get(pk=card.pk).original_due_date)
+        Change = apps.get_model('boards', 'BoardCardDueChange')
+        self.assertEqual(Change.objects.count(), 0)
+        Change.objects.create(
+            card_id=card.pk, old_due=date(2026, 10, 1), new_due=date(2026, 10, 9),
+            reason_id=Reason.objects.get(code='MATERIAL').pk, comment='', changed_by_id=owner.pk,
+        )
+
+        # Back: the history and the column go; the card stays.
+        apps = migrate(DUE_BEFORE)
+        self.assertNotIn('original_due_date', _columns_of('boards_boardcard'))
+        self.assertNotIn('boards_boardcardduechange', _table_names())
+        self.assertNotIn('references_deviationreason', _table_names())
+        self.assertTrue(apps.get_model('boards', 'BoardCard').objects.filter(pk=card.pk).exists())

@@ -21,7 +21,7 @@ model without explicit approval.
 | `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware, working-day arithmetic (`workdays.py`), the registry template tags (`templatetags/registry.py`: sortable headers, the query-string rewrite, the deadline in words) and the dependency-free `.xlsx` writer for registry exports (`xlsx.py`). No models |
 | `dashboard` | the landing page at `/`: the «Быстрый доступ» grid declared in `dashboard/sections.py` (each card carries the owning section's existing permission rule), the shortened «Мои задачи» block in `dashboard/selectors.py` (the task registry's own queryset and `tasks.presentation.describe_task()`), the «Что ждёт меня» counts in `dashboard/summary.py` (the menu badges and the «Сегодня» strip) and the topbar quick search at `/search/` in `dashboard/search.py`. Read-only. No models, no migrations, no services |
 | `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`). No user-facing pages beyond login/logout — user/department management is Django Admin only |
-| `references` | operations, defect types, act/task statuses, priorities; `seed_references`. No user-facing pages — reference management is Django Admin only |
+| `references` | operations, defect types, act/task statuses, priorities, the reasons a board card's срок moves (`DeviationReason`, «Причины отклонений»: `code`, `name`, `is_active`, `display_order`; eight seeded by `references.0005` from `DEVIATION_REASONS`); `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
 | `tasks` | tasks created by act and protocol workflows, their assignees, completion and optional attachments |
 | `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
@@ -1077,7 +1077,7 @@ tasks never live inside `acts`.
   | --- | --- | --- |
   | act | `ACT_SENT_TO_KO`, `ACT_SENT_TO_TO`, `ACT_SENT_TO_OTK`, `ACT_RETURNED_TO_OTK`, `ACT_RETURNED_TO_KO`, `ACT_RETURNED_TO_TO`, `ACTION_ASSIGNED`, `ACT_APPROVED` | `COMMENT_ADDED` |
   | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
-  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED`, `BOARD_CARD_MENTION` | `BOARD_TASK_CANCELLED`, `BOARD_CARD_COMMENT`, `BOARD_CARD_COMPLETED`, `BOARD_SUBTASKS_DONE` (a card withdrawn, a message in its «Обсуждение», a followed card done, «все подзадачи выполнены» — nothing new is asked of anybody) |
+  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED`, `BOARD_CARD_MENTION`, `BOARD_DUE_SOON`, `BOARD_OVERDUE` | `BOARD_TASK_CANCELLED`, `BOARD_CARD_COMMENT`, `BOARD_CARD_COMPLETED`, `BOARD_SUBTASKS_DONE`, `BOARD_DUE_CHANGED` (a card withdrawn, a message in its «Обсуждение», a followed card done, «все подзадачи выполнены», «срок перенесён» — nothing new is asked of anybody) |
   | bug | `BUG_REPORTED` | — |
   | document | `DOCUMENT_ACK_REQUIRED`, `DOCUMENT_APPROVAL_REQUIRED`, `DOCUMENT_REVIEW_DUE`, `DOCUMENT_VERSION_RETURNED` | `DOCUMENT_UPDATED` (a subscriber's «новая версия» — information asked for, not a duty) |
 
@@ -1087,6 +1087,14 @@ tasks never live inside `acts`.
   card's «Чат» is a colleague asking *this* person to look, often somebody
   not watching the board — a request, like an assignment. An ordinary
   message and `BOARD_CARD_COMPLETED` (a followed card done) stay in the bell.
+  `BOARD_DUE_SOON` («Завтра срок карточки ZAP-12») and `BOARD_OVERDUE`
+  («Карточка ZAP-12 просрочена») are in because they are the daily
+  command's whole point: a срок is the commitment a card makes, and the
+  people who own it are often away from the board — the mail is what
+  reaches them before (and once after) the date; each is sent once per срок,
+  so the mailbox carries at most two letters per deadline. `BOARD_DUE_CHANGED`
+  stays in the bell: the move was made by a colleague, usually in agreement,
+  and asks nothing of anybody.
   Both board messages open the card on «Чат»: `get_notification_url()` adds
   `?tab=chat` for them (`EVENT_URL_QUERIES`), and `tasks:detail?tab=chat`
   leads there.
@@ -1949,10 +1957,11 @@ tasks never live inside `acts`.
   heading's member avatars and the number behind «+N» are one query
   (`member_preview()` reads the members once and counts them), the page's
   only — the fragment pays for neither. A sub-board page with a card open is
-  39 on a board without card fields (`boards/tests/test_journal.py`,
-  `PAGE_QUERIES`, a card with messages and files) and 40 on one with them (no
+  40 on a board without card fields (`boards/tests/test_journal.py`,
+  `PAGE_QUERIES`, a card with messages and files) and 41 on one with them (no
   messages) — two of them the card's «Подзадачи» (below), at 0, 1 or 20
-  subtasks alike (`boards/tests/test_subtasks.py`) —
+  subtasks alike (`boards/tests/test_subtasks.py`), one its «Переносы» (the
+  moves of its срок with their reasons and authors, however many) —
   the fields with their options and the values of every card on the page,
   the panel's included, are three queries however many there are
   (`boards/tests/test_fields.py`, `FieldQueryCountTests`). «В колонке с» and
@@ -2287,10 +2296,11 @@ tasks never live inside `acts`.
 - **The sub-board page, top to bottom.** The heading (the page's own, not
   live): the name (`.text-ellipsis`), «В архиве», up to
   `MEMBER_PREVIEW_LIMIT` (5) member avatars from `member_preview()` and «+N»
-  — a link to «Участники» — «+ Карточка», and the board's «⋯» for
-  `can_manage` or `can_restore`: «Переименовать» (`rename_board()`),
-  «Участники», «В архив» / «Вернуть из архива»; `?sub=` brings each redirect
-  back to the tab. Then the tabs, then the filter row (one compact
+  — a link to «Участники» — «+ Карточка», and the board's «⋯» for every
+  reader: «Участники» and «Отклонения» (`boards:deviations`, below); for
+  `can_manage` also «Переименовать» (`rename_board()`), «Код доски»,
+  «Поля карточек», «В архив», for `can_restore` «Вернуть из архива»;
+  `?sub=` brings each redirect back to the tab. Then the tabs, then the filter row (one compact
   `form[data-registry-filter]`, `boards/includes/filters.html` — shared with
   «Таблица» — opening with «Доска | Таблица» and «Excel», «Сбросить» only
   while a filter is set), then
@@ -2814,7 +2824,9 @@ tasks never live inside `acts`.
   `BOARD_CARD_COMPLETED`, «Карточка ZAP-12 выполнена», `TASK`-sourced, keyed
   `task:<pk>:completed:<completed_at>` so a completion after a reopening
   says so again, `exclude_actor=True`, bell only) the followers and the
-  author. Following is `BoardCardSubscription` (card, user, `created_at`;
+  author — for a **subtask** its followers only (`author=card.parent_id is
+  None`): the people of the card hear «все подзадачи выполнены» once, and a
+  «Подзадача … выполнена» each time would only be noise. Following is `BoardCardSubscription` (card, user, `created_at`;
   `unique_board_card_subscription`), written by
   `toggle_card_subscription(card, actor, subscribe=None)`: any reader of a
   live board (`can_follow_card()`), a closed card included; the state asked
@@ -2843,6 +2855,73 @@ tasks never live inside `acts`.
   `.board-mention` (the longest name first) — `<script>` in a message or a
   name stays text — and the mentions are one prefetch for all the messages
   shown.
+
+- **A card's срок moves only with a reason, and the moves are kept.**
+  `references.DeviationReason` («Причины отклонений», Django Admin only) is
+  the reason list; an inactive one is offered nowhere and still reads in the
+  history. `BoardCard.original_due_date` is the срок the card or subtask was
+  created with (`_new_card()`), NULL on the cards older than `boards.0020` —
+  their first срок is not known and nothing is invented («—»).
+  `BoardCardDueChange` (card `PROTECT`, `related_name='due_changes'`,
+  `old_due`/`new_due`, `reason` `PROTECT` and nullable, `comment` ≤
+  `DUE_COMMENT_MAX_LENGTH` (500), `changed_by`, `changed_at`, indexed on
+  `(card, changed_at)`) is append-only, written only by `update_card()`:
+  when the срок differs from the stored one it asks `due_reason_id` (an
+  active reason; missing or unknown → `DueReasonError`, a `BoardError` the
+  view puts on «Причина переноса», before anything is written — the whole
+  edit is refused) and an optional `due_comment`, writes one row in the
+  edit's transaction and adds `due_reason_id` (never the comment) to the
+  `EDITED` entry's `details`. A срок set where there was none needs no
+  reason (`reason` NULL; a card's срок is required, so today it never
+  happens on a card) and removing one is refused by «Укажите срок» first; a
+  reason sent with an unchanged срок is ignored. The card's author,
+  исполнители and followers but the editor are told
+  (`notify_board_due_changed()`: `BOARD_DUE_CHANGED`, «Срок карточки ZAP-12
+  перенесён на 30.10.2026», `TASK`-sourced, keyed `due_change:<pk>`, bell
+  only, neither the reason nor the comment in the text). The edit form
+  (`CardForm(editing=True)`) carries «Причина переноса» (the active reasons
+  in `display_order`) and «Комментарий к переносу» in
+  `[data-due-reason]` — always drawn, marked «если меняете срок»;
+  `static/js/board_due.js` hides the block while the date equals
+  `data-stored-due` (presentation only, never while it holds an error or a
+  chosen reason). Display: a tile's «↻N» (`due_change_count`, a subquery
+  annotation of `_tasks_with_cards()`, no query per tile; `title` «Срок
+  переносили N раза»), on «Описание» «исходный ДД.ММ.ГГГГ» beside a срок that
+  moved and «Переносы: перенесён N раза» — a `<details>` with the moves
+  oldest first (one query, `select_related` reason and author); «Таблица»
+  and its Excel add «Исходный срок», «Переносов» (`TABLE_SORTS` `changes`)
+  and «Последняя причина» (`last_due_reason()`, a subquery) after «Срок».
+- **`manage.py board_due_reminders` is the daily reminder.**
+  `services.send_due_reminders(today=None)`: every `IN_PROGRESS` `BOARD`
+  task — cards and subtasks — of an `ACTIVE` board; due today or on
+  `add_working_days(today, 1)` → `notify_board_due_soon()` to its
+  исполнители (`BOARD_DUE_SOON`, «Завтра срок карточки ZAP-12», «Сегодня…»,
+  «В понедельник…» by `notifications.services.due_day_words()`, keyed
+  `task:<pk>:due_soon:<срок>`); past its срок → `notify_board_overdue()` to
+  its исполнители, author and followers (`BOARD_OVERDUE`, «Карточка ZAP-12
+  просрочена», keyed `task:<pk>:overdue:<срок>`). Both through
+  `card_audience()`, so only people who still read the board; both
+  `actor=None`, bell and mail. Keyed on the срок, so a second run the same
+  day creates nothing and a moved срок asks again. It writes notifications
+  only — no journal entry, no `board.updated` — and one INFO line
+  `board.due_reminders` with the two counts. Scheduled next to
+  `document_review_reminders` (`docs/deployment.md`).
+- **«Отклонения» is the board's deviation report.** `boards:deviations`
+  (`/work/boards/<board>/deviations/`, in `boards/layout.html`, read by
+  every reader — `can_view_board()`, a 403 otherwise, nothing written):
+  `selectors.build_deviation_report(board, date_from=…, date_to=…,
+  sub_board=…)` — the moves **with a reason** of the board's cards and
+  subtasks whose `changed_at` falls in the period (by `localdate`; the
+  address's `from`/`to`, ISO, default the last `DEVIATION_DEFAULT_DAYS`
+  (30) days, an unreadable date the default, a reversed pair swapped) and of
+  one sub-board (`sub`) or all. The summary is per reason — moves, the
+  summed shift in calendar days (`new_due − old_due`, signed), distinct
+  cards — most moves first; the list is every move, newest first: date,
+  the card's code (a link to `?card=` on its sub-board) and title, was →
+  became, reason, the comment (`.user-text`), who. Query count does not
+  grow with the moves. `&export=xlsx` is that list through `ecosystem.xlsx`
+  (`typed_dates=True`): date, code, title, sub-board, was, became, shift (a
+  number), reason, comment, who; the file `<код>-otkloneniya[-<поддоска>]-<date>.xlsx`.
 
 ### Documentation library (`documents`)
 

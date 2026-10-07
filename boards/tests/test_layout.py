@@ -281,7 +281,10 @@ class HeadingTests(BoardFixtureMixin, TestCase):
         self.assertNotIn(reverse('boards:restore', args=[self.board.pk]), head)
         self.client.force_login(self.member)
         head = head_of(self.client.get(board_url(self.board)))
-        self.assertNotIn('data-board-menu', head)
+        # A reader's «⋯» holds «Участники» and «Отклонения», nothing that writes.
+        self.assertIn(reverse('boards:deviations', args=[self.board.pk]), head)
+        for marker in (reverse('boards:rename', args=[self.board.pk]), reverse('boards:archive', args=[self.board.pk]), 'method="post"'):
+            self.assertNotIn(marker, head)
         self.assertIn('+ Карточка', head)
         self.assertNotIn('act-back-link', self.client.get(board_url(self.board)).content.decode())
 
@@ -294,7 +297,9 @@ class HeadingTests(BoardFixtureMixin, TestCase):
         for marker in (reverse('boards:rename', args=[self.board.pk]), reverse('boards:archive', args=[self.board.pk]), '+ Карточка'):
             self.assertNotIn(marker, head)
         self.client.force_login(self.member)
-        self.assertNotIn('data-board-menu', head_of(self.client.get(board_url(self.board))))
+        head = head_of(self.client.get(board_url(self.board)))
+        self.assertNotIn(reverse('boards:restore', args=[self.board.pk]), head)
+        self.assertIn(reverse('boards:deviations', args=[self.board.pk]), head)
 
     def test_filters_sit_under_the_tabs_and_reset_only_when_set(self):
         self.client.force_login(self.member)

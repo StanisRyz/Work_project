@@ -22,6 +22,10 @@ same address. A row opens its card on the board (`data-row-url`, the shared
 to the other sub-boards' tables and carry no menus — the structure is managed
 on the board.
 
+«Исходный срок», «Переносов» (sortable) and «Последняя причина» follow
+«Срок»: the first срок (— where unknown), how many times it moved, and the
+reason of the latest move.
+
 «Подзадачи» (`subtasks=1`, off by default) puts each card's subtasks right
 under it, indented, with a «Родитель» column; the Excel holds the same rows.
 {% endcomment %}
@@ -51,6 +55,9 @@ under it, indented, with a «Родитель» column; the Excel holds the same
                         {% sortable_th 'Колонка' 'column' sort 'board-table__column' %}
                         <th class="board-table__people">Исполнители</th>
                         {% sortable_th 'Срок' 'due' sort 'board-table__due' %}
+                        <th class="board-table__date">Исходный срок</th>
+                        {% sortable_th 'Переносов' 'changes' sort 'board-table__changes' %}
+                        <th class="board-table__reason">Последняя причина</th>
                         {% sortable_th 'В колонке' 'days' sort 'board-table__days' %}
                         <th class="board-table__checklist">Чек-лист</th>
                         {% for column in table_fields %}
@@ -71,6 +78,9 @@ under it, indented, with a «Родитель» column; the Excel holds the same
                         <td>{% if row.is_subtask %}{% if row.status == 'CANCELLED' %}<span class="status-badge status-badge--archived">Отменена</span>{% elif row.status == 'COMPLETED' %}<span class="status-badge status-badge--completed">Выполнена</span>{% else %}<span class="board-table__subtask-label">подзадача</span>{% endif %}{% elif row.status == 'CANCELLED' %}<span class="status-badge status-badge--archived">{{ row.column_label }}</span>{% elif row.status == 'COMPLETED' %}<span class="status-badge status-badge--completed">{{ row.column_label }}</span>{% else %}<span class="user-text">{{ row.column_label }}</span>{% endif %}</td>
                         <td>{% if row.assignees %}<span class="board-table__people-list">{% for user in row.assignees %}<span class="board-table__person">{{ user|person_name }}</span>{% endfor %}</span>{% else %}—{% endif %}</td>
                         <td>{% if row.due_date %}{% include 'includes/due_date.html' with date=row.due_date done=row.is_closed %}{% else %}—{% endif %}</td>
+                        <td>{% if row.original_due_date %}{{ row.original_due_date|date:'d.m.Y' }}{% else %}—{% endif %}</td>
+                        <td class="board-table__number"{% if row.due_change_count %} title="{{ row.due_change_hint }}"{% endif %}>{{ row.due_change_count }}</td>
+                        <td>{% if row.last_due_reason %}<span class="user-text text-clamp-2" title="{{ row.last_due_reason }}">{{ row.last_due_reason }}</span>{% else %}—{% endif %}</td>
                         <td class="board-table__number">{% if row.in_column_days is not None %}<span class="board-table__days{% if row.is_stale %} board-table__days--stale{% endif %}" title="В колонке с {{ row.in_column_since|date:'d.m.Y' }}">{% if row.in_column_days %}{{ row.in_column_days }} дн.{% else %}сегодня{% endif %}</span>{% else %}—{% endif %}</td>
                         <td class="board-table__number">{% if row.checklist_label %}<span class="board-table__checklist-value{% if row.checklist_done == row.checklist_total %} is-complete{% endif %}" title="Чек-лист: сделано {{ row.checklist_done }} из {{ row.checklist_total }}">{{ row.checklist_label }}</span>{% else %}—{% endif %}</td>
                         {% for cell in row.cells %}

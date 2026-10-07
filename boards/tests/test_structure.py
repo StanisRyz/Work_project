@@ -499,7 +499,10 @@ class StructurePageTests(BoardFixtureMixin, TestCase):
         self.client.force_login(self.member)
         content = self.client.get(board_url(self.board)).content.decode()
         self.assertIn(f'href="{board_url(self.board, tab)}"', content)
-        self.assertNotIn('data-board-menu', content)
+        # The board's own «⋯» is every reader's («Отклонения»); the tabs' and
+        # the columns' are the manager's.
+        self.assertNotIn(reverse('boards:sub_board_rename', args=[self.board.pk, self.main.pk]), content)
+        self.assertNotIn(reverse('boards:column_rename', args=[self.board.pk, self.main.pk, done.pk]), content)
         self.assertNotIn('+ Колонка', content)
 
     def test_the_limit_hides_the_new_column_form(self):

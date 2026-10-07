@@ -18,7 +18,35 @@ never moves this block's fingerprint.
         <div><dt>Исполнители</dt><dd class="board-drawer__people">
             {% for user in card.assignees %}<span class="board-drawer__person"><span class="board-avatar" aria-hidden="true">{{ user|person_initials }}</span><span class="user-text">{{ user|person_name }}</span></span>{% empty %}—{% endfor %}
         </dd></div>
-        <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=card.due_date done=card.is_closed %}{% if card.later_than_parent %} <span class="board-subtask-late" title="Срок карточки {{ card.card.parent_code }}: {{ card.parent_due_date|date:'d.m.Y' }}">позже срока карточки {{ card.card.parent_code }}</span>{% endif %}</dd></div>
+        <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=card.due_date done=card.is_closed %}{% if card.original_due_date and card.original_due_date != card.due_date %} <span class="board-due-original" title="Первый срок карточки">исходный {{ card.original_due_date|date:'d.m.Y' }}</span>{% endif %}{% if card.later_than_parent %} <span class="board-subtask-late" title="Срок карточки {{ card.card.parent_code }}: {{ card.parent_due_date|date:'d.m.Y' }}">позже срока карточки {{ card.card.parent_code }}</span>{% endif %}</dd></div>
+        {% if card.due_changes %}
+            {% comment %}
+            Every move of the срок: was, became, the reason, the comment
+            (`.user-text`), who and when — a `<details>`, closed by default. The
+            first срок is «исходный» above; «—» where it is unknown (a card
+            older than the history).
+            {% endcomment %}
+            <div class="board-due-history-row"><dt>Переносы</dt><dd>
+                <details class="board-due-history">
+                    <summary>{{ card.due_change_label }}</summary>
+                    <p class="board-due-history__first">Исходный срок: {% if card.original_due_date %}{{ card.original_due_date|date:'d.m.Y' }}{% else %}—{% endif %}</p>
+                    <table class="board-due-history__table">
+                        <thead><tr><th>Было</th><th>Стало</th><th>Причина</th><th>Комментарий</th><th>Кто, когда</th></tr></thead>
+                        <tbody>
+                            {% for change in card.due_changes %}
+                                <tr>
+                                    <td>{{ change.old_due|date:'d.m.Y'|default:'—' }}</td>
+                                    <td>{{ change.new_due|date:'d.m.Y'|default:'—' }}</td>
+                                    <td class="user-text">{% if change.reason %}{{ change.reason.name }}{% else %}—{% endif %}</td>
+                                    <td class="user-text">{{ change.comment|default:'—' }}</td>
+                                    <td>{{ change.changed_by|person_name }}, {{ change.changed_at|date:'d.m.Y H:i' }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </details>
+            </dd></div>
+        {% endif %}
         {% if card.department %}<div><dt>Подразделение</dt><dd class="user-text">{{ card.department.name }}</dd></div>{% endif %}
         <div><dt>Создал</dt><dd>{{ card.card.created_by|person_name }}, {{ card.card.created_at|date:'d.m.Y H:i' }}</dd></div>
         {% comment %}

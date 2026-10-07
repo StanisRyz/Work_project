@@ -1,0 +1,82 @@
+{% extends 'boards/layout.html' %}
+{% load people %}
+
+{% block title %}Отклонения · {{ board.name }} · Доски{% endblock %}
+
+{% block board_main_label %}Отклонения · {{ board.name }}{% endblock %}
+
+{% block board_main %}
+{% comment %}
+«Отклонения» of a board: why its deadlines moved. One
+`selectors.build_deviation_report()` read — the moves of a срок with their
+reason (`BoardCardDueChange`) of the board's cards and subtasks, in a period
+(`from`/`to` by the date of the move, the last 30 days by default) and of one
+sub-board or all (`sub`). The summary per reason — moves, their summed shift
+in calendar days, cards — most moves first; then every move, newest first.
+«Excel» is that list. Read by every reader of the board; nothing here writes.
+The filter is an ordinary GET form, so the period is a link to send.
+{% endcomment %}
+<header class="board-head">
+    <div class="board-head__title">
+        <h1 class="user-text text-ellipsis" title="{{ board.name }}">Отклонения · {{ board.name }}</h1>
+    </div>
+    <div class="board-head__actions">
+        <a class="link-button link-button--secondary" href="{% url 'boards:detail' board.pk %}">К доске</a>
+    </div>
+</header>
+
+<div class="board-scroll board-deviations">
+    <form class="board-filters board-deviations__filters" method="get" action="{% url 'boards:deviations' board.pk %}">
+        <label>с <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}" aria-label="Период: с"></label>
+        <label>по <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}" aria-label="Период: по"></label>
+        <select name="sub" aria-label="Поддоска">
+            <option value="">Все поддоски</option>
+            {% for tab in tabs %}<option value="{{ tab.pk }}"{% if sub_board and sub_board.pk == tab.pk %} selected{% endif %}>{{ tab.name }}</option>{% endfor %}
+        </select>
+        <button class="link-button link-button--secondary link-button--compact" type="submit">Показать</button>
+        <a class="link-button link-button--secondary link-button--compact" href="{{ export_url }}" download title="Список переносов за период — в Excel">Excel</a>
+    </form>
+
+    <p class="board-table-meta">
+        <span>{{ date_from|date:'d.m.Y' }} — {{ date_to|date:'d.m.Y' }}{% if sub_board %}, поддоска «<span class="user-text">{{ sub_board.name }}</span>»{% endif %}: {{ moves_label }}, карточек {{ cards }}, суммарный сдвиг {{ shift }} дн.</span>
+    </p>
+
+    {% if rows %}
+        <section class="table-card board-deviations__summary" aria-label="Сводка по причинам">
+            <table class="data-table">
+                <thead><tr><th>Причина</th><th class="board-table__number">Переносов</th><th class="board-table__number">Сдвиг, дн.</th><th class="board-table__number">Карточек</th></tr></thead>
+                <tbody>
+                    {% for entry in summary %}
+                        <tr>
+                            <td class="user-text">{{ entry.reason.name }}{% if not entry.reason.is_active %} <span class="board-drawer__archived">(не используется)</span>{% endif %}</td>
+                            <td class="board-table__number">{{ entry.moves }}</td>
+                            <td class="board-table__number">{{ entry.shift }}</td>
+                            <td class="board-table__number">{{ entry.cards }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="table-card board-deviations__list" aria-label="Переносы сроков">
+            <table class="data-table">
+                <thead><tr><th>Дата</th><th>Карточка</th><th>Было → стало</th><th>Причина</th><th>Комментарий</th><th>Кто</th></tr></thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td>{{ row.at|date:'d.m.Y H:i' }}</td>
+                            <td><a class="table-link" href="{% url 'boards:sub_board' board.pk row.card.sub_board_id %}?card={{ row.card.pk }}" title="{{ row.card.title }}">{{ row.card.code }}</a> <span class="user-text text-clamp-2" title="{{ row.card.title }}">{{ row.card.title }}</span></td>
+                            <td>{{ row.old_due|date:'d.m.Y'|default:'—' }} → {{ row.new_due|date:'d.m.Y'|default:'—' }}{% if row.shift %} <span class="board-deviations__shift">({% if row.shift > 0 %}+{% endif %}{{ row.shift }} дн.)</span>{% endif %}</td>
+                            <td class="user-text">{{ row.reason.name }}</td>
+                            <td><span class="user-text">{{ row.comment|default:'—' }}</span></td>
+                            <td>{{ row.who|person_name }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    {% else %}
+        {% include 'acts/includes/empty_state.html' with title='Переносов нет' message='За выбранный период сроки карточек этой доски не переносили.' %}
+    {% endif %}
+</div>
+{% endblock %}

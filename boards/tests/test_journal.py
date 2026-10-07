@@ -37,6 +37,7 @@ from .helpers import (
     fragment_url,
     legacy_attachment,
     page_attribute,
+    reason_id,
 )
 
 
@@ -53,8 +54,10 @@ from .helpers import (
 # own member list, and the tabs are read once for the page and its
 # `build_board_state()` — so 37. Stage 20: two more for the card's
 # «Подзадачи» — its subtasks with their tasks and statuses, and their
-# исполнители — whatever their number (`test_subtasks`), so 39.
-PAGE_QUERIES = 39
+# исполнители — whatever their number (`test_subtasks`), so 39. Stage 21:
+# one more for the card's «Переносы» — the moves of its срок with their
+# reasons and authors, one query whatever their number — so 40.
+PAGE_QUERIES = 40
 
 MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-journal-'))
 
@@ -95,7 +98,7 @@ class JournalWritesTests(BoardFixtureMixin, TestCase):
     def test_edit_records_which_fields_and_only_when_something_was_stored(self):
         self.edit()
         self.assertEqual(kinds(self.card_obj), ['CREATED'])
-        self.edit(title='Сверить остатки склада', due_date=due(9))
+        self.edit(title='Сверить остатки склада', due_date=due(9), due_reason_id=reason_id())
         self.edit(assignee_ids=[self.member.pk, self.colleague.pk])
         self.edit(description='С бухгалтерией')
         edits = list(self.card_obj.events.filter(kind='EDITED').order_by('pk'))

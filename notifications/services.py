@@ -104,6 +104,13 @@ EMAIL_ELIGIBLE_EVENTS = {
     # somebody who is not watching the board. An ordinary message, a completed
     # card a follower hears of, stays in the bell.
     Notification.EventType.BOARD_CARD_MENTION,
+    # A board card's срок coming tomorrow, and its срок passed: the work on
+    # somebody's desk is due — the same duty an assignment is, and often for
+    # somebody who has not opened the board today. A срок moved
+    # (`BOARD_DUE_CHANGED`) is information for people already on the card and
+    # stays in the bell.
+    Notification.EventType.BOARD_DUE_SOON,
+    Notification.EventType.BOARD_OVERDUE,
     # A bug report is exactly the kind of fact this list is for: somebody has
     # to look at it, and the people who must are often not in the application
     # when it arrives.
@@ -435,6 +442,65 @@ def notify_board_subtasks_done(task, actor, recipients, *, closed_at):
         recipients=recipients,
         source_key=f'task:{task.pk}:subtasks_done:{stamp}',
         exclude_actor=True,
+    )
+
+
+def notify_board_due_changed(change, task, actor, recipients):
+    """«Срок карточки ZAP-12 перенесён на 30.10.2026» — for the card's author,
+    исполнители and followers (`card_audience()`), not whoever moved it.
+
+    Bell only. Keyed on the move (`due_change:<pk>`), so one move tells each
+    person once. Neither the reason nor the comment is in the text — they are
+    on the card. Called by `boards.services.update_card()` inside the edit's
+    transaction, after the history row exists.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_DUE_CHANGED,
+        task=task,
+        actor=actor,
+        recipients=recipients,
+        source_key=f'due_change:{change.pk}',
+        exclude_actor=True,
+    )
+
+
+def notify_board_due_soon(task, recipients):
+    """«Завтра срок карточки ZAP-12» — the исполнители of an open card whose
+    срок is the next working day or today. Bell and mail. Keyed on the task
+    and the срок (`task:<pk>:due_soon:<срок>`): the daily command asks once
+    per срок, and a срок moved asks again. No actor: nobody did it."""
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_DUE_SOON,
+        task=task,
+        actor=None,
+        recipients=recipients,
+        source_key=f'task:{task.pk}:due_soon:{task.due_date.isoformat()}',
+        exclude_actor=False,
+    )
+
+
+def notify_board_overdue(task, recipients):
+    """«Карточка ZAP-12 просрочена» — once per срок, to the исполнители, the
+    author and the followers. Bell and mail; keyed `task:<pk>:overdue:<срок>`."""
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_OVERDUE,
+        task=task,
+        actor=None,
+        recipients=recipients,
+        source_key=f'task:{task.pk}:overdue:{task.due_date.isoformat()}',
+        exclude_actor=False,
     )
 
 
@@ -939,6 +1005,9 @@ def _task_event_text(event_type, task):
         Notification.EventType.BOARD_CARD_MENTION,
         Notification.EventType.BOARD_CARD_COMPLETED,
         Notification.EventType.BOARD_SUBTASKS_DONE,
+        Notification.EventType.BOARD_DUE_CHANGED,
+        Notification.EventType.BOARD_DUE_SOON,
+        Notification.EventType.BOARD_OVERDUE,
     ):
         return _board_event_text(event_type, task)
     label = _protocol_label(task.protocol)
@@ -949,6 +1018,24 @@ def _task_event_text(event_type, task):
             'Ознакомьтесь с задачей в системе',
         ),
     }[event_type]
+
+
+# «в понедельник», «во вторник», … — the day a срок falls on, by `weekday()`.
+_WEEKDAY_WORDS = (
+    'в понедельник', 'во вторник', 'в среду', 'в четверг', 'в пятницу', 'в субботу', 'в воскресенье',
+)
+
+
+def due_day_words(due_date, today=None):
+    """«сегодня», «завтра», or the weekday a near срок falls on («в
+    понедельник» on a Friday): what «Завтра срок карточки …» says."""
+    today = today or timezone.localdate()
+    days = (due_date - today).days
+    if days == 0:
+        return 'сегодня'
+    if days == 1:
+        return 'завтра'
+    return _WEEKDAY_WORDS[due_date.weekday()]
 
 
 def _board_event_text(event_type, task):
@@ -966,6 +1053,27 @@ def _board_event_text(event_type, task):
             f'Назначена подзадача {code} карточки {parent} на доске «{name}»',
             f'Вы назначены исполнителем подзадачи {code} карточки {parent} на доске «{name}».',
             'Откройте подзадачу на доске.',
+        )
+    if event_type == Notification.EventType.BOARD_DUE_CHANGED:
+        due = f'{task.due_date:%d.%m.%Y}'
+        return NotificationText(
+            f'Срок карточки {code} перенесён на {due}',
+            f'Срок карточки {code} на доске «{name}» перенесён на {due}.',
+            'Причина переноса — на карточке. Дополнительных действий не требуется.',
+        )
+    if event_type == Notification.EventType.BOARD_DUE_SOON:
+        when = due_day_words(task.due_date)
+        return NotificationText(
+            f'{when.capitalize()} срок карточки {code}',
+            f'{when.capitalize()}, {task.due_date:%d.%m.%Y}, срок карточки {code} на доске «{name}», '
+            'где вы исполнитель.',
+            'Завершите карточку на доске или договоритесь о переносе срока.',
+        )
+    if event_type == Notification.EventType.BOARD_OVERDUE:
+        return NotificationText(
+            f'Карточка {code} просрочена',
+            f'Срок карточки {code} на доске «{name}» — {task.due_date:%d.%m.%Y} — прошёл, а работа не завершена.',
+            'Завершите карточку или перенесите срок с причиной.',
         )
     if event_type == Notification.EventType.BOARD_SUBTASKS_DONE:
         return NotificationText(

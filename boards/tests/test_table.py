@@ -395,7 +395,8 @@ class TableExcelTests(TableMixin, TestCase):
     def test_headers_and_cell_types(self):
         rows, styles = read_xlsx(self.export().content)
         self.assertEqual(values(rows)[0], [
-            'Код', 'Название', 'Колонка', 'Статус', 'Исполнители', 'Срок', 'В колонке, дн.',
+            'Код', 'Название', 'Колонка', 'Статус', 'Исполнители', 'Срок',
+            'Исходный срок', 'Переносов', 'Последняя причина', 'В колонке, дн.',
             'Чек-лист', 'Номер заявки', 'Заказ покупателя', 'Срок изг.', 'Приоритет', 'Стоп', 'Сумма',
             'Создана', 'Завершена',
         ])
@@ -406,21 +407,27 @@ class TableExcelTests(TableMixin, TestCase):
         self.assertEqual(alpha[3], ('s', 'В работе'))
         self.assertEqual(alpha[4], ('s', 'member_one'))
         self.assertEqual(alpha[5], ('d', timezone.localdate() - datetime.timedelta(days=1)))
-        self.assertEqual(alpha[6], ('n', Decimal(5)))
+        # Stage 21: «Исходный срок» (the срок the card was created with),
+        # «Переносов» (a number, 0 when never moved), «Последняя причина»
+        # (empty when never moved).
+        self.assertEqual(alpha[6], ('d', timezone.localdate() - datetime.timedelta(days=1)))
+        self.assertEqual(alpha[7], ('n', Decimal(0)))
+        self.assertEqual(alpha[8], ('', None))
+        self.assertEqual(alpha[9], ('n', Decimal(5)))
         # «Чек-лист»: no items, an empty cell (filled ones: `test_checklist.py`).
-        self.assertEqual(alpha[7], ('', None))
-        self.assertEqual(alpha[8], ('s', '3-1579'))
-        self.assertEqual(alpha[9], ('', None))
-        self.assertEqual(alpha[10], ('d', datetime.date(2026, 11, 30)))
-        self.assertEqual(alpha[11], ('s', 'Высокий'))
+        self.assertEqual(alpha[10], ('', None))
+        self.assertEqual(alpha[11], ('s', '3-1579'))
         self.assertEqual(alpha[12], ('', None))
-        self.assertEqual(alpha[13], ('n', Decimal(10)))
-        self.assertEqual(alpha[14], ('d', timezone.localdate()))
+        self.assertEqual(alpha[13], ('d', datetime.date(2026, 11, 30)))
+        self.assertEqual(alpha[14], ('s', 'Высокий'))
         self.assertEqual(alpha[15], ('', None))
+        self.assertEqual(alpha[16], ('n', Decimal(10)))
+        self.assertEqual(alpha[17], ('d', timezone.localdate()))
+        self.assertEqual(alpha[18], ('', None))
         beta = rows[3]
-        self.assertEqual(beta[13], ('n', Decimal('2.5')))
+        self.assertEqual(beta[16], ('n', Decimal('2.5')))
         delta = rows[4]
-        self.assertEqual((delta[2], delta[3], delta[6], delta[15]), (
+        self.assertEqual((delta[2], delta[3], delta[9], delta[18]), (
             ('s', 'Готово'), ('s', 'Выполнена'), ('', None), ('d', timezone.localdate()),
         ))
 
@@ -430,7 +437,7 @@ class TableExcelTests(TableMixin, TestCase):
         archive_option(self.high, actor=self.owner)
         rows, _ = read_xlsx(self.export().content)
         self.assertEqual(rows[1][4], ('s', 'Иван Петров'))
-        self.assertEqual(rows[1][11], ('s', 'Высокий (в архиве)'))
+        self.assertEqual(rows[1][14], ('s', 'Высокий (в архиве)'))
 
     def test_empty_is_an_empty_cell_never_none_or_a_dash(self):
         content = self.export(cancelled=1).content
@@ -441,7 +448,7 @@ class TableExcelTests(TableMixin, TestCase):
         self.assertNotIn('<v></v>', sheet)
         rows, _ = read_xlsx(content)
         omega = rows[-1]
-        self.assertEqual((omega[2], omega[3], omega[6]), (('s', 'Отменена'), ('s', 'Отменена'), ('', None)))
+        self.assertEqual((omega[2], omega[3], omega[9]), (('s', 'Отменена'), ('s', 'Отменена'), ('', None)))
 
     def test_the_whole_board_adds_the_sub_board_after_the_code(self):
         rows, _ = read_xlsx(self.export(scope='board').content)

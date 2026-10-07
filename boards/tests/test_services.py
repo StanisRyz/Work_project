@@ -20,7 +20,7 @@ from ..services import (
     remove_board_member,
     update_card,
 )
-from .helpers import BoardFixtureMixin, done_column_of, due, fresh_code, make_user, new_card, stage_of
+from .helpers import BoardFixtureMixin, done_column_of, due, fresh_code, make_user, new_card, reason_id, stage_of
 
 
 def task_of(card):
@@ -166,7 +166,7 @@ class UpdateCardTests(BoardFixtureMixin, TestCase):
         deadline = due(10)
         update_card(
             card, actor=self.colleague, title='Новый заголовок', description='Подробности',
-            due_date=deadline, assignee_ids=[self.colleague.pk],
+            due_date=deadline, assignee_ids=[self.colleague.pk], due_reason_id=reason_id(),
         )
         card.refresh_from_db()
         task = task_of(card)

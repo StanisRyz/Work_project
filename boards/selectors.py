@@ -43,6 +43,7 @@ from .models import (
     BoardCardChecklistItem,
     BoardCardComment,
     BoardCardCommentMention,
+    BoardCardDueChange,
     BoardCardEvent,
     BoardCardFieldValue,
     BoardCardFile,
@@ -505,6 +506,10 @@ def _tasks_with_cards(tasks):
             in_column_since=in_column_since(),
             **checklist_annotations(),
             **subtask_annotations(),
+            # «↻2»: how many times the срок was moved.
+            due_change_count=_count_subquery(
+                BoardCardDueChange.objects.filter(card=OuterRef('board_card')), 'card',
+            ),
         )
     )
 
@@ -567,6 +572,9 @@ def _item(task, board):
         # «☑ 2/5»: the card's «Чек-лист», counted in the tasks' own query.
         'checklist_total': getattr(task, 'checklist_total', 0),
         'checklist_done': getattr(task, 'checklist_done', 0),
+        # «↻2»: the moves of its срок, counted in the tasks' own query.
+        'due_change_count': getattr(task, 'due_change_count', 0),
+        'due_change_hint': due_change_hint(getattr(task, 'due_change_count', 0)),
         # «⧉ 1/3»: the card's subtasks, counted in the tasks' own query.
         'subtask_total': getattr(task, 'subtask_total', 0),
         'subtask_done': getattr(task, 'subtask_done', 0),
@@ -951,12 +959,36 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     # «Подзадачи»: a card's own list, two queries whatever its length; a
     # subtask has none.
     item.update(card_subtasks(card, task, board) if not item['is_subtask'] else NO_SUBTASKS)
+    # «перенесён 2 раза»: every move of the срок, oldest first, with its
+    # reason and who moved it — one query. The first срок is
+    # `original_due_date` (NULL on a card older than the history: «—»).
+    item['due_changes'] = list(
+        BoardCardDueChange.objects.filter(card=card).select_related('reason', 'changed_by')
+        .order_by('changed_at', 'pk')
+    )
+    item['due_change_count'] = len(item['due_changes'])
+    item['due_change_label'] = due_change_label(item['due_change_count'])
+    item['original_due_date'] = card.original_due_date
     item['can_add_subtask'] = (
         can_add_subtask(user, card, task, can_work=can_work)
         and item['subtask_count'] < MAX_SUBTASKS
     )
     item['subtask_limit_reached'] = item['subtask_count'] >= MAX_SUBTASKS
     return item
+
+
+def due_change_label(count):
+    """«перенесён 2 раза» — `''` for a срок never moved."""
+    from ecosystem.templatetags.registry import plural_ru
+
+    return f'перенесён {count} {plural_ru(count, "раз", "раза", "раз")}' if count else ''
+
+
+def due_change_hint(count):
+    """«Срок переносили 2 раза» — the tile's «↻2» on its `title`."""
+    from ecosystem.templatetags.registry import plural_ru
+
+    return f'Срок переносили {count} {plural_ru(count, "раз", "раза", "раз")}' if count else ''
 
 
 # A subtask's panel: no list of its own.
@@ -1641,7 +1673,7 @@ def resolve_new_column(columns, value):
 # outside `field_<id>` of a live field of the board) is ignored: the rows are
 # ordered in Python by these keys alone, so nothing the address says ever
 # reaches `order_by()`.
-TABLE_SORTS = ('code', 'title', 'column', 'due', 'days', 'created', 'completed')
+TABLE_SORTS = ('code', 'title', 'column', 'due', 'days', 'changes', 'created', 'completed')
 TABLE_FIELD_SORT_PREFIX = 'field_'
 
 # The words the table and its Excel use for a task's state.
@@ -1684,6 +1716,16 @@ def _table_cell(field, row):
     else:
         raw = row.value_text
     return {'value': value, 'raw': raw, 'key': _table_field_key(field, row)}
+
+
+def last_due_reason():
+    """The name of the reason of a card's latest move of its срок — a
+    subquery of the table's own query; NULL for a card never moved."""
+    latest = (
+        BoardCardDueChange.objects.filter(card=OuterRef('board_card'), reason__isnull=False)
+        .order_by('-changed_at', '-pk').values('reason__name')[:1]
+    )
+    return Subquery(latest, output_field=CharField())
 
 
 def parse_table_sort(value, fields):
@@ -1774,7 +1816,7 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
     live_fields = [field for field in fields if not field.is_archived]
 
     scope = {'board_card__board': board} if whole_board else {'board_card__sub_board': sub_board}
-    tasks = _tasks_with_cards(_column_tasks().filter(**scope))
+    tasks = _tasks_with_cards(_column_tasks().filter(**scope)).annotate(last_due_reason=last_due_reason())
     shown_columns = all_columns if whole_board else columns_of.get(sub_board.pk, [])
     open_only = filters.overdue or filters.stale
     codes = ['IN_PROGRESS', 'COMPLETED'] + (['CANCELLED'] if cancelled else [])
@@ -1789,7 +1831,7 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
         subtask_tasks = list(
             _tasks_with_cards(
                 _all_board_tasks().filter(states, board_card__parent_id__in=[task.board_card_id for task in tasks])
-            ).select_related('board_card__parent')
+            ).select_related('board_card__parent').annotate(last_due_reason=last_due_reason())
         )
     field_rows = card_field_rows(
         live_fields, [task.board_card_id for task in [*tasks, *subtask_tasks]],
@@ -1841,6 +1883,9 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
             within = (-(task.cancelled_at.timestamp() if task.cancelled_at else 0), card.pk)
         else:
             within = (card.position, card.pk)
+        # «Исходный срок», «Переносов», «Последняя причина».
+        item['original_due_date'] = card.original_due_date
+        item['last_due_reason'] = getattr(task, 'last_due_reason', None) or ''
         item['checklist_label'] = (
             f"{item['checklist_done']}/{item['checklist_total']}" if item['checklist_total'] else ''
         )
@@ -1851,6 +1896,7 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
             'column': item['board_order'] if column is not None else None,
             'due': task.due_date,
             'days': item['in_column_days'],
+            'changes': item['due_change_count'],
             'created': card.created_at,
             'completed': task.completed_at if status == 'COMPLETED' else None,
         }
@@ -1892,3 +1938,72 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
         'whole_board': whole_board,
         'subtasks': subtasks,
     }
+
+
+# --------------------------------------------------------------------------
+# «Отклонения»: why a board's deadlines moved
+# --------------------------------------------------------------------------
+
+# The period «Отклонения» opens on: the last 30 days, today included.
+DEVIATION_DEFAULT_DAYS = 30
+
+
+def build_deviation_report(board, *, date_from, date_to, sub_board=None):
+    """Everything «Отклонения» of a board shows — and what its Excel holds.
+
+    The moves of a срок (`BoardCardDueChange` with a reason — a срок set
+    from nothing is no deviation) of the board's cards and subtasks whose
+    `changed_at` falls on `date_from`…`date_to` (local dates, inclusive),
+    of one sub-board or of all. `rows` newest first, each `{'change', 'card',
+    'at', 'old_due', 'new_due', 'shift', 'reason', 'comment', 'who'}`;
+    `summary` per reason — `{'reason', 'moves', 'shift', 'cards'}`, the
+    number of moves, their summed shift in calendar days and how many cards
+    — most moves first. One query for the rows (cards, boards, reasons and
+    who joined) whatever their number; the summary is counted from them.
+    """
+    start = _start_of_day(date_from)
+    end = _start_of_day(date_to + datetime.timedelta(days=1))
+    changes = (
+        BoardCardDueChange.objects.filter(
+            card__board=board, reason__isnull=False, changed_at__gte=start, changed_at__lt=end,
+        )
+        .select_related('card', 'card__parent', 'reason', 'changed_by')
+        .order_by('-changed_at', '-pk')
+    )
+    if sub_board is not None:
+        changes = changes.filter(card__sub_board=sub_board)
+    rows = []
+    summary = {}
+    for change in changes:
+        card = change.card
+        card.board = board
+        shift = change.shift_days
+        rows.append({
+            'change': change,
+            'card': card,
+            'at': timezone.localtime(change.changed_at),
+            'old_due': change.old_due,
+            'new_due': change.new_due,
+            'shift': shift,
+            'reason': change.reason,
+            'comment': change.comment,
+            'who': change.changed_by,
+        })
+        entry = summary.setdefault(change.reason_id, {
+            'reason': change.reason, 'moves': 0, 'shift': 0, 'cards': set(),
+        })
+        entry['moves'] += 1
+        entry['shift'] += shift or 0
+        entry['cards'].add(card.pk)
+    summary = sorted(
+        ({**entry, 'cards': len(entry['cards'])} for entry in summary.values()),
+        key=lambda entry: (-entry['moves'], entry['reason'].display_order, entry['reason'].name),
+    )
+    return {
+        'rows': rows,
+        'summary': summary,
+        'moves': len(rows),
+        'cards': len({row['card'].pk for row in rows}),
+        'shift': sum(row['shift'] or 0 for row in rows),
+    }
+

@@ -3076,3 +3076,156 @@ form[data-chat-files-ready] .board-chat__file-input {
     color: var(--color-muted);
     font-size: 13px;
 }
+
+/* ---- Сроки и отклонения ---- */
+
+/* «↻2» on a tile: the срок was moved twice. */
+.board-tile__due-moves {
+    color: var(--board-color-orange-text);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* «Перенос срока» on the edit form: the reason and the comment side by
+   side on the `--color-bg` block «Поля карточки» uses, each label above its
+   control; one column on a phone. */
+.board-due-move {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    min-width: 0;
+    margin: 0;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.board-due-move label {
+    display: grid;
+    align-content: start;
+    gap: 6px;
+    min-width: 0;
+    color: var(--color-muted);
+}
+
+.board-due-move select,
+.board-due-move textarea {
+    width: 100%;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--control-font-size);
+}
+
+.board-due-move textarea {
+    min-height: var(--control-height);
+    resize: vertical;
+}
+
+.board-due-move .errorlist {
+    margin: 0;
+    padding: 0;
+    color: var(--board-color-red-text);
+    font-size: 13px;
+    list-style: none;
+}
+
+@media (max-width: 560px) {
+    .board-due-move {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.board-due-move[hidden] {
+    display: none;
+}
+
+.board-due-move legend {
+    float: left;
+    grid-column: 1 / -1;
+    margin-bottom: 4px;
+    padding: 0;
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.board-due-move__hint {
+    font-weight: 400;
+}
+
+.board-due-move__hint[hidden] {
+    display: none;
+}
+
+.board-due-original {
+    color: var(--color-muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+/* «перенесён 2 раза» and its table, under the срок. */
+.board-due-history summary {
+    color: var(--board-color-orange-text);
+    cursor: pointer;
+}
+
+.board-due-history__first {
+    margin: 6px 0;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-due-history__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.board-due-history__table th,
+.board-due-history__table td {
+    padding: 4px 6px;
+    border-top: 1px solid var(--color-border);
+    text-align: left;
+    vertical-align: top;
+}
+
+.board-due-history__table th {
+    color: var(--color-muted);
+    font-weight: 700;
+}
+
+/* «Отклонения». */
+.board-deviations {
+    display: grid;
+    align-content: start;
+    gap: 12px;
+}
+
+.board-deviations__filters label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-deviations__filters input,
+.board-deviations__filters select {
+    width: auto;
+    max-width: 220px;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--control-font-size);
+}
+
+.board-deviations__shift {
+    color: var(--color-muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+

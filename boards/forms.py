@@ -11,7 +11,14 @@ from django.contrib.auth import get_user_model
 
 from accounts.templatetags.people import person_name
 
-from .models import BOARD_CODE_MAX_LENGTH, BoardCard, BoardColumn, BoardField, BoardFieldColor
+from .models import (
+    BOARD_CODE_MAX_LENGTH,
+    DUE_COMMENT_MAX_LENGTH,
+    BoardCard,
+    BoardColumn,
+    BoardField,
+    BoardFieldColor,
+)
 from .permissions import active_employee_q
 
 
@@ -188,10 +195,30 @@ class CardForm(forms.Form):
     # `update_card(expected_version=…)` can tell a save made against an older
     # card from one made against the current one. Unused when creating.
     version = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
+    # «Причина переноса» and «Комментарий к переносу»: only on the edit form
+    # (`editing`). The reason is a raw id — whether a move needs one and
+    # whether it is an active reason is `services.update_card()`'s question,
+    # and its refusal lands here. The page shows both while the срок in the
+    # form differs from the stored one (`board_due.js`); without JavaScript
+    # always, marked «если меняете срок».
+    due_reason = forms.CharField(label='Причина переноса', required=False, widget=forms.Select)
+    due_comment = forms.CharField(
+        label='Комментарий к переносу', required=False, max_length=DUE_COMMENT_MAX_LENGTH,
+        widget=forms.Textarea(attrs={'rows': 2}),
+    )
 
-    def __init__(self, *args, board, fields=None, field_rows=None, **kwargs):
+    def __init__(self, *args, board, fields=None, field_rows=None, editing=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['assignees'].queryset = active_members(board)
+        if editing:
+            from references.models import DeviationReason
+
+            self.fields['due_reason'].widget.choices = [('', '— выберите причину —')] + [
+                (str(reason.pk), reason.name) for reason in DeviationReason.objects.filter(is_active=True)
+            ]
+        else:
+            del self.fields['due_reason']
+            del self.fields['due_comment']
         if fields is None:
             from .selectors import board_fields
 

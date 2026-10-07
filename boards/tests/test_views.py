@@ -14,14 +14,15 @@ from ..models import Board, BoardCard, BoardMember
 from ..services import create_board, create_sub_board
 from .helpers import (
     FOLLOW_FORM,
-    fresh_code,
     BoardFixtureMixin,
     board_url,
     card_create_url,
     done_column_of,
     due,
+    fresh_code,
     make_user,
     new_card,
+    reason_id,
     stage_of,
 )
 
@@ -190,9 +191,10 @@ class BoardPageTests(BoardViewMixin, TestCase):
                 # posts (`test_subscriptions.py`); nothing else that posts is.
                 content = FOLLOW_FORM.sub('', main_of(response))
                 # The GET filter form is for everybody; nothing that posts is.
+                # The board's «⋯» is every reader's: «Участники», «Отклонения».
                 for marker in (
                     'method="post"', '?new=', 'edit=1', 'Переместить', '+ Карточка',
-                    'data-board-menu', '+ Колонка',
+                    '/rename/', '/archive/', '+ Колонка',
                 ):
                     self.assertNotIn(marker, content)
 
@@ -321,7 +323,7 @@ class CardRouteTests(BoardViewMixin, TestCase):
         card = self.card('Карточка')
         response = self.client.post(
             reverse('boards:card_update', args=[self.board.pk, card.pk]),
-            self._data(title='Новое', assignees=[self.colleague.pk]),
+            self._data(title='Новое', assignees=[self.colleague.pk], due_reason=reason_id()),
         )
         self.assertRedirects(response, self.card_url(card))
         card.refresh_from_db()

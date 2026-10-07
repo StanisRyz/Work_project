@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ActStatus, DefectType, Operation, Priority, TaskStatus
+from .models import ActStatus, DefectType, DeviationReason, Operation, Priority, TaskStatus
 
 
 @admin.register(Operation)
@@ -41,3 +41,15 @@ class PriorityAdmin(admin.ModelAdmin):
     search_fields = ('name', 'code')
     list_filter = ('is_active',)
     ordering = ('sort_order', 'name')
+
+
+@admin.register(DeviationReason)
+class DeviationReasonAdmin(admin.ModelAdmin):
+    """«Причины отклонений» of a board's deadline moves. Deactivate a reason
+    that is no longer wanted: one that was named cannot be deleted."""
+
+    list_display = ('name', 'code', 'display_order', 'is_active')
+    list_editable = ('display_order', 'is_active')
+    search_fields = ('name', 'code')
+    list_filter = ('is_active',)
+    ordering = ('display_order', 'name')

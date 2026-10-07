@@ -45,6 +45,7 @@ from .helpers import (
     due,
     expected_counts,
     fragment_url,
+    reason_id,
 )
 from .test_journal import task_of
 from .test_table import read_xlsx
@@ -285,7 +286,7 @@ class SubtaskLifeTests(SubtaskMixin, TestCase):
         child = self.sub('Корпус', assignees=[self.colleague])
         update_card(
             child, actor=self.member, title='Корпус 1200', description='Сталь', due_date=due(3),
-            assignee_ids=[self.colleague.pk],
+            assignee_ids=[self.colleague.pk], due_reason_id=reason_id(),
         )
         child.refresh_from_db()
         self.assertEqual((child.title, child.version), ('Корпус 1200', 2))
@@ -715,7 +716,8 @@ class SubtaskLiveTests(SubtaskMixin, TestCase):
 # statuses, and their исполнители — two queries, at 0, 1 or 20 subtasks. The
 # tile's «⧉ k/n» and the codes its drop dialog names are subqueries of the
 # tiles' own query; «+ Подзадача» offers the members the panel has read.
-SUBTASK_PAGE_QUERIES = 39
+# Stage 21: one more for the card's «Переносы» (the moves of its срок).
+SUBTASK_PAGE_QUERIES = 40
 
 
 class SubtaskQueryCountTests(SubtaskMixin, TestCase):

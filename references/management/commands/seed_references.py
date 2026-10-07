@@ -1,6 +1,14 @@
 from django.core.management.base import BaseCommand
 
-from references.models import ActStatus, DefectType, Operation, Priority, TaskStatus
+from references.models import (
+    DEVIATION_REASONS,
+    ActStatus,
+    DefectType,
+    DeviationReason,
+    Operation,
+    Priority,
+    TaskStatus,
+)
 
 
 class Command(BaseCommand):
@@ -111,10 +119,20 @@ class Command(BaseCommand):
                 },
             )
 
+        # «Причины отклонений» of a board's deadline moves: created when
+        # missing, never rewritten — an administrator may have renamed one or
+        # switched it off in Admin, and seeding again must not undo that.
+        for code, name, display_order in DEVIATION_REASONS:
+            DeviationReason.objects.get_or_create(
+                code=code,
+                defaults={'name': name, 'display_order': display_order, 'is_active': True},
+            )
+
         self.stdout.write(
             self.style.SUCCESS(
                 f'Reference data ready: {len(operations)} operations, '
                 f'{len(defect_types)} defect types, {len(act_statuses)} act statuses, '
-                f'{len(task_statuses)} task statuses, {len(priorities)} priorities.'
+                f'{len(task_statuses)} task statuses, {len(priorities)} priorities, '
+                f'{DeviationReason.objects.count()} deviation reasons.'
             )
         )

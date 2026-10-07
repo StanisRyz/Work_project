@@ -16,6 +16,8 @@ urlpatterns = [
     # `&export=xlsx` that table as a spreadsheet.
     path('<int:pk>/<int:sub_pk>/', views.sub_board_detail, name='sub_board'),
     path('<int:pk>/members/', views.board_members, name='members'),
+    # «Отклонения»: why the board's deadlines moved (read only, `&export=xlsx`).
+    path('<int:pk>/deviations/', views.board_deviations, name='deviations'),
     # The live structure, card panel and messages of one sub-board (JSON, GET
     # only), for `static/js/realtime/boards.js`.
     path('<int:pk>/<int:sub_pk>/fragment/', views.board_fragment, name='fragment'),

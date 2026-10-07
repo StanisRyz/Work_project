@@ -106,8 +106,10 @@ from .permissions import (
 from .selectors import (
     NO_FILTERS,
     board_fields,
+    DEVIATION_DEFAULT_DAYS,
     board_tabs,
     build_board_nav,
+    build_deviation_report,
     build_board_state,
     build_board_table,
     checklist_counts,
@@ -127,6 +129,7 @@ from .services import (
     MAX_OPTIONS,
     BoardCodeError,
     BoardError,
+    DueReasonError,
     FieldValueError,
     StaleCardError,
     add_board_members,
@@ -379,7 +382,11 @@ def _current_field_rows(card):
 
 
 def _field_error(form, exc):
-    """A refused field value beside its own input; anything else for the panel."""
+    """A refused field value beside its own input — a refused move of the
+    срок beside «Причина переноса»; anything else for the panel."""
+    if isinstance(exc, DueReasonError) and 'due_reason' in form.fields:
+        form.add_error('due_reason', str(exc))
+        return ''
     if isinstance(exc, FieldValueError) and custom_field_name(exc.field_id) in form.fields:
         form.add_error(custom_field_name(exc.field_id), str(exc))
         return ''
@@ -523,13 +530,17 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     if panel == 'edit' and form is None:
         form = CardForm(
             board=board, fields=state['fields'], field_rows=item['field_rows'],
-            initial=_card_initial(item, state['fields']),
+            initial=_card_initial(item, state['fields']), editing=True,
         )
     if panel == 'new' and form is None:
         form = CardForm(board=board, fields=state['fields'], initial={'column': new_column.pk})
-    if panel == 'edit' and item['is_subtask']:
-        # A subtask's срок is checked against its card's by the page's warning.
-        form.fields['due_date'].widget.attrs['data-subtask-due'] = ''
+    if panel == 'edit':
+        # The stored срок: `board_due.js` shows «Причина переноса» while the
+        # date in the form differs from it.
+        form.fields['due_date'].widget.attrs['data-stored-due'] = item['due_date'].isoformat()
+        if item['is_subtask']:
+            # A subtask's срок is checked against its card's by the page's warning.
+            form.fields['due_date'].widget.attrs['data-subtask-due'] = ''
     # A subtask lives inside its card: it is never moved to a column.
     if panel == 'view' and can_edit_card and move_form is None and not item['is_subtask']:
         move_form = MoveCardForm(
@@ -1026,6 +1037,9 @@ def table_headers(state):
         'Статус',
         'Исполнители',
         'Срок',
+        'Исходный срок',
+        'Переносов',
+        'Последняя причина',
         'В колонке, дн.',
         'Чек-лист',
         *(field.name for field in state['field_columns']),
@@ -1045,6 +1059,9 @@ def table_cells(state, row):
         row['status_label'],
         ', '.join(person_name(user) for user in row['assignees']) or None,
         row['due_date'],
+        row['original_due_date'],
+        row['due_change_count'],
+        row['last_due_reason'] or None,
         row['in_column_days'],
         row['checklist_label'] or None,
         *(cell['raw'] for cell in row['cells']),
@@ -1230,7 +1247,7 @@ def card_update(request, pk, card_pk):
     card = get_object_or_404(BoardCard, pk=card_pk, board=board)
     if request.method != 'POST':
         return redirect(_card_url(board, card, request))
-    form = CardForm(request.POST, board=board, field_rows=_current_field_rows(card))
+    form = CardForm(request.POST, board=board, field_rows=_current_field_rows(card), editing=True)
     if form.is_valid():
         try:
             update_card(
@@ -1242,6 +1259,8 @@ def card_update(request, pk, card_pk):
                 assignee_ids=[user.pk for user in form.cleaned_data['assignees']],
                 expected_version=form.cleaned_data['version'],
                 field_values=form.field_values(),
+                due_reason_id=form.cleaned_data['due_reason'] or None,
+                due_comment=form.cleaned_data['due_comment'],
             )
         except BoardError as exc:
             # A stale version keeps the typed values in the edit panel and
@@ -2401,3 +2420,79 @@ def option_delete(request, pk, field_pk, option_pk):
     return _option_route(
         request, pk, field_pk, option_pk, lambda option: delete_option(option, actor=request.user),
     )
+
+
+# --------------------------------------------------------------------------
+# «Отклонения»
+# --------------------------------------------------------------------------
+#
+# `/work/boards/<board>/deviations/`: why the board's deadlines moved — a
+# summary per reason and the moves themselves, for a period (`from`/`to`,
+# the last 30 days by default) and one sub-board or all (`sub`). Read by every
+# reader of the board; nothing here writes. `&export=xlsx` is the list as a
+# spreadsheet — the very rows the page shows.
+
+
+def _report_date(value, default):
+    """An ISO date of the address, or `default` for anything else."""
+    import datetime
+
+    try:
+        return datetime.date.fromisoformat((value or '').strip())
+    except ValueError:
+        return default
+
+
+@login_required
+def board_deviations(request, pk):
+    import datetime
+
+    board = _board_or_404(pk)
+    _require(can_view_board(request.user, board))
+    today = timezone.localdate()
+    date_to = _report_date(request.GET.get('to'), today)
+    date_from = _report_date(request.GET.get('from'), date_to - datetime.timedelta(days=DEVIATION_DEFAULT_DAYS - 1))
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+    tabs = board_tabs(board)
+    sub_pk = request.GET.get('sub', '')
+    sub_board = _tab_of(tabs, int(sub_pk)) if sub_pk.isdigit() else None
+    report = build_deviation_report(board, date_from=date_from, date_to=date_to, sub_board=sub_board)
+    query = urlencode([
+        ('from', date_from.isoformat()), ('to', date_to.isoformat()),
+        *([('sub', sub_board.pk)] if sub_board is not None else []),
+    ])
+    if request.GET.get('export') == 'xlsx':
+        stem = '-'.join(part for part in (
+            safe_file_part(board.code), 'otkloneniya', safe_file_part(sub_board.name) if sub_board else '',
+        ) if part)
+        return xlsx_response(
+            stem,
+            f'{board.code} Отклонения',
+            ['Дата', 'Карточка', 'Название', 'Поддоска', 'Было', 'Стало', 'Сдвиг, дн.', 'Причина',
+             'Комментарий', 'Кто'],
+            [
+                [
+                    row['at'].date(), row['card'].code, row['card'].title,
+                    next((tab.name for tab in tabs if tab.pk == row['card'].sub_board_id), None),
+                    row['old_due'], row['new_due'], row['shift'], row['reason'].name,
+                    row['comment'] or None, person_name(row['who']),
+                ]
+                for row in report['rows']
+            ],
+            stamp_separator='-',
+            typed_dates=True,
+        )
+    return render(request, 'boards/deviations.html', {
+        **_frame(request, board),
+        **report,
+        'header_title': f'Отклонения · {board.name}',
+        'board': board,
+        'tabs': tabs,
+        'sub_board': sub_board,
+        'date_from': date_from,
+        'date_to': date_to,
+        'export_url': f"{reverse('boards:deviations', args=[board.pk])}?{query}&export=xlsx",
+        'moves_label': f"{report['moves']} {plural_ru(report['moves'], 'перенос', 'переноса', 'переносов')}",
+    })
+

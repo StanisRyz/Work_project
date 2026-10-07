@@ -43,6 +43,27 @@ values in place (`form` is then the bound form).
             {{ form.due_date }}
             {{ form.due_date.errors }}
         </label>
+        {% if 'due_reason' in form.fields %}
+            {% comment %}
+            A срок that existed moves only with a reason (`update_card()` is the
+            judge, and its refusal lands on «Причина переноса»). `board_due.js`
+            shows the two fields while the date differs from the stored one;
+            without it they are always there, marked «если меняете срок».
+            {% endcomment %}
+            <fieldset class="board-due-move" data-due-reason>
+                <legend>Перенос срока <span class="board-due-move__hint" data-due-reason-hint>— если меняете срок</span></legend>
+                <label>
+                    <span>{{ form.due_reason.label }}</span>
+                    {{ form.due_reason }}
+                    {{ form.due_reason.errors }}
+                </label>
+                <label>
+                    <span>{{ form.due_comment.label }}</span>
+                    {{ form.due_comment }}
+                    {{ form.due_comment.errors }}
+                </label>
+            </fieldset>
+        {% endif %}
         {% if panel == 'edit' and card.is_subtask and card.parent_due_date %}
             {% comment %}A warning, not a rule: `board_subtasks.js` shows it while the date is later than the card's.{% endcomment %}
             <p class="board-subtask-due-warning" data-subtask-due-warning data-parent-due="{{ card.parent_due_date|date:'Y-m-d' }}"{% if not card.later_than_parent %} hidden{% endif %}>Позже срока карточки {{ card.card.parent_code }}: {{ card.parent_due_date|date:'d.m.Y' }}</p>

@@ -155,6 +155,14 @@ def chat_upload(name='схема.pdf', content=b'%PDF-1.4 chat', content_type='a
     return SimpleUploadedFile(name, content, content_type=content_type)
 
 
+def reason_id(code='MATERIAL'):
+    """The id of a reason of `references.DeviationReason` (seeded by
+    `references.0005`) — what a move of a card's срок names."""
+    from references.models import DeviationReason
+
+    return DeviationReason.objects.get(code=code).pk
+
+
 def department():
     # Seeded by `accounts.0003`; reused rather than duplicated.
     return Department.objects.get_or_create(code='PDO', defaults={'name': 'ПДО'})[0]
