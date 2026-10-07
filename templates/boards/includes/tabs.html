@@ -6,6 +6,12 @@ the board's filter; for whoever manages the board (`can_manage`) the active tab
 carries its «⋯» menu (`boards/includes/structure_menu.html`) and «+» makes a
 new sub-board. The client never replaces this block while one of its menus is
 open.
+
+«Входящие (N)» at the end of the strip — whoever works on the board, while it
+takes requests or has some waiting (`show_inbox`, `inbox_count`): a link to
+`boards:inbox`. Here rather than in the heading because this block is live:
+a request filed or decided publishes `board.updated(request_changed)`, and
+the count moves with the block's fingerprint, no reload.
 {% endcomment %}
 <nav class="board-tabs" aria-label="Поддоски">
     <ul class="board-tabs__list">
@@ -33,6 +39,11 @@ open.
                         </form>
                     </div>
                 </details>
+            </li>
+        {% endif %}
+        {% if show_inbox %}
+            <li class="board-tabs__item board-tabs__item--inbox">
+                <a class="board-tabs__inbox{% if inbox_count %} board-tabs__inbox--new{% endif %}" href="{% url 'boards:inbox' board.pk %}" data-board-inbox title="Заявки, которые ждут разбора">Входящие ({{ inbox_count }})</a>
             </li>
         {% endif %}
     </ul>

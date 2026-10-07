@@ -366,3 +366,59 @@ def can_subscribe_digest(user, board, *, can_view=None):
     if board.is_archived:
         return False
     return can_view_board(user, board) if can_view is None else bool(can_view)
+
+
+# ---------------------------------------------------------------------------
+# «Приём заявок»: who files a request, who reads it, who sorts it
+# ---------------------------------------------------------------------------
+
+
+def can_submit_request(user, board):
+    """Any active employee — a member of the board or not — files a request
+    to a live board with «Приём заявок» on. Filing grants nothing else: the
+    author reads their own request and never the board."""
+    return bool(board.intake_enabled) and not board.is_archived and is_active_employee(user)
+
+
+def can_use_requests(user):
+    """Whether «Заявки» is in the menu: an active employee, and at least one
+    live board takes requests. One `EXISTS`, asked lazily by the context
+    processor."""
+    if not is_active_employee(user):
+        return False
+    return Board.objects.filter(intake_enabled=True, status=Board.Status.ACTIVE).exists()
+
+
+def can_read_inbox(user, board, *, can_work=None):
+    """«Входящие» of a board: whoever works on it (`can_work_on_board()`),
+    and full access — the only people who see somebody else's requests."""
+    if can_work is None:
+        can_work = can_work_on_board(user, board)
+    return bool(can_work) or has_full_board_access(user)
+
+
+def can_decide_request(user, board, *, can_work=None):
+    """«Принять», «Отклонить», «Дубль»: whoever works on the board — never
+    on an archived one, as `can_work_on_board()` already says."""
+    if can_work is None:
+        can_work = can_work_on_board(user, board)
+    return bool(can_work)
+
+
+def can_view_request(user, board_request):
+    """One request's page: its author, and whoever reads its board.
+    Anybody else — a 404, the request's existence included."""
+    if not _is_authenticated(user):
+        return False
+    if board_request.author_id == user.pk:
+        return True
+    return can_view_board(user, board_request.board)
+
+
+def can_withdraw_request(user, board_request):
+    """«Отозвать»: the author, while the request is still new."""
+    return (
+        _is_authenticated(user)
+        and board_request.author_id == user.pk
+        and board_request.status == board_request.Status.NEW
+    )

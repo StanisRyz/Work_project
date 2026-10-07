@@ -12,6 +12,10 @@ from django.contrib.auth import get_user_model
 from accounts.templatetags.people import person_name
 
 from .models import (
+    INTAKE_DUE_DAYS_MAX,
+    INTAKE_HINT_MAX_LENGTH,
+    REQUEST_DESCRIPTION_MAX_LENGTH,
+    REQUEST_TITLE_MAX_LENGTH,
     BOARD_CODE_MAX_LENGTH,
     DUE_COMMENT_MAX_LENGTH,
     BoardCard,
@@ -429,3 +433,171 @@ class OptionForm(forms.Form):
 
     label = forms.CharField(label='Подпись', max_length=60)
     color = forms.ChoiceField(label='Цвет', choices=BoardFieldColor.choices)
+
+
+# ---------------------------------------------------------------------------
+# «Приём заявок»
+# ---------------------------------------------------------------------------
+
+DATE_INPUT = forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d')
+DATE_FORMATS = ['%Y-%m-%d', '%d.%m.%Y']
+
+
+def working_column_choices(columns):
+    """`<optgroup>`s of the working columns of a board, by sub-board, in the
+    board's order — `columns` read with their sub-board, in order."""
+    groups = []
+    for column in columns:
+        if column.is_done:
+            continue
+        if not groups or groups[-1][0] != column.sub_board.name:
+            groups.append((column.sub_board.name, []))
+        groups[-1][1].append((column.pk, column.name))
+    return groups
+
+
+class IntakeForm(forms.Form):
+    """«Приём заявок» of a board: on/off, the column, the default срок, the
+    hint, the handlers (`handlers`, the board's active members as tick boxes)
+    and, per live field, `form_<id>` — «нет» / «в форме» / «обязательно».
+    `services.update_intake()` checks every one again."""
+
+    FIELD_MODES = (('off', 'нет'), ('on', 'в форме'), ('required', 'обязательно'))
+
+    enabled = forms.BooleanField(label='Принимать заявки', required=False)
+    column = forms.CharField(label='Куда ставить принятую заявку', required=False, widget=forms.Select)
+    due_days = forms.IntegerField(
+        label='Срок по умолчанию, рабочих дней', required=False, min_value=0, max_value=INTAKE_DUE_DAYS_MAX,
+        help_text='Если автор не указал желаемую дату. Пусто — срок назначает принявший.',
+    )
+    hint = forms.CharField(
+        label='Подсказка над формой', required=False, max_length=INTAKE_HINT_MAX_LENGTH,
+        widget=forms.Textarea(attrs={'rows': 3}),
+    )
+    handlers = EmployeeMultipleChoiceField(
+        label='Кто разбирает заявки',
+        queryset=get_user_model().objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text='Им приходят новые заявки. Никого не отмечено — владелец доски.',
+    )
+
+    def __init__(self, *args, board, columns, fields, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['handlers'].queryset = active_members(board)
+        self.fields['column'].widget.choices = (
+            [('', 'Первая рабочая колонка первой поддоски')] + working_column_choices(columns)
+        )
+        self.board_fields = [field for field in fields if not field.is_archived]
+        for field in self.board_fields:
+            self.fields[f'form_{field.pk}'] = forms.ChoiceField(
+                label=field.name, choices=self.FIELD_MODES, required=False,
+                widget=forms.RadioSelect,
+            )
+
+    @property
+    def field_rows(self):
+        return [(field, self[f'form_{field.pk}']) for field in self.board_fields]
+
+    def form_fields(self):
+        """`{field id: (in the form, required)}` for `update_intake()`."""
+        modes = {}
+        for field in self.board_fields:
+            mode = self.cleaned_data.get(f'form_{field.pk}') or 'off'
+            modes[field.pk] = (mode in ('on', 'required'), mode == 'required')
+        return modes
+
+    @staticmethod
+    def initial_for(board, handler_ids, fields):
+        initial = {
+            'enabled': board.intake_enabled,
+            'column': str(board.intake_column_id or ''),
+            'due_days': board.intake_due_days,
+            'hint': board.intake_hint,
+            'handlers': list(handler_ids),
+        }
+        for field in fields:
+            initial[f'form_{field.pk}'] = (
+                'required' if field.required_in_request else 'on' if field.in_request_form else 'off'
+            )
+        return initial
+
+
+class RequestForm(forms.Form):
+    """«Подать заявку»: the title, the description, the desired date and the
+    board's fields of its form (`field_<id>`, as on a card, raw text — the
+    service parses each one and refuses a required one empty)."""
+
+    title = forms.CharField(
+        label='Что нужно сделать', max_length=REQUEST_TITLE_MAX_LENGTH,
+        widget=forms.TextInput(attrs={'placeholder': 'Коротко: что нужно сделать'}),
+    )
+    description = forms.CharField(
+        label='Подробности', required=False, max_length=REQUEST_DESCRIPTION_MAX_LENGTH,
+        widget=forms.Textarea(attrs={'rows': 5}),
+    )
+    desired_date = forms.DateField(
+        label='Желаемая дата', required=False, widget=DATE_INPUT, input_formats=DATE_FORMATS,
+    )
+
+    def __init__(self, *args, fields=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.board_fields = list(fields)
+        for field in self.board_fields:
+            form_field = _custom_form_field(field, None)
+            form_field.label = field.name
+            if field.required_in_request:
+                form_field.widget.attrs['required'] = 'required'
+            self.fields[custom_field_name(field)] = form_field
+
+    @property
+    def custom_fields(self):
+        return [
+            (field, self[custom_field_name(field)]) for field in self.board_fields
+        ]
+
+    def field_values(self):
+        return {
+            field.pk: self.cleaned_data.get(custom_field_name(field), '')
+            for field in self.board_fields
+        }
+
+
+class AcceptRequestForm(forms.Form):
+    """«Принять»: where the card stands (a working column of any sub-board),
+    its исполнители, its срок, and its title and description — all starting
+    from the request and the board's intake settings; `accept_request()`
+    checks every one again."""
+
+    column = forms.IntegerField(label='Колонка', min_value=1, widget=forms.Select)
+    assignees = EmployeeMultipleChoiceField(
+        label='Исполнители',
+        queryset=get_user_model().objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={'required': 'Укажите хотя бы одного исполнителя.'},
+    )
+    due_date = forms.DateField(label='Срок', widget=DATE_INPUT, input_formats=DATE_FORMATS)
+    title = forms.CharField(label='Заголовок карточки', max_length=BoardCard._meta.get_field('title').max_length)
+    description = forms.CharField(
+        label='Описание карточки', required=False, widget=forms.Textarea(attrs={'rows': 4}),
+    )
+
+    def __init__(self, *args, board, columns, **kwargs):
+        super().__init__(*args, prefix='accept', **kwargs)
+        self.fields['assignees'].queryset = active_members(board)
+        self.fields['column'].widget.choices = working_column_choices(columns)
+
+
+class DuplicateRequestForm(forms.Form):
+    """«Дубль»: the code of the card of this board the request repeats."""
+
+    card_code = forms.CharField(
+        label='Код карточки', max_length=20,
+        widget=forms.TextInput(attrs={'placeholder': 'например ZAP-12', 'autocomplete': 'off'}),
+    )
+    comment = forms.CharField(
+        label='Комментарий', required=False, widget=forms.Textarea(attrs={'rows': 2}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, prefix='duplicate', **kwargs)

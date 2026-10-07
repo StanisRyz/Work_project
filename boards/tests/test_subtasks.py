@@ -719,7 +719,8 @@ class SubtaskLiveTests(SubtaskMixin, TestCase):
 # Stage 21: one more for the card's «Переносы» (the moves of its срок).
 # Stage 22: two more — the columns this reader follows («🔔», one query) and the card's «Связи» (one query).
 # Stage 23: one more — the reader's «Дайджест на почту» in the heading's «⋯» (the page's own, never the fragment's).
-SUBTASK_PAGE_QUERIES = 43
+# Stage 24: two more — «Входящие (N)» in the tabs for whoever works on the board (one count) and the menu's lazy «Заявки» (one `EXISTS`, the page's own).
+SUBTASK_PAGE_QUERIES = 45
 
 
 class SubtaskQueryCountTests(SubtaskMixin, TestCase):

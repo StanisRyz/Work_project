@@ -30,6 +30,7 @@ import hashlib
 import re
 from dataclasses import dataclass, replace
 from decimal import Decimal
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
@@ -63,6 +64,7 @@ from .models import (
     BoardFieldOption,
     BoardCardSubscription,
     BoardMember,
+    BoardRequest,
     SubBoard,
 )
 from .permissions import (
@@ -559,8 +561,10 @@ def card_stages(card, events, columns_by_id, done_column=None, today=None):
     journal has it (the closing column's as it is now), the local dates in
     and out, the planned exit by the column's **current** «Норматив этапа»
     (none kept from before — the block says so), the working days in the
-    stage and the deviation from the plan in working days (positive late; for
-    the current stay as of today). A column deleted since has no norm. Read
+    stage and the deviation from the plan in working days (positive late) —
+    for the stay the card is in now only once it is late; before that
+    `remaining`, the working days left to the plan («осталось N р.д.»). A
+    column deleted since has no norm. Read
     off the panel's own journal list — no query. A subtask has no rows.
     """
     today = today or timezone.localdate()
@@ -572,6 +576,9 @@ def card_stages(card, events, columns_by_id, done_column=None, today=None):
         exited = timezone.localtime(stay['exited_at']).date() if stay['exited_at'] else None
         is_current = stay['exited_at'] is None
         deviation = working_days_between(plan, exited or today) if plan else None
+        # The stage the card is in now and not late yet has no deviation but
+        # a reserve: «осталось N р.д.» (0 — the plan is today).
+        remaining = -deviation if is_current and deviation is not None and deviation <= 0 else None
         rows.append({
             'column': (done_column.name if done_column is not None else 'Завершена') if stay['is_done'] else stay['column'],
             'is_done': stay['is_done'],
@@ -581,7 +588,8 @@ def card_stages(card, events, columns_by_id, done_column=None, today=None):
             'norm': norm,
             'exited': exited,
             'days': None if stay['is_done'] else stay_days(stay, today),
-            'deviation': deviation,
+            'deviation': None if remaining is not None else deviation,
+            'remaining': remaining,
             'light': stage_light(plan, today) if plan and is_current else None,
         })
     return rows
@@ -1509,6 +1517,9 @@ def describe_card_event(event, code='', *, hide_other=False):
             return f'{created} в карточке {details["parent"]}'
         column = details.get('column')
         created = f'Карточка {code} создана' if code else 'Карточка создана'
+        if details.get('request_id'):
+            # «Принять» in «Входящие»: the card was made of a request.
+            created = f'{created} из заявки №{details["request_id"]}'
         return f'{created} в колонке «{column}»' if column else created
     if kind == BoardCardEvent.Kind.SUBTASK:
         action = SUBTASK_ACTION_LABELS.get(details.get('action'), 'изменена')
@@ -2671,4 +2682,198 @@ def build_stage_report(board, *, date_from, date_to, sub_board=None, today=None)
         'stage_rows': rows,
         'stage_exits': sum(row['exits'] for row in rows),
         'stage_late_now': sum(row['late_now'] for row in rows),
+    }
+
+
+# --------------------------------------------------------------------------
+# «Приём заявок»: «Заявки», «Входящие» and one request, as read
+# --------------------------------------------------------------------------
+
+# «Входящие» lists the requests decided in this many days under the new ones.
+INBOX_DECIDED_DAYS = 30
+
+TASK_STATE_LABELS = {
+    'IN_PROGRESS': 'В работе',
+    'COMPLETED': 'Выполнена',
+    'CANCELLED': 'Отменена',
+}
+
+
+def intake_boards():
+    """The live boards that take requests, by name — «Подать заявку». One query."""
+    return list(
+        Board.objects.filter(intake_enabled=True, status=Board.Status.ACTIVE).order_by('name', 'pk')
+    )
+
+
+def new_request_count(board):
+    """«Входящие (N)»: how many requests of `board` wait. One query."""
+    return BoardRequest.objects.filter(board=board, status=BoardRequest.Status.NEW).count()
+
+
+def _request_value_row(field, value):
+    """An unsaved `BoardCardFieldValue` holding a request's stored value, so
+    `describe_field_value()` words it exactly as on a card."""
+    row = BoardCardFieldValue(field=field)
+    try:
+        if field.kind == BoardField.Kind.SELECT:
+            row.option_id = int(value)
+        elif field.kind == BoardField.Kind.NUMBER:
+            row.value_number = Decimal(str(value))
+        elif field.kind == BoardField.Kind.DATE:
+            row.value_date = datetime.date.fromisoformat(str(value))
+        else:
+            row.value_text = str(value)
+    except (TypeError, ValueError, ArithmeticError):
+        return None
+    return row
+
+
+def describe_request_values(board_request, fields):
+    """The request's field values as rows of `describe_field_value()`, in the
+    fields' order. `fields` — every field of the board with its options (an
+    archived one still reads its value); a field deleted since is left out."""
+    stored = board_request.field_values or {}
+    rows = []
+    for field in fields:
+        if str(field.pk) not in stored:
+            continue
+        row = _request_value_row(field, stored[str(field.pk)])
+        described = describe_field_value(field, row) if row is not None else None
+        if described is not None:
+            rows.append(described)
+    return rows
+
+
+def _task_states(card_ids):
+    """`{card id: (status code, completed?)}` of the cards' `BOARD` tasks — one query."""
+    from tasks.models import Task
+
+    if not card_ids:
+        return {}
+    return {
+        card_id: code
+        for card_id, code in Task.objects.filter(
+            source_type=Task.SourceType.BOARD, board_card_id__in=card_ids,
+        ).values_list('board_card_id', 'status__code')
+    }
+
+
+def _columns_by_sub_board(sub_board_ids):
+    """`{sub-board id: [columns in order]}` — one query."""
+    columns = {}
+    if not sub_board_ids:
+        return columns
+    for column in BoardColumn.objects.filter(sub_board_id__in=sub_board_ids).order_by('position', 'pk'):
+        columns.setdefault(column.sub_board_id, []).append(column)
+    return columns
+
+
+def _card_projection(card, state, columns, readable):
+    """What a request's author is told of the card made of it: its code, the
+    column it stands in (`card_column()`: the closing one once done, none once
+    cancelled) and its task's state — and a link only for a reader of the
+    board. Never its people, its chat or anything else of the board."""
+    column = None
+    if state is not None:
+        # `card_column()` reads only the task's status code.
+        column = card_column(card, SimpleNamespace(status=SimpleNamespace(code=state)), columns)
+    return {
+        'code': card.code,
+        'column': column.name if column is not None else '',
+        'state': state or '',
+        'state_label': TASK_STATE_LABELS.get(state, ''),
+        'url': (
+            f"{reverse('boards:sub_board', args=[card.board_id, card.sub_board_id])}?card={card.pk}"
+            if readable else ''
+        ),
+    }
+
+
+def request_rows(requests, user):
+    """`[{'request', 'card', 'duplicate'}]` for a list of requests: the card
+    an accepted one became and the card a duplicate repeats, each as a
+    projection (`_card_projection()`). Three queries for any number of
+    requests — the boards `user` reads, the cards' tasks, their sub-boards'
+    columns — the requests themselves read by the caller with
+    `select_related('board', 'card__board', 'duplicate_of__board')`."""
+    requests = list(requests)
+    cards = [r.card for r in requests if r.card_id] + [r.duplicate_of for r in requests if r.duplicate_of_id]
+    readable = set(
+        Board.objects.filter(readable_boards_q(user), pk__in={card.board_id for card in cards})
+        .values_list('pk', flat=True)
+    ) if cards else set()
+    states = _task_states([card.pk for card in cards])
+    columns = _columns_by_sub_board({card.sub_board_id for card in cards})
+    rows = []
+    for board_request in requests:
+        rows.append({
+            'request': board_request,
+            'card': _card_projection(
+                board_request.card, states.get(board_request.card_id),
+                columns.get(board_request.card.sub_board_id, []), board_request.board_id in readable,
+            ) if board_request.card_id else None,
+            'duplicate': _card_projection(
+                board_request.duplicate_of, states.get(board_request.duplicate_of_id),
+                columns.get(board_request.duplicate_of.sub_board_id, []), board_request.board_id in readable,
+            ) if board_request.duplicate_of_id else None,
+        })
+    return rows
+
+
+def _requests_query():
+    return BoardRequest.objects.select_related(
+        'board', 'author__userprofile__department', 'decided_by',
+        'card__board', 'duplicate_of__board',
+    )
+
+
+def build_my_requests(user):
+    """«Мои заявки»: every request `user` filed, newest first, each with what
+    became of it (`request_rows()`). Four queries whatever their number."""
+    return request_rows(_requests_query().filter(author=user).order_by('-created_at', '-pk'), user)
+
+
+def build_inbox(board, user, today=None):
+    """«Входящие» of a board: the new requests, oldest first (the queue), and
+    those decided in the last `INBOX_DECIDED_DAYS` days, newest first — each
+    with its author's department and what became of it. A fixed number of
+    queries whatever the number of requests."""
+    today = today or timezone.localdate()
+    since = timezone.make_aware(
+        datetime.datetime.combine(today - datetime.timedelta(days=INBOX_DECIDED_DAYS), datetime.time.min)
+    )
+    requests = list(
+        _requests_query().filter(board=board).filter(
+            Q(status=BoardRequest.Status.NEW) | Q(decided_at__gte=since)
+        ).order_by('created_at', 'pk')
+    )
+    for board_request in requests:
+        board_request.board = board
+    new = [r for r in requests if r.status == BoardRequest.Status.NEW]
+    decided = sorted(
+        (r for r in requests if r.status != BoardRequest.Status.NEW),
+        key=lambda r: (r.decided_at, r.pk), reverse=True,
+    )
+    return {
+        'new_requests': new,
+        'decided_rows': request_rows(decided, user),
+        'inbox_decided_days': INBOX_DECIDED_DAYS,
+    }
+
+
+def build_request_detail(board_request, user):
+    """One request as its page shows it — to its author and to the board's
+    readers alike: the request, its fields (`describe_request_values()`) and
+    what became of it (`request_rows()`)."""
+    fields = list(
+        BoardField.objects.filter(board_id=board_request.board_id)
+        .prefetch_related('options').order_by('position', 'pk')
+    )
+    row = request_rows([board_request], user)[0]
+    return {
+        'board_request': board_request,
+        'request_values': describe_request_values(board_request, fields),
+        'request_card': row['card'],
+        'request_duplicate': row['duplicate'],
     }

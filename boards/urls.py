@@ -1,10 +1,13 @@
-from django.urls import path
+from django.urls import include, path
 
-from . import views
+from . import request_views, views
 
 app_name = 'boards'
 
-urlpatterns = [
+# Mounted at `/work/` (`ecosystem/urls.py`): the boards under `boards/`, and
+# «Заявки» — filed by anybody, a member of a board or not — under
+# `requests/`, outside the boards' frame. One namespace, `boards:`, for both.
+board_patterns = [
     # No registry: the last sub-board opened, else the first board, else the
     # empty state — the left panel of every board page lists the boards.
     path('', views.board_list, name='list'),
@@ -150,4 +153,28 @@ urlpatterns = [
         '<int:pk>/cards/<int:card_pk>/checklist/<int:item_pk>/delete/',
         views.checklist_delete, name='checklist_delete',
     ),
+    # «Приём заявок» (the manager's) and «Входящие» (whoever works on the board).
+    path('<int:pk>/intake/', request_views.intake_settings, name='intake'),
+    path('<int:pk>/inbox/', request_views.inbox, name='inbox'),
+    path('<int:pk>/inbox/<int:request_pk>/', request_views.inbox_request, name='inbox_request'),
+    path('<int:pk>/inbox/<int:request_pk>/accept/', request_views.request_accept, name='request_accept'),
+    path('<int:pk>/inbox/<int:request_pk>/reject/', request_views.request_reject, name='request_reject'),
+    path(
+        '<int:pk>/inbox/<int:request_pk>/duplicate/',
+        request_views.request_duplicate, name='request_duplicate',
+    ),
+]
+
+request_patterns = [
+    # «Заявки»: «Подать заявку» and «Мои заявки».
+    path('', request_views.requests_home, name='requests'),
+    path('<int:pk>/new/', request_views.request_create, name='request_create'),
+    # One request: its author and the board's readers; anybody else a 404.
+    path('item/<int:request_pk>/', request_views.request_detail, name='request_detail'),
+    path('item/<int:request_pk>/withdraw/', request_views.request_withdraw, name='request_withdraw'),
+]
+
+urlpatterns = [
+    path('boards/', include(board_patterns)),
+    path('requests/', include(request_patterns)),
 ]

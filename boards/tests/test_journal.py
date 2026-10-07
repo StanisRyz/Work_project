@@ -61,7 +61,8 @@ from .helpers import (
 # card's «Связи» (one query, whatever their number) — so 42. Stage 23: one
 # more — the reader's «Дайджест на почту» in the heading's «⋯» — so 43 (the
 # card's «Этапы» read the journal «Лог» already reads: no query).
-PAGE_QUERIES = 43
+# Stage 24: two more — «Входящие (N)» in the tabs for whoever works on the board (one count) and the menu's lazy «Заявки» (one `EXISTS`, the page's own) — so 45.
+PAGE_QUERIES = 45
 
 MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-journal-'))
 

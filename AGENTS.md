@@ -30,7 +30,7 @@ model without explicit approval.
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
-| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`, and a «Норматив этапа», `norm_working_days`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description; a subtask — `parent` — stands in no column and lives in its card's «Подзадачи»), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|subtasks|log` (the old `files` — «Чат» with `&chat=files`; «Подзадачи» only for a card, never a subtask), «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`; its task's older attachments through the task's own routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?stale`/`?blocked`/`?q` and by its fields (`?f_<id>…`, one parse — `parse_board_filters()`), an open tile says how long it has stood in its column (`in_column_since()`, from `BoardCardEvent`) and, under a «Норматив этапа», when it should leave it (the traffic light; a card's «Этапы», the «Этапы» tab of «Отклонения»), `?view=table` is the sub-board as rows («Таблица», `build_board_table()`) and `&export=xlsx` that table through `ecosystem.xlsx`, and `BoardCard.version` refuses a stale edit; a card's «Чат» is `BoardCardComment`, written only by `post_card_comment()`, which also stores whom a message mentions with «@» (`BoardCardCommentMention`) and the files it carries (`BoardCardFile` — the board's own protected files, `boards:file_download`/`file_preview`, deleted to a tombstone by `delete_card_file()`; `static/js/board_chat_files.js` chooses them); a card's «Подзадачи» are cards with a `parent` (`create_subtask()`, `create_subtasks_from_list()`, `checklist_item_to_subtask()`; one level, no column, `MAX_SUBTASKS`); a card's «Чек-лист» is `BoardCardChecklistItem` (`add_checklist_item()` and its siblings) and its followers `BoardCardSubscription` (`toggle_card_subscription()`), and who hears of a card is `selectors.card_audience()`; cards are linked across boards by `BoardCardLink` (`link_cards()`/`unlink_cards()`: «Ждёт»/«Блокирует»/«Связана»/«Дубль», blocking and `BOARD_UNBLOCKED`), a column is followed by `BoardColumnSubscription` (`toggle_column_subscription()`, `BOARD_COLUMN_ENTERED`), a number field may be summed in every column header (`BoardField.sum_in_column`), and a reader may take the board's «Дайджест на почту» (`BoardDigestSubscription`, `boards/digest.py`, `manage.py board_digest` — a letter, never a `Notification`). Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat with its files, its log, its checklist, its followers, its «Связи», its «Этапы» and its «Подзадачи») and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
+| `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`, and a «Норматив этапа», `norm_working_days`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description; a subtask — `parent` — stands in no column and lives in its card's «Подзадачи»), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|subtasks|log` (the old `files` — «Чат» with `&chat=files`; «Подзадачи» only for a card, never a subtask), «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`; its task's older attachments through the task's own routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?stale`/`?blocked`/`?q` and by its fields (`?f_<id>…`, one parse — `parse_board_filters()`), an open tile says how long it has stood in its column (`in_column_since()`, from `BoardCardEvent`) and, under a «Норматив этапа», when it should leave it (the traffic light; a card's «Этапы», the «Этапы» tab of «Отклонения»), `?view=table` is the sub-board as rows («Таблица», `build_board_table()`) and `&export=xlsx` that table through `ecosystem.xlsx`, and `BoardCard.version` refuses a stale edit; a card's «Чат» is `BoardCardComment`, written only by `post_card_comment()`, which also stores whom a message mentions with «@» (`BoardCardCommentMention`) and the files it carries (`BoardCardFile` — the board's own protected files, `boards:file_download`/`file_preview`, deleted to a tombstone by `delete_card_file()`; `static/js/board_chat_files.js` chooses them); a card's «Подзадачи» are cards with a `parent` (`create_subtask()`, `create_subtasks_from_list()`, `checklist_item_to_subtask()`; one level, no column, `MAX_SUBTASKS`); a card's «Чек-лист» is `BoardCardChecklistItem` (`add_checklist_item()` and its siblings) and its followers `BoardCardSubscription` (`toggle_card_subscription()`), and who hears of a card is `selectors.card_audience()`; cards are linked across boards by `BoardCardLink` (`link_cards()`/`unlink_cards()`: «Ждёт»/«Блокирует»/«Связана»/«Дубль», blocking and `BOARD_UNBLOCKED`), a column is followed by `BoardColumnSubscription` (`toggle_column_subscription()`, `BOARD_COLUMN_ENTERED`), a number field may be summed in every column header (`BoardField.sum_in_column`), a reader may take the board's «Дайджест на почту» (`BoardDigestSubscription`, `boards/digest.py`, `manage.py board_digest` — a letter, never a `Notification`), and anybody may file a request to a board that takes them («Приём заявок»: `Board.intake_*`, `BoardIntakeHandler`, `BoardRequest`; «Заявки» at `/work/requests/` and the board's «Входящие», in `boards/request_views.py`). Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat with its files, its log, its checklist, its followers, its «Связи», its «Этапы» and its «Подзадачи») and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
 | `realtime` | event contract, targets, channels, publisher, SSE endpoint, sync revisions. No models, no migrations |
 | `maintenance` | technical read-only commands and transfer tooling. No models, no migrations |
@@ -38,8 +38,8 @@ model without explicit approval.
 The user-facing sections are Главная (`/`), Акты (`/quality/acts/`), Задачи
 (`/quality/tasks/`), Протоколы (`/quality/protocols/`), СМК (`/quality/smk/`),
 Калькулятор времени навивки (`/calculators/winding/`), Калькулятор рубки пластин
-(`/calculators/plate-cutting/`), Документация (`/documents/`) and Доски
-(`/work/boards/`). Под «Качество»
+(`/calculators/plate-cutting/`), Документация (`/documents/`), Доски
+(`/work/boards/`) and Заявки (`/work/requests/`). Под «Качество»
 пункты идут Акты · Протоколы · СМК · Задачи; the СМК form is reachable both from
 its own registry and, as before, from «Задачи» through `tasks:create`. `/` is the
 dashboard itself — not a redirect — and it is the login fallback for every role
@@ -51,7 +51,8 @@ from the sidebar.
 
 Public URLs follow the two-level convention `/quality/<module>/`,
 `/calculators/<module>/` and `/work/<module>/` — the last for working tools
-that are not about quality, today only `/work/boards/` — mirroring the
+that are not about quality, today `/work/boards/` and `/work/requests/`, both
+of the `boards` app mounted once at `/work/` — mirroring the
 navigation; a new user-facing module is mounted the same way. Infrastructure stays outside it: `/accounts/`,
 `/notifications/`, `/realtime/`, `/health/`, `/admin/`. The path is public
 routing only — app names, Python packages and URL namespaces are unchanged
@@ -72,7 +73,13 @@ signed-in employee (`documents.context_processors.documentation_access` →
 link, to `/work/boards/`, drawn only for whoever uses boards — full access or
 a member of at least one board (`boards.context_processors.boards_access` →
 `can_use_boards`; `active_page == 'boards'`). There is no board registry
-behind it: the boards are listed in the left panel of every board page. Only leaf items are links; categories are buttons, one submenu open at a time,
+behind it: the boards are listed in the left panel of every board page. After
+it, Заявки: the same first-level plain link, to `/work/requests/`, drawn for
+every active employee while some live board takes requests
+(`boards.context_processors.requests_access` → `can_use_requests`, lazy — a
+`SimpleLazyObject` whose `EXISTS` runs only when a template asks;
+`active_page == 'requests'`); the dashboard's «Быстрый доступ» card «Заявки»
+asks the same rule. Only leaf items are links; categories are buttons, one submenu open at a time,
 and the panel and the profile menu are never open together. All of that state
 lives in `static/js/app.js`.
 
@@ -1023,31 +1030,37 @@ tasks never live inside `acts`.
   deduplicated per recipient by a stable source key, and routed in one place:
   `notifications/services.py`. Never create a `Notification` from a view, a
   template, a model signal or JavaScript.
-- **A notification's origin is `source_type`, never a nullable relation.** Five
-  values exist — `ACT`, `PROTOCOL`, `TASK`, `BUG`, `DOCUMENT` — and exactly one relation
+- **A notification's origin is `source_type`, never a nullable relation.** Six
+  values exist — `ACT`, `PROTOCOL`, `TASK`, `BUG`, `DOCUMENT`, `REQUEST` — and exactly one relation
   shape is valid for each, enforced by `Notification.clean()` and by the
   `notification_source_relations_match_source_type` check constraint:
 
   | `source_type` | required | must be NULL |
   | --- | --- | --- |
-  | `ACT` | `related_act` | `related_protocol`, `related_task`, `related_bug_report`, `related_document` |
-  | `PROTOCOL` | `related_protocol` | `related_act`, `related_task`, `related_bug_report`, `related_document` |
-  | `TASK` | `related_task` | `related_act`, `related_protocol`, `related_bug_report`, `related_document` |
-  | `BUG` | `related_bug_report` | `related_act`, `related_protocol`, `related_task`, `related_document` |
-  | `DOCUMENT` | `related_document` | `related_act`, `related_protocol`, `related_task`, `related_bug_report` |
+  | `ACT` | `related_act` | `related_protocol`, `related_task`, `related_bug_report`, `related_document`, `related_board_request` |
+  | `PROTOCOL` | `related_protocol` | `related_act`, `related_task`, `related_bug_report`, `related_document`, `related_board_request` |
+  | `TASK` | `related_task` | `related_act`, `related_protocol`, `related_bug_report`, `related_document`, `related_board_request` |
+  | `BUG` | `related_bug_report` | `related_act`, `related_protocol`, `related_task`, `related_document`, `related_board_request` |
+  | `DOCUMENT` | `related_document` | `related_act`, `related_protocol`, `related_task`, `related_bug_report`, `related_board_request` |
+  | `REQUEST` | `related_board_request` | `related_act`, `related_protocol`, `related_task`, `related_bug_report`, `related_document` |
 
   `related_act` keeps its name and its meaning; it is nullable *only* so the
   other shapes can exist. `create_notifications()` takes exactly one of
-  `act=`/`protocol=`/`task=`/`bug_report=`/`document=` and derives
+  `act=`/`protocol=`/`task=`/`bug_report=`/`document=`/`board_request=` and derives
   `source_type` from it, so the type and the stored relation can never
   disagree. `get_notification_url()` resolves by source type through named
   routes — `acts:detail`, `protocols:detail`, `tasks:detail`, `bugs:detail`,
-  `documents:document_detail` — from the stored foreign key id passed
+  `documents:document_detail`, `boards:request_detail` — from the stored foreign key id passed
   positionally (every such route takes one integer, whatever it calls it),
   never a hard-coded path. A document task's notification is
   `DOCUMENT`-sourced, not `TASK`-sourced: the page to open is the document,
   where the answer is given (`notify_document_task()`, keyed on the task, one
-  per task, `exclude_actor=False`). A new source type is one entry in each of
+  per task, `exclude_actor=False`). A board request's notification is
+  `REQUEST`-sourced for the same reason: its author may not read the board,
+  so the page to open is the request's own (`boards:request_detail`), never
+  the board or the card's task; `0016` added `related_board_request` with
+  nothing to classify, `0017` swapped the constraint for the one with the
+  `REQUEST` branch. A new source type is one entry in each of
   `SOURCE_FIELDS`, `SOURCE_ROUTES`, `_resolve_source()`, `_event_text()` and
   `describe_notification_source()` — never a conditional spread through the
   model, the services and the templates.
@@ -1078,6 +1091,7 @@ tasks never live inside `acts`.
   | act | `ACT_SENT_TO_KO`, `ACT_SENT_TO_TO`, `ACT_SENT_TO_OTK`, `ACT_RETURNED_TO_OTK`, `ACT_RETURNED_TO_KO`, `ACT_RETURNED_TO_TO`, `ACTION_ASSIGNED`, `ACT_APPROVED` | `COMMENT_ADDED` |
   | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
   | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED`, `BOARD_CARD_MENTION`, `BOARD_DUE_SOON`, `BOARD_OVERDUE`, `BOARD_UNBLOCKED`, `BOARD_COLUMN_ENTERED` | `BOARD_TASK_CANCELLED`, `BOARD_CARD_COMMENT`, `BOARD_CARD_COMPLETED`, `BOARD_SUBTASKS_DONE`, `BOARD_DUE_CHANGED` (a card withdrawn, a message in its «Обсуждение», a followed card done, «все подзадачи выполнены», «срок перенесён» — nothing new is asked of anybody) |
+  | request | `BOARD_REQUEST_NEW`, `BOARD_REQUEST_ACCEPTED`, `BOARD_REQUEST_REJECTED`, `BOARD_REQUEST_DUPLICATE`, `BOARD_REQUEST_DONE` | — |
   | bug | `BUG_REPORTED` | — |
   | document | `DOCUMENT_ACK_REQUIRED`, `DOCUMENT_APPROVAL_REQUIRED`, `DOCUMENT_REVIEW_DUE`, `DOCUMENT_VERSION_RETURNED` | `DOCUMENT_UPDATED` (a subscriber's «новая версия» — information asked for, not a duty) |
 
@@ -1103,6 +1117,12 @@ tasks never live inside `acts`.
   Both board messages open the card on «Чат»: `get_notification_url()` adds
   `?tab=chat` for them (`EVENT_URL_QUERIES`), and `tasks:detail?tab=chat`
   leads there.
+  All five request events are mailed: `BOARD_REQUEST_NEW` is work arriving
+  for the board's handlers, who used to get it by phone, and the other four
+  are the only answer its author — usually not on the board at all — ever
+  gets. Each names «Заявка №N» and the board, never the request's title (a
+  card's notifications name its code, never its title — the same rule) and
+  never a refusal's reason (on the request's page).
   `ACT_APPROVED` is informational — its required action is «дополнительных
   действий не требуется», and the link still opens the act.
 - **One renderer serves every source.** `_send_email()` builds a
@@ -1190,7 +1210,7 @@ tasks never live inside `acts`.
   when email is enabled and never opens an SMTP connection during startup or a
   readiness check — connectivity is an explicit operational smoke test.
 - **`notification.created` carries identifiers only** — recipient, actor,
-  `source_type`, the nullable act/protocol/task/bug report/document ids and the event type — and
+  `source_type`, the nullable act/protocol/task/bug report/document/board request ids and the event type — and
   never protocol text, a return comment, a task description, a name or an
   address.
 - **The protocol lifecycle is `DRAFT → APPROVAL → REVISION → ARCHIVED`, and
@@ -1962,10 +1982,12 @@ tasks never live inside `acts`.
   heading's member avatars and the number behind «+N» are one query
   (`member_preview()` reads the members once and counts them), the page's
   only — the fragment pays for neither. A sub-board page with a card open is
-  43 on a board without card fields (`boards/tests/test_journal.py`,
-  `PAGE_QUERIES`, a card with messages and files) and 44 on one with them (no
+  45 on a board without card fields (`boards/tests/test_journal.py`,
+  `PAGE_QUERIES`, a card with messages and files) and 46 on one with them (no
   messages) — one of them the heading's «Дайджест на почту» (this reader's
-  subscription), two of them the card's «Подзадачи» (below), at 0, 1 or 20
+  subscription), one «Входящие (N)» of the tabs (a count, for whoever works
+  on the board), one the menu's lazy «Заявки» (an `EXISTS`, every full page
+  pays it), two of them the card's «Подзадачи» (below), at 0, 1 or 20
   subtasks alike (`boards/tests/test_subtasks.py`), one its «Переносы» (the
   moves of its срок with their reasons and authors, however many) —
   the fields with their options and the values of every card on the page,
@@ -2172,8 +2194,9 @@ tasks never live inside `acts`.
   column it names, `CANCELLED` closes the stay and opens none — and
   `card_stages()` makes the rows: column, entered, plan by the column's
   current norm, exited («в этапе» for the current one), working days in it
-  (`working_days_between`), deviation (above zero late; the current one as of
-  today, with its light). Read from the very journal list the panel reads
+  (`working_days_between`), deviation (above zero late) — for the current
+  stay only once it is late, before that `remaining`, drawn grey as
+  «осталось N р.д.» («план сегодня» at 0), with its light. Read from the very journal list the panel reads
   for «Лог» (`_panel_card()` reads the events once and gives them to
   `card_log(events=…)` too), so it costs **no query**. A subtask, created in
   no column, has none. On «Описание», below «Связи»: the read-only live block
@@ -2580,7 +2603,8 @@ tasks never live inside `acts`.
 - **`Board.status` is a shelf, like `SmkSource.status`.** `ACTIVE`/`ARCHIVED`
   plus `archived_at`/`archived_by`; `archive_board()` (`can_manage_board()`,
   under the board lock) refuses a board with any open card — «Сначала
-  завершите или отмените открытые карточки: N» — so the shelf never hides
+  завершите или отмените открытые карточки: N» — or any request still `NEW`
+  in «Входящие» («Сначала разберите новые заявки…»), so the shelf never hides
   work in progress, and `restore_board()` (`can_restore_board()`) puts it back
   as it was. Every board write refuses an archived board before its right
   (`_refuse_archived()`, «Доска в архиве — изменить её нельзя.»), and every
@@ -3128,6 +3152,120 @@ tasks never live inside `acts`.
   (`format_number()`) under the column's title, nothing for an empty column.
   «Таблица» adds a `<tfoot>` «Итого» summing every live number field over
   the cards (not the subtask rows), and its Excel a last row «Итого».
+- **«Приём заявок» is a board's, and its manager's.** `Board.intake_enabled`,
+  `intake_column` (a working column of any sub-board; `intake_sub_board`
+  follows it; both NULL — and a column deleted since — is
+  `services.intake_target()`: the first working column of the first
+  sub-board), `intake_due_days` (0 to `INTAKE_DUE_DAYS_MAX` (365) working
+  days for the срок of a request that asks no date, NULL none —
+  `board_intake_due_days_valid`), `intake_hint` (≤ 500); `BoardField.in_request_form`
+  and `required_in_request` (`board_field_required_in_form`: required only
+  in the form); `BoardIntakeHandler` (board `CASCADE`, user `PROTECT`,
+  `unique_board_intake_handler`) — the members told of a new request, none
+  ticked: the owner (`intake_recipients()`: handlers who are still active
+  members, else the owner while an active employee). `update_intake()` is
+  the one writer: `can_manage_board()` under the board lock, never an
+  archived board, the column through `_board_working_column()`, handlers
+  only active members, fields only live ones of this board; the same
+  settings again store and publish nothing, a change touches the
+  sub-boards' `updated_at` and publishes one `board.updated(structure_changed)`.
+  `remove_board_member()` drops the person's handler row. The page is
+  `boards:intake` (`/work/boards/<board>/intake/`, in the frame, the right
+  before the method, an ordinary POST form, `IntakeForm`: on/off, the column
+  in `<optgroup>`s by sub-board, the срок, the hint, the handlers as tick
+  boxes, per live field «нет / в форме / обязательно»); the board's «⋯»
+  links there for a manager.
+- **A request is `BoardRequest`, a record.** Board and author `PROTECT`,
+  `title` (≤ `REQUEST_TITLE_MAX_LENGTH`, 200), `description` (≤ 4000),
+  `desired_date`, `field_values` (`{str(field id): value}` — the card's own
+  parse, `_parse_value()`, kept as JSON a card form would send back: a text,
+  a number as a plain decimal string, a date ISO, an option's id), `status`
+  `NEW`/`ACCEPTED`/`REJECTED`/`DUPLICATE`/`WITHDRAWN`, `card` (the card made
+  of it, `PROTECT`, `unique_board_request_card`), `duplicate_of` (`PROTECT`),
+  `decision_comment`, `decided_by`, `decided_at`, `created_at`, `updated_at`.
+  The database keeps the shapes: `board_request_status_known`,
+  `board_request_card_only_when_accepted`,
+  `board_request_duplicate_only_when_duplicate`,
+  `board_request_decision_matches_status` (`NEW` carries no decision, every
+  other status who and when) and `board_request_rejection_has_reason`. Never
+  deleted; «Заявка №N» is its pk. Written by `boards/services.py` alone:
+  `submit_request()` — any active employee, a member of the board or not, to
+  a live board with intake on (`permissions.can_submit_request()`, asked
+  under the board lock; off — «Эта доска сейчас не принимает заявки.»,
+  archived — «…в архиве…»); the fields of the form only, each through the
+  card's parse, a required one empty a `FieldValueError` naming it, any
+  other key ignored; `BOARD_REQUEST_NEW` to `intake_recipients()`.
+  `withdraw_request()` — the author, while `NEW`, on any board. The
+  decisions — `accept_request()`, `reject_request()`, `mark_duplicate()` —
+  lock board → request, refuse an archived board, ask
+  `can_decide_request()` (= `can_work_on_board()`) after the lock and refuse
+  a request no longer `NEW` («Заявку уже разобрали.», a withdrawn one «Автор
+  отозвал заявку.»); every successful write publishes one
+  `board.updated(request_changed)`. **«Принять»** is `create_card()`'s own
+  body (`_place_new_card()` — the pins, `BOARD_TASK_ASSIGNED`, the column's
+  followers) in the decision's transaction: the column (default
+  `intake_target()`), the исполнители, the срок (default
+  `request_default_due()`: the desired date, else `intake_due_days` working
+  days from today), the title and description (default the request's, both
+  may be corrected) and the request's field values that still apply
+  (`_request_values_for_card()`: a field archived or deleted since, an option
+  archived since, is left out rather than refusing the card); its `CREATED`
+  entry carries `request_id` («Карточка ZAP-15 создана из заявки №7 в
+  колонке …»), and its «Чат» opens with one message in the accepting
+  member's name, «Заявка от <автор>: <описание или название>»
+  (`first_request_message()`, written directly — no `BOARD_CARD_COMMENT`: the
+  card's people were just told of the card), so the request's words stay
+  as they were whatever the card's description becomes. **«Отклонить»**
+  needs a reason (≤ 4000), kept for the author. **«Дубль»** names a card of
+  **this** board by its code (`board_card_code_filter()`; another board's or
+  nobody's — «Карточка с таким кодом не найдена на этой доске.»).
+  `complete_card()` tells the author of the request a card was made of
+  (`_tell_requests_done()` → `BOARD_REQUEST_DONE`, keyed on the completion's
+  time). `archive_board()` refuses a board while a request is `NEW`. No file
+  belongs to a request: it is attached in the card's «Чат» after
+  acceptance, where its author writes only as a member.
+- **Who sees a request.** Its page, `boards:request_detail`
+  (`/work/requests/item/<pk>/`): its author and the board's readers
+  (`can_view_request()`), anybody else a 404 — and whoever reads the board's
+  «Входящие» is redirected there. The author sees the request, its fields
+  (`selectors.describe_request_values()`, worded as on a card) and what
+  became of it as a **projection** (`selectors.request_rows()`): the card's
+  code, the column it stands in (`card_column()` from its task's status —
+  the closing one once done, none once cancelled) and «В работе /
+  Выполнена / Отменена», a link only for a reader of the board — never its
+  people, its chat or anything else of the board; a refusal with its
+  reason; a duplicate with the card's code. «Заявки» (`boards:requests`,
+  `/work/requests/`, outside the boards' frame, every signed-in employee):
+  «Подать заявку» — the live boards that take requests
+  (`selectors.intake_boards()`), each to its form `boards:request_create`
+  (`/work/requests/<board>/new/`: the board's name and hint, the title,
+  the details, the desired date and the fields of its form, a required one
+  «*»; a board that takes none is a 404) — and «Мои заявки»
+  (`build_my_requests()`: every request of the user with its projection,
+  «Отозвать» on a new one through the shared modal). Both pages cost the
+  same number of queries with one request or many
+  (`boards/tests/test_requests.py`).
+- **«Входящие» is the board's queue.** `boards:inbox`
+  (`/work/boards/<board>/inbox/`, in the frame): `can_read_inbox()` — whoever
+  works on the board and full access, a 403 otherwise; the new requests
+  oldest first (№, title, author, the author's department, desired date,
+  when) and those decided in the last `INBOX_DECIDED_DAYS` (30) days with
+  what became of them (`build_inbox()`, a fixed number of queries). A row
+  opens `boards:inbox_request` — the same request block the author reads
+  (`includes/request_summary.html`) and, while new, «Принять»
+  (`AcceptRequestForm`, prefix `accept`, starting from the intake's column,
+  its handlers, the default срок and the request's text), «Отметить дублем»
+  (`DuplicateRequestForm`) and «Отклонить» (the shared modal with the
+  required reason posted as `comment`) — each its own POST route
+  (`boards:request_accept`/`request_reject`/`request_duplicate`), the right
+  before the method, a GET back to the request, a refusal on the same page
+  with what was typed; «Принять» leads to the new card's «Чат».
+  **«Входящие (N)»** stands at the end of the board's tabs — the live tabs
+  block (`tabs.html`), not the heading, which is not live — for whoever
+  works on the board while it takes requests or has some waiting
+  (`show_inbox`, `inbox_count` from `selectors.new_request_count()`, one
+  query of theirs in the page and the fragment); a request filed or decided
+  moves it through `request_changed` without a reload.
 
 ### Documentation library (`documents`)
 
@@ -3483,7 +3621,10 @@ tasks never live inside `acts`.
   moved or deleted; no subscription is an event — following is personal),
   `structure_changed` — a sub-board or a column created, renamed, moved or
   deleted, a column's pins or «Норматив этапа» set, the board's code changed, its card
-  fields or their options set up), through
+  fields or their options set up, its «Приём заявок» set up —,
+  `request_changed` — a request filed, withdrawn, accepted (with the new
+  card's id: no `card_created` beside it), rejected or marked a duplicate),
+  through
   `emit_board_updated()` from `boards/services.py` alone — inside the write's
   `atomic()` block, once per successful write that stored something. A refusal,
   a rollback, an edit that changes nothing and a drop where the card already
@@ -3502,14 +3643,15 @@ tasks never live inside `acts`.
   kept, as in `_every_reader_targets()`) plus the active members of *that*
   board, one query, because `can_view_board` is exactly that.
   `/realtime/sync/` carries, for a user who uses boards, a
-  `boards` revision from five aggregates over the boards they read
+  `boards` revision from six aggregates over the boards they read
   (`readable_boards_q()`: everything for full access, a member's own boards) — cards (count, max
   `updated_at`), `BOARD` tasks (count, max `updated_at`, status mix),
   memberships (count, max `added_at`), «Обсуждение» messages (count, max
   `created_at`) and the structure (sub-boards and columns: count and max
   `updated_at` of each, one query through the columns; a change of the card
   fields and of a board's code touches the sub-boards' `updated_at` instead of
-  costing an aggregate of its own) — the safety net for a lost
+  costing an aggregate of its own) and the requests filed to them (count,
+  max `updated_at`) — the safety net for a lost
   `board.updated`. The card journal needs no aggregate of its own: every
   entry is written with a card or task row whose `updated_at` already moves;
   nor do the files of «Чат»: one added comes with its message, one deleted

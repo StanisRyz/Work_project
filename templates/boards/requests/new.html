@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Заявка на доску «{{ board.name }}» · Экосистема качества{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261024-1">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+The request form of one board, for anybody: the board's name and hint, the
+title, the details, the desired date and the board's fields of its form
+(`BoardField.in_request_form`, a required one marked «*») — nothing else of
+the board. `services.submit_request()` parses each field as a card's value
+is and names it in a refusal, which comes back beside it with what was typed.
+{% endcomment %}
+<section class="act-detail-heading">
+    <a class="act-back-link" href="{% url 'boards:requests' %}" aria-label="К заявкам">←</a>
+    <div class="act-detail-heading__title">
+        <h1>Заявка на доску «<span class="user-text">{{ board.name }}</span>»</h1>
+    </div>
+</section>
+
+<section class="detail-section board-request-form">
+    {% if board.intake_hint %}<p class="board-request-form__hint user-text">{{ board.intake_hint|linebreaksbr }}</p>{% endif %}
+    {% if form_error %}<p class="field-error" role="alert">{{ form_error }}</p>{% endif %}
+    {% if form.non_field_errors %}<p class="field-error" role="alert">{{ form.non_field_errors|join:' ' }}</p>{% endif %}
+    <form method="post" action="{% url 'boards:request_create' board.pk %}" data-unsaved-guard>
+        {% csrf_token %}
+        <div class="board-request-form__grid">
+            {% for bound in form %}
+                {% if not bound.name|slice:':6' == 'field_' %}
+                    <label class="board-request-form__field{% if bound.name == 'description' %} board-request-form__field--wide{% endif %}">
+                        <span>{{ bound.label }}{% if bound.field.required %} *{% endif %}</span>
+                        {{ bound }}
+                        {% for error in bound.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                    </label>
+                {% endif %}
+            {% endfor %}
+            {% for field, bound in form.custom_fields %}
+                <label class="board-request-form__field">
+                    <span class="user-text">{{ field.name }}{% if field.required_in_request %} *{% endif %}</span>
+                    {{ bound }}
+                    {% for error in bound.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                </label>
+            {% endfor %}
+        </div>
+        <div class="board-request-form__actions">
+            <button class="link-button" type="submit">Подать заявку</button>
+            <a class="link-button link-button--secondary" href="{% url 'boards:requests' %}">Отмена</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

@@ -103,6 +103,7 @@ from realtime.events import (
     BOARD_CHANGE_COMMENT_ADDED,
     BOARD_CHANGE_FILE_DELETED,
     BOARD_CHANGE_MEMBERS_CHANGED,
+    BOARD_CHANGE_REQUEST_CHANGED,
     BOARD_CHANGE_STRUCTURE_CHANGED,
 )
 
@@ -113,6 +114,10 @@ from .models import (
     MAX_CHECKLIST_ITEMS,
     MAX_FILES_PER_MESSAGE,
     MAX_SUBTASKS,
+    INTAKE_DUE_DAYS_MAX,
+    INTAKE_HINT_MAX_LENGTH,
+    REQUEST_DESCRIPTION_MAX_LENGTH,
+    REQUEST_TITLE_MAX_LENGTH,
     NORM_DAYS_MAX,
     NORM_DAYS_MIN,
     BOARD_CODE_MAX_LENGTH,
@@ -134,6 +139,8 @@ from .models import (
     BoardColumnSubscription,
     BoardDigestSubscription,
     BoardField,
+    BoardIntakeHandler,
+    BoardRequest,
     BoardFieldColor,
     BoardFieldOption,
     BoardMember,
@@ -145,6 +152,7 @@ from .permissions import (
     can_add_subtask,
     can_cancel_card,
     can_comment_card,
+    can_decide_request,
     can_create_board,
     can_delete_card_file,
     can_follow_card,
@@ -153,6 +161,7 @@ from .permissions import (
     can_subscribe_digest,
     can_manage_board,
     can_restore_board,
+    can_submit_request,
     can_unlink_cards,
     can_view_board,
     can_work_on_board,
@@ -517,8 +526,9 @@ def remove_board_member(board, user, *, actor):
     of the board and in the same transaction: a column must never put a card
     on somebody who is no longer on the board. So do their subscriptions to
     the board's cards (`BoardCardSubscription`) and columns
-    (`BoardColumnSubscription`), and their digest of it
-    (`BoardDigestSubscription`).
+    (`BoardColumnSubscription`), their digest of it
+    (`BoardDigestSubscription`) and their place among its request handlers
+    (`BoardIntakeHandler`).
     """
     from tasks.models import Task
 
@@ -557,6 +567,8 @@ def remove_board_member(board, user, *, actor):
         # And their digest of this board: a person who no longer reads it is
         # mailed nothing about it.
         BoardDigestSubscription.objects.filter(board=board, user=user).delete()
+        # And their place among those who sort the board's requests.
+        BoardIntakeHandler.objects.filter(board=board, user=user).delete()
         pins = BoardColumnPin.objects.filter(column__sub_board__board=board, user=user)
         pinned_columns = list(pins.values_list('column_id', flat=True))
         if pinned_columns:
@@ -738,7 +750,7 @@ def _next_number(board):
 
 
 def _new_card(board, sub_board, *, actor, title, description, due_date, ids, values,
-              column=None, position, parent=None):
+              column=None, position, parent=None, request_id=None):
     """The rows of one new card — the `BoardCard`, its field values, its
     `BOARD` task and its `CREATED` entry — inside the caller's transaction,
     under the board lock it holds.
@@ -747,8 +759,9 @@ def _new_card(board, sub_board, *, actor, title, description, due_date, ids, val
     board (`_next_number()`, one series for cards and subtasks alike), the
     task through `tasks.services.create_board_card_task()`, the journal
     entry. A card stands in `column`; a subtask (`parent`) in none, at
-    `position` in its parent's list. Who is told, and what is published, is
-    the caller's.
+    `position` in its parent's list. A card made of a request
+    (`accept_request()`) names it in its `CREATED` entry (`request_id`). Who
+    is told, and what is published, is the caller's.
     """
     from tasks.services import TaskWorkflowError, create_board_card_task
 
@@ -786,8 +799,44 @@ def _new_card(board, sub_board, *, actor, title, description, due_date, ids, val
     else:
         # The card it lives in, by id and code — identifiers, never text.
         details = {'parent_id': parent.pk, 'parent': f'{board.code}-{parent.number}'}
+    if request_id is not None:
+        details['request_id'] = request_id
     _record(card, BoardCardEvent.Kind.CREATED, actor=actor, **details)
     return card, task
+
+
+def _place_new_card(board, sub_board, *, actor, title, due_date, assignee_ids, description,
+                    column, field_values, request_id=None, operation='create_card'):
+    """A new card at the end of a working column of `sub_board`, its task,
+    its pins and who is told — inside the caller's transaction, under the
+    board lock it holds, the right already asked. What `create_card()` and
+    `accept_request()` share; publishing is the caller's.
+    """
+    from notifications.services import notify_board_task_assigned
+
+    sub_board = _sub_board_of(board, sub_board, operation=operation, actor=actor)
+    title = _clean_title(title)
+    description = (description or '').strip()
+    if due_date is None:
+        raise BoardError('Укажите срок карточки.')
+    if column is None:
+        column = _first_working_id(sub_board)
+    column = _working_column(sub_board, column, operation=operation, actor=actor)
+    ids = _clean_assignees(board, assignee_ids)
+    values = _clean_field_values(board, field_values, {})
+    card, task = _new_card(
+        board, sub_board, actor=actor, title=title, description=description,
+        due_date=due_date, ids=ids, values=values, column=column,
+        position=_end_position(column), request_id=request_id,
+    )
+    ids, _ = _apply_pins(card, task, column, board, actor=actor, current_ids=ids)
+    # Inside the transaction and after the task and its исполнители exist,
+    # so a rollback leaves no notification about a card that never was —
+    # and only the people the card really ended up with.
+    notify_board_task_assigned(task, actor, _users(ids))
+    # The column's followers — but not its исполнители, just told.
+    _notify_column_entered(card, task, column, board, actor=actor, told=ids)
+    return card, task, column, ids
 
 
 def create_card(
@@ -805,36 +854,18 @@ def create_card(
     The column's followers are told the card entered it
     (`_notify_column_entered()`), except those already told as исполнители.
     """
-    from notifications.services import notify_board_task_assigned
-
     with transaction.atomic():
         board = _lock_board(sub_board.board_id)
         _refuse_archived('create_card', board, actor=actor)
         if not can_work_on_board(actor, board):
             _rejected('create_card', 'not_permitted', actor=actor, board_id=board.pk)
             raise BoardError('Работа с карточками этой доски недоступна.')
-        sub_board = _sub_board_of(board, sub_board, operation='create_card', actor=actor)
-        title = _clean_title(title)
-        description = (description or '').strip()
-        if due_date is None:
-            raise BoardError('Укажите срок карточки.')
-        if column is None:
-            column = _first_working_id(sub_board)
-        column = _working_column(sub_board, column, operation='create_card', actor=actor)
-        ids = _clean_assignees(board, assignee_ids)
-        values = _clean_field_values(board, field_values, {})
-        card, task = _new_card(
-            board, sub_board, actor=actor, title=title, description=description,
-            due_date=due_date, ids=ids, values=values, column=column,
-            position=_end_position(column),
+        card, task, column, ids = _place_new_card(
+            board, sub_board, actor=actor, title=title, due_date=due_date,
+            assignee_ids=assignee_ids, description=description, column=column,
+            field_values=field_values,
         )
-        ids, _ = _apply_pins(card, task, column, board, actor=actor, current_ids=ids)
-        # Inside the transaction and after the task and its исполнители exist,
-        # so a rollback leaves no notification about a card that never was —
-        # and only the people the card really ended up with.
-        notify_board_task_assigned(task, actor, _users(ids))
-        # The column's followers — but not its исполнители, just told.
-        _notify_column_entered(card, task, column, board, actor=actor, told=ids)
+        sub_board = card.sub_board
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_CREATED, card.pk)
     log_event(
         logger,
@@ -1208,6 +1239,8 @@ def complete_card(card, *, actor, execution_comment):
     again); whoever completed it is not told. The closing column's followers
     hear the card entered it, and the cards it blocked that now wait for
     nobody tell their исполнители they may start (`_after_blocker_closed()`).
+    A card made of a request tells the request's author it is done
+    (`BOARD_REQUEST_DONE`, `_tell_requests_done()`).
     """
     from notifications.services import notify_board_card_completed
     from tasks.services import TaskWorkflowError, complete_task
@@ -1243,6 +1276,7 @@ def complete_card(card, *, actor, execution_comment):
                     card, task, closing, board, actor=actor, told=[user.pk for user in audience],
                 )
         _after_blocker_closed(card, board, actor=actor, at=task.completed_at, cancelled=False)
+        _tell_requests_done(card, board, actor=actor, at=task.completed_at)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_COMPLETED, card.pk)
     log_event(
         logger,
@@ -2531,7 +2565,9 @@ def archive_board(board, *, actor):
 
     Refused while any card is still open — the shelf must never hide work in
     progress — so every card on an archived board is done or cancelled.
-    Writes `status`, `archived_at` and `archived_by` and nothing else.
+    Refused too while a request waits in «Входящие» (`NEW`): its author would
+    wait for an answer that cannot come. Writes `status`, `archived_at` and
+    `archived_by` and nothing else.
     """
     with transaction.atomic():
         board = _lock_board(board.pk)
@@ -2548,6 +2584,11 @@ def archive_board(board, *, actor):
             raise BoardError(
                 f'Сначала завершите или отмените открытые карточки: {open_count}.'
             )
+        # Nor a request nobody answered: its author would wait for ever.
+        new_requests = BoardRequest.objects.filter(board=board, status=BoardRequest.Status.NEW).count()
+        if new_requests:
+            _rejected('archive_board', 'new_requests', actor=actor, board_id=board.pk)
+            raise BoardError(f'Сначала разберите новые заявки во «Входящих»: {new_requests}.')
         board.status = Board.Status.ARCHIVED
         board.archived_at = timezone.now()
         board.archived_by = actor
@@ -3532,3 +3573,504 @@ def set_digest_subscription(board, *, actor, frequency):
     )
     return frequency
 
+
+
+# --------------------------------------------------------------------------
+# «Приём заявок»: the board's intake, its requests and «Входящие»
+# --------------------------------------------------------------------------
+
+REQUEST_ALREADY_DECIDED = 'Заявку уже разобрали.'
+REQUEST_WITHDRAWN = 'Автор отозвал заявку.'
+
+
+def _tell_requests_done(card, board, *, actor, at):
+    """`BOARD_REQUEST_DONE` to the author of the request the card was made
+    of — inside `complete_card()`'s transaction. A card made of no request
+    (nearly every one) costs one query and tells nobody."""
+    from notifications.services import notify_board_request_done
+
+    for board_request in BoardRequest.objects.filter(card=card, status=BoardRequest.Status.ACCEPTED).select_related(
+        'author',
+    ):
+        board_request.board = board
+        board_request.card = card
+        notify_board_request_done(board_request, actor, completed_at=at)
+
+
+def intake_target(board):
+    """`(sub_board, column)` where an accepted request stands by default:
+    the board's `intake_column` while it is a working column of this board,
+    else the first working column of the first sub-board. Two queries at
+    most; `(None, None)` for a board with no working column at all."""
+    if board.intake_column_id:
+        column = (
+            BoardColumn.objects.select_related('sub_board')
+            .filter(pk=board.intake_column_id, sub_board__board=board, is_done=False).first()
+        )
+        if column is not None:
+            return column.sub_board, column
+    column = (
+        BoardColumn.objects.select_related('sub_board')
+        .filter(sub_board__board=board, is_done=False)
+        .order_by('sub_board__position', 'sub_board_id', 'position', 'pk').first()
+    )
+    return (column.sub_board, column) if column is not None else (None, None)
+
+
+def intake_recipients(board):
+    """Who hears of a new request: the board's handlers who are still active
+    members, else — nobody named, or nobody left — its owner while an active
+    employee. One query each."""
+    handlers = list(
+        get_user_model().objects.filter(
+            active_employee_q(),
+            board_intake_roles__board=board,
+            board_memberships__board=board,
+        ).distinct().order_by('pk')
+    )
+    if handlers:
+        return handlers
+    return list(get_user_model().objects.filter(active_employee_q(), pk=board.owner_id))
+
+
+def _clean_intake_column(board, column, *, actor):
+    if column in (None, ''):
+        return None
+    return _board_working_column(board, column, operation='update_intake', actor=actor)
+
+
+def _clean_intake_due_days(days):
+    if days in (None, ''):
+        return None
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        raise BoardError('Срок по заявке — число рабочих дней или пусто.') from None
+    if not 0 <= days <= INTAKE_DUE_DAYS_MAX:
+        raise BoardError(f'Срок по заявке — от 0 до {INTAKE_DUE_DAYS_MAX} рабочих дней или пусто.')
+    return days
+
+
+def _clean_intake_handlers(board, handler_ids):
+    ids = set()
+    for value in handler_ids or ():
+        try:
+            ids.add(int(getattr(value, 'pk', value)))
+        except (TypeError, ValueError):
+            raise BoardError('Разбирающими могут быть только активные участники доски.') from None
+    members = set(
+        BoardMember.objects.filter(active_employee_q('user__'), board=board, user_id__in=ids)
+        .values_list('user_id', flat=True)
+    )
+    if ids - members:
+        raise BoardError('Разбирающими могут быть только активные участники доски.')
+    return ids
+
+
+def update_intake(board, *, actor, enabled, column=None, due_days=None, hint='',
+                  handler_ids=(), form_fields=None):
+    """«Приём заявок» of a board — the manager's (`can_manage_board()`), under
+    the board lock, never on an archived board.
+
+    `enabled`; `column` — a working column of any sub-board of the board
+    (`intake_sub_board` follows it), empty for the default (`intake_target()`);
+    `due_days` — 0 to `INTAKE_DUE_DAYS_MAX` working days for the срок of a
+    request that asks no date, empty for none; `hint` — at most
+    `INTAKE_HINT_MAX_LENGTH`; `handler_ids` — active members told of new
+    requests (none: the owner); `form_fields` — `{field id: (in the form,
+    required)}` for the board's live fields, a field left out off, `None` to
+    leave the fields alone. A required field is in the form.
+
+    The same settings again store and publish nothing (`False`). A change
+    touches the sub-boards' `updated_at` (the `boards` sync revision: the
+    tabs draw «Входящие») and publishes one `board.updated(structure_changed)`
+    (`True`).
+    """
+    with transaction.atomic():
+        board = _lock_board(board.pk)
+        _refuse_archived('update_intake', board, actor=actor)
+        if not can_manage_board(actor, board):
+            _rejected('update_intake', 'not_permitted', actor=actor, board_id=board.pk)
+            raise BoardError('Приём заявок настраивает владелец доски или администратор.')
+        column = _clean_intake_column(board, column, actor=actor)
+        due_days = _clean_intake_due_days(due_days)
+        hint = (hint or '').strip()
+        if len(hint) > INTAKE_HINT_MAX_LENGTH:
+            raise BoardError(f'Подсказка — не длиннее {INTAKE_HINT_MAX_LENGTH} символов.')
+        handler_ids = _clean_intake_handlers(board, handler_ids)
+        fields = list(BoardField.objects.filter(board=board, is_archived=False))
+        wanted = {}
+        if form_fields is not None:
+            requested = {}
+            for key, value in form_fields.items():
+                try:
+                    requested[int(getattr(key, 'pk', key))] = value
+                except (TypeError, ValueError):
+                    continue
+            known = {field.pk for field in fields}
+            if set(requested) - known:
+                raise BoardError('Поле карточки не найдено на этой доске — возможно, его удалили. Обновите страницу.')
+            for field in fields:
+                in_form, required = requested.get(field.pk, (False, False))
+                wanted[field.pk] = (bool(in_form) or bool(required), bool(required))
+        settings_now = (
+            board.intake_enabled, board.intake_column_id, board.intake_due_days, board.intake_hint,
+        )
+        settings_new = (bool(enabled), getattr(column, 'pk', None), due_days, hint)
+        current_handlers = set(
+            BoardIntakeHandler.objects.filter(board=board).values_list('user_id', flat=True)
+        )
+        changed_fields = [
+            field for field in fields
+            if field.pk in wanted and (field.in_request_form, field.required_in_request) != wanted[field.pk]
+        ]
+        if settings_now == settings_new and current_handlers == handler_ids and not changed_fields:
+            return False
+        board.intake_enabled = bool(enabled)
+        board.intake_column = column
+        board.intake_sub_board = column.sub_board if column is not None else None
+        board.intake_due_days = due_days
+        board.intake_hint = hint
+        board.save(update_fields=[
+            'intake_enabled', 'intake_column', 'intake_sub_board', 'intake_due_days', 'intake_hint',
+            'updated_at',
+        ])
+        if current_handlers != handler_ids:
+            BoardIntakeHandler.objects.filter(board=board).exclude(user_id__in=handler_ids).delete()
+            BoardIntakeHandler.objects.bulk_create(
+                [BoardIntakeHandler(board=board, user_id=user_id) for user_id in sorted(handler_ids - current_handlers)]
+            )
+        now = timezone.now()
+        for field in changed_fields:
+            field.in_request_form, field.required_in_request = wanted[field.pk]
+            field.updated_at = now
+        if changed_fields:
+            BoardField.objects.bulk_update(
+                changed_fields, ['in_request_form', 'required_in_request', 'updated_at'],
+            )
+        SubBoard.objects.filter(board=board).update(updated_at=now)
+        _structure_changed(
+            board, 'board.intake_changed', actor=actor,
+            intake_enabled=board.intake_enabled, handler_count=len(handler_ids),
+            form_field_count=sum(1 for value in wanted.values() if value[0]),
+        )
+    return True
+
+
+def request_form_fields(board):
+    """The live fields of `board` asked in its request form, in order, with
+    their options — one query and one prefetch."""
+    return list(
+        BoardField.objects.filter(board=board, is_archived=False, in_request_form=True)
+        .prefetch_related('options').order_by('position', 'pk')
+    )
+
+
+def _stored_request_value(field, value):
+    """What `BoardRequest.field_values` keeps of a parsed value: JSON, and
+    exactly what a card's form would send back."""
+    if field.kind == BoardField.Kind.SELECT:
+        return value.pk
+    if field.kind == BoardField.Kind.DATE:
+        return value.isoformat()
+    if field.kind == BoardField.Kind.NUMBER:
+        return format(value.normalize(), 'f') if value != 0 else '0'
+    return value
+
+
+def _clean_request_values(board, field_values):
+    """`{str(field id): value}` for the fields of the request form — every
+    value through the card's own parse (`_parse_value()`), a required one
+    refused empty with `FieldValueError` (its field named). A key that is not
+    a field of the form is ignored: nothing else is asked."""
+    field_values = field_values or {}
+    raw_by_id = {}
+    for key, raw in field_values.items():
+        try:
+            raw_by_id[int(getattr(key, 'pk', key))] = raw
+        except (TypeError, ValueError):
+            continue
+    stored = {}
+    for field in request_form_fields(board):
+        value = _parse_value(field, raw_by_id.get(field.pk), None)
+        if value is None:
+            if field.required_in_request:
+                raise FieldValueError(field, 'обязательное поле заявки.')
+            continue
+        stored[str(field.pk)] = _stored_request_value(field, value)
+    return stored
+
+
+def submit_request(board, *, author, title, description='', desired_date=None, field_values=None):
+    """«Подать заявку»: any active employee, a member of the board or not, to
+    a live board with «Приём заявок» on (`can_submit_request()`), asked under
+    the board lock.
+
+    The title is required (at most `REQUEST_TITLE_MAX_LENGTH`), the
+    description optional (at most `REQUEST_DESCRIPTION_MAX_LENGTH`), the
+    desired date optional; the board's fields are those of its form, each
+    parsed as a card's value is and a required one refused empty. The
+    request is `NEW`; the board's handlers hear of it (`BOARD_REQUEST_NEW`)
+    and the board publishes `board.updated(request_changed)` — its
+    «Входящие (N)» moves.
+    """
+    from notifications.services import notify_board_request_new
+
+    with transaction.atomic():
+        board = _lock_board(board.pk)
+        if board.is_archived:
+            _rejected('submit_request', 'board_archived', actor=author, board_id=board.pk)
+            raise BoardError('Доска в архиве — заявки на неё не принимаются.')
+        if not board.intake_enabled:
+            _rejected('submit_request', 'intake_off', actor=author, board_id=board.pk)
+            raise BoardError('Эта доска сейчас не принимает заявки.')
+        if not can_submit_request(author, board):
+            _rejected('submit_request', 'not_permitted', actor=author, board_id=board.pk)
+            raise BoardError('Подать заявку может активный сотрудник.')
+        title = (title or '').strip()
+        if not title:
+            raise BoardError('Укажите, что нужно сделать, — название заявки.')
+        if len(title) > REQUEST_TITLE_MAX_LENGTH:
+            raise BoardError(f'Название заявки — не длиннее {REQUEST_TITLE_MAX_LENGTH} символов.')
+        description = (description or '').strip()
+        if len(description) > REQUEST_DESCRIPTION_MAX_LENGTH:
+            raise BoardError(f'Описание заявки — не длиннее {REQUEST_DESCRIPTION_MAX_LENGTH} символов.')
+        values = _clean_request_values(board, field_values)
+        board_request = BoardRequest.objects.create(
+            board=board, author=author, title=title, description=description,
+            desired_date=desired_date, field_values=values,
+        )
+        notify_board_request_new(board_request, author, intake_recipients(board))
+        emit_board_updated(board.pk, BOARD_CHANGE_REQUEST_CHANGED)
+    log_event(
+        logger, 'INFO', 'board.request_submitted',
+        board_id=board.pk, request_id=board_request.pk, actor_user_id=author.pk,
+        field_count=len(values), outcome='ok',
+    )
+    return board_request
+
+
+def _lock_request(board_request, board):
+    try:
+        return BoardRequest.objects.select_for_update().get(pk=board_request.pk, board=board)
+    except BoardRequest.DoesNotExist as exc:
+        raise BoardError('Заявка не найдена на этой доске.') from exc
+
+
+def _refuse_decided(board_request, operation, *, actor):
+    if board_request.status == BoardRequest.Status.NEW:
+        return
+    _rejected(operation, 'already_decided', actor=actor, board_id=board_request.board_id)
+    raise BoardError(
+        REQUEST_WITHDRAWN if board_request.status == BoardRequest.Status.WITHDRAWN
+        else REQUEST_ALREADY_DECIDED
+    )
+
+
+def withdraw_request(board_request, *, actor):
+    """«Отозвать»: the author, while the request is `NEW` — on any board,
+    an archived one too (it waits nowhere). `WITHDRAWN`, with who and when;
+    nobody is told, and the board's «Входящие» moves."""
+    with transaction.atomic():
+        board = _lock_board(board_request.board_id)
+        board_request = _lock_request(board_request, board)
+        if board_request.author_id != getattr(actor, 'pk', None):
+            _rejected('withdraw_request', 'not_author', actor=actor, board_id=board.pk)
+            raise BoardError('Отозвать заявку может только её автор.')
+        _refuse_decided(board_request, 'withdraw_request', actor=actor)
+        board_request.status = BoardRequest.Status.WITHDRAWN
+        board_request.decided_by = actor
+        board_request.decided_at = timezone.now()
+        board_request.save(update_fields=['status', 'decided_by', 'decided_at', 'updated_at'])
+        emit_board_updated(board.pk, BOARD_CHANGE_REQUEST_CHANGED)
+    log_event(
+        logger, 'INFO', 'board.request_withdrawn',
+        board_id=board.pk, request_id=board_request.pk, actor_user_id=actor.pk, outcome='ok',
+    )
+    return board_request
+
+
+def _decidable(board_request, operation, *, actor):
+    """The board and the request, locked in that order, if `actor` may decide
+    it now: not on an archived board, `can_decide_request()`, a `NEW`
+    request — else a `BoardError` («Заявку уже разобрали»)."""
+    board = _lock_board(board_request.board_id)
+    _refuse_archived(operation, board, actor=actor)
+    if not can_decide_request(actor, board):
+        _rejected(operation, 'not_permitted', actor=actor, board_id=board.pk)
+        raise BoardError('Разбирают заявки участники доски.')
+    board_request = _lock_request(board_request, board)
+    _refuse_decided(board_request, operation, actor=actor)
+    board_request.board = board
+    return board, board_request
+
+
+def _decided(board_request, status, *, actor, comment='', card=None, duplicate_of=None):
+    board_request.status = status
+    board_request.card = card
+    board_request.duplicate_of = duplicate_of
+    board_request.decision_comment = comment
+    board_request.decided_by = actor
+    board_request.decided_at = timezone.now()
+    board_request.full_clean(exclude=['field_values'])
+    board_request.save(update_fields=[
+        'status', 'card', 'duplicate_of', 'decision_comment', 'decided_by', 'decided_at', 'updated_at',
+    ])
+
+
+def request_default_due(board, board_request, today=None):
+    """The срок «Принять» offers: the date the author asked for, else
+    `intake_due_days` working days from today, else none."""
+    from ecosystem.workdays import add_working_days
+
+    if board_request.desired_date is not None:
+        return board_request.desired_date
+    if board.intake_due_days is not None:
+        return add_working_days(today or timezone.localdate(), board.intake_due_days)
+    return None
+
+
+def _request_values_for_card(board, stored):
+    """The request's field values a new card may still take: fields still
+    live on this board, and a list option not archived since — what no
+    longer applies is left out rather than refusing the card."""
+    if not stored:
+        return {}
+    fields = {
+        field.pk: field
+        for field in BoardField.objects.filter(board=board, is_archived=False).prefetch_related('options')
+    }
+    values = {}
+    for key, value in stored.items():
+        try:
+            field = fields.get(int(key))
+        except (TypeError, ValueError):
+            continue
+        if field is None:
+            continue
+        if field.kind == BoardField.Kind.SELECT:
+            option = next((option for option in field.options.all() if option.pk == value), None)
+            if option is None or option.is_archived:
+                continue
+        values[field.pk] = value
+    return values
+
+
+def first_request_message(board_request):
+    """The first message of a card made of a request, in the accepting
+    member's name: what the author asked, word for word — the card's own
+    description may be corrected when it is accepted."""
+    from accounts.templatetags.people import person_name
+
+    return f'Заявка от {person_name(board_request.author)}: {board_request.description or board_request.title}'
+
+
+def accept_request(board_request, *, actor, assignee_ids, column=None, due_date=None,
+                   title=None, description=None):
+    """«Принять»: a card of the request, on this board.
+
+    `column` — a working column of any sub-board of the board, `None` for
+    `intake_target()`; `due_date` — `None` for `request_default_due()`;
+    `title`/`description` — `None` for the request's own. The card is
+    `create_card()`'s (`_place_new_card()`: its pins, `BOARD_TASK_ASSIGNED`,
+    the column's followers) with the request's field values that still apply
+    (`_request_values_for_card()`), and its `CREATED` entry names the request
+    (`request_id`). Its «Чат» opens with the request's text in the accepting
+    member's name (`first_request_message()`) — no notification for it: the
+    card's people were just told of the card. The request is `ACCEPTED` with
+    its card, its author hears it (`BOARD_REQUEST_ACCEPTED`), and the board
+    publishes one `board.updated(request_changed)` naming the new card.
+    """
+    from notifications.services import notify_board_request_decided
+
+    with transaction.atomic():
+        board, board_request = _decidable(board_request, 'accept_request', actor=actor)
+        if column in (None, ''):
+            sub_board, column = intake_target(board)
+            if column is None:
+                raise BoardError('На доске нет рабочей колонки для заявки.')
+        else:
+            column = _board_working_column(board, column, operation='accept_request', actor=actor)
+            sub_board = column.sub_board
+        if due_date is None:
+            due_date = request_default_due(board, board_request)
+        card, task, column, ids = _place_new_card(
+            board, sub_board, actor=actor,
+            title=board_request.title if title is None else title,
+            description=board_request.description if description is None else description,
+            due_date=due_date, assignee_ids=assignee_ids, column=column,
+            field_values=_request_values_for_card(board, board_request.field_values),
+            request_id=board_request.pk, operation='accept_request',
+        )
+        BoardCardComment.objects.create(card=card, author=actor, text=first_request_message(board_request))
+        _decided(board_request, BoardRequest.Status.ACCEPTED, actor=actor, card=card)
+        notify_board_request_decided(board_request, actor)
+        emit_board_updated(board.pk, BOARD_CHANGE_REQUEST_CHANGED, card.pk)
+    log_event(
+        logger, 'INFO', 'board.request_accepted',
+        board_id=board.pk, request_id=board_request.pk, board_card_id=card.pk,
+        task_id=task.pk, column_id=column.pk, actor_user_id=actor.pk, assignee_count=len(ids),
+        outcome='ok',
+    )
+    return card
+
+
+def reject_request(board_request, *, actor, reason):
+    """«Отклонить»: a reason is required (at most `COMMENT_MAX_LENGTH`) and
+    kept on the request for its author; `REJECTED`, the author told
+    (`BOARD_REQUEST_REJECTED`, the reason not in the text)."""
+    from notifications.services import notify_board_request_decided
+
+    reason = (reason or '').strip()
+    with transaction.atomic():
+        board, board_request = _decidable(board_request, 'reject_request', actor=actor)
+        if not reason:
+            raise BoardError('Укажите причину отказа — её прочитает автор заявки.')
+        if len(reason) > COMMENT_MAX_LENGTH:
+            raise BoardError(f'Причина — не длиннее {COMMENT_MAX_LENGTH} символов.')
+        _decided(board_request, BoardRequest.Status.REJECTED, actor=actor, comment=reason)
+        notify_board_request_decided(board_request, actor)
+        emit_board_updated(board.pk, BOARD_CHANGE_REQUEST_CHANGED)
+    log_event(
+        logger, 'INFO', 'board.request_rejected',
+        board_id=board.pk, request_id=board_request.pk, actor_user_id=actor.pk, outcome='ok',
+    )
+    return board_request
+
+
+def mark_duplicate(board_request, *, actor, card_code, comment=''):
+    """«Дубль»: the request repeats a card of **this** board, named by its
+    code («ZAP-7», any case — `tasks.selectors.board_card_code_filter()`).
+    A code of another board, or of nobody, is refused. `DUPLICATE` with that
+    card, the author told (`BOARD_REQUEST_DUPLICATE`)."""
+    from notifications.services import notify_board_request_decided
+    from tasks.models import Task
+    from tasks.selectors import board_card_code_filter
+
+    comment = (comment or '').strip()
+    with transaction.atomic():
+        board, board_request = _decidable(board_request, 'mark_duplicate', actor=actor)
+        condition = board_card_code_filter((card_code or '').strip())
+        task = (
+            Task.objects.filter(condition, board_card__board=board).select_related('board_card').first()
+            if condition is not None else None
+        )
+        if task is None:
+            _rejected('mark_duplicate', 'card_not_found', actor=actor, board_id=board.pk)
+            raise BoardError('Карточка с таким кодом не найдена на этой доске.')
+        if len(comment) > COMMENT_MAX_LENGTH:
+            raise BoardError(f'Комментарий — не длиннее {COMMENT_MAX_LENGTH} символов.')
+        duplicate_of = task.board_card
+        duplicate_of.board = board
+        _decided(
+            board_request, BoardRequest.Status.DUPLICATE, actor=actor, comment=comment,
+            duplicate_of=duplicate_of,
+        )
+        notify_board_request_decided(board_request, actor)
+        emit_board_updated(board.pk, BOARD_CHANGE_REQUEST_CHANGED, duplicate_of.pk)
+    log_event(
+        logger, 'INFO', 'board.request_duplicate',
+        board_id=board.pk, request_id=board_request.pk, board_card_id=duplicate_of.pk,
+        actor_user_id=actor.pk, outcome='ok',
+    )
+    return board_request

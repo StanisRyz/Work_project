@@ -1,0 +1,76 @@
+{% extends 'boards/layout.html' %}
+{% load people %}
+
+{% block title %}Входящие · {{ board.name }} · Доски{% endblock %}
+
+{% block board_main_label %}Входящие · {{ board.name }}{% endblock %}
+
+{% block board_main %}
+{% comment %}
+«Входящие» of a board: the requests filed to it (`selectors.build_inbox()`).
+The new ones first, oldest first — the queue — and under them those decided
+in the last 30 days with what became of them. A row opens the request
+(`boards:inbox_request`), where it is accepted, rejected or marked a
+duplicate. Whoever works on the board and full access read it.
+{% endcomment %}
+<header class="board-head">
+    <div class="board-head__title">
+        <h1 class="user-text text-ellipsis" title="{{ board.name }}">Входящие · {{ board.name }}</h1>
+        {% if not board.intake_enabled %}<span class="board-request-status board-request-status--withdrawn">Приём выключен</span>{% endif %}
+    </div>
+    <div class="board-head__actions">
+        {% if can_manage %}<a class="link-button link-button--secondary" href="{% url 'boards:intake' board.pk %}">Приём заявок</a>{% endif %}
+        <a class="link-button link-button--secondary" href="{% url 'boards:detail' board.pk %}">К доске</a>
+    </div>
+</header>
+
+<div class="board-scroll board-inbox">
+    <section class="table-card" aria-labelledby="inbox-new-title">
+        <h2 id="inbox-new-title" class="board-requests__title">Новые ({{ new_requests|length }})</h2>
+        {% if new_requests %}
+            <table class="data-table board-requests__table">
+                <thead><tr><th>№</th><th>Заявка</th><th>Автор</th><th>Подразделение</th><th>Желаемая дата</th><th>Подана</th></tr></thead>
+                <tbody>
+                    {% for board_request in new_requests %}
+                        <tr data-row-url="{% url 'boards:inbox_request' board.pk board_request.pk %}">
+                            <td><a class="table-link" href="{% url 'boards:inbox_request' board.pk board_request.pk %}">№{{ board_request.pk }}</a></td>
+                            <td><span class="user-text text-clamp-2" title="{{ board_request.title }}">{{ board_request.title }}</span></td>
+                            <td>{{ board_request.author|person_name }}</td>
+                            <td class="user-text">{{ board_request.author.userprofile.department.name|default:'—' }}</td>
+                            <td>{{ board_request.desired_date|date:'d.m.Y'|default:'—' }}</td>
+                            <td>{{ board_request.created_at|date:'d.m.Y H:i' }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="board-request__muted board-requests__empty">Новых заявок нет.</p>
+        {% endif %}
+    </section>
+
+    <section class="table-card" aria-labelledby="inbox-decided-title">
+        <h2 id="inbox-decided-title" class="board-requests__title">Разобранные за {{ inbox_decided_days }} дней</h2>
+        {% if decided_rows %}
+            <table class="data-table board-requests__table">
+                <thead><tr><th>№</th><th>Заявка</th><th>Автор</th><th>Статус</th><th>Что с ней</th><th>Решение</th></tr></thead>
+                <tbody>
+                    {% for row in decided_rows %}
+                        {% with board_request=row.request %}
+                            <tr data-row-url="{% url 'boards:inbox_request' board.pk board_request.pk %}">
+                                <td><a class="table-link" href="{% url 'boards:inbox_request' board.pk board_request.pk %}">№{{ board_request.pk }}</a></td>
+                                <td><span class="user-text text-clamp-2" title="{{ board_request.title }}">{{ board_request.title }}</span></td>
+                                <td>{{ board_request.author|person_name }}</td>
+                                <td>{% include 'boards/includes/request_status.html' %}</td>
+                                <td>{% include 'boards/includes/request_outcome.html' with card=row.card duplicate=row.duplicate %}</td>
+                                <td>{{ board_request.decided_at|date:'d.m.Y' }}{% if board_request.status != 'WITHDRAWN' %} · {{ board_request.decided_by|person_name }}{% endif %}</td>
+                            </tr>
+                        {% endwith %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="board-request__muted board-requests__empty">За {{ inbox_decided_days }} дней ничего не разбирали.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

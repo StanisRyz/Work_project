@@ -1,0 +1,34 @@
+{% comment %}
+One request as it was filed and what became of it: the facts, the text in
+full (`.user-text` — on this page the request is the content), the board's
+fields of its form (`request_values`, worded as on a card) and the outcome.
+Shared by its own page (`boards/requests/detail.html`) and «Входящие»
+(`boards/inbox_request.html`), so the two never read it differently.
+{% endcomment %}{% load people %}
+<section class="detail-section board-request">
+    <header class="board-request__head">
+        <h2 class="user-text">{{ board_request.title }}</h2>
+        {% include 'boards/includes/request_status.html' %}
+    </header>
+    <dl class="board-request__facts">
+        <div><dt>Доска</dt><dd class="user-text">{{ board_request.board.name }}</dd></div>
+        <div><dt>Автор</dt><dd>{{ board_request.author|person_name }}{% with department=board_request.author.userprofile.department %}{% if department %} · <span class="user-text">{{ department.name }}</span>{% endif %}{% endwith %}</dd></div>
+        <div><dt>Подана</dt><dd>{{ board_request.created_at|date:'d.m.Y H:i' }}</dd></div>
+        <div><dt>Желаемая дата</dt><dd>{{ board_request.desired_date|date:'d.m.Y'|default:'—' }}</dd></div>
+        {% for value in request_values %}
+            <div><dt class="user-text">{{ value.name }}</dt><dd>{% if value.color %}<span class="board-chip board-chip--{{ value.color }}">{{ value.text }}</span>{% else %}<span class="user-text">{{ value.text }}</span>{% endif %}{% if value.is_archived %} <span class="board-request__muted">(в архиве)</span>{% endif %}</dd></div>
+        {% endfor %}
+        {% if board_request.decided_at %}
+            <div><dt>{% if board_request.status == 'WITHDRAWN' %}Отозвана{% else %}Решение{% endif %}</dt><dd>{{ board_request.decided_at|date:'d.m.Y H:i' }}{% if board_request.status != 'WITHDRAWN' %} · {{ board_request.decided_by|person_name }}{% endif %}</dd></div>
+        {% endif %}
+    </dl>
+    {% if board_request.description %}
+        <div class="board-request__text user-text">{{ board_request.description|linebreaksbr }}</div>
+    {% else %}
+        <p class="board-request__muted">Подробностей автор не написал.</p>
+    {% endif %}
+    <p class="board-request__outcome">{% include 'boards/includes/request_outcome.html' with card=request_card duplicate=request_duplicate %}</p>
+    {% if board_request.status == 'DUPLICATE' and board_request.decision_comment %}
+        <p class="board-request__muted user-text">{{ board_request.decision_comment }}</p>
+    {% endif %}
+</section>

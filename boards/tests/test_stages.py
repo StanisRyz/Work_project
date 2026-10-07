@@ -197,6 +197,35 @@ class StagePathTests(StageFixture, TestCase):
         self.assertIsNone(second['plan'])
         self.assertIsNone(second['deviation'])
 
+    def test_the_current_stage_shows_what_is_left_until_it_is_late(self):
+        from types import SimpleNamespace
+
+        from ..selectors import card_stages
+
+        card = self.card('Заказ')
+        events = [SimpleNamespace(
+            kind='CREATED', details={'column_id': self.todo.pk, 'column': self.todo.name},
+            created_at=noon(MONDAY),
+        )]
+        self.todo.refresh_from_db()
+        columns = {self.todo.pk: self.todo}
+        # Norm 3 from Monday: the plan is Thursday.
+        for today, remaining, deviation in (
+            (datetime.date(2026, 10, 6), 2, None),   # Tuesday: «осталось 2 р.д.»
+            (THURSDAY, 0, None),                      # «план сегодня»
+            (FRIDAY, None, 1),                        # late: «+1»
+        ):
+            with self.subTest(today=today):
+                row = card_stages(card, events, columns, today=today)[0]
+                self.assertEqual((row['remaining'], row['deviation']), (remaining, deviation))
+        self.client.force_login(self.member)
+        self.enter(card, timezone.localdate(), kinds=('CREATED',))
+        html = self.client.get(
+            reverse('boards:fragment', args=[self.board.pk, self.main.pk]), {'card': card.pk},
+        ).json()['stages_html']
+        self.assertIn('board-stages__left', html)
+        self.assertIn('осталось 3 р.д.', html)
+
     def test_completed_reopened_and_moved_between_sub_boards(self):
         card = self.card('Заказ')
         complete_card(card, actor=self.member, execution_comment='Да')

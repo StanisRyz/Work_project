@@ -832,3 +832,69 @@ class NormAndDigestMigrationTests(TransactionTestCase):
             [4, 2],
         )
 
+
+
+INTAKE_BEFORE = [('boards', '0023_board_digest_subscriptions'), ('notifications', '0015_board_unblocked_column_entered')]
+INTAKE_AFTER = [('boards', '0024_intake_and_requests'), ('notifications', '0017_board_request_source_constraint')]
+
+
+class IntakeAndRequestSourceMigrationTests(TransactionTestCase):
+    """`boards.0024`: «Приём заявок» on `Board` and `BoardField`, the
+    handlers and `BoardRequest` with their constraints; `notifications.0016`
+    the nullable `related_board_request` and the `REQUEST` source, `0017` the
+    source-shape constraint with its new branch. The notifications that
+    existed stay as they were, both ways."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_forward_and_back_old_notifications_untouched(self):
+        from django.db import IntegrityError, transaction
+
+        apps = migrate(INTAKE_BEFORE)
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        Notification = apps.get_model('notifications', 'Notification')
+        Bug = apps.get_model('bugs', 'BugReport')
+        owner = User.objects.create(username='intake_migration_owner')
+        board = Board.objects.create(name='Доска', code='IM', owner=owner)
+        report = Bug.objects.create(reporter=owner, message='Сломалось', page_url='/')
+        old = Notification.objects.create(
+            recipient=owner, event_type='BUG_REPORTED', title='Ошибка', message='Сломалось',
+            source_type='BUG', related_bug_report=report, deduplication_key='bug:1',
+        )
+
+        apps = migrate(INTAKE_AFTER)
+        Notification = apps.get_model('notifications', 'Notification')
+        kept = Notification.objects.get(pk=old.pk)
+        self.assertEqual((kept.source_type, kept.related_bug_report_id, kept.related_board_request_id), (
+            'BUG', report.pk, None,
+        ))
+        Board = apps.get_model('boards', 'Board')
+        self.assertFalse(Board.objects.get(pk=board.pk).intake_enabled)
+        Request = apps.get_model('boards', 'BoardRequest')
+        board_request = Request.objects.create(board_id=board.pk, author_id=owner.pk, title='Заявка')
+        Notification.objects.create(
+            recipient_id=owner.pk, event_type='BOARD_REQUEST_NEW', title='Заявка', message='Новая',
+            source_type='REQUEST', related_board_request_id=board_request.pk, deduplication_key='request:1',
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Notification.objects.create(
+                recipient_id=owner.pk, event_type='BOARD_REQUEST_NEW', title='Заявка', message='Новая',
+                source_type='REQUEST', deduplication_key='request:2',
+            )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Notification.objects.filter(pk=old.pk).update(related_board_request_id=board_request.pk)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Request.objects.filter(pk=board_request.pk).update(status='ACCEPTED')
+
+        Notification.objects.filter(source_type='REQUEST').delete()
+        apps = migrate(INTAKE_BEFORE)
+        self.assertNotIn('boards_boardrequest', _table_names())
+        self.assertNotIn('related_board_request_id', _columns_of('notifications_notification'))
+        Notification = apps.get_model('notifications', 'Notification')
+        self.assertEqual(Notification.objects.get(pk=old.pk).related_bug_report_id, report.pk)

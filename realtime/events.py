@@ -99,6 +99,10 @@ BOARD_CHANGE_CHECKLIST_CHANGED = 'checklist_changed'
 # A file of a card's «Чат» deleted (`delete_card_file()`). A file added comes
 # with its message, as `comment_added`.
 BOARD_CHANGE_FILE_DELETED = 'file_deleted'
+# «Приём заявок»: a request filed to the board, withdrawn by its author, or
+# decided — accepted (a card made of it), rejected or marked a duplicate. It
+# moves the «Входящие (N)» of the board's tabs.
+BOARD_CHANGE_REQUEST_CHANGED = 'request_changed'
 
 BOARD_CHANGES = frozenset(
     {
@@ -115,6 +119,7 @@ BOARD_CHANGES = frozenset(
         BOARD_CHANGE_STRUCTURE_CHANGED,
         BOARD_CHANGE_CHECKLIST_CHANGED,
         BOARD_CHANGE_FILE_DELETED,
+        BOARD_CHANGE_REQUEST_CHANGED,
     }
 )
 

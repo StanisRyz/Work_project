@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ board_request.label }} · Экосистема качества{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261024-1">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+One request, for its author and the board's readers who do not sort it
+(whoever does is taken to «Входящие»). What was asked and what became of it —
+the card as a projection, never the board itself — and «Отозвать» for the
+author of a new one.
+{% endcomment %}
+<section class="act-detail-heading">
+    <a class="act-back-link" href="{% url 'boards:requests' %}" aria-label="К заявкам">←</a>
+    <div class="act-detail-heading__title">
+        <h1>{{ board_request.label }}</h1>
+    </div>
+    {% if can_withdraw %}
+        <div class="board-request-heading__actions">
+            <button class="link-button link-button--secondary" type="button"
+                    data-confirm
+                    data-confirm-title="Отозвать {{ board_request.label|lower }}?"
+                    data-confirm-text="Заявка уйдёт из «Входящих» доски «{{ board_request.board.name }}». Подать её снова можно новой заявкой."
+                    data-confirm-label="Отозвать"
+                    data-confirm-cancel-label="Не отзывать"
+                    data-confirm-url="{% url 'boards:request_withdraw' board_request.pk %}">Отозвать</button>
+        </div>
+    {% endif %}
+</section>
+{% include 'boards/includes/request_summary.html' %}
+{% endblock %}

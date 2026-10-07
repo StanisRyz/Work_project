@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% load static people %}
+
+{% block title %}Заявки · Экосистема качества{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/boards.css' %}?v=20261024-1">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+«Заявки» — for every active employee, a member of a board or not.
+«Подать заявку»: the live boards that take requests (`selectors.intake_boards()`),
+each a link to its form. «Мои заявки»: every request of this user, newest
+first, with what became of it (`selectors.build_my_requests()`): an accepted
+one shows the card as a projection — its code, its column and its task's
+state, a link only for a reader of the board — a rejected one its reason, a
+duplicate the card it repeats. A row opens the request's page.
+{% endcomment %}
+<section class="act-detail-heading">
+    <div class="act-detail-heading__title">
+        <h1>Заявки</h1>
+    </div>
+</section>
+
+<section class="detail-section board-requests__boards" aria-labelledby="requests-new-title">
+    <h2 id="requests-new-title">Подать заявку</h2>
+    {% if intake_boards %}
+        <ul class="board-requests__board-list">
+            {% for board in intake_boards %}
+                <li class="board-requests__board">
+                    <a class="link-button link-button--secondary" href="{% url 'boards:request_create' board.pk %}">{{ board.name }}</a>
+                    {% if board.intake_hint %}<span class="board-requests__hint user-text text-clamp-2" title="{{ board.intake_hint }}">{{ board.intake_hint }}</span>{% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="board-request__muted">Сейчас ни одна доска не принимает заявки.</p>
+    {% endif %}
+</section>
+
+<section class="table-card board-requests__mine" aria-labelledby="requests-mine-title">
+    <h2 id="requests-mine-title" class="board-requests__title">Мои заявки</h2>
+    {% if request_rows %}
+        <table class="data-table board-requests__table">
+            <thead><tr><th>№</th><th>Заявка</th><th>Доска</th><th>Подана</th><th>Статус</th><th>Что с ней</th><th></th></tr></thead>
+            <tbody>
+                {% for row in request_rows %}
+                    {% with board_request=row.request %}
+                        <tr data-row-url="{% url 'boards:request_detail' board_request.pk %}">
+                            <td><a class="table-link" href="{% url 'boards:request_detail' board_request.pk %}">№{{ board_request.pk }}</a></td>
+                            <td><span class="user-text text-clamp-2" title="{{ board_request.title }}">{{ board_request.title }}</span></td>
+                            <td class="user-text">{{ board_request.board.name }}</td>
+                            <td>{{ board_request.created_at|date:'d.m.Y' }}</td>
+                            <td>{% include 'boards/includes/request_status.html' %}</td>
+                            <td>{% include 'boards/includes/request_outcome.html' with card=row.card duplicate=row.duplicate %}</td>
+                            <td class="board-requests__actions">
+                                {% if board_request.status == 'NEW' %}
+                                    <button class="link-button link-button--secondary link-button--compact" type="button"
+                                            data-confirm
+                                            data-confirm-title="Отозвать {{ board_request.label|lower }}?"
+                                            data-confirm-text="Заявка уйдёт из «Входящих» доски «{{ board_request.board.name }}». Подать её снова можно новой заявкой."
+                                            data-confirm-label="Отозвать"
+                                            data-confirm-cancel-label="Не отзывать"
+                                            data-confirm-url="{% url 'boards:request_withdraw' board_request.pk %}">Отозвать</button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endwith %}
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="board-request__muted board-requests__empty">Вы ещё не подавали заявок.</p>
+    {% endif %}
+</section>
+{% endblock %}

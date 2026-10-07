@@ -768,8 +768,9 @@ class FieldQueryCountTests(FieldsMixin, TestCase):
     # «Подзадачи» (the subtasks with their tasks, and their исполнители); at
     # stage 21 one more for the card's «Переносы» (the moves of its срок); at
     # stage 22 two more: the columns this reader follows and the card's «Связи»;
-    # at stage 23 one more: the reader's «Дайджест на почту».
-    PAGE_QUERIES = 44
+    # at stage 23 one more: the reader's «Дайджест на почту»; at stage 24 two
+    # more: «Входящие (N)» in the tabs and the menu's lazy «Заявки».
+    PAGE_QUERIES = 46
 
     def setUp(self):
         self.make_fields()

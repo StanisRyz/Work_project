@@ -41,8 +41,8 @@ def notification_created_event(notification):
     """Identifiers only, whatever the notification is about.
 
     A notification can be sourced from an act, a protocol, a task, a bug
-    report or a document, so the payload carries `source_type` and the five
-    nullable ids —
+    report, a document or a board request, so the payload carries
+    `source_type` and the six nullable ids —
     `act_id` keeps its name and stays NULL for the other sources. No title, message, comment,
     protocol content, task text, name or address ever travels this way: a
     client that needs text refetches it through the notifications endpoints,
@@ -61,6 +61,7 @@ def notification_created_event(notification):
             'task_id': notification.related_task_id,
             'bug_report_id': notification.related_bug_report_id,
             'document_id': notification.related_document_id,
+            'board_request_id': notification.related_board_request_id,
             'notification_event_type': str(notification.event_type),
         },
     )

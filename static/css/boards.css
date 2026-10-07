@@ -3525,3 +3525,283 @@ form[data-chat-files-ready] .board-chat__file-input {
     color: var(--color-muted);
     font-size: 12px;
 }
+
+/* ---- «Приём заявок»: «Входящие (N)», «Заявки», «Входящие», a request ---- */
+
+.board-tabs__item--inbox {
+    margin-left: auto;
+}
+
+.board-tabs__inbox {
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    color: var(--color-muted);
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.board-tabs__inbox:hover,
+.board-tabs__inbox:focus-visible {
+    color: var(--color-text);
+}
+
+.board-tabs__inbox--new {
+    background: var(--board-color-orange-bg);
+    color: var(--board-color-orange-text);
+}
+
+.board-request-status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.board-request-status--new { background: var(--board-color-orange-bg); color: var(--board-color-orange-text); }
+.board-request-status--accepted { background: var(--board-color-blue-bg); color: var(--board-color-blue-text); }
+.board-request-status--rejected { background: var(--board-color-red-bg); color: var(--board-color-red-text); }
+.board-request-status--duplicate { background: var(--board-color-purple-bg); color: var(--board-color-purple-text); }
+.board-request-status--withdrawn { background: var(--board-color-gray-bg); color: var(--board-color-gray-text); }
+
+.board-request-task--in_progress { color: var(--board-color-blue-text); font-weight: 600; }
+.board-request-task--completed { color: var(--board-color-green-text); font-weight: 600; }
+.board-request-task--cancelled { color: var(--color-muted); font-weight: 600; }
+
+.board-request-outcome--muted,
+.board-request__muted {
+    color: var(--color-muted);
+}
+
+.board-request__muted {
+    margin: 0;
+    font-size: 13px;
+}
+
+.board-request-heading__actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.board-request {
+    display: grid;
+    gap: 12px;
+}
+
+.board-request__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.board-request__head h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.board-request__facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px 16px;
+    margin: 0;
+}
+
+.board-request__facts div {
+    display: grid;
+    gap: 2px;
+}
+
+.board-request__facts dt {
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.board-request__facts dd {
+    margin: 0;
+}
+
+.board-request__text {
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.board-request__outcome {
+    margin: 0;
+    font-weight: 600;
+}
+
+.board-requests__boards h2,
+.board-requests__title,
+.board-request-decide h2,
+.board-request-decide h3 {
+    margin: 0 0 10px;
+    font-size: 16px;
+}
+
+.board-requests__title {
+    padding: 12px 12px 0;
+}
+
+.board-requests__board-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-requests__board {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+}
+
+.board-requests__hint {
+    max-width: 720px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-requests__empty {
+    padding: 0 12px 12px;
+}
+
+.board-requests__actions {
+    text-align: right;
+}
+
+.board-requests__mine,
+.board-inbox .table-card {
+    margin-top: 16px;
+}
+
+.board-request-form {
+    display: grid;
+    gap: 12px;
+}
+
+.board-request-form__hint {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--color-primary);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.board-request-form__grid,
+.board-intake__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px 16px;
+    max-width: 1120px;
+}
+
+.board-request-form__field {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+}
+
+.board-request-form__field > span:first-child {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.board-request-form__field--wide {
+    grid-column: 1 / -1;
+}
+
+.board-request-form__field textarea {
+    width: 100%;
+    padding: var(--control-padding);
+    font: inherit;
+}
+
+.board-request-form__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.board-intake {
+    display: grid;
+    gap: 12px;
+}
+
+.board-intake__switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.board-intake__group {
+    margin: 12px 0 0;
+    padding: 0;
+    border: 0;
+}
+
+.board-intake__group legend {
+    margin-bottom: 6px;
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.board-intake__people > div {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 4px 16px;
+}
+
+.board-intake__people label,
+.board-intake__modes label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.board-intake__modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+}
+
+.board-intake__fields {
+    max-width: 760px;
+}
+
+.board-request-decide {
+    display: grid;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.board-request-decide__other {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-border);
+}
+
+.board-request-decide__reject {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    justify-items: start;
+}
+
+.board-stages__left {
+    color: var(--color-muted);
+    font-weight: 400;
+    white-space: nowrap;
+}

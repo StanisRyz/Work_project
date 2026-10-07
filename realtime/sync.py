@@ -325,7 +325,7 @@ def _boards_revision(user):
     token of the same shape built from no data, no query spent: the client
     compares the same set of keys for every user.
 
-    Five aggregates, no rows loaded:
+    Six aggregates, no rows loaded:
 
     * the cards — a new card moves `total`, an edit or a move `last_updated`;
     * the `BOARD` tasks with their status mix — completing a card from its task
@@ -340,9 +340,11 @@ def _boards_revision(user):
       of each and the newest `updated_at` of each, so a tab or a column created,
       renamed, moved (renumbering writes `updated_at`) or deleted moves it.
       Every sub-board has its closing column, so counting through the columns
-      misses none.
+      misses none;
+    * the requests filed to them («Входящие») — a new one moves the count, a
+      decision or a withdrawal its `updated_at`.
     """
-    from boards.models import BoardCard, BoardCardComment, BoardColumn, BoardMember
+    from boards.models import BoardCard, BoardCardComment, BoardColumn, BoardMember, BoardRequest
     from boards.permissions import can_use_boards, readable_boards_q
     from tasks.models import Task
 
@@ -367,6 +369,9 @@ def _boards_revision(user):
         sub_boards=Count('sub_board', distinct=True),
         sub_boards_updated=Max('sub_board__updated_at'),
     )
+    requests = BoardRequest.objects.filter(readable_boards_q(user, 'board_id')).aggregate(
+        total=Count('pk'), last_updated=Max('updated_at'),
+    )
     return _token(
         'b',
         cards['total'],
@@ -382,6 +387,8 @@ def _boards_revision(user):
         structure['sub_boards_updated'],
         structure['columns'],
         structure['columns_updated'],
+        requests['total'],
+        requests['last_updated'],
     )
 
 

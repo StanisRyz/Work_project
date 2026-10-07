@@ -60,6 +60,19 @@ owning module's own queryset.
                 </a>
             </div>
         {% endif %}
+        {% comment %}
+        «Заявки» — the same first-level link, for every active employee while
+        some live board takes requests (`can_use_requests()`, lazily through
+        `boards.context_processors.requests_access`): a member of a board or
+        not, anybody files a request there and follows it.
+        {% endcomment %}
+        {% if can_use_requests %}
+            <div class="sidebar__group">
+                <a class="sidebar__category{% if active_page == 'requests' %} sidebar__category--active{% endif %}" href="{% url 'boards:requests' %}">
+                    <span>Заявки</span>
+                </a>
+            </div>
+        {% endif %}
         <div class="sidebar__group" data-nav-group>
             <button class="sidebar__category{% if active_page == 'calculator' or active_page == 'plate_cutting' %} sidebar__category--active{% endif %}"
                     type="button" aria-expanded="false" aria-controls="sidebar-submenu-calculators" data-nav-category>

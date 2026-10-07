@@ -43,8 +43,9 @@ urlpatterns = [
     path('calculators/winding/', include('calculator.urls')),
     path('calculators/plate-cutting/', include('plate_cutting.urls')),
     # `/work/<module>/` is the branch for working tools that are not about
-    # quality: kanban boards first.
-    path('work/boards/', include('boards.urls')),
+    # quality: kanban boards (`/work/boards/`) and the requests filed to them
+    # (`/work/requests/`) — one app, one `boards:` namespace.
+    path('work/', include('boards.urls')),
 
     # The documentation library is its own top-level section: one navigation
     # item that opens the file browser directly, with no submenu.

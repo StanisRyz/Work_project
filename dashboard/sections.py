@@ -15,7 +15,7 @@ the other sections are open to every authenticated user, which is what
 
 from django.urls import reverse
 
-from boards.permissions import can_use_boards
+from boards.permissions import can_use_boards, can_use_requests
 from documents.permissions import can_view_documents
 
 
@@ -93,6 +93,17 @@ QUICK_ACCESS_SECTIONS = (
         'icon': 'boards',
         'accent': 'green',
         'is_visible': can_use_boards,
+    },
+    {
+        # «Заявки»: file a request to a board that takes them, and follow
+        # one's own — for every active employee while some board does.
+        'code': 'requests',
+        'label': 'Заявки',
+        'description': 'Подать заявку на доску и следить за ней',
+        'url_name': 'boards:requests',
+        'icon': 'requests',
+        'accent': 'amber',
+        'is_visible': can_use_requests,
     },
 )
 

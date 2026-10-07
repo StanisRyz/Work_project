@@ -125,6 +125,7 @@ from .selectors import (
     describe_field_filters,
     first_sub_board,
     member_preview,
+    new_request_count,
     names_field_filter,
     number_input,
     open_subtasks_warning,
@@ -652,6 +653,10 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
             row['card'].code for row in (item['subtask_open_rows'] if item else ())
         ),
     })
+    # «Входящие (N)» in the tabs block (live): whoever works on the board,
+    # while it takes requests or has some waiting — one query, theirs only.
+    state['inbox_count'] = new_request_count(board) if state['can_work'] else 0
+    state['show_inbox'] = bool(state['can_work'] and (board.intake_enabled or state['inbox_count']))
     if state['show_subtasks'] and item['can_add_subtask'] and subtask_form is None:
         # The card's own исполнители and срок, as the form starts.
         state['subtask_form'] = SubtaskForm(board=board, members=item['members'], initial={

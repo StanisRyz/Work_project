@@ -86,6 +86,34 @@ class Board(models.Model):
         related_name='+',
         verbose_name='Убрал в архив',
     )
+    # «Приём заявок»: whether anybody — any active employee, a member or not —
+    # may file a request («Заявка», `BoardRequest`) to this board, where an
+    # accepted one stands (a working column of `intake_sub_board`; both NULL
+    # is the first working column of the first sub-board, and a column
+    # deleted meanwhile falls back the same way), how many working days the
+    # card gets when the author asks no date (NULL — no default), and the hint
+    # above the form. Written only by `services.update_intake()`.
+    intake_enabled = models.BooleanField('Приём заявок', default=False)
+    intake_sub_board = models.ForeignKey(
+        'SubBoard',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+        verbose_name='Поддоска для заявок',
+    )
+    intake_column = models.ForeignKey(
+        'BoardColumn',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+        verbose_name='Колонка для заявок',
+    )
+    intake_due_days = models.PositiveSmallIntegerField(
+        'Срок по заявке, рабочих дней', null=True, blank=True,
+    )
+    intake_hint = models.CharField('Подсказка над формой заявки', max_length=500, blank=True)
     created_at = models.DateTimeField('Создана', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлена', auto_now=True)
 
@@ -97,6 +125,11 @@ class Board(models.Model):
             # Stored upper case (`services.clean_board_code()`), so this is
             # uniqueness without regard to case.
             models.UniqueConstraint(fields=['code'], name='unique_board_code'),
+            models.CheckConstraint(
+                condition=models.Q(intake_due_days__isnull=True)
+                | models.Q(intake_due_days__lte=365),
+                name='board_intake_due_days_valid',
+            ),
         ]
 
     def __str__(self):
@@ -1074,6 +1107,10 @@ class BoardField(models.Model):
     # at most `services.MAX_SUMMED_FIELDS` per board — the services say so,
     # and a check constraint keeps it off every other kind.
     sum_in_column = models.BooleanField('Сумма в колонке', default=False)
+    # «Приём заявок»: the field is asked in the request form, and must be
+    # filled there. Required only ever in the form — `board_field_required_in_form`.
+    in_request_form = models.BooleanField('В форме заявки', default=False)
+    required_in_request = models.BooleanField('Обязательно в заявке', default=False)
     is_archived = models.BooleanField('В архиве', default=False)
     created_at = models.DateTimeField('Создано', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлено', auto_now=True)
@@ -1090,6 +1127,10 @@ class BoardField(models.Model):
             models.CheckConstraint(
                 condition=models.Q(sum_in_column=False) | models.Q(kind='NUMBER'),
                 name='board_field_sum_only_number',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(required_in_request=False) | models.Q(in_request_form=True),
+                name='board_field_required_in_form',
             ),
         ]
 
@@ -1224,3 +1265,174 @@ class BoardCardFieldValue(models.Model):
                 errors['option'] = 'Вариант принадлежит другому полю.'
         if errors:
             raise ValidationError(errors)
+
+
+# ---------------------------------------------------------------------------
+# «Приём заявок»: requests filed to a board by anybody, and who sorts them
+# ---------------------------------------------------------------------------
+
+REQUEST_TITLE_MAX_LENGTH = 200
+REQUEST_DESCRIPTION_MAX_LENGTH = 4000
+INTAKE_HINT_MAX_LENGTH = 500
+INTAKE_DUE_DAYS_MAX = 365
+
+
+class BoardIntakeHandler(models.Model):
+    """A member of the board who is told of every new request («разбирающий»).
+
+    None at all — the owner is told. Written only by
+    `services.update_intake()`; `remove_board_member()` drops the person.
+    """
+
+    board = models.ForeignKey(
+        Board,
+        on_delete=models.CASCADE,
+        related_name='intake_handlers',
+        verbose_name='Доска',
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_intake_roles',
+        verbose_name='Разбирающий',
+    )
+    created_at = models.DateTimeField('Назначен', auto_now_add=True)
+
+    class Meta:
+        ordering = ['board_id', 'user_id']
+        verbose_name = 'Разбирающий заявки доски'
+        verbose_name_plural = 'Разбирающие заявки досок'
+        constraints = [
+            models.UniqueConstraint(fields=['board', 'user'], name='unique_board_intake_handler'),
+        ]
+
+    def __str__(self):
+        return f'{self.user}: заявки доски #{self.board_id}'
+
+
+class BoardRequest(models.Model):
+    """«Заявка №N»: work somebody asks a board for, member or not.
+
+    Filed by any active employee to a live board with «Приём заявок» on
+    (`services.submit_request()`), it waits in the board's «Входящие» as
+    `NEW` until a member takes it — `accept_request()` makes a card of it
+    (`card`), `reject_request()` says why not (`decision_comment`),
+    `mark_duplicate()` names the card it repeats (`duplicate_of`) — or its
+    author withdraws it (`withdraw_request()`). Every decision is final and
+    records who and when. `field_values` are the board fields of the form,
+    `{field id: value}` as the author typed them after the very parse a card's
+    values go through. A record: never deleted. Written only by
+    `boards/services.py`.
+    """
+
+    class Status(models.TextChoices):
+        NEW = 'NEW', 'Новая'
+        ACCEPTED = 'ACCEPTED', 'Принята'
+        REJECTED = 'REJECTED', 'Отклонена'
+        DUPLICATE = 'DUPLICATE', 'Дубль'
+        WITHDRAWN = 'WITHDRAWN', 'Отозвана'
+
+    board = models.ForeignKey(
+        Board,
+        on_delete=models.PROTECT,
+        related_name='requests',
+        verbose_name='Доска',
+    )
+    author = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='board_requests',
+        verbose_name='Автор',
+    )
+    title = models.CharField('Название', max_length=REQUEST_TITLE_MAX_LENGTH)
+    description = models.TextField('Описание', blank=True)
+    desired_date = models.DateField('Желаемая дата', null=True, blank=True)
+    field_values = models.JSONField('Поля доски', default=dict, blank=True)
+    status = models.CharField('Статус', max_length=12, choices=Status.choices, default=Status.NEW)
+    card = models.ForeignKey(
+        'BoardCard',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='requests',
+        verbose_name='Карточка',
+    )
+    duplicate_of = models.ForeignKey(
+        'BoardCard',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='duplicate_requests',
+        verbose_name='Дубль карточки',
+    )
+    decision_comment = models.TextField('Комментарий к решению', blank=True)
+    decided_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='+',
+        verbose_name='Решение принял',
+    )
+    decided_at = models.DateTimeField('Решение принято', null=True, blank=True)
+    created_at = models.DateTimeField('Подана', auto_now_add=True)
+    updated_at = models.DateTimeField('Обновлена', auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at', '-pk']
+        verbose_name = 'Заявка на доску'
+        verbose_name_plural = 'Заявки на доски'
+        indexes = [
+            models.Index(fields=['board', 'status', 'created_at'], name='board_request_inbox'),
+            models.Index(fields=['author', 'created_at'], name='board_request_author'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(status__in=['NEW', 'ACCEPTED', 'REJECTED', 'DUPLICATE', 'WITHDRAWN']),
+                name='board_request_status_known',
+            ),
+            # An accepted request has its card, and only an accepted one.
+            models.CheckConstraint(
+                condition=models.Q(status='ACCEPTED', card__isnull=False)
+                | (~models.Q(status='ACCEPTED') & models.Q(card__isnull=True)),
+                name='board_request_card_only_when_accepted',
+            ),
+            # A duplicate names the card it repeats, and only a duplicate.
+            models.CheckConstraint(
+                condition=models.Q(status='DUPLICATE', duplicate_of__isnull=False)
+                | (~models.Q(status='DUPLICATE') & models.Q(duplicate_of__isnull=True)),
+                name='board_request_duplicate_only_when_duplicate',
+            ),
+            # A new request carries no decision; every other one says who and when.
+            models.CheckConstraint(
+                condition=models.Q(
+                    status='NEW', decided_by__isnull=True, decided_at__isnull=True, decision_comment='',
+                )
+                | (
+                    ~models.Q(status='NEW')
+                    & models.Q(decided_by__isnull=False, decided_at__isnull=False)
+                ),
+                name='board_request_decision_matches_status',
+            ),
+            # A refusal always says why.
+            models.CheckConstraint(
+                condition=~models.Q(status='REJECTED') | ~models.Q(decision_comment=''),
+                name='board_request_rejection_has_reason',
+            ),
+            models.UniqueConstraint(
+                fields=['card'],
+                condition=models.Q(card__isnull=False),
+                name='unique_board_request_card',
+            ),
+        ]
+
+    def __str__(self):
+        return self.label
+
+    @property
+    def label(self):
+        return f'Заявка №{self.pk}'
+
+    @property
+    def is_new(self):
+        return self.status == self.Status.NEW

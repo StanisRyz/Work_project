@@ -1,0 +1,103 @@
+{% extends 'boards/layout.html' %}
+
+{% block title %}{{ board_request.label }} · Входящие · {{ board.name }}{% endblock %}
+
+{% block board_main_label %}{{ board_request.label }} · {{ board.name }}{% endblock %}
+
+{% block board_main %}
+{% comment %}
+One request in «Входящие»: what it asks (`boards/includes/request_summary.html`,
+the same block its author reads) and, while it is new, the three decisions —
+ordinary POST forms, each its own route asking `can_decide_request()` before
+the method:
+- «Принять» (`AcceptRequestForm`): the column (by default the board's intake
+  column), исполнители (its handlers, else its owner), the срок (the desired
+  date, else `intake_due_days` working days), the card's title and
+  description — the request's own, which may be corrected; the request's
+  text stays word for word as the first message of the card's «Чат»;
+- «Отклонить»: the shared modal with the required reason;
+- «Дубль»: the code of a card of this board.
+A refusal comes back here with what was typed and the message.
+{% endcomment %}
+<header class="board-head">
+    <div class="board-head__title">
+        <h1 class="text-ellipsis">{{ board_request.label }} · <span class="user-text">{{ board.name }}</span></h1>
+    </div>
+    <div class="board-head__actions">
+        <a class="link-button link-button--secondary" href="{% url 'boards:inbox' board.pk %}">Входящие</a>
+    </div>
+</header>
+
+<div class="board-scroll board-inbox">
+    {% if decision_error %}<p class="field-error" role="alert">{{ decision_error }}</p>{% endif %}
+    {% include 'boards/includes/request_summary.html' %}
+
+    {% if can_decide %}
+        <section class="detail-section board-request-decide" aria-labelledby="decide-title">
+            <h2 id="decide-title">Разбор заявки</h2>
+            <form class="board-request-form" method="post" action="{% url 'boards:request_accept' board.pk board_request.pk %}" data-board-accept>
+                {% csrf_token %}
+                <h3>Принять в работу</h3>
+                {% if accept_form.non_field_errors %}<p class="field-error">{{ accept_form.non_field_errors|join:' ' }}</p>{% endif %}
+                <div class="board-request-form__grid">
+                    <label class="board-request-form__field">
+                        <span>{{ accept_form.title.label }} *</span>{{ accept_form.title }}
+                        {% for error in accept_form.title.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                    </label>
+                    <label class="board-request-form__field">
+                        <span>{{ accept_form.column.label }} *</span>{{ accept_form.column }}
+                        {% for error in accept_form.column.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                    </label>
+                    <label class="board-request-form__field">
+                        <span>{{ accept_form.due_date.label }} *</span>{{ accept_form.due_date }}
+                        {% for error in accept_form.due_date.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                    </label>
+                    <label class="board-request-form__field board-request-form__field--wide">
+                        <span>{{ accept_form.description.label }}</span>{{ accept_form.description }}
+                    </label>
+                </div>
+                <fieldset class="board-intake__group">
+                    <legend>{{ accept_form.assignees.label }} *</legend>
+                    <div class="board-intake__people">{{ accept_form.assignees }}</div>
+                    {% for error in accept_form.assignees.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                </fieldset>
+                <p class="board-request__muted">Текст заявки станет первым сообщением в чате карточки — от вашего имени.</p>
+                <div class="board-request-form__actions">
+                    <button class="link-button link-button--success" type="submit">Принять</button>
+                </div>
+            </form>
+
+            <div class="board-request-decide__other">
+                <form class="board-request-form board-request-decide__duplicate" method="post" action="{% url 'boards:request_duplicate' board.pk board_request.pk %}">
+                    {% csrf_token %}
+                    <h3>Это дубль</h3>
+                    <label class="board-request-form__field">
+                        <span>{{ duplicate_form.card_code.label }}</span>{{ duplicate_form.card_code }}
+                        {% for error in duplicate_form.card_code.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                    </label>
+                    <label class="board-request-form__field">
+                        <span>{{ duplicate_form.comment.label }}</span>{{ duplicate_form.comment }}
+                    </label>
+                    <div class="board-request-form__actions">
+                        <button class="link-button link-button--secondary" type="submit">Отметить дублем</button>
+                    </div>
+                </form>
+                <div class="board-request-decide__reject">
+                    <h3>Отклонить</h3>
+                    <p class="board-request__muted">Автор получит уведомление и прочитает причину на странице заявки.</p>
+                    <button class="link-button link-button--danger" type="button"
+                            data-confirm
+                            data-confirm-title="Отклонить {{ board_request.label|lower }}?"
+                            data-confirm-text="{{ author_name }} получит уведомление. Причину увидит автор."
+                            data-confirm-label="Отклонить"
+                            data-confirm-cancel-label="Не отклонять"
+                            data-confirm-variant="danger"
+                            data-confirm-comment="required"
+                            data-confirm-comment-label="Причина отказа"
+                            data-confirm-url="{% url 'boards:request_reject' board.pk board_request.pk %}">Отклонить</button>
+                </div>
+            </div>
+        </section>
+    {% endif %}
+</div>
+{% endblock %}

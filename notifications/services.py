@@ -46,6 +46,7 @@ NOTIFICATION_SOURCE_SELECT_RELATED = (
     'related_bug_report',
     'related_document',
     'related_task__document_version__document',
+    'related_board_request__board',
 )
 
 # Where each source type lives on the row, which route opens it, and how the
@@ -57,6 +58,7 @@ SOURCE_FIELDS = {
     Notification.SourceType.TASK: 'related_task',
     Notification.SourceType.BUG: 'related_bug_report',
     Notification.SourceType.DOCUMENT: 'related_document',
+    Notification.SourceType.REQUEST: 'related_board_request',
 }
 
 SOURCE_ROUTES = {
@@ -65,6 +67,9 @@ SOURCE_ROUTES = {
     Notification.SourceType.TASK: ('tasks:detail', 'Открыть задачу'),
     Notification.SourceType.BUG: ('bugs:detail', 'Открыть сообщение об ошибке'),
     Notification.SourceType.DOCUMENT: ('documents:document_detail', 'Открыть документ'),
+    # The request's own page: its author may not read the board, so the link
+    # never leads to the board or to the card's task.
+    Notification.SourceType.REQUEST: ('boards:request_detail', 'Открыть заявку'),
 }
 
 # Which events also leave the application by email. The list is deliberately
@@ -119,6 +124,15 @@ EMAIL_ELIGIBLE_EVENTS = {
     # asked for exactly this, and is not necessarily on the board today.
     Notification.EventType.BOARD_UNBLOCKED,
     Notification.EventType.BOARD_COLUMN_ENTERED,
+    # «Приём заявок»: a new request waits for its handlers — work arriving,
+    # often from somebody who phoned before; and its author, who is usually
+    # not on the board at all, hears every answer by mail — accepted,
+    # rejected, a duplicate, and the card made of it done.
+    Notification.EventType.BOARD_REQUEST_NEW,
+    Notification.EventType.BOARD_REQUEST_ACCEPTED,
+    Notification.EventType.BOARD_REQUEST_REJECTED,
+    Notification.EventType.BOARD_REQUEST_DUPLICATE,
+    Notification.EventType.BOARD_REQUEST_DONE,
     # A bug report is exactly the kind of fact this list is for: somebody has
     # to look at it, and the people who must are often not in the application
     # when it arrives.
@@ -574,6 +588,68 @@ def notify_board_column_entered(task, actor, recipients, *, column, at):
     )
 
 
+def notify_board_request_new(board_request, actor, recipients):
+    """«Новая заявка на доске «X»: Заявка №N» — for the board's handlers
+    (`BoardIntakeHandler`, else its owner), bell and mail.
+
+    Request-sourced: the link opens the request (`boards:request_detail`),
+    which leads a handler on to «Входящие». Keyed on the request, so one
+    request tells each handler once; whoever filed it is not told even when
+    they handle the board's requests.
+    """
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_REQUEST_NEW,
+        board_request=board_request,
+        actor=actor,
+        recipients=recipients,
+        source_key=f'request:{board_request.pk}',
+        exclude_actor=True,
+    )
+
+
+def notify_board_request_decided(board_request, actor):
+    """The author hears the answer: accepted (with the card's code), rejected
+    or a duplicate — bell and mail, the event chosen by the request's status.
+
+    Keyed on the request: a request is decided once. A decision the author
+    took on their own request (they handle the board too) tells nobody.
+    """
+    event_type = {
+        board_request.Status.ACCEPTED: Notification.EventType.BOARD_REQUEST_ACCEPTED,
+        board_request.Status.REJECTED: Notification.EventType.BOARD_REQUEST_REJECTED,
+        board_request.Status.DUPLICATE: Notification.EventType.BOARD_REQUEST_DUPLICATE,
+    }.get(board_request.status)
+    if event_type is None:
+        raise ValueError('Уведомление о решении создаётся только для разобранной заявки.')
+    return create_notifications(
+        event_type=event_type,
+        board_request=board_request,
+        actor=actor,
+        recipients=[board_request.author],
+        source_key=f'request:{board_request.pk}',
+        exclude_actor=True,
+    )
+
+
+def notify_board_request_done(board_request, actor, *, completed_at):
+    """«Заявка №N выполнена» — for the author of an accepted request, when
+    the card made of it is completed (`boards.services.complete_card()`).
+
+    Keyed on the completion's time: a card reopened and completed again says
+    so again. Bell and mail; the author completing it themselves hears
+    nothing.
+    """
+    stamp = completed_at.isoformat() if completed_at else ''
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_REQUEST_DONE,
+        board_request=board_request,
+        actor=actor,
+        recipients=[board_request.author],
+        source_key=f'request:{board_request.pk}:done:{stamp}',
+        exclude_actor=True,
+    )
+
+
 def notify_bug_reported(report, actor, recipients):
     """Tell the accounts responsible for bugs that a report has arrived.
 
@@ -653,7 +729,7 @@ def notify_document_updated(version, actor, recipients):
     )
 
 
-def _resolve_source(act, protocol, task, bug_report, document=None):
+def _resolve_source(act, protocol, task, bug_report, document=None, board_request=None):
     """Exactly one source object, and the source type it implies.
 
     Resolving the type from the object it was given is what keeps
@@ -668,32 +744,34 @@ def _resolve_source(act, protocol, task, bug_report, document=None):
             (Notification.SourceType.TASK, task),
             (Notification.SourceType.BUG, bug_report),
             (Notification.SourceType.DOCUMENT, document),
+            (Notification.SourceType.REQUEST, board_request),
         )
         if source is not None
     ]
     if len(given) != 1:
         raise ValueError(
             'Уведомление должно иметь ровно один источник: акт, протокол, '
-            'задачу, сообщение об ошибке или документ.'
+            'задачу, сообщение об ошибке, документ или заявку.'
         )
     return given[0]
 
 
 def create_notifications(
     *, event_type, actor, recipients, source_key,
-    act=None, protocol=None, task=None, bug_report=None, document=None, exclude_actor=True,
-    context=None,
+    act=None, protocol=None, task=None, bug_report=None, document=None, board_request=None,
+    exclude_actor=True, context=None,
 ):
     """Create deduplicated in-app notifications and their independent email deliveries.
 
-    Exactly one of `act`, `protocol`, `task`, `bug_report` or `document` names
+    Exactly one of `act`, `protocol`, `task`, `bug_report`, `document` or
+    `board_request` names
     what the notification is about; `source_type` follows from it. `context`
     is what the text needs beyond the source and is not on it — a board
     column's name, the code of the card that freed another — identifiers and
     names only; it is written into the stored title and message and never
     affects the required action, which is re-read from the source.
     """
-    source_type, source = _resolve_source(act, protocol, task, bug_report, document)
+    source_type, source = _resolve_source(act, protocol, task, bug_report, document, board_request)
     actor_id = getattr(actor, 'pk', None)
     recipient_ids = {
         recipient.pk
@@ -869,6 +947,14 @@ def describe_notification_source(notification):
         return {
             'label': f'Документ {source.title}',
             'context': source.folder.full_path if source.folder_id else '',
+            'due_date': None,
+            'requires_attachment': False,
+        }
+    if notification.source_type == Notification.SourceType.REQUEST:
+        return {
+            'label': source.label,
+            # The board it was filed to — the author's own words for it.
+            'context': f'Доска «{source.board.name}»',
             'due_date': None,
             'requires_attachment': False,
         }
@@ -1219,7 +1305,57 @@ def _event_text(event_type, source_type, source, context=None):
         return _bug_event_text(event_type, source)
     if source_type == Notification.SourceType.DOCUMENT:
         return _document_event_text(event_type, source)
+    if source_type == Notification.SourceType.REQUEST:
+        return _request_event_text(event_type, source)
     return _act_event_text(event_type, source)
+
+
+def _request_event_text(event_type, board_request):
+    """A request's notification: «Заявка №N» and its board.
+
+    The request's own title is not repeated — the board's card notifications
+    name a card by its code and never by its title, and a request follows the
+    same rule; the page shows the rest. Neither is the reason of a refusal:
+    it is on the request's page. A card's code is named, as the request's
+    page does for its author.
+    """
+    label = board_request.label
+    name = board_request.board.name
+    card = board_request.card if board_request.card_id else None
+    if event_type == Notification.EventType.BOARD_REQUEST_NEW:
+        author = board_request.author.get_full_name() or board_request.author.get_username()
+        return NotificationText(
+            f'Новая заявка на доске «{name}»: {label}',
+            f'{label} от {author} ждёт разбора во «Входящих» доски «{name}».',
+            'Откройте заявку: примите её в работу, отклоните с причиной или отметьте дублем.',
+        )
+    if event_type == Notification.EventType.BOARD_REQUEST_ACCEPTED:
+        code = card.code if card else ''
+        return NotificationText(
+            f'{label} принята в работу: карточка {code}',
+            f'Ваша {label.lower()} на доске «{name}» принята в работу — карточка {code}.',
+            'Дополнительных действий не требуется. Ход работы виден на странице заявки.',
+        )
+    if event_type == Notification.EventType.BOARD_REQUEST_REJECTED:
+        return NotificationText(
+            f'{label} отклонена',
+            f'Ваша {label.lower()} на доске «{name}» отклонена.',
+            'Причина — на странице заявки.',
+        )
+    if event_type == Notification.EventType.BOARD_REQUEST_DUPLICATE:
+        duplicate = board_request.duplicate_of.code if board_request.duplicate_of_id else ''
+        return NotificationText(
+            f'{label} — дубль карточки {duplicate}',
+            f'Ваша {label.lower()} на доске «{name}» повторяет карточку {duplicate}, '
+            'которая уже в работе.',
+            'Ход работы по карточке виден на странице заявки.',
+        )
+    code = card.code if card else ''
+    return NotificationText(
+        f'{label} выполнена',
+        f'Карточка {code} по вашей {label.lower().replace("заявка", "заявке")} на доске «{name}» выполнена.',
+        'Результат — на странице заявки. Дополнительных действий не требуется.',
+    )
 
 
 def _document_event_text(event_type, document):

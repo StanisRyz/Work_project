@@ -33,6 +33,10 @@ class Notification(models.Model):
         # A document of «Документация» — the subject of «новая версия» for the
         # people subscribed to it, and of a returned version for its uploader.
         DOCUMENT = 'DOCUMENT', 'Документ'
+        # A request filed to a board («Заявка №N», `boards.BoardRequest`): its
+        # author may not read the board, so what they are told about opens
+        # the request's own page, never the board or the card's task.
+        REQUEST = 'REQUEST', 'Заявка'
 
     class EventType(models.TextChoices):
         ACT_SENT_TO_KO = 'ACT_SENT_TO_KO', 'Акт передан в КО'
@@ -65,6 +69,11 @@ class Notification(models.Model):
         BOARD_OVERDUE = 'BOARD_OVERDUE', 'Карточка просрочена'
         BOARD_UNBLOCKED = 'BOARD_UNBLOCKED', 'Карточку можно начинать'
         BOARD_COLUMN_ENTERED = 'BOARD_COLUMN_ENTERED', 'Карточка вошла в колонку'
+        BOARD_REQUEST_NEW = 'BOARD_REQUEST_NEW', 'Новая заявка на доске'
+        BOARD_REQUEST_ACCEPTED = 'BOARD_REQUEST_ACCEPTED', 'Заявка принята'
+        BOARD_REQUEST_REJECTED = 'BOARD_REQUEST_REJECTED', 'Заявка отклонена'
+        BOARD_REQUEST_DUPLICATE = 'BOARD_REQUEST_DUPLICATE', 'Заявка отмечена дублем'
+        BOARD_REQUEST_DONE = 'BOARD_REQUEST_DONE', 'Заявка выполнена'
         BUG_REPORTED = 'BUG_REPORTED', 'Сообщение об ошибке в системе'
         DOCUMENT_ACK_REQUIRED = 'DOCUMENT_ACK_REQUIRED', 'Требуется ознакомление с документом'
         DOCUMENT_APPROVAL_REQUIRED = 'DOCUMENT_APPROVAL_REQUIRED', 'Требуется согласование документа'
@@ -146,6 +155,14 @@ class Notification(models.Model):
         blank=True,
         null=True,
     )
+    related_board_request = models.ForeignKey(
+        'boards.BoardRequest',
+        on_delete=models.CASCADE,
+        related_name='notifications',
+        verbose_name='Связанная заявка',
+        blank=True,
+        null=True,
+    )
     deduplication_key = models.CharField('Ключ дедупликации', max_length=180)
     created_at = models.DateTimeField('Создано', auto_now_add=True)
     is_read = models.BooleanField('Прочитано', default=False)
@@ -182,6 +199,7 @@ class Notification(models.Model):
                         related_protocol__isnull=True,
                         related_task__isnull=True,
                         related_bug_report__isnull=True,
+                        related_board_request__isnull=True,
                     )
                     | models.Q(
                         source_type='PROTOCOL',
@@ -190,6 +208,7 @@ class Notification(models.Model):
                         related_protocol__isnull=False,
                         related_task__isnull=True,
                         related_bug_report__isnull=True,
+                        related_board_request__isnull=True,
                     )
                     | models.Q(
                         source_type='TASK',
@@ -198,6 +217,7 @@ class Notification(models.Model):
                         related_protocol__isnull=True,
                         related_task__isnull=False,
                         related_bug_report__isnull=True,
+                        related_board_request__isnull=True,
                     )
                     | models.Q(
                         source_type='BUG',
@@ -206,10 +226,21 @@ class Notification(models.Model):
                         related_protocol__isnull=True,
                         related_task__isnull=True,
                         related_bug_report__isnull=False,
+                        related_board_request__isnull=True,
                     )
                     | models.Q(
                         source_type='DOCUMENT',
                         related_document__isnull=False,
+                        related_act__isnull=True,
+                        related_protocol__isnull=True,
+                        related_task__isnull=True,
+                        related_bug_report__isnull=True,
+                        related_board_request__isnull=True,
+                    )
+                    | models.Q(
+                        source_type='REQUEST',
+                        related_board_request__isnull=False,
+                        related_document__isnull=True,
                         related_act__isnull=True,
                         related_protocol__isnull=True,
                         related_task__isnull=True,
@@ -231,28 +262,19 @@ class Notification(models.Model):
         A service or a form gets a field error instead of an `IntegrityError`.
         """
         super().clean()
-        required, forbidden = {
-            self.SourceType.ACT: (
-                'related_act',
-                ('related_protocol', 'related_task', 'related_bug_report', 'related_document'),
-            ),
-            self.SourceType.PROTOCOL: (
-                'related_protocol',
-                ('related_act', 'related_task', 'related_bug_report', 'related_document'),
-            ),
-            self.SourceType.TASK: (
-                'related_task',
-                ('related_act', 'related_protocol', 'related_bug_report', 'related_document'),
-            ),
-            self.SourceType.BUG: (
-                'related_bug_report',
-                ('related_act', 'related_protocol', 'related_task', 'related_document'),
-            ),
-            self.SourceType.DOCUMENT: (
-                'related_document',
-                ('related_act', 'related_protocol', 'related_task', 'related_bug_report'),
-            ),
-        }.get(self.source_type, (None, ()))
+        relations = (
+            'related_act', 'related_protocol', 'related_task', 'related_bug_report',
+            'related_document', 'related_board_request',
+        )
+        required = {
+            self.SourceType.ACT: 'related_act',
+            self.SourceType.PROTOCOL: 'related_protocol',
+            self.SourceType.TASK: 'related_task',
+            self.SourceType.BUG: 'related_bug_report',
+            self.SourceType.DOCUMENT: 'related_document',
+            self.SourceType.REQUEST: 'related_board_request',
+        }.get(self.source_type)
+        forbidden = tuple(name for name in relations if name != required)
         if required is None:
             raise ValidationError({'source_type': 'Неизвестный тип источника уведомления.'})
         errors = {}

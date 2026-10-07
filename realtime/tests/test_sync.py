@@ -264,12 +264,13 @@ class RevisionTokenTests(SyncStateMixin, TestCase):
 #  17. boards: «Обсуждение» message total and max(created_at)
 #  18. boards: sub-boards and columns — counts and max(updated_at) of each
 #  19. boards: `BOARD` task status distribution
+#  20. boards: the requests filed to them — count and max(updated_at)
 # Session authentication, the one cached `user.userprofile` lookup and the one
 # cached lookup of the roles lent today are not counted here — they belong to
-# the request, not to this service. Queries 14–19 are spent only for a user
+# the request, not to this service. Queries 14–20 are spent only for a user
 # with board access; for anybody else the `boards` token is a constant.
-FIXED_SYNC_QUERIES = 19
-SYNC_QUERIES_WITHOUT_BOARDS = FIXED_SYNC_QUERIES - 6
+FIXED_SYNC_QUERIES = 20
+SYNC_QUERIES_WITHOUT_BOARDS = FIXED_SYNC_QUERIES - 7
 
 
 class SyncEndpointTests(SyncStateMixin, TestCase):

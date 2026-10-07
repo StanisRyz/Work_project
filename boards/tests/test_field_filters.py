@@ -51,7 +51,7 @@ from .test_lifecycle import attribute, main_of
 # исполнитель — the page `test_fields.FieldQueryCountTests` measures (44) plus
 # the исполнители of a completed card, which that page has none of — under
 # any number of field filters.
-PAGE_QUERIES = 45
+PAGE_QUERIES = 47
 
 
 def visible(state):
