@@ -1,0 +1,59 @@
+
+=== 1920×1080 ===
+PASS  no «Заявки» in the menu while no board takes requests
+PASS  «Настройки приёма заявок сохранены»
+PASS  ivanov sees «Входящие (0)» in the tabs
+PASS  otk_master: «Заявки» in the menu
+PASS  …and on the dashboard
+PASS  «Подать заявку» lists ZAP with its hint
+PASS  the form asks the board's fields, «Номер заявки» required  — Что нужно сделать * Подробности Желаемая дата Номер заявки * Приоритет — ● Высокий ● Средний ● Низкий
+PASS  the browser asks the required field first
+PASS  a required field left empty is refused beside it
+PASS  the request page: «Новая»
+PASS  the board itself is a 403 for her
+PASS  «Входящие (1)» on ivanov's board without a reload
+PASS  ivanov's bell: «Новая заявка на доске «Запуск заказов»»  — ['Новая заявка на доске «Запуск заказов»: Заявка №1\nЗаявка №1 от Ольга Мастерова ждёт разбора во «Входящих» доски «Запуск заказов».\n07.10.2026 15:45']
+PASS  «Входящие»: the request, its author and department
+PASS  no sideways scroll
+PASS  «Принять» starts from the handler and the default срок
+PASS  the card opens on «Чат» with «Заявка от …»  — ИИ Иван Иванов · 07.10.2026 15:45 Заявка от Ольга Мастерова: Нарезать заготовки ПиР: партия 40 шт., чертёж 9АВ.616.001.
+PASS  …with the request's fields  — Колонка Сделать Исполнители ИИ Иван Иванов Срок 12.10.2026 через 5 дней Создал Иван Иванов, 07.10.2026 15:45 Номер заявки 3-1601 Приоритет Высокий Редактировать Сделать В работе На проверке Сделать В 
+PASS  «Лог»: «создана из заявки №N»
+PASS  «Мои заявки»: «Принята», the card, «Сделать», «В работе»  — №1 Нарезать заготовки ПиР Запуск заказов 07.10.2026 Принята Карточка ZAP-13 · «Сделать» · В работе
+PASS  …as a projection, no link into the board
+PASS  no sideways scroll
+PASS  her bell: «Заявка №N выполнена»  — ['Заявка №1 выполнена\nКарточка ZAP-13 по вашей заявке №1 на доске «Запуск заказов» выполнена.\n07.10.2026 15:45']
+PASS  the request page: «Выполнена» and the closing column
+PASS  «Мои заявки»: «Отклонена» with the reason  — №2 Покрасить корпус Запуск заказов 07.10.2026 Отклонена Причина: Покраска — не наш участок, обратитесь в цех ПиР.
+PASS  her bell: «Заявка №N отклонена»  — ['Заявка №2 отклонена\nВаша заявка №2 на доске «Запуск заказов» отклонена.\n07.10.2026 15:45']
+
+=== 1536×864 ===
+PASS  no «Заявки» in the menu while no board takes requests
+PASS  «Настройки приёма заявок сохранены»
+PASS  ivanov sees «Входящие (0)» in the tabs
+PASS  otk_master: «Заявки» in the menu
+PASS  …and on the dashboard
+PASS  «Подать заявку» lists ZAP with its hint
+PASS  the form asks the board's fields, «Номер заявки» required  — Что нужно сделать * Подробности Желаемая дата Номер заявки * Приоритет — ● Высокий ● Средний ● Низкий
+PASS  the browser asks the required field first
+PASS  a required field left empty is refused beside it
+PASS  the request page: «Новая»
+PASS  the board itself is a 403 for her
+PASS  «Входящие (1)» on ivanov's board without a reload
+PASS  ivanov's bell: «Новая заявка на доске «Запуск заказов»»  — ['Новая заявка на доске «Запуск заказов»: Заявка №1\nЗаявка №1 от Ольга Мастерова ждёт разбора во «Входящих» доски «Запуск заказов».\n07.10.2026 15:46']
+PASS  «Входящие»: the request, its author and department
+PASS  no sideways scroll
+PASS  «Принять» starts from the handler and the default срок
+PASS  the card opens on «Чат» with «Заявка от …»  — ИИ Иван Иванов · 07.10.2026 15:46 Заявка от Ольга Мастерова: Нарезать заготовки ПиР: партия 40 шт., чертёж 9АВ.616.001.
+PASS  …with the request's fields  — Колонка Сделать Исполнители ИИ Иван Иванов Срок 12.10.2026 через 5 дней Создал Иван Иванов, 07.10.2026 15:46 Номер заявки 3-1601 Приоритет Высокий Редактировать Сделать В работе На проверке Сделать В 
+PASS  «Лог»: «создана из заявки №N»
+PASS  «Мои заявки»: «Принята», the card, «Сделать», «В работе»  — №1 Нарезать заготовки ПиР Запуск заказов 07.10.2026 Принята Карточка ZAP-13 · «Сделать» · В работе
+PASS  …as a projection, no link into the board
+PASS  no sideways scroll
+PASS  her bell: «Заявка №N выполнена»  — ['Заявка №1 выполнена\nКарточка ZAP-13 по вашей заявке №1 на доске «Запуск заказов» выполнена.\n07.10.2026 15:46']
+PASS  the request page: «Выполнена» and the closing column
+PASS  «Мои заявки»: «Отклонена» with the reason  — №2 Покрасить корпус Запуск заказов 07.10.2026 Отклонена Причина: Покраска — не наш участок, обратитесь в цех ПиР.
+PASS  her bell: «Заявка №N отклонена»  — ['Заявка №2 отклонена\nВаша заявка №2 на доске «Запуск заказов» отклонена.\n07.10.2026 15:47']
+PASS  no JavaScript errors and no browser dialogs
+
+53/53 PASS

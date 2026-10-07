@@ -1,0 +1,76 @@
+$ python manage.py migrate   # с нуля, PostgreSQL
+  Applying boards.0024_intake_and_requests... OK
+  Applying notifications.0016_board_request_source... OK
+  Applying notifications.0017_board_request_source_constraint... OK
+
+$ python manage.py seed_references
+Reference data ready: 13 operations, 20 defect types, 8 act statuses, 3 task statuses, 4 priorities, 8 deviation reasons.
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-24/seed_demo.py
+seeded
+seeded stage 16
+seeded stage 17
+seeded stage 18
+seeded stage 19
+seeded stage 20
+seeded stage 21
+seeded stage 22
+seeded stage 23
+ZAP owner: admin1 | members: ['admin1', 'ivanov', 'petrova', 'worker1', 'worker2', 'worker3', 'worker4']
+seeded stage 24
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-24/pg_checks.py
+
+изменено: True
+то же самое ещё раз: False
+мастер ОТК — участник ZAP: False
+отказ: «Номер заявки»: обязательное поле заявки.
+отказ: «Номер заявки»: не длиннее 500 символов.
+заявка: Заявка №1 NEW {'1': '3-1601', '4': 1}
+«Новая заявка»: [('ivanov', 'REQUEST', 'Новая заявка на доске «Запуск заказов»: Заявка №1')] | писем: 1
+принята: ZAP-13 Сделать 2026-10-12 | поля: ['Номер заявки', 'Приоритет']
+первое сообщение: Заявка от Ольга Мастерова: Партия 40 шт.
+журнал: {'column': 'Сделать', 'column_id': 1, 'request_id': 1}
+повтор: Заявку уже разобрали.
+без причины: Укажите причину отказа — её прочитает автор заявки.
+дубль СНБ-1 — отказ: Карточка с таким кодом не найдена на этой доске.
+дубль: zap-13 → ZAP-13
+автору: [('BOARD_REQUEST_ACCEPTED', 'Заявка №1 принята в работу: карточка ZAP-13'), ('BOARD_REQUEST_REJECTED', 'Заявка №2 отклонена'), ('BOARD_REQUEST_DUPLICATE', 'Заявка №3 — дубль карточки ZAP-13'), ('BOARD_REQUEST_DONE', 'Заявка №1 выполнена')]
+писем автору: 4
+ограничение (ACCEPTED): new row for relation "boards_boardrequest" violates check constraint "board_request_card_only_when_accepted"
+ограничение (REJECTED): new row for relation "boards_boardrequest" violates check constraint "board_request_rejection_has_reason"
+ограничение (NEW): new row for relation "boards_boardrequest" violates check constraint "board_request_decision_matches_status"
+форма источника: ['related_board_request'] new row for relation "notifications_notification" violates check constraint "notification_
+форма источника: ['source_type'] new row for relation "notifications_notification" violates check constraint "notification_
+форма источника: ['related_task'] new row for relation "notifications_notification" violates check constraint "notification_
+старые уведомления других источников: {'TASK': 25}
+запросов «Заявки» / «Входящие»: до — (19, 24) | после 8 заявок — (19, 24)
+
+$ python manage.py shell -c "…"   # до отката: уведомления по источникам, заявки
+
+уведомления: {'TASK': 25, 'REQUEST': 19}
+заявок: 11
+уведомления о заявках удалены перед откатом (docs/deployment.md)
+
+$ python manage.py migrate notifications 0015 && python manage.py migrate boards 0023   # откат миграций этапа
+  Unapplying notifications.0017_board_request_source_constraint... OK
+  Unapplying notifications.0016_board_request_source... OK
+  Unapplying boards.0024_intake_and_requests... OK
+
+таблицы заявок после отката: (None, None)
+столбец related_board_request_id: 0
+уведомления после отката: {'TASK': 25}
+
+$ python manage.py migrate   # снова вперёд
+  Applying boards.0024_intake_and_requests... OK
+  Applying notifications.0016_board_request_source... OK
+  Applying notifications.0017_board_request_source_constraint... OK
+
+приём заявок после возврата: [('ZAP', False), ('OTG', False), ('СНБ', False)]
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test boards.tests.test_requests boards.tests.test_migration boards.tests.test_stages realtime.tests.test_sync notifications --parallel 4 --noinput   # PostgreSQL
+Ran 153 tests in 87.717s
+OK
