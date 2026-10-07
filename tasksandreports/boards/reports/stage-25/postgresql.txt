@@ -1,0 +1,63 @@
+$ python manage.py migrate   # с нуля, PostgreSQL
+  Applying boards.0025_column_rules_and_actions... OK
+
+$ python manage.py seed_references
+Reference data ready: 13 operations, 20 defect types, 8 act statuses, 3 task statuses, 4 priorities, 8 deviation reasons.
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-25/seed_demo.py
+seeded
+seeded stage 16
+seeded stage 17
+seeded stage 18
+seeded stage 19
+seeded stage 20
+seeded stage 21
+seeded stage 22
+seeded stage 23
+seeded stage 24
+columns: [(1, 'Сделать'), (2, 'В работе'), (3, 'Запуск в работу'), (4, 'Готово'), (9, 'Сделать'), (10, 'В работе'), (11, 'На проверке'), (12, 'Готово')]
+seeded stage 25
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-25/pg_checks.py
+
+значение поля: True
+то же значение ещё раз: False
+ZAP-7 вошла: чек-лист ['Проверить КД', 'Заказать материал', 'Выдать задание в цех'] | приоритет Высокий | следит petrova: True
+записей «Правила колонки»: 1 | Правила колонки «Запуск в работу»: Приоритет, чек-лист +3, подписчики +1
+перестановка внутри колонки — новых записей: 0
+без комментария: Для действия «Передать в ПДО» нужен комментарий.
+сбой шага — откат: колонка Сделать | исполнители ['ivanov'] | сообщений 0 | MOVED 0
+после нажатия: колонка Запуск в работу | исполнители ['petrova'] | чек-лист ['Проверить КД', 'Заказать материал', 'Выдать задание в цех']
+сообщение: Передано в ПДО: ZAP-8 → «Запуск в работу» /  / Срочно
+«Назначена карточка ZAP-8» у petrova: 1
+журнал: Перенос: «Сделать» → «Запуск в работу» — действие «Передать в ПДО»
+удалить пустую колонку, куда ведёт действие: На эту колонку ведут действия доски: «На приёмку». Сначала выберите для них другую колонку на странице «Действия».
+правило поля дважды — отказ базы
+исполнитель действия дважды — отказ базы
+неизвестный режим — отказ базы
+закреплена первой: ZAP-2 → ZAP-2
+списком: ['ZAP-13', 'ZAP-14', 'ZAP-15'] | исполнитель {('ivanov',)}
+31 строка: Списком — не больше 30 карточек за раз, а строк 31.
+
+$ python manage.py shell -c "…"   # до отката
+
+действий: 2 | строк шаблона: 3 | закреплённых карточек: 1 | карточек: 17
+
+$ python manage.py migrate boards 0024   # откат миграции этапа
+  Unapplying boards.0025_column_rules_and_actions... OK
+
+таблицы этапа после отката: (None, None, None, None, None, None)
+столбец is_pinned: 0
+карточек после отката: 17
+
+$ python manage.py migrate   # снова вперёд
+  Applying boards.0025_column_rules_and_actions... OK
+
+закреплённых после возврата: 0 | карточек: 17
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test boards.tests.test_automation boards.tests.test_pins boards.tests.test_migration boards.tests.test_dnd realtime.tests.test_sync --parallel 4 --noinput   # PostgreSQL
+Ran 127 tests in 96.391s
+OK
