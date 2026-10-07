@@ -1427,7 +1427,7 @@ function boardEvent(boardId, change, eventId) {
     };
 }
 
-function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts, checklist, followers } = {}) {
+function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comments, tabs, log, counts, checklist, followers, subtasks } = {}) {
     const payload = {
         columns_html: `<section data-column-id="31"><ol data-column-list><li data-card-id="9" data-task-id="21" data-fresh-tile>${columns}</li></ol></section>`,
         columns_revision: columns,
@@ -1437,6 +1437,15 @@ function boardFragment({ columns = 'columns-rev-2', panel = 'panel-rev-2', comme
         panel_revision: panel,
         panel: 'view',
     };
+    if (subtasks) {
+        payload.subtasks_html = `<ol><li data-subtask-id="13" data-task-id="33" data-fresh-subtask>${subtasks}</li></ol>`;
+        payload.subtask_summary_html = `<p data-fresh-summary>Подзадачи: 1 из 1</p>`;
+        payload.subtask_warning_html = '';
+        payload.subtask_warning_text = '';
+        payload.subtasks_revision = subtasks;
+        payload.subtasks_count = '1/1';
+        payload.subtasks_total = 1;
+    }
     if (followers) {
         payload.followers_html = `<dl data-fresh-followers>${followers}</dl>`;
         payload.followers_revision = followers;
@@ -2133,6 +2142,79 @@ test('a new follower replaces «Подписчики» and never the dirty panel
     env.clock.advance(300);
     await flush();
     assert.ok(env.live.followers.querySelector('[data-kept]'));
+});
+
+// ------------------------------------------------------------- «Подзадачи»
+
+test('a subtask closed elsewhere replaces «Подзадачи» and its warning, never the dirty panel', async () => {
+    const env = load({ page: 'board' });
+    // The guarded panel did not change: its fingerprint is taken without the warning.
+    env.setFetchHandler(() => boardFragment({
+        columns: 'columns-rev-2', panel: 'panel-rev-initial', subtasks: 'subtasks-rev-2',
+    }));
+    env.live.execution.value = 'Результат пишется';
+    env.document.dispatch('input', { target: env.live.execution });
+    env.live.subtaskTitle.value = 'Новая позиция';
+
+    env.source.emitEvent('board.updated', {
+        ...boardEvent(4, 'card_completed', 'subtask-done'),
+        data: { board_id: 4, card_id: 13, change: 'card_completed' },
+    });
+    env.clock.advance(300);
+    await flush();
+
+    assert.ok(env.live.subtasks.querySelector('[data-fresh-subtask]'), 'the list replaced');
+    assert.ok(env.live.subtaskSummary.querySelector('[data-fresh-summary]'), 'the line on «Описание» too');
+    assert.equal(env.live.subtaskWarning.innerHTML, '', 'no open subtask is left to warn about');
+    assert.equal(env.live.board.dataset.subtasksRevision, 'subtasks-rev-2');
+    assert.ok(env.live.columns.querySelector('[data-fresh-tile]'), '«⧉ k/n» on the tile with the columns');
+    assert.equal(
+        env.live.drawer.querySelector('[data-board-tab-count="subtasks"]').textContent, '1/1',
+    );
+    assert.equal(env.live.cancelTrigger.getAttribute('data-confirm-text'), 'Карточка будет закрыта.');
+    assert.equal(env.live.execution.value, 'Результат пишется', 'the result being typed is kept');
+    assert.equal(env.live.subtaskTitle.value, 'Новая позиция', 'the new subtask being typed is kept');
+    assert.equal(env.live.conflictBanner.hidden, true, 'a subtask is no conflict');
+
+    // The same fingerprint again replaces nothing.
+    env.live.subtasks.innerHTML = '<ol data-kept></ol>';
+    env.source.emitEvent('board.updated', boardEvent(4, 'card_updated', 'subtask-again'));
+    env.clock.advance(300);
+    await flush();
+    assert.ok(env.live.subtasks.querySelector('[data-kept]'));
+});
+
+test('a subtask\'s code in «Подзадачи» opens its drawer through the fragment', async () => {
+    const env = load({ page: 'board' });
+    drawerHandler(env);
+    loadDrawer(env);
+    env.live.subtasks.innerHTML = '<ol><li><a href="/work/boards/4/7/?card=12&mine=1" data-board-drawer-link>ZAP-12</a></li></ol>';
+    const link = env.live.subtasks.querySelector('[data-board-drawer-link]');
+
+    assert.equal(click(env, link), true, 'taken over, not followed');
+    await flush();
+    assert.equal(env.callsTo('/work/boards/4/7/fragment/')[0].url, '/work/boards/4/7/fragment/?card=12&mine=1');
+    assert.ok(env.live.drawer.querySelector('[data-opened-panel]'), 'the subtask\'s drawer inserted');
+    assert.deepEqual(env.window.history.pushed, ['/work/boards/4/7/?card=12&tab=description&mine=1']);
+    assert.deepEqual(env.window.location.assigned, []);
+});
+
+test('a task event of a subtask on the open card refreshes the page', async () => {
+    const env = load({ page: 'board' });
+    env.setFetchHandler(() => boardFragment({ subtasks: 'subtasks-rev-3' }));
+    const before = boardCalls(env).length;
+    env.source.emitEvent('task.updated', {
+        schema_version: 1,
+        event_id: 'task-33',
+        event_type: 'task.updated',
+        occurred_at: '2026-10-07T10:00:00+00:00',
+        resource_type: 'task',
+        resource_id: 33,
+        data: { task_id: 33 },
+    });
+    env.clock.advance(300);
+    await flush();
+    assert.equal(boardCalls(env).length, before + 1);
 });
 
 test('a file deleted elsewhere replaces the chat and keeps the files chosen for the message', async () => {

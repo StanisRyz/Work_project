@@ -43,6 +43,10 @@ values in place (`form` is then the bound form).
             {{ form.due_date }}
             {{ form.due_date.errors }}
         </label>
+        {% if panel == 'edit' and card.is_subtask and card.parent_due_date %}
+            {% comment %}A warning, not a rule: `board_subtasks.js` shows it while the date is later than the card's.{% endcomment %}
+            <p class="board-subtask-due-warning" data-subtask-due-warning data-parent-due="{{ card.parent_due_date|date:'Y-m-d' }}"{% if not card.later_than_parent %} hidden{% endif %}>Позже срока карточки {{ card.card.parent_code }}: {{ card.parent_due_date|date:'d.m.Y' }}</p>
+        {% endif %}
         <fieldset class="board-card-form__assignees">
             <legend>{{ form.assignees.label }}</legend>
             {{ form.assignees }}

@@ -24,7 +24,7 @@ at least its «Застой» threshold. «Доска | Таблица» are two
 sub-board under the same filter, and «Excel» is the table of it as a
 spreadsheet (`?view=table&export=xlsx`): what the table shows, with every
 option of the address. The table adds «Отменённые» (`cancelled=1`) and «Все
-поддоски» (`scope=board`) to the form and carries its order (`sort`) and the
+поддоски» (`scope=board`) and «Подзадачи» (`subtasks=1`) to the form and carries its order (`sort`) and the
 view in hidden fields; the board carries the open card and its tab instead.
 {% endcomment %}
 <form class="board-filters" method="get" action="{{ board_url }}" data-registry-filter>
@@ -80,6 +80,7 @@ view in hidden fields; the board carries the open card and its tab instead.
     {% if view == 'table' %}
         <label class="board-filters__check" title="Показать и отменённые карточки"><input type="checkbox" name="cancelled" value="1"{% if cancelled %} checked{% endif %}> Отменённые</label>
         <label class="board-filters__check" title="Строки всех поддосок доски, со столбцом «Поддоска»"><input type="checkbox" name="scope" value="board"{% if whole_board %} checked{% endif %}> Все поддоски</label>
+        <label class="board-filters__check" title="Подзадачи — строками сразу под своей карточкой, со столбцом «Родитель»"><input type="checkbox" name="subtasks" value="1"{% if subtasks %} checked{% endif %}> Подзадачи</label>
     {% endif %}
     <button class="link-button link-button--secondary link-button--compact" type="submit">Применить</button>
     {% if filters.is_active %}<a class="board-filters__reset" href="{{ reset_url }}"{% if view != 'table' %} data-board-filter-reset{% endif %}>Сбросить</a>{% endif %}

@@ -417,7 +417,7 @@ class ChatViewTests(BoardFixtureMixin, TestCase):
                 self.assertIn('data-board-tab="chat"', content)
                 self.assertIn('data-board-chat-mode="files"', content)
                 tabs = re.findall(r'data-board-tab-link="(\w+)"', content)
-                self.assertEqual(tabs, ['description', 'chat', 'log'])
+                self.assertEqual(tabs, ['description', 'chat', 'subtasks', 'log'])
 
     def test_the_page_equals_the_fragment_in_both_modes(self):
         post_card_comment(self.card_obj, actor=self.member, text='С файлами', files=[chat_upload(), image()])

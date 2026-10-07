@@ -27,6 +27,11 @@
  * - a tile clicked while a card is open opens the new card on the tab the
  *   drawer shows now («Лог» stays «Лог»); without JavaScript a tile opens
  *   «Описание», as its address says;
+ * - a link inside the drawer that names another panel of this board — a
+ *   subtask's code in «Подзадачи», «Подзадача карточки ZAP-12» in a
+ *   subtask's heading, «Скрыть выполненные» (`[data-board-drawer-link]`) —
+ *   opens that panel the same way, through the fragment; without this script
+ *   it is an ordinary link;
  * - «Карточка ZAP-12» in the heading copies the link to the card (the async
  *   clipboard, or the selection fallback on plain HTTP — never a browser
  *   dialog) and says so in `[data-board-message]`; with a modifier key, or
@@ -274,6 +279,7 @@
         root.dataset.logRevision = payload.log_revision || '';
         root.dataset.checklistRevision = payload.checklist_revision || '';
         root.dataset.followersRevision = payload.followers_revision || '';
+        root.dataset.subtasksRevision = payload.subtasks_revision || '';
         root.dataset.panelHoldsInput = 'false';
         markTile(payload.card_id);
         syncFilter(payload.card_id, payload.tab, payload.reset_url);
@@ -306,6 +312,7 @@
         root.dataset.logRevision = '';
         root.dataset.checklistRevision = '';
         root.dataset.followersRevision = '';
+        root.dataset.subtasksRevision = '';
         root.dataset.panelHoldsInput = 'false';
         markTile(null);
         syncFilter(null, '', root.dataset.boardUrl);
@@ -444,6 +451,19 @@
         if (cardLink && drawer.contains(cardLink)) {
             event.preventDefault();
             copyLink(new URL(cardLink.getAttribute('href'), window.location.href).href, cardLink.dataset.boardCardLink);
+            return;
+        }
+
+        // Another panel of this board named inside the drawer — a subtask,
+        // the card a subtask lives in, «Скрыть выполненные».
+        const drawerLink = target.closest('a[data-board-drawer-link]');
+        if (drawerLink && drawer.contains(drawerLink)) {
+            if (hasUnsaved()) {
+                return;
+            }
+            const url = new URL(drawerLink.getAttribute('href'), window.location.href);
+            event.preventDefault();
+            open(url.search, { fallback: url.href });
             return;
         }
 

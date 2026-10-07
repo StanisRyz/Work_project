@@ -1,0 +1,6 @@
+{% comment %}
+«Подзадачи: 1 из 3» on «Описание» of a card — a link to its «Подзадачи» tab,
+switched in place by `board_drawer.js`. Its own container
+(`[data-live-board-subtask-summary]`), refreshed with the list
+(`subtasks_revision`), outside the guarded panel. Nothing without subtasks.
+{% endcomment %}{% if card.subtasks %}<p class="board-subtask-summary"><a href="{{ subtasks_tab_url }}" data-board-tab-link="subtasks">Подзадачи: {{ card.subtask_done }} из {{ card.subtask_total }}</a></p>{% endif %}

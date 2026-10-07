@@ -59,6 +59,7 @@ class Notification(models.Model):
         BOARD_CARD_COMMENT = 'BOARD_CARD_COMMENT', 'Новое сообщение в карточке'
         BOARD_CARD_MENTION = 'BOARD_CARD_MENTION', 'Упоминание в карточке'
         BOARD_CARD_COMPLETED = 'BOARD_CARD_COMPLETED', 'Карточка выполнена'
+        BOARD_SUBTASKS_DONE = 'BOARD_SUBTASKS_DONE', 'Все подзадачи выполнены'
         BUG_REPORTED = 'BUG_REPORTED', 'Сообщение об ошибке в системе'
         DOCUMENT_ACK_REQUIRED = 'DOCUMENT_ACK_REQUIRED', 'Требуется ознакомление с документом'
         DOCUMENT_APPROVAL_REQUIRED = 'DOCUMENT_APPROVAL_REQUIRED', 'Требуется согласование документа'

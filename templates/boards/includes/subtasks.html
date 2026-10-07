@@ -1,0 +1,43 @@
+{% load people %}{% comment %}
+A card's «Подзадачи»: the live block `[data-live-board-subtasks]`, read-only,
+replaced whenever its fingerprint (`subtasks_revision`) moves — a subtask
+added, edited, completed, reopened or cancelled, here or by anybody else. It
+is outside the guarded panel, so a subtask closed by a colleague never raises
+the conflict banner over a result being typed. The forms that add subtasks
+are the drawer's, below this block and in no block at all.
+
+On top, «1 из 3 выполнено» and a bar of that share (a cancelled subtask is
+withdrawn work and counts in neither number). Then the rows — the open ones in
+the list's order, then the closed ones (completed and cancelled) — each the subtask's code (a link that
+opens its own drawer: `board_drawer.js`, or its page without JavaScript), its
+title (`.user-text`, two lines, the whole on `title`), its исполнители as
+avatars, its срок (`includes/due_date.html`; «позже срока карточки» when it
+is) and its status. «Скрыть выполненные» / «Показать выполненные» is this
+panel with the other `subtasks_done` — drawn by the server, so the hidden rows
+are simply not in the markup. Every row carries its task's id, so a `task.*`
+event about it refreshes the page.
+{% endcomment %}
+{% if card.subtasks %}
+    <div class="board-subtasks__head">
+        <p class="board-subtasks__progress-label">{{ card.subtask_done }} из {{ card.subtask_total }} выполнено</p>
+        {% if card.subtask_closed %}
+            <a class="board-subtasks__toggle" href="{{ subtasks_toggle_url }}" data-board-drawer-link>{% if subtasks_hide_done %}Показать выполненные{% else %}Скрыть выполненные{% endif %}</a>
+        {% endif %}
+    </div>
+    <progress class="board-subtasks__bar{% if card.subtask_total and card.subtask_done == card.subtask_total %} is-complete{% endif %}" max="{{ card.subtask_total|default:1 }}" value="{{ card.subtask_done }}" aria-label="Подзадачи: выполнено {{ card.subtask_done }} из {{ card.subtask_total }}">{{ card.subtask_done }} из {{ card.subtask_total }}</progress>
+    <ol class="board-subtasks__items">
+        {% for row in card.subtasks %}
+            {% if not row.is_closed or not subtasks_hide_done %}
+                <li class="board-subtask{% if row.is_closed %} is-closed{% endif %}" data-subtask-id="{{ row.card.pk }}" data-task-id="{{ row.task.pk }}">
+                    <a class="board-subtask__code" href="{{ board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" data-board-drawer-link title="Задача №{{ row.task.pk }}">{{ row.card.code }}</a>
+                    <span class="board-subtask__title user-text text-clamp-2" title="{{ row.card.title }}">{{ row.card.title }}</span>
+                    <span class="board-subtask__people">{% for user in row.assignees %}<span class="board-avatar board-avatar--small" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}</span>
+                    <span class="board-subtask__due">{% include 'includes/due_date.html' with date=row.due_date done=row.is_closed %}{% if row.later_than_parent and not row.is_closed %} <span class="board-subtask-late" title="Позже срока карточки {{ card.card.code }}">позже срока карточки</span>{% endif %}</span>
+                    <span class="board-subtask__status">{% if row.is_cancelled %}<span class="status-badge status-badge--archived">Отменена</span>{% elif row.is_done %}<span class="status-badge status-badge--completed">Выполнена</span>{% else %}<span class="status-badge status-badge--in_progress">В работе</span>{% endif %}</span>
+                </li>
+            {% endif %}
+        {% endfor %}
+    </ol>
+{% else %}
+    <p class="board-drawer__empty">Подзадач пока нет.{% if card.can_add_subtask %} Добавьте позиции заказа ниже — по одной или списком, по строке на подзадачу.{% endif %}</p>
+{% endif %}

@@ -2589,12 +2589,21 @@
     object-fit: contain;
 }
 
+/* Under a thumbnail: the name on a line of its own, the whole width of the
+   thumbnail, then the size and the links — wrapping, never squeezing the
+   name down to a few letters. */
 .board-chat__image-meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 2px 6px;
     min-width: 0;
     font-size: 13px;
+}
+
+.board-chat__image-meta .board-file__name {
+    flex: 1 0 100%;
+    max-width: 100%;
 }
 
 /* Any other file of a message, or of the task: one row each. */
@@ -2805,4 +2814,265 @@ form[data-chat-files-ready] .board-chat__file-input {
     color: var(--color-muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+}
+
+/* ---- «Подзадачи» ---- */
+
+/* «⧉ 1/3» on a tile; green once every subtask is done, like «☑». */
+.board-tile__subtasks {
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.board-tile__subtasks--complete {
+    padding: 0 5px;
+    border-radius: var(--radius);
+    background: var(--board-color-green-bg);
+    color: var(--board-color-green-text);
+}
+
+/* The card a subtask lives in, named in its facts: a link. */
+.board-drawer__facts [data-board-drawer-link] {
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+/* A subtask's drawer names the card it lives in, above its title. */
+.board-drawer__parent {
+    margin: 0 0 2px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.board-drawer__parent a {
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+/* The tab, its body one scrolling column: the live list, then the forms. */
+.board-drawer[data-board-tab="subtasks"] [data-board-tab-body="subtasks"] {
+    display: grid;
+}
+
+.board-subtasks__block {
+    display: grid;
+    gap: 8px;
+}
+
+.board-subtasks__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+}
+
+.board-subtasks__progress-label {
+    margin: 0;
+    font-weight: 700;
+}
+
+.board-subtasks__toggle {
+    color: var(--color-primary-dark);
+    font-size: 13px;
+}
+
+/* «1 из 3 выполнено» as a bar, in the tokens' own colours. */
+.board-subtasks__bar {
+    display: block;
+    width: 100%;
+    height: 6px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    color: var(--color-primary);
+    appearance: none;
+}
+
+.board-subtasks__bar::-webkit-progress-bar {
+    border-radius: var(--radius);
+    background: var(--color-bg);
+}
+
+.board-subtasks__bar::-webkit-progress-value {
+    border-radius: var(--radius);
+    background: var(--color-primary);
+}
+
+.board-subtasks__bar::-moz-progress-bar {
+    border-radius: var(--radius);
+    background: var(--color-primary);
+}
+
+.board-subtasks__bar.is-complete::-webkit-progress-value {
+    background: var(--board-color-green-text);
+}
+
+.board-subtasks__bar.is-complete::-moz-progress-bar {
+    background: var(--board-color-green-text);
+}
+
+.board-subtasks__items {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* One row: code · title · people · срок · status. */
+.board-subtask {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 6px 0;
+    border-top: 1px solid var(--color-border);
+}
+
+.board-subtask:first-child {
+    border-top: 0;
+}
+
+.board-subtask.is-closed .board-subtask__title {
+    color: var(--color-muted);
+}
+
+.board-subtask__code {
+    color: var(--color-primary-dark);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.board-subtask__people {
+    display: inline-flex;
+    gap: 2px;
+}
+
+.board-subtask__due {
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.board-subtask-late {
+    padding: 0 5px;
+    border-radius: var(--radius);
+    background: var(--board-color-orange-bg);
+    color: var(--board-color-orange-text);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* «+ Подзадача»: the title takes the row, the date and the button follow. */
+.board-subtasks__add,
+.board-subtasks__list-form {
+    display: grid;
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
+}
+
+.board-subtasks__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.board-subtasks__row .board-subtasks__title-input {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.board-subtasks__row input[type="date"] {
+    flex: 0 0 auto;
+}
+
+.board-subtasks__people summary,
+.board-subtasks__list summary {
+    color: var(--color-muted);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.board-subtasks__people-hint {
+    color: var(--color-primary-dark);
+}
+
+.board-subtasks__choices ul,
+.board-subtasks__choices div {
+    display: grid;
+    gap: 2px;
+    margin: 6px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.board-subtasks__list-form textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: var(--control-font-size);
+    resize: vertical;
+}
+
+.board-subtasks__list-form .link-button {
+    justify-self: start;
+}
+
+/* The warnings: open subtasks in «Завершить», a срок later than the card's. */
+.board-subtask-warning,
+.board-subtask-due-warning {
+    margin: 0;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    background: var(--board-color-orange-bg);
+    color: var(--board-color-orange-text);
+    font-size: 13px;
+}
+
+.board-subtask-warning a {
+    font-weight: 700;
+    text-decoration: underline;
+}
+
+.board-complete__warning:empty {
+    display: none;
+}
+
+/* «Подзадачи: 1 из 3» on «Описание» only, and nothing without subtasks. */
+.board-drawer__subtask-summary {
+    display: none;
+}
+
+.board-drawer[data-board-tab="description"] .board-drawer__subtask-summary:not(:empty) {
+    display: block;
+}
+
+.board-subtask-summary {
+    margin: 0;
+}
+
+.board-subtask-summary a {
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+/* «Таблица» with «Подзадачи»: a subtask right under its card, indented. */
+.board-table__row--subtask .board-table__title-cell {
+    padding-left: 28px;
+}
+
+/* «↳» before the title, inside its own line clamp. */
+.board-table__row--subtask .board-table__title-text::before {
+    content: "↳ ";
+    color: var(--color-muted);
+}
+
+.board-table__subtask-label {
+    color: var(--color-muted);
+    font-size: 13px;
 }

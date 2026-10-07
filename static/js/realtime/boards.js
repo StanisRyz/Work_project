@@ -54,6 +54,19 @@
  *                              open (`[data-checklist-edit]`): deferred like
  *                              the menus, and fetched again once it is gone.
  *                              «Добавить пункт» is outside it.
+ *   [data-live-board-subtasks] +   a card's «Подзадачи»: the list (its tab),
+ *   [data-live-board-subtask-summary] + the line «Подзадачи: 1 из 3» on
+ *   [data-live-board-subtask-warning]   «Описание» and the warning in
+ *                              «Завершить» — read-only, one fingerprint
+ *                              (`subtasks_revision`), replaced whenever it
+ *                              moved: a subtask added, edited, completed,
+ *                              reopened or cancelled by anybody. None of it is
+ *                              part of the guarded block (its fingerprint is
+ *                              taken without the warning), so a subtask closed
+ *                              by a colleague never raises the banner; the
+ *                              number beside «Подзадачи» and the sentence of
+ *                              «Отменить карточку» follow it. Its forms are
+ *                              outside every block.
  *
  * The numbers beside «Чат» and «Только файлы» are set with the messages'
  * block (`chat_count`, `files_count`). Which tab is shown is the drawer's own
@@ -101,6 +114,7 @@
     const commentsElement = () => root.querySelector('[data-live-board-comments]');
     const logElement = () => root.querySelector('[data-live-board-log]');
     const checklistElement = () => root.querySelector('[data-live-board-checklist]');
+    const subtasksElement = () => root.querySelector('[data-live-board-subtasks]');
     const conflictBanner = document.querySelector('[data-board-conflict-banner]');
     const reloadButton = document.querySelector('[data-board-conflict-reload]');
     if (reloadButton) {
@@ -351,6 +365,49 @@
         }
     };
 
+    /**
+     * A card's «Подзадачи»: the list, the line on «Описание» and the warning
+     * of «Завершить» — links only, so replaced whenever their one fingerprint
+     * moved. The tab's «1/3» and the sentence the cancel dialog says
+     * (`data-confirm-base-text` plus the warning) follow. A subtask is a card
+     * of its own, so a change of it is a `board.updated` of the board, which
+     * already refetches this page: nothing more is needed to hear of it.
+     */
+    const applySubtasks = (payload) => {
+        const list = subtasksElement();
+        if (!list || typeof payload.subtasks_html !== 'string') {
+            return;
+        }
+        const next = revisionOf(payload.subtasks_revision);
+        if (next && next === revision('subtasksRevision')) {
+            return;
+        }
+        list.innerHTML = payload.subtasks_html;
+        const summary = root.querySelector('[data-live-board-subtask-summary]');
+        if (summary && typeof payload.subtask_summary_html === 'string') {
+            summary.innerHTML = payload.subtask_summary_html;
+        }
+        const warning = root.querySelector('[data-live-board-subtask-warning]');
+        if (warning && typeof payload.subtask_warning_html === 'string') {
+            warning.innerHTML = payload.subtask_warning_html;
+        }
+        const count = root.querySelector('[data-board-tab-count="subtasks"]');
+        if (count && typeof payload.subtasks_count === 'string') {
+            count.textContent = payload.subtasks_count;
+            count.hidden = !payload.subtasks_total;
+        }
+        const cancel = root.querySelector('[data-board-cancel-trigger]');
+        const base = cancel ? cancel.getAttribute('data-confirm-base-text') : null;
+        if (cancel && base !== null) {
+            const extra = typeof payload.subtask_warning_text === 'string' ? payload.subtask_warning_text : '';
+            cancel.setAttribute('data-confirm-text', extra ? `${base} ${extra}` : base);
+        }
+        setRevision('subtasksRevision', next);
+        if (window.qualityFragments) {
+            window.qualityFragments.reinitialise(list);
+        }
+    };
+
     /** «Лог»: read-only, newest first, replaced whenever its fingerprint moved. */
     const applyLog = (payload) => {
         const log = logElement();
@@ -389,6 +446,7 @@
             applyLog(payload);
             applyChecklist(payload);
             applyFollowers(payload);
+            applySubtasks(payload);
         },
         // A lost session stops the whole client; a board that is gone stops
         // only this coordinator, which `createRefreshCoordinator` already did.
@@ -448,9 +506,11 @@
             return false;
         }
         const panel = panelElement();
+        const subtasks = subtasksElement();
         return Boolean(
             (columnsElement && columnsElement.querySelector(`[data-task-id="${taskId}"]`))
-            || (panel && Number(panel.dataset.taskId) === taskId),
+            || (panel && Number(panel.dataset.taskId) === taskId)
+            || (subtasks && subtasks.querySelector(`[data-task-id="${taskId}"]`)),
         );
     };
     [

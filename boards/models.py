@@ -107,6 +107,10 @@ class Board(models.Model):
         return self.status == self.Status.ARCHIVED
 
 
+# How many subtasks one card may hold («Подзадачи»).
+MAX_SUBTASKS = 50
+
+
 class BoardMember(models.Model):
     """A person who may put cards on the board and move them.
 
@@ -342,6 +346,21 @@ class BoardCard(models.Model):
     number = models.PositiveIntegerField('Номер')
     title = models.CharField('Заголовок', max_length=200)
     description = models.TextField('Описание', blank=True)
+    # «Подзадачи»: a subtask is a real card — its own number, исполнители,
+    # срок, «Чат» and «Лог», its own `BOARD` task — that lives inside another
+    # card instead of a column. One level only: a subtask has no subtasks of
+    # its own (`clean()` and `services.create_subtask()`; the database cannot
+    # say it without a trigger). A subtask stands on its parent's sub-board
+    # with no column (`board_card_subtask_no_column`) and `position` is its
+    # place in the parent's list. `PROTECT`: cards are never deleted.
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.PROTECT,
+        related_name='subtasks',
+        verbose_name='Карточка',
+        null=True,
+        blank=True,
+    )
     # Grows by one with every edit that stored something (`update_card()`), and
     # only then: a move or a completion does not touch the text an editor is
     # holding. The edit form carries the number it was drawn with, and
@@ -369,10 +388,30 @@ class BoardCard(models.Model):
         ]
         constraints = [
             models.UniqueConstraint(fields=['board', 'number'], name='unique_board_card_number'),
+            # A subtask lives inside its card, never in a column of the board.
+            models.CheckConstraint(
+                condition=models.Q(parent__isnull=True) | models.Q(column__isnull=True),
+                name='board_subtask_no_column',
+            ),
         ]
 
     def __str__(self):
         return f'Карточка #{self.pk}: {self.title[:60]}'
+
+    @property
+    def is_subtask(self):
+        return self.parent_id is not None
+
+    @property
+    def parent_code(self):
+        """«ZAP-12» of the card this subtask lives in, `''` for a card.
+
+        The parent is on the same board, so its code is this board's code and
+        the parent's number — a listing that joins `parent` pays no query.
+        """
+        if self.parent_id is None:
+            return ''
+        return f'{self.board.code}-{self.parent.number}'
 
     @property
     def code(self):
@@ -401,8 +440,27 @@ class BoardCard(models.Model):
                 errors['column'] = (
                     'Карточка стоит в завершающей колонке только по выполненной задаче.'
                 )
+        if self.parent_id is not None:
+            errors.update(self._subtask_errors())
         if errors:
             raise ValidationError(errors)
+
+
+    def _subtask_errors(self):
+        """A subtask: one level, the parent's board and sub-board, no column."""
+        errors = {}
+        parent = self.parent
+        if self.pk is not None and parent.pk == self.pk:
+            errors['parent'] = 'Карточка не может быть подзадачей самой себя.'
+        elif parent.parent_id is not None:
+            errors['parent'] = 'У подзадачи не бывает подзадач.'
+        elif self.pk is not None and BoardCard.objects.filter(parent_id=self.pk).exists():
+            errors['parent'] = 'Карточка с подзадачами не может сама стать подзадачей.'
+        if parent.board_id != self.board_id or parent.sub_board_id != self.sub_board_id:
+            errors['sub_board'] = 'Подзадача стоит на поддоске своей карточки.'
+        if self.column_id is not None:
+            errors['column'] = 'Подзадача живёт в своей карточке, а не в колонке доски.'
+        return errors
 
 
 class BoardCardComment(models.Model):
@@ -692,6 +750,11 @@ class BoardCardEvent(models.Model):
         # `done`, `undone`, `deleted` (a reorder writes no entry) — the item's
         # id and «сделано/всего» after the action, never the item's text.
         CHECKLIST = 'CHECKLIST', 'Чек-лист'
+        # The parent's record of its «Подзадачи»: `details.action` — `added`,
+        # `completed`, `reopened`, `cancelled` — `subtask_id` and the
+        # subtask's `code` («ZAP-13», an identifier), written in the
+        # transaction of the subtask's own change.
+        SUBTASK = 'SUBTASK', 'Подзадача'
 
     card = models.ForeignKey(
         BoardCard,

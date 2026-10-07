@@ -53,6 +53,12 @@ card — a message, a cancellation, a completion — is
 `selectors.card_audience()`; the people a message mentions are told once, by
 `BOARD_CARD_MENTION`, and follow the card from then on.
 
+A card may hold «Подзадачи» — cards with a `parent`, in no column, one level
+deep: `create_subtask()`, `create_subtasks_from_list()` and
+`checklist_item_to_subtask()` add them, every other card service works for
+them but `move_card()`, and the card's journal records each one added,
+completed, reopened and cancelled (`SUBTASK`).
+
 A message of «Чат» carries files (`BoardCardFile`, the board's own — never a
 `tasks.TaskAttachment`): `post_card_comment(files=…)` checks them by the one
 upload policy, writes them before their rows and removes them again if the
@@ -94,6 +100,7 @@ from .models import (
     CHECKLIST_TEXT_MAX_LENGTH,
     MAX_CHECKLIST_ITEMS,
     MAX_FILES_PER_MESSAGE,
+    MAX_SUBTASKS,
     STALE_DAYS_MAX,
     STALE_DAYS_MIN,
     BOARD_CODE_MAX_LENGTH,
@@ -119,6 +126,7 @@ from .models import (
 from .permissions import (
     active_employee_q,
     board_readers_q,
+    can_add_subtask,
     can_cancel_card,
     can_comment_card,
     can_create_board,
@@ -580,11 +588,18 @@ def _first_working_id(sub_board):
 
 def _in_column_q(column, first_working_id):
     """The cards standing in `column`: those naming it, and — for the first
-    working column — those whose column was deleted (`column` NULL)."""
+    working column — those whose column was deleted (`column` NULL).
+
+    Never a subtask: it has no column either, but it lives inside its card,
+    so it takes no place in a column, does not count against deleting one
+    and is never renumbered with its cards. This is the write side's one
+    point of «подзадач в колонках нет» (`selectors._column_tasks()` is the
+    read side's).
+    """
     condition = Q(column=column)
     if column.pk == first_working_id:
         condition |= Q(column__isnull=True)
-    return condition
+    return Q(parent__isnull=True) & condition
 
 
 def _column(column, *, exclude_card_id=None):
@@ -687,6 +702,57 @@ def _next_number(board):
     return (BoardCard.objects.filter(board=board).aggregate(last=Max('number'))['last'] or 0) + 1
 
 
+def _new_card(board, sub_board, *, actor, title, description, due_date, ids, values,
+              column=None, position, parent=None):
+    """The rows of one new card — the `BoardCard`, its field values, its
+    `BOARD` task and its `CREATED` entry — inside the caller's transaction,
+    under the board lock it holds.
+
+    What `create_card()` and `create_subtask()` share: the next number of the
+    board (`_next_number()`, one series for cards and subtasks alike), the
+    task through `tasks.services.create_board_card_task()`, the journal
+    entry. A card stands in `column`; a subtask (`parent`) in none, at
+    `position` in its parent's list. Who is told, and what is published, is
+    the caller's.
+    """
+    from tasks.services import TaskWorkflowError, create_board_card_task
+
+    card = BoardCard(
+        board=board,
+        sub_board=sub_board,
+        column=column,
+        parent=parent,
+        position=position,
+        number=_next_number(board),
+        title=title,
+        description=description,
+        created_by=actor,
+    )
+    card.clean()
+    card.save()
+    _write_field_values(card, _field_value_changes(values, {}), {})
+    try:
+        task = create_board_card_task(
+            card,
+            ids,
+            created_by=actor,
+            due_date=due_date,
+            task_text=compose_task_text(title, description),
+            # A board is shared work of people from any department: its
+            # tasks name none (`Task.department` is free for `BOARD`).
+            department=None,
+        )
+    except TaskWorkflowError as exc:
+        raise BoardError(str(exc)) from exc
+    if parent is None:
+        details = _column_snapshot('column', column)
+    else:
+        # The card it lives in, by id and code — identifiers, never text.
+        details = {'parent_id': parent.pk, 'parent': f'{board.code}-{parent.number}'}
+    _record(card, BoardCardEvent.Kind.CREATED, actor=actor, **details)
+    return card, task
+
+
 def create_card(
     sub_board, *, actor, title, due_date, assignee_ids, description='', column=None,
     field_values=None,
@@ -701,7 +767,6 @@ def create_card(
     parsed by kind (`_clean_field_values()`); an empty one stores nothing.
     """
     from notifications.services import notify_board_task_assigned
-    from tasks.services import TaskWorkflowError, create_board_card_task
 
     with transaction.atomic():
         board = _lock_board(sub_board.board_id)
@@ -719,33 +784,11 @@ def create_card(
         column = _working_column(sub_board, column, operation='create_card', actor=actor)
         ids = _clean_assignees(board, assignee_ids)
         values = _clean_field_values(board, field_values, {})
-        card = BoardCard(
-            board=board,
-            sub_board=sub_board,
-            column=column,
+        card, task = _new_card(
+            board, sub_board, actor=actor, title=title, description=description,
+            due_date=due_date, ids=ids, values=values, column=column,
             position=_end_position(column),
-            number=_next_number(board),
-            title=title,
-            description=description,
-            created_by=actor,
         )
-        card.clean()
-        card.save()
-        _write_field_values(card, _field_value_changes(values, {}), {})
-        try:
-            task = create_board_card_task(
-                card,
-                ids,
-                created_by=actor,
-                due_date=due_date,
-                task_text=compose_task_text(title, description),
-                # A board is shared work of people from any department: its
-                # tasks name none (`Task.department` is free for `BOARD`).
-                department=None,
-            )
-        except TaskWorkflowError as exc:
-            raise BoardError(str(exc)) from exc
-        _record(card, BoardCardEvent.Kind.CREATED, actor=actor, **_column_snapshot('column', column))
         ids, _ = _apply_pins(card, task, column, board, actor=actor, current_ids=ids)
         # Inside the transaction and after the task and its исполнители exist,
         # so a rollback leaves no notification about a card that never was —
@@ -942,6 +985,9 @@ def move_card(card, *, actor, column, before_card_id=None):
         if not can_work_on_board(actor, board):
             _rejected('move_card', 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
             raise BoardError('Работа с карточками этой доски недоступна.')
+        if card.parent_id is not None:
+            _rejected('move_card', 'subtask', actor=actor, board_id=board.pk, card_id=card.pk)
+            raise BoardError('Подзадачу не переносят по колонкам: она живёт в своей карточке.')
         target = _board_working_column(board, column, operation='move_card', actor=actor, card_id=card.pk)
         if task.status.is_final:
             _rejected('move_card', 'task_final', actor=actor, board_id=board.pk, card_id=card.pk)
@@ -992,6 +1038,12 @@ def move_card(card, *, actor, column, before_card_id=None):
         else:
             card.position = position
             card.save(update_fields=['column', 'sub_board', 'position', 'updated_at'])
+        if crosses:
+            # A card's subtasks live inside it: they go to its new sub-board
+            # with it, in the same transaction, and keep their place in its list.
+            BoardCard.objects.filter(parent=card).update(
+                sub_board_id=target.sub_board_id, updated_at=timezone.now(),
+            )
         if target.pk != previous_column_id:
             # A reorder within a column is a move of the tile, not of the
             # work: the journal records where the card went, by name — and,
@@ -1064,6 +1116,9 @@ def complete_card(card, *, actor, execution_comment):
         # Its followers and its author, in the bell; whoever finished it knows.
         card.board = board
         notify_board_card_completed(task, actor, card_audience(card, task, assignees=False))
+        if card.parent_id is not None:
+            parent = _record_subtask(card, 'completed', actor=actor)
+            _ask_parent_done(parent, board, actor=actor, closed_at=task.completed_at)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_COMPLETED, card.pk)
     log_event(
         logger,
@@ -1099,11 +1154,17 @@ def reopen_card(card, *, actor):
             task = reopen_task(task, actor)
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
-        working = [column for column in _sub_board_columns(card.sub_board) if not column.is_done]
-        column = next((column for column in working if column.pk == card.column_id), None)
-        if column is None and working:
-            column = working[0]
-        _record(card, BoardCardEvent.Kind.REOPENED, actor=actor, **_column_snapshot('column', column))
+        if card.parent_id is not None:
+            # A subtask returns to its card's list, not to a column.
+            card.board = board
+            _record(card, BoardCardEvent.Kind.REOPENED, actor=actor)
+            _record_subtask(card, 'reopened', actor=actor)
+        else:
+            working = [column for column in _sub_board_columns(card.sub_board) if not column.is_done]
+            column = next((column for column in working if column.pk == card.column_id), None)
+            if column is None and working:
+                column = working[0]
+            _record(card, BoardCardEvent.Kind.REOPENED, actor=actor, **_column_snapshot('column', column))
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_REOPENED, card.pk)
     log_event(
         logger,
@@ -1152,6 +1213,9 @@ def cancel_card(card, *, actor, reason):
         # is not told.
         notify_board_task_cancelled(task, actor, card_audience(card, task, author=False))
         _record(card, BoardCardEvent.Kind.CANCELLED, actor=actor)
+        if card.parent_id is not None:
+            parent = _record_subtask(card, 'cancelled', actor=actor)
+            _ask_parent_done(parent, board, actor=actor, closed_at=task.cancelled_at)
         emit_board_updated(board.pk, BOARD_CHANGE_CARD_CANCELLED, card.pk)
     log_event(
         logger,
@@ -1164,6 +1228,225 @@ def cancel_card(card, *, actor, reason):
         outcome='ok',
     )
     return task
+
+
+# --------------------------------------------------------------------------
+# «Подзадачи»
+# --------------------------------------------------------------------------
+#
+# A subtask is a real card — its own number from the board's one series, its
+# исполнители, срок, «Чат», «Лог» and `BOARD` task — that lives inside its
+# card (`BoardCard.parent`) and in no column. One level: a subtask has none
+# of its own. Created by `create_subtask()`, `create_subtasks_from_list()` and
+# `checklist_item_to_subtask()`, each one board lock → card → task, on an open
+# card of a live board, by whoever works on the board (`can_add_subtask()`),
+# at most `MAX_SUBTASKS` per card. Everything else a subtask does is the
+# card's own service — `update_card()`, `complete_card()`, `reopen_card()`,
+# `cancel_card()`, «Чат», the files, the «Чек-лист» — except `move_card()`,
+# which refuses it. The parent's journal records each subtask added,
+# completed, reopened and cancelled (`SUBTASK`), in that change's own
+# transaction; when the last open subtask of an open card closes, its author
+# and исполнители are asked «завершить?» (`BOARD_SUBTASKS_DONE`) — the card
+# is never closed by itself, and closing a card with open subtasks is
+# allowed: they stay in work with their own исполнители.
+
+
+def _record_subtask(card, action, *, actor):
+    """The parent's `SUBTASK` entry about `card` (a subtask, its `board`
+    attached) — inside the caller's transaction. Returns the parent."""
+    parent = BoardCard.objects.get(pk=card.parent_id)
+    _record(parent, BoardCardEvent.Kind.SUBTASK, actor=actor, action=action, subtask_id=card.pk, code=card.code)
+    return parent
+
+
+def _ask_parent_done(parent, board, *, actor, closed_at):
+    """«Все подзадачи карточки ZAP-12 выполнены»: once the subtask just
+    closed was the last open one, at least one of them was really completed,
+    and the card itself is still in work — a question to its author and its
+    исполнители (`BOARD_SUBTASKS_DONE`), never a completion."""
+    from notifications.services import notify_board_subtasks_done
+    from tasks.models import Task
+
+    from .selectors import card_audience
+
+    parent_task = (
+        Task.objects.select_related('status')
+        .filter(source_type=Task.SourceType.BOARD, board_card=parent).first()
+    )
+    if parent_task is None or parent_task.status.code != 'IN_PROGRESS':
+        return
+    states = list(
+        Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__parent=parent)
+        .values_list('status__is_final', 'status__code')
+    )
+    if any(not is_final for is_final, _code in states) or all(code != 'COMPLETED' for _final, code in states):
+        return
+    parent.board = board
+    notify_board_subtasks_done(
+        parent_task, actor, card_audience(parent, parent_task, subscribers=False), closed_at=closed_at,
+    )
+
+
+def _subtask_parent(card, operation, *, actor):
+    """The board, the card subtasks are added to and its task, locked in
+    that order, if `actor` may add a subtask to it now."""
+    board = _lock_board(card.board_id)
+    card = _lock_card(card, board)
+    task = _lock_card_task(card)
+    card.board = board
+    _refuse_archived(operation, board, actor=actor, card_id=card.pk)
+    if not can_work_on_board(actor, board):
+        _rejected(operation, 'not_permitted', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise BoardError('Работа с карточками этой доски недоступна.')
+    if card.parent_id is not None:
+        _rejected(operation, 'nested_subtask', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise BoardError('У подзадачи не бывает подзадач — добавьте их в саму карточку.')
+    if not can_add_subtask(actor, card, task, can_work=True):
+        _rejected(operation, 'task_final', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise BoardError('Карточка закрыта — подзадачи добавляют только в карточку в работе.')
+    return board, card, task
+
+
+def _refuse_subtask_limit(board, card, adding, operation, *, actor):
+    """At most `MAX_SUBTASKS` per card, cancelled ones included: a refusal
+    for the whole request. Returns how many the card has now."""
+    current = BoardCard.objects.filter(parent=card).count()
+    if current + adding > MAX_SUBTASKS:
+        _rejected(operation, 'limit', actor=actor, board_id=board.pk, card_id=card.pk)
+        raise BoardError(
+            f'У карточки может быть не больше {MAX_SUBTASKS} подзадач: сейчас {current}'
+            + (f', добавляется {adding}.' if adding > 1 else '.')
+        )
+    return current
+
+
+def _parent_assignee_ids(board, task):
+    """The parent's исполнители who may still be put on a subtask — its
+    default; an empty answer is a refusal."""
+    from tasks.models import TaskAssignee
+
+    ids = sorted(
+        BoardMember.objects.filter(
+            active_employee_q('user__'), board=board,
+            user_id__in=TaskAssignee.objects.filter(task=task).values('user_id'),
+        ).values_list('user_id', flat=True)
+    )
+    if not ids:
+        raise BoardError('У карточки нет исполнителей, которые сейчас на доске: укажите исполнителя подзадачи.')
+    return ids
+
+
+def _add_subtask(board, parent, parent_task, *, actor, title, ids, due_date, position,
+                 description='', values=None):
+    """One subtask of `parent` — `_new_card()` with no column — its
+    исполнители told and the parent's `SUBTASK` entry, inside the caller's
+    transaction under the locks it holds. `ids` are already checked."""
+    from notifications.services import notify_board_task_assigned
+
+    subtask, task = _new_card(
+        board, parent.sub_board, actor=actor, title=title, description=description,
+        due_date=due_date, ids=ids, values=values or {}, column=None, position=position,
+        parent=parent,
+    )
+    subtask.board = board
+    subtask.parent = parent
+    _record(parent, BoardCardEvent.Kind.SUBTASK, actor=actor, action='added', subtask_id=subtask.pk, code=subtask.code)
+    notify_board_task_assigned(task, actor, _users(ids))
+    return subtask, task
+
+
+def _next_subtask_position(card):
+    return (BoardCard.objects.filter(parent=card).aggregate(last=Max('position'))['last'] or 0) + 1
+
+
+def create_subtask(parent, *, actor, title, assignees=None, due_date=None, description='',
+                   field_values=None):
+    """«+ Подзадача»: a new subtask at the end of `parent`'s list.
+
+    Whoever works on the board (`can_add_subtask()`), on an open card that is
+    not itself a subtask, never on an archived board, at most `MAX_SUBTASKS`.
+    `assignees` and `due_date` are what the form sends — it starts from the
+    parent's; `None` here means exactly that default (the parent's
+    исполнители still on the board, the parent's срок), so a caller with no
+    form gets the same. An empty list of исполнители is refused, as by
+    `create_card()`. A срок later than the parent's is not refused — the
+    form warns. The subtask takes the board's next number, its исполнители
+    are told (`BOARD_TASK_ASSIGNED`), its journal gets `CREATED` and the
+    parent's `SUBTASK` (`added`); one `board.updated(card_created)` with the
+    subtask's id.
+    """
+    with transaction.atomic():
+        board, parent, parent_task = _subtask_parent(parent, 'create_subtask', actor=actor)
+        title = _clean_title(title)
+        description = (description or '').strip()
+        ids = (
+            _parent_assignee_ids(board, parent_task) if assignees is None
+            else _clean_assignees(board, assignees)
+        )
+        if due_date is None:
+            due_date = parent_task.due_date
+        values = _clean_field_values(board, field_values, {})
+        _refuse_subtask_limit(board, parent, 1, 'create_subtask', actor=actor)
+        subtask, task = _add_subtask(
+            board, parent, parent_task, actor=actor, title=title, ids=ids, due_date=due_date,
+            position=_next_subtask_position(parent), description=description, values=values,
+        )
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_CREATED, subtask.pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.subtask_created',
+        board_id=board.pk,
+        board_card_id=subtask.pk,
+        parent_card_id=parent.pk,
+        task_id=task.pk,
+        actor_user_id=actor.pk,
+        assignee_count=len(ids),
+        outcome='ok',
+    )
+    return subtask
+
+
+def create_subtasks_from_list(parent, *, actor, text):
+    """«Добавить списком»: one subtask per non-empty line of `text`.
+
+    Each with the parent's исполнители (those still on the board) and its
+    срок, in the order of the lines. All or nothing, in one transaction: a
+    line over `TITLE_MAX_LENGTH` or more lines than the limit leaves refuses
+    the whole list, before anything is written. One `board.updated` for the
+    whole list (`card_created`, the parent's id). Returns the subtasks.
+    """
+    lines = [line.strip() for line in (text or '').splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        raise BoardError('Напишите хотя бы одну строку — одна строка, одна подзадача.')
+    for index, line in enumerate(lines, start=1):
+        if len(line) > TITLE_MAX_LENGTH:
+            raise BoardError(f'Строка {index} длиннее {TITLE_MAX_LENGTH} символов — сократите её.')
+    with transaction.atomic():
+        board, parent, parent_task = _subtask_parent(parent, 'create_subtasks_from_list', actor=actor)
+        _refuse_subtask_limit(board, parent, len(lines), 'create_subtasks_from_list', actor=actor)
+        ids = _parent_assignee_ids(board, parent_task)
+        position = _next_subtask_position(parent)
+        subtasks = []
+        for offset, line in enumerate(lines):
+            subtask, _task = _add_subtask(
+                board, parent, parent_task, actor=actor, title=line, ids=ids,
+                due_date=parent_task.due_date, position=position + offset,
+            )
+            subtasks.append(subtask)
+        emit_board_updated(board.pk, BOARD_CHANGE_CARD_CREATED, parent.pk)
+    log_event(
+        logger,
+        'INFO',
+        'board.subtasks_created',
+        board_id=board.pk,
+        parent_card_id=parent.pk,
+        subtask_count=len(subtasks),
+        actor_user_id=actor.pk,
+        outcome='ok',
+    )
+    return subtasks
 
 
 # --------------------------------------------------------------------------
@@ -2458,9 +2741,10 @@ def _checklist_items(card):
     return list(BoardCardChecklistItem.objects.filter(card=card).order_by('position', 'pk'))
 
 
-def _checklist_changed(board, card, action, *, actor, item_id):
+def _checklist_changed(board, card, action, *, actor, item_id, **details):
     """What every write of a «Чек-лист» ends with: the card's `updated_at`,
-    the journal entry (none for a reorder), one event and the log line."""
+    the journal entry (none for a reorder), one event and the log line.
+    `details` are added to the entry — identifiers only."""
     counts = BoardCardChecklistItem.objects.filter(card=card).aggregate(
         total=Count('pk'), done=Count('pk', filter=Q(is_done=True)),
     )
@@ -2468,7 +2752,7 @@ def _checklist_changed(board, card, action, *, actor, item_id):
     if action != 'moved':
         _record(
             card, BoardCardEvent.Kind.CHECKLIST, actor=actor,
-            action=action, item_id=item_id, done=counts['done'], total=counts['total'],
+            action=action, item_id=item_id, done=counts['done'], total=counts['total'], **details,
         )
     emit_board_updated(board.pk, BOARD_CHANGE_CHECKLIST_CHANGED, card.pk)
     log_event(
@@ -2589,3 +2873,33 @@ def _renumber_checklist(items):
             changed.append(row)
     if changed:
         BoardCardChecklistItem.objects.bulk_update(changed, ['position'])
+
+
+def checklist_item_to_subtask(item, *, actor):
+    """«В подзадачу» of an item of a card's «Чек-лист»: a subtask with the
+    item's text, and the item gone — one transaction.
+
+    The right is both: changing the list (`can_edit_checklist()`) and adding
+    a subtask (`can_add_subtask()`: the card open, not itself a subtask,
+    under `MAX_SUBTASKS`). The subtask gets the card's исполнители and срок,
+    as from a list. The card's journal gets the `CHECKLIST` entry (`action`
+    `to_subtask`, the item's id and the subtask's code) and the `SUBTASK` one
+    (`added`), the subtask its `CREATED`; one `board.updated(checklist_changed)`.
+    """
+    with transaction.atomic():
+        board, card, task = _subtask_parent(item.card, 'checklist_to_subtask', actor=actor)
+        item = _checklist_item(card, item, 'checklist_to_subtask', actor=actor)
+        _refuse_subtask_limit(board, card, 1, 'checklist_to_subtask', actor=actor)
+        subtask, _sub_task = _add_subtask(
+            board, card, task, actor=actor, title=_clean_title(item.text),
+            ids=_parent_assignee_ids(board, task), due_date=task.due_date,
+            position=_next_subtask_position(card),
+        )
+        item_id = item.pk
+        item.delete()
+        _renumber_checklist(_checklist_items(card))
+        _checklist_changed(
+            board, card, 'to_subtask', actor=actor, item_id=item_id,
+            subtask_id=subtask.pk, code=subtask.code,
+        )
+    return subtask

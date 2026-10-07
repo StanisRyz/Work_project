@@ -1,0 +1,7 @@
+{% comment %}
+«Открыто подзадач: 2 (ZAP-13, ZAP-15)» above «Результат» in «Завершить» of a
+card — links that open each subtask's drawer. Nothing at all without open
+subtasks, and nothing in the render the guarded panel's fingerprint is taken
+from (`subtask_fingerprint`): it is the container `[data-live-board-subtask-warning]`
+that changes with «Подзадачи», never the heading around it.
+{% endcomment %}{% if card.subtask_open_rows and not subtask_fingerprint %}<p class="board-subtask-warning" role="note">Открыто подзадач: {{ card.subtask_open_rows|length }} ({% for row in card.subtask_open_rows|slice:':10' %}<a href="{{ board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" data-board-drawer-link>{{ row.card.code }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if card.subtask_open_rows|length > 10 %}, …{% endif %}). Они останутся в работе у своих исполнителей — завершить карточку можно.</p>{% endif %}

@@ -306,3 +306,16 @@ def can_delete_card_file(user, card_file, board, *, can_work=None, is_admin=None
     if is_act_admin(user) if is_admin is None else is_admin:
         return True
     return card_file.uploaded_by_id == getattr(user, 'pk', None)
+
+
+def can_add_subtask(user, card, task, *, can_work=None):
+    """«+ Подзадача», «Добавить списком» and «В подзадачу» of a checklist
+    item: whoever may work on the board, on an open card that is not itself
+    a subtask — one level only.
+
+    The limit (`models.MAX_SUBTASKS`) is the service's answer, not a right.
+    `can_work` is `can_work_on_board()` already asked for the page.
+    """
+    if card.parent_id is not None or task.status.code != 'IN_PROGRESS':
+        return False
+    return can_work_on_board(user, card.board) if can_work is None else bool(can_work)

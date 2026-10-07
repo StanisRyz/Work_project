@@ -15,6 +15,10 @@ form is open the live client leaves the block alone. With JavaScript
 (`static/js/board_checklist.js`) the checkbox posts through `fetch` and the
 page stays where it is; a refusal puts the tick back.
 
+«В подзадачу» (`card.can_add_subtask`: an open card that is no subtask,
+under the limit) turns an item into a subtask of this card through the
+shared modal; the item leaves the list.
+
 Who ticked an item and when is on its `title`. The controls are drawn only for
 whoever may change the list (`card.can_edit_checklist`: works on the board,
 the card is open); every route asks again. Without items and without that right
@@ -64,6 +68,18 @@ nothing at all is drawn.
                                     </form>
                                 {% endif %}
                                 <a class="board-checklist__tool" href="{{ board_url }}?card={{ card.card.pk }}&amp;tab=description&amp;edit_item={{ entry.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" title="Изменить" aria-label="Изменить: {{ entry.text }}">Изменить</a>
+                                {% if card.can_add_subtask %}
+                                    {% comment %}«В подзадачу»: the item becomes a subtask of this card, with its исполнители and срок, and leaves the list.{% endcomment %}
+                                    <form id="board-checklist-subtask-{{ entry.pk }}" method="post" action="{% url 'boards:checklist_to_subtask' board.pk card.card.pk entry.pk %}{{ filter_suffix }}">
+                                        {% csrf_token %}
+                                        <button class="board-checklist__tool" type="submit" title="В подзадачу" aria-label="Сделать подзадачей: {{ entry.text }}"
+                                                data-confirm
+                                                data-confirm-form="board-checklist-subtask-{{ entry.pk }}"
+                                                data-confirm-title="Сделать пункт подзадачей?"
+                                                data-confirm-text="«{{ entry.text }}» станет подзадачей карточки {{ card.card.code }} — с её исполнителями и сроком — и уйдёт из чек-листа."
+                                                data-confirm-label="В подзадачу">В подзадачу</button>
+                                    </form>
+                                {% endif %}
                                 <form id="board-checklist-delete-{{ entry.pk }}" method="post" action="{% url 'boards:checklist_delete' board.pk card.card.pk entry.pk %}{{ filter_suffix }}">
                                     {% csrf_token %}
                                     <button class="board-checklist__tool board-checklist__tool--danger" type="submit" title="Удалить" aria-label="Удалить: {{ entry.text }}"

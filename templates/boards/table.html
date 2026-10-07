@@ -21,6 +21,9 @@ same address. A row opens its card on the board (`data-row-url`, the shared
 `clickable_rows.js`); the code is a real link to the same place. The tabs lead
 to the other sub-boards' tables and carry no menus — the structure is managed
 on the board.
+
+«Подзадачи» (`subtasks=1`, off by default) puts each card's subtasks right
+under it, indented, with a «Родитель» column; the Excel holds the same rows.
 {% endcomment %}
 {% include 'boards/includes/head.html' %}
 
@@ -43,6 +46,7 @@ on the board.
                     <tr>
                         {% sortable_th 'Код' 'code' sort 'board-table__code' %}
                         {% if whole_board %}<th class="board-table__sub-board">Поддоска</th>{% endif %}
+                        {% if subtasks %}<th class="board-table__parent">Родитель</th>{% endif %}
                         {% sortable_th 'Название' 'title' sort 'board-table__title' %}
                         {% sortable_th 'Колонка' 'column' sort 'board-table__column' %}
                         <th class="board-table__people">Исполнители</th>
@@ -59,11 +63,12 @@ on the board.
                 <tbody>
                 {% for row in rows %}
                     {% url 'boards:sub_board' board.pk row.card.sub_board_id as card_board_url %}
-                    <tr class="{% if row.is_closed %}board-table__row--closed{% endif %}{% if row.is_stale %} board-table__row--stale{% endif %}" data-row-url="{{ card_board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">
+                    <tr class="{% if row.is_closed %}board-table__row--closed{% endif %}{% if row.is_stale %} board-table__row--stale{% endif %}{% if row.is_subtask %} board-table__row--subtask{% endif %}" data-row-url="{{ card_board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}">
                         <td><a class="table-link" href="{{ card_board_url }}?card={{ row.card.pk }}{% if filter_query %}&amp;{{ filter_query }}{% endif %}" title="Задача №{{ row.task.pk }}">{{ row.card.code }}</a></td>
                         {% if whole_board %}<td><span class="user-text">{{ row.sub_board.name }}</span></td>{% endif %}
-                        <td><span class="user-text text-clamp-2 board-table__title-text" title="{{ row.card.title }}">{{ row.card.title }}</span></td>
-                        <td>{% if row.status == 'CANCELLED' %}<span class="status-badge status-badge--archived">{{ row.column_label }}</span>{% elif row.status == 'COMPLETED' %}<span class="status-badge status-badge--completed">{{ row.column_label }}</span>{% else %}<span class="user-text">{{ row.column_label }}</span>{% endif %}</td>
+                        {% if subtasks %}<td>{% if row.is_subtask %}{{ row.parent_code }}{% else %}—{% endif %}</td>{% endif %}
+                        <td class="board-table__title-cell"><span class="user-text text-clamp-2 board-table__title-text" title="{{ row.card.title }}">{{ row.card.title }}</span></td>
+                        <td>{% if row.is_subtask %}{% if row.status == 'CANCELLED' %}<span class="status-badge status-badge--archived">Отменена</span>{% elif row.status == 'COMPLETED' %}<span class="status-badge status-badge--completed">Выполнена</span>{% else %}<span class="board-table__subtask-label">подзадача</span>{% endif %}{% elif row.status == 'CANCELLED' %}<span class="status-badge status-badge--archived">{{ row.column_label }}</span>{% elif row.status == 'COMPLETED' %}<span class="status-badge status-badge--completed">{{ row.column_label }}</span>{% else %}<span class="user-text">{{ row.column_label }}</span>{% endif %}</td>
                         <td>{% if row.assignees %}<span class="board-table__people-list">{% for user in row.assignees %}<span class="board-table__person">{{ user|person_name }}</span>{% endfor %}</span>{% else %}—{% endif %}</td>
                         <td>{% if row.due_date %}{% include 'includes/due_date.html' with date=row.due_date done=row.is_closed %}{% else %}—{% endif %}</td>
                         <td class="board-table__number">{% if row.in_column_days is not None %}<span class="board-table__days{% if row.is_stale %} board-table__days--stale{% endif %}" title="В колонке с {{ row.in_column_since|date:'d.m.Y' }}">{% if row.in_column_days %}{{ row.in_column_days }} дн.{% else %}сегодня{% endif %}</span>{% else %}—{% endif %}</td>

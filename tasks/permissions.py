@@ -32,8 +32,9 @@ _SOURCE_AWARE_SELECT_RELATED = (
     # belongs to is what «Источник» names.
     'document_version__document',
     # And for a `BOARD` task: the board's name and id build its source label
-    # and the link to the card.
-    'board_card__board',
+    # and the link to the card — and, for a subtask, the number of the card
+    # it lives in («подзадача ZAP-12»).
+    'board_card__board', 'board_card__parent',
 )
 
 

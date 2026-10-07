@@ -51,8 +51,10 @@ from .helpers import (
 # Stage 19: one more for the files of «Чат» (every file of the card, one
 # query), two fewer — the board's member count is taken from the heading's
 # own member list, and the tabs are read once for the page and its
-# `build_board_state()` — so 37.
-PAGE_QUERIES = 37
+# `build_board_state()` — so 37. Stage 20: two more for the card's
+# «Подзадачи» — its subtasks with their tasks and statuses, and their
+# исполнители — whatever their number (`test_subtasks`), so 39.
+PAGE_QUERIES = 39
 
 MEDIA = override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='board-journal-'))
 

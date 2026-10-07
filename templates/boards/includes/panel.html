@@ -30,6 +30,10 @@ the route.
             <h2 class="board-drawer__title">Новая карточка</h2>
             <p class="board-drawer__meta user-text">Колонка «{{ new_column.name }}»</p>
         {% else %}
+            {% if card.is_subtask %}
+                {% comment %}A subtask names the card it lives in; the link opens that card's drawer (`board_drawer.js`), or its page without JavaScript.{% endcomment %}
+                <p class="board-drawer__parent">Подзадача карточки <a href="{{ board_url }}?card={{ card.parent.pk }}&amp;tab=subtasks{% if filter_query %}&amp;{{ filter_query }}{% endif %}" data-board-drawer-link>{{ card.card.parent_code }}</a> · <span class="user-text">{{ card.parent.title }}</span></p>
+            {% endif %}
             <p class="board-drawer__meta">
                 <a class="board-drawer__code" href="{% url 'boards:detail' board.pk %}?card={{ card.card.pk }}" data-board-card-link="{{ card.card.code }}" title="Скопировать ссылку на карточку {{ card.card.code }}">Карточка {{ card.card.code }}</a>
                 <span>задача №{{ card.task.pk }}{% if panel == 'edit' %} · редактирование{% endif %}</span>
@@ -47,6 +51,13 @@ the route.
                 <div class="board-menu__body board-complete__body">
                     <form class="board-complete__form" method="post" action="{% url 'boards:card_complete' board.pk card.card.pk %}{{ filter_suffix }}" data-hotkey-submit data-unsaved-guard{% if execution_error %}="dirty"{% endif %}>
                         {% csrf_token %}
+                        {% comment %}
+                        Open subtasks do not stop a completion — they stay in work with
+                        their own исполнители — but the menu says so. Its own container,
+                        refreshed with «Подзадачи» (`subtasks_revision`), never with this
+                        guarded heading.
+                        {% endcomment %}
+                        <div class="board-complete__warning" data-live-board-subtask-warning>{% include 'boards/includes/subtask_warning.html' %}</div>
                         <label class="board-menu__label" for="board-complete-result">Результат</label>
                         <textarea id="board-complete-result" name="execution_comment" rows="4" required placeholder="Что сделано по карточке">{{ execution_comment }}</textarea>
                         {% if execution_error %}<p class="field-error">{{ execution_error }}</p>{% endif %}
@@ -73,7 +84,7 @@ the route.
             <button class="link-button link-button--warning link-button--compact" type="button"
                     data-confirm
                     data-confirm-title="Вернуть задачу {{ card.task.pk }} в работу?"
-                    data-confirm-text="Карточка вернётся в колонку «{{ card.return_column.name }}». Вложения и результат выполнения сохранятся."
+                    data-confirm-text="{% if card.is_subtask %}Подзадача вернётся в работу, в список своей карточки.{% else %}Карточка вернётся в колонку «{{ card.return_column.name }}».{% endif %} Вложения и результат выполнения сохранятся."
                     data-confirm-label="Вернуть в работу"
                     data-confirm-variant="warning"
                     data-confirm-url="{% url 'boards:card_reopen' board.pk card.card.pk %}{{ filter_suffix }}">Вернуть в работу</button>

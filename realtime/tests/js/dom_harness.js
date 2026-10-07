@@ -547,6 +547,7 @@ function createEnvironment({
         board.setAttribute('data-log-revision', 'log-rev-initial');
         board.setAttribute('data-checklist-revision', 'checklist-rev-initial');
         board.setAttribute('data-followers-revision', 'followers-rev-initial');
+        board.setAttribute('data-subtasks-revision', 'subtasks-rev-initial');
         board.setAttribute('data-panel-holds-input', boardPanelHoldsInput ? 'true' : 'false');
         // The sub-board tabs: a read-only live block of their own.
         const tabs = new Element('div');
@@ -576,13 +577,19 @@ function createEnvironment({
         const execution = new Element('textarea');
         execution.setAttribute('name', 'execution_comment');
         execution.value = '';
-        panel.append(close, execution);
+        // «Завершить»'s warning about open subtasks: a container of the
+        // «Подзадачи» block inside the guarded heading.
+        const subtaskWarning = new Element('div');
+        subtaskWarning.setAttribute('data-live-board-subtask-warning', '');
+        subtaskWarning.innerHTML = '<p>исходное предупреждение</p>';
+        panel.append(close, subtaskWarning, execution);
         const strip = new Element('nav');
-        strip.innerHTML = ['description', 'chat', 'log'].map((name) => (
+        strip.innerHTML = ['description', 'chat', 'subtasks', 'log'].map((name) => (
             `<a class="board-drawer__tab${name === 'description' ? ' is-active' : ''}" `
             + `href="/work/boards/4/7/?card=9&tab=${name}" data-board-tab-link="${name}" `
             + `data-board-tab-fragment-url="/work/boards/4/7/fragment/?card=9&tab=${name}">${name}`
-            + `${name === 'chat' ? `<span data-board-tab-count="${name}">1</span>` : ''}</a>`
+            + `${name === 'chat' ? `<span data-board-tab-count="${name}">1</span>` : ''}`
+            + `${name === 'subtasks' ? `<span data-board-tab-count="${name}">0/1</span>` : ''}</a>`
         )).join('');
         const card = new Element('div');
         card.setAttribute('data-live-board-card', '');
@@ -594,7 +601,12 @@ function createEnvironment({
         facts.innerHTML = '<section data-board-tab-body="description"><dl>исходные факты</dl></section>';
         const move = new Element('select');
         move.setAttribute('name', 'column_id');
-        facts.append(move);
+        // «Отменить карточку»: the dialog's text follows «Подзадачи».
+        const cancelTrigger = new Element('button');
+        cancelTrigger.setAttribute('data-board-cancel-trigger', '');
+        cancelTrigger.setAttribute('data-confirm-base-text', 'Карточка будет закрыта.');
+        cancelTrigger.setAttribute('data-confirm-text', 'Карточка будет закрыта. Открыто подзадач: 1 (ZAP-13).');
+        facts.append(move, cancelTrigger);
         const followers = new Element('div');
         followers.setAttribute('data-live-board-followers', '');
         followers.innerHTML = '<dl>исходные подписчики</dl>';
@@ -609,7 +621,10 @@ function createEnvironment({
         const checklistText = new Element('input');
         checklistText.setAttribute('name', 'text');
         checklistText.value = '';
-        pane.append(card, checklist, checklistText, facts, followers);
+        const subtaskSummary = new Element('div');
+        subtaskSummary.setAttribute('data-live-board-subtask-summary', '');
+        subtaskSummary.innerHTML = '<p>Подзадачи: 0 из 1</p>';
+        pane.append(card, checklist, checklistText, subtaskSummary, facts, followers);
         // «Чат»: «Все сообщения | Только файлы · N», the read-only list and,
         // below it, its form with the file input and the chosen files —
         // outside every live block, as `boards/includes/drawer.html` draws them.
@@ -652,7 +667,17 @@ function createEnvironment({
         log.setAttribute('data-live-board-log', '');
         log.innerHTML = '<ol><li>исходная запись</li></ol>';
         logBody.append(log);
-        drawer.append(panel, strip, pane, chat, logBody);
+        // «Подзадачи»: the read-only list and, below it, «+ Подзадача» in no block.
+        const subtasksBody = new Element('section');
+        subtasksBody.setAttribute('data-board-tab-body', 'subtasks');
+        const subtasks = new Element('div');
+        subtasks.setAttribute('data-live-board-subtasks', '');
+        subtasks.innerHTML = '<ol><li data-subtask-id="13" data-task-id="33">исходная подзадача</li></ol>';
+        const subtaskTitle = new Element('input');
+        subtaskTitle.setAttribute('name', 'subtask-title');
+        subtaskTitle.value = '';
+        subtasksBody.append(subtasks, subtaskTitle);
+        drawer.append(panel, strip, pane, chat, subtasksBody, logBody);
         layout.append(columns, drawer);
         const message = new Element('div');
         message.setAttribute('data-board-message', '');
@@ -685,6 +710,11 @@ function createEnvironment({
             log,
             checklist,
             checklistText,
+            subtasks,
+            subtaskSummary,
+            subtaskWarning,
+            subtaskTitle,
+            cancelTrigger,
             conflictBanner: conflict,
             modalTextarea,
         });

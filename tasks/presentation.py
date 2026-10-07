@@ -77,9 +77,13 @@ def describe_task_source(task):
         if task.board_card_id is None:
             return {'label': '', 'url': ''}
         # «Доска «Запуск заказов» · ZAP-12»: the board, and the card the way
-        # people name it (`BoardCard.code`).
+        # people name it (`BoardCard.code`); a subtask adds the card it lives
+        # in — «Доска «X» · ZAP-13 · подзадача ZAP-12».
         card = task.board_card
-        return {'label': f'Доска «{card.board.name}» · {card.code}', 'url': board_card_url(task)}
+        label = f'Доска «{card.board.name}» · {card.code}'
+        if card.parent_id:
+            label = f'{label} · подзадача {card.parent_code}'
+        return {'label': label, 'url': board_card_url(task)}
     if task.protocol_id is None:
         return {'label': '', 'url': ''}
     return {

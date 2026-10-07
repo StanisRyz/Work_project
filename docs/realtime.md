@@ -156,7 +156,7 @@ Redis Pub/Sub, браузер получает его через Server-Sent Eve
 | `emit_protocol_deleted` | `protocols.services.delete_draft_protocol`, по pk удалённого черновика |
 | `emit_protocol_status_changed` | `send_protocol_for_approval`, `approve_protocol` (финализация), `return_protocol_for_revision` — один вызов на наблюдаемый переход |
 | `emit_protocol_approval_changed` | `approve_protocol` и `return_protocol_for_revision`, после сохранения решения |
-| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `delete_card_file`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_stale_days`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
+| `emit_board_updated` | `boards.services`: `create_card`, `update_card`, `move_card`, `complete_card`, `reopen_card`, `cancel_card`, `post_card_comment`, `delete_card_file`, `add_board_members`, `remove_board_member`, `archive_board`, `restore_board`, `rename_board`, `change_board_code`, `create_sub_board`, `rename_sub_board`, `move_sub_board`, `delete_sub_board`, `create_column`, `rename_column`, `move_column`, `delete_column`, `set_column_pins`, `set_column_stale_days`, `create_field`, `update_field`, `move_field`, `archive_field`, `restore_field`, `delete_field`, `create_option`, `update_option`, `move_option`, `archive_option`, `restore_option`, `delete_option`, `add_checklist_item`, `rename_checklist_item`, `toggle_checklist_item`, `move_checklist_item`, `delete_checklist_item`, `create_subtask`, `create_subtasks_from_list`, `checklist_item_to_subtask` — ровно одно событие на успешную запись внутри её `atomic()`; отказ, откат и запись без изменений (правка, ничего не поменявшая; перенос на то же место) не публикуют ничего |
 
 Каждый эмиттер выходит **до** разрешения получателей, если real-time выключен:
 конфигурация по умолчанию не выполняет ни одного лишнего запроса.
@@ -305,7 +305,7 @@ Django, клиент подставляет уже готовый фрагмен
 | Согласование протокола | `/quality/protocols/<pk>/approval-fragment/` | `protocols` |
 | Содержимое протокола | `/quality/protocols/<pk>/content-fragment/` | `protocols` |
 | История протокола | `/quality/protocols/<pk>/history-fragment/` | `protocols` |
-| Доска: вкладки, колонки, панель карточки, чат, лог | `/work/boards/<pk>/<поддоска>/fragment/?card=…&tab=…` / `&edit=1` / `&comments=all` / `?new=…` | `boards` |
+| Доска: вкладки, колонки, панель карточки, чат, лог, подзадачи | `/work/boards/<pk>/<поддоска>/fragment/?card=…&tab=…` / `&edit=1` / `&comments=all` / `&subtasks_done=hide` / `?new=…` | `boards` |
 
 Каждый фрагмент заново загружает объект, заново проверяет `request.user` и
 права, не принимает идентификатор пользователя, ничего не меняет на GET и
@@ -359,6 +359,19 @@ read-only набор авторизованного пользователя, д
 сдвигается. Участники — потому что исключение участника не
 оставляет метки времени, только меньшее число.
 
+Подзадача — тоже карточка: её создание, правка, завершение, возврат и отмена
+публикуют `board.updated` с `card_id` **подзадачи** и прежними кодами
+(`card_created`, `card_updated`, `card_completed`, `card_reopened`,
+`card_cancelled`); «Добавить списком» — одно `card_created` на весь список (с
+`card_id` карточки), «В подзадачу» из чек-листа — одно `checklist_changed`.
+Новых кодов нет: открытая доска перезапрашивает свой фрагмент на любое
+`board.updated` своей доски, какой бы карточки оно ни касалось, поэтому панель
+родителя узнаёт об изменении подзадачи без подписки на её `card_id`, а блок
+«Подзадачи» сравнивается по своему отпечатку. `task.*` о задаче подзадачи
+перезапрашивает страницу, если эта задача есть в открытом списке
+(`data-task-id` строки). Ревизии `boards` ничего добавлять не нужно: подзадача —
+карточка с задачей `BOARD`, они уже в её агрегатах.
+
 Фрагмент открывается по поддоске (`/work/boards/<доска>/<поддоска>/fragment/`;
 удалённая поддоска — 404, и живой клиент этой страницы останавливается) и
 отдаёт все блоки сразу, тем же `_board_context()` и теми же частичными
@@ -395,6 +408,22 @@ read-only набор авторизованного пользователя, д
   рисует этот пункт формой «Изменить»: пока форма открыта
   (`[data-checklist-edit]`), клиент блок не заменяет, а откладывает, как при
   открытом меню, и запрашивает заново, когда формы не станет;
+- «Подзадачи» карточки (не подзадачи) — **один блок только для чтения в трёх
+  контейнерах с одним отпечатком** `subtasks_revision`: `subtasks_html`
+  (список на вкладке «Подзадачи», `[data-live-board-subtasks]`: прогресс «1 из
+  3 выполнено», строки, «Скрыть выполненные» — `&subtasks_done=hide`, его
+  сохраняют адреса страницы и фрагмента), `subtask_summary_html` (строка
+  «Подзадачи: 1 из 3» на «Описании», `[data-live-board-subtask-summary]`) и
+  `subtask_warning_html` (предупреждение «Открыто подзадач: N (…)» над
+  «Результатом» в «Завершить», `[data-live-board-subtask-warning]` внутри
+  шапки); плюс `subtask_warning_text` (тот же текст для окна «Отменить
+  карточку»: клиент ставит `data-confirm-text` = `data-confirm-base-text` +
+  предупреждение), `subtasks_count` («1/3» у вкладки) и `subtasks_total`.
+  Отпечаток охраняемой панели считается по рендеру **без** этих
+  предупреждений, поэтому подзадача, закрытая коллегой, двигает
+  `subtasks_revision` и отпечаток колонок («⧉ k/n» на плитке), но не
+  `panel_revision` — баннер над набираемым результатом не появляется. Формы
+  «+ Подзадача» и «Добавить списком» — ни в одном блоке;
 - `chat_count`, `files_count` — число у вкладки «Чат» и у переключателя
   «Только файлы · N»;
 - `drawer_html` — вся выдвижная панель вокруг этих блоков (полоса вкладок,
@@ -420,7 +449,8 @@ read-only набор авторизованного пользователя, д
 страница, открытая с `comments=all`, получает тот же параметр в адресе
 фрагмента, и живое обновление показывает все.
 
-**Вкладка — не блок.** Все четыре вкладки отрисованы всегда; какая видна,
+**Вкладка — не блок.** Все вкладки (у карточки — «Описание», «Чат»,
+«Подзадачи», «Лог», у подзадачи — без «Подзадач») отрисованы всегда; какая видна,
 говорит атрибут `data-board-tab` на `<aside data-board-drawer>`, который
 ни один живой блок не заменяет, поэтому никакая замена вкладку не сбрасывает.
 `board_drawer.js` переключает её на месте: атрибут, активную ссылку, адреса

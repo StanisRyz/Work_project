@@ -23,7 +23,11 @@ calendar days from the journal, `selectors.in_column_since()`), the date on
 says nothing of the kind. A card with a «Чек-лист» shows «☑ 2/5»
 (`item.checklist_done`/`checklist_total`, annotated in the tasks' own query),
 green once every item is ticked, and «📎 N» the files of its «Чат» and of
-its task (`item.file_count`, annotated likewise). Every URL here carries the
+its task (`item.file_count`, annotated likewise); a card with subtasks «⧉
+1/3» (`item.subtask_done`/`subtask_total`, annotated likewise — a cancelled
+subtask counts in neither), green once every one is done. The completion
+dialog of a card with open subtasks names them (`item.open_subtask_codes`):
+they stay in work, the card may be finished all the same. Every URL here carries the
 board's filter, so the panel,
 the drag's counts and the redirect after completion stay filtered.
 {% endcomment %}
@@ -47,6 +51,7 @@ the drag's counts and the redirect after completion stay filtered.
                 {% for user in item.assignees %}<span class="board-avatar" title="{{ user|person_name }}">{{ user|person_initials }}</span>{% endfor %}
             </span>
             {% if item.checklist_total %}<span class="board-tile__checklist{% if item.checklist_done == item.checklist_total %} board-tile__checklist--complete{% endif %}" data-tile-checklist title="Чек-лист: сделано {{ item.checklist_done }} из {{ item.checklist_total }}" aria-label="Чек-лист: сделано {{ item.checklist_done }} из {{ item.checklist_total }}">☑ {{ item.checklist_done }}/{{ item.checklist_total }}</span>{% endif %}
+            {% if item.subtask_total %}<span class="board-tile__subtasks{% if item.subtask_done == item.subtask_total %} board-tile__subtasks--complete{% endif %}" data-tile-subtasks title="Подзадачи: выполнено {{ item.subtask_done }} из {{ item.subtask_total }}" aria-label="Подзадачи: выполнено {{ item.subtask_done }} из {{ item.subtask_total }}">⧉ {{ item.subtask_done }}/{{ item.subtask_total }}</span>{% endif %}
             {% if item.file_count %}<span class="board-tile__files" title="Файлов в карточке: {{ item.file_count }}" aria-label="Файлов в карточке: {{ item.file_count }}"><span aria-hidden="true">📎</span>{{ item.file_count }}</span>{% endif %}
             {% if item.comment_count %}<span class="board-tile__comments" title="Сообщений в обсуждении: {{ item.comment_count }}" aria-label="Сообщений в обсуждении: {{ item.comment_count }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>{{ item.comment_count }}</span>{% endif %}
             {% include 'includes/due_date.html' with date=item.due_date done=item.is_closed %}
@@ -58,7 +63,7 @@ the drag's counts and the redirect after completion stay filtered.
                 data-confirm
                 data-confirm-url="{% url 'boards:card_complete' board.pk item.card.pk %}{{ filter_suffix }}"
                 data-confirm-title="Завершить задачу №{{ item.task.pk }}?"
-                data-confirm-text="Карточка перейдёт в колонку «{{ done_column.name }}». Укажите результат выполнения."
+                data-confirm-text="Карточка перейдёт в колонку «{{ done_column.name }}». Укажите результат выполнения.{% if item.open_subtask_codes %} Открыто подзадач: {{ item.subtask_open }} ({{ item.open_subtask_codes|slice:':10'|join:', ' }}{% if item.open_subtask_codes|length > 10 %}, …{% endif %}). Они останутся в работе у своих исполнителей.{% endif %}"
                 data-confirm-label="Завершить"
                 data-confirm-comment="required"
                 data-confirm-comment-label="Результат выполнения"

@@ -95,7 +95,9 @@ EMAIL_ELIGIBLE_EVENTS = {
     # A board card put on somebody: work they did not choose themselves. A
     # cancelled card, a completed one and a new message in a card's
     # «Обсуждение» stay in the bell only: nothing is asked of anybody, and a
-    # lively card would flood the mailbox.
+    # lively card would flood the mailbox. A subtask put on somebody is the
+    # same fact; «все подзадачи выполнены» (`BOARD_SUBTASKS_DONE`) is a
+    # question to people already on the card, and stays in the bell.
     Notification.EventType.BOARD_TASK_ASSIGNED,
     # Somebody named with «@» in a card's «Чат»: a colleague asking this person
     # in particular to look — a request, like an assignment, and often to
@@ -405,6 +407,33 @@ def notify_board_card_completed(task, actor, recipients):
         actor=actor,
         recipients=recipients,
         source_key=f'task:{task.pk}:completed:{completed_at}',
+        exclude_actor=True,
+    )
+
+
+def notify_board_subtasks_done(task, actor, recipients, *, closed_at):
+    """«Все подзадачи карточки ZAP-12 выполнены» for the card's author and
+    исполнители — a question, «завершить?», never an automatic completion.
+
+    `task` is the *parent* card's task, still in work; the caller
+    (`boards.services`) calls this only when a subtask's closing left none of
+    the card's subtasks open and at least one of them completed. Bell only.
+    Keyed on the parent's task and the moment that closing happened
+    (`task:<pk>:subtasks_done:<closed_at>`), so the same closing never
+    notifies twice, while a subtask reopened and closed again asks again.
+    Whoever closed the last one is not told (`exclude_actor=True`).
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.BOARD:
+        raise ValueError('Уведомление доски создаётся только для задачи с доски.')
+    stamp = closed_at.isoformat() if closed_at else ''
+    return create_notifications(
+        event_type=Notification.EventType.BOARD_SUBTASKS_DONE,
+        task=task,
+        actor=actor,
+        recipients=recipients,
+        source_key=f'task:{task.pk}:subtasks_done:{stamp}',
         exclude_actor=True,
     )
 
@@ -734,7 +763,10 @@ def _task_source_context(task):
     from tasks.models import Task
 
     if task.source_type == Task.SourceType.BOARD and task.board_card_id:
-        return f'Доска «{task.board_card.board.name}» · карточка {task.board_card.code}'
+        card = task.board_card
+        if card.parent_id:
+            return f'Доска «{card.board.name}» · подзадача {card.code} карточки {card.parent_code}'
+        return f'Доска «{card.board.name}» · карточка {card.code}'
     if task.source_type == Task.SourceType.ACT_REJECTION and task.act_id:
         return f'Брак по акту {task.act.number}'
     if task.smk_source_id:
@@ -906,6 +938,7 @@ def _task_event_text(event_type, task):
         Notification.EventType.BOARD_CARD_COMMENT,
         Notification.EventType.BOARD_CARD_MENTION,
         Notification.EventType.BOARD_CARD_COMPLETED,
+        Notification.EventType.BOARD_SUBTASKS_DONE,
     ):
         return _board_event_text(event_type, task)
     label = _protocol_label(task.protocol)
@@ -919,9 +952,27 @@ def _task_event_text(event_type, task):
 
 
 def _board_event_text(event_type, task):
-    """A board card's notification: the board and the card's code («ZAP-12»)."""
-    name = task.board_card.board.name
-    code = task.board_card.code
+    """A board card's notification: the board and the card's code («ZAP-12»).
+
+    A subtask is named as one, with the card it lives in: «Назначена
+    подзадача ZAP-13 карточки ZAP-12».
+    """
+    card = task.board_card
+    name = card.board.name
+    code = card.code
+    if event_type == Notification.EventType.BOARD_TASK_ASSIGNED and card.parent_id:
+        parent = card.parent_code
+        return NotificationText(
+            f'Назначена подзадача {code} карточки {parent} на доске «{name}»',
+            f'Вы назначены исполнителем подзадачи {code} карточки {parent} на доске «{name}».',
+            'Откройте подзадачу на доске.',
+        )
+    if event_type == Notification.EventType.BOARD_SUBTASKS_DONE:
+        return NotificationText(
+            f'Все подзадачи карточки {code} выполнены',
+            f'Все подзадачи карточки {code} на доске «{name}» выполнены, а сама карточка ещё в работе.',
+            'Проверьте результат и завершите карточку, если работа закончена.',
+        )
     if event_type == Notification.EventType.BOARD_TASK_ASSIGNED:
         return NotificationText(
             f'Назначена карточка {code} на доске «{name}»',

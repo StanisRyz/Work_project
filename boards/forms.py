@@ -214,6 +214,44 @@ class CardForm(forms.Form):
         }
 
 
+class SubtaskForm(forms.Form):
+    """«+ Подзадача» in a card's «Подзадачи»: a title, the исполнители and a
+    срок — the form starts from the card's own (`initial`), and
+    `services.create_subtask()` checks every one again. A срок later than
+    the card's is allowed; the page only warns."""
+
+    title = forms.CharField(
+        label='Подзадача', max_length=BoardCard._meta.get_field('title').max_length,
+        widget=forms.TextInput(attrs={
+            'placeholder': 'Название подзадачи', 'aria-label': 'Название подзадачи',
+            'class': 'board-subtasks__title-input',
+        }),
+    )
+    due_date = forms.DateField(
+        label='Срок',
+        widget=forms.DateInput(attrs={
+            'type': 'date', 'data-subtask-due': '', 'aria-label': 'Срок подзадачи',
+            'title': 'Срок подзадачи — по умолчанию срок карточки',
+        }, format='%Y-%m-%d'),
+        input_formats=['%Y-%m-%d', '%d.%m.%Y'],
+    )
+    assignees = EmployeeMultipleChoiceField(
+        label='Исполнители',
+        queryset=get_user_model().objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={'required': 'Укажите хотя бы одного исполнителя.'},
+    )
+
+    def __init__(self, *args, board, members=None, **kwargs):
+        super().__init__(*args, prefix='subtask', **kwargs)
+        self.fields['assignees'].queryset = active_members(board)
+        if members is not None and not self.is_bound:
+            # The board's active members the panel has read already: the
+            # unbound form draws them without a query of its own. A posted
+            # form validates against the queryset, as ever.
+            self.fields['assignees'].choices = [(user.pk, employee_label(user)) for user in members]
+
+
 class MoveCardForm(forms.Form):
     """«Переместить в…» in the panel, and a drag on the board.
 

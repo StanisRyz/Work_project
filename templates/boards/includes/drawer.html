@@ -27,6 +27,14 @@ the card's «Чек-лист» on «Описание» (`[data-live-board-checkl
 the description and the facts, with «Добавить пункт» below it in no block)
 and its «Подписчики» (`[data-live-board-followers]`, below the facts). The
 markup is in the order of the screen, so the focus follows it.
+
+A card (never a subtask) has «Подзадачи»: the list is a read-only block of its
+own (`[data-live-board-subtasks]`), refreshed with the line «Подзадачи: 1 из
+3» on «Описание» (`[data-live-board-subtask-summary]`) and the warning of
+«Завершить» in the heading — one fingerprint, `subtasks_revision`. «+
+Подзадача» and «Добавить списком» are forms below the list, in no block, so
+what is being typed there survives every refresh; both work without
+JavaScript, and a refusal comes back with what was typed.
 {% endcomment %}
 <div class="board-drawer__frame">
     <div class="board-drawer__head" data-live-board-panel{% if card %} data-task-id="{{ card.task.pk }}"{% endif %}>{{ panel_html }}</div>
@@ -34,7 +42,7 @@ markup is in the order of the screen, so the focus follows it.
         <nav class="board-drawer__tabs" aria-label="Разделы карточки">
             {% for item in panel_tabs %}
                 <a class="board-drawer__tab{% if item.active %} is-active{% endif %}" href="{{ item.page_url }}"
-                   data-board-tab-link="{{ item.name }}" data-board-tab-fragment-url="{{ item.fragment_url }}"{% if item.active %} aria-current="true"{% endif %}>{{ item.label }}{% if item.count is not None %} <span class="tab-count" data-board-tab-count="{{ item.name }}">{{ item.count }}</span>{% endif %}</a>
+                   data-board-tab-link="{{ item.name }}" data-board-tab-fragment-url="{{ item.fragment_url }}"{% if item.active %} aria-current="true"{% endif %}>{{ item.label }}{% if item.count is not None %} <span class="tab-count" data-board-tab-count="{{ item.name }}"{% if item.name == 'subtasks' and not card.subtask_total %} hidden{% endif %}>{{ item.count }}</span>{% endif %}</a>
             {% endfor %}
         </nav>
     {% endif %}
@@ -59,6 +67,9 @@ markup is in the order of the screen, so the focus follows it.
                     </form>
                 {% endif %}
             </section>
+        {% endif %}
+        {% if show_subtasks %}
+            <div class="board-drawer__subtask-summary" data-board-tab-body="description" data-live-board-subtask-summary>{{ subtask_summary_html }}</div>
         {% endif %}
         {% if panel == 'view' %}
             <div class="board-drawer__card" data-live-board-facts>{{ facts_html }}</div>
@@ -121,6 +132,49 @@ markup is in the order of the screen, so the focus follows it.
                 </form>
             {% endif %}
         </section>
+        {% if show_subtasks %}
+            <section class="board-drawer__body board-subtasks" data-board-tab-body="subtasks" aria-label="Подзадачи">
+                <div class="board-subtasks__block" data-live-board-subtasks>{{ subtasks_html }}</div>
+                {% if card.can_add_subtask %}
+                    {% comment %}
+                    «+ Подзадача»: the title, the исполнители and the срок — the form
+                    starts from the card's own. A срок later than the card's is
+                    allowed; the page only warns (`board_subtasks.js`).
+                    {% endcomment %}
+                    <form class="board-subtasks__add" method="post" action="{% url 'boards:subtask_create' board.pk card.card.pk %}{{ filter_suffix }}" data-unsaved-guard{% if subtask_error or subtask_form.errors %}="dirty"{% endif %}>
+                        {% csrf_token %}
+                        <div class="board-subtasks__row">
+                            {{ subtask_form.title }}
+                            {{ subtask_form.due_date }}
+                            <button class="link-button link-button--compact" type="submit">+ Подзадача</button>
+                        </div>
+                        <p class="board-subtask-due-warning" data-subtask-due-warning data-parent-due="{{ card.due_date|date:'Y-m-d' }}" hidden>Позже срока карточки {{ card.card.code }}: {{ card.due_date|date:'d.m.Y' }}</p>
+                        <details class="board-subtasks__people">
+                            <summary>Исполнители: {% for user in card.assignees %}{{ user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %} <span class="board-subtasks__people-hint">(как у карточки — изменить)</span></summary>
+                            <div class="board-subtasks__choices">{{ subtask_form.assignees }}</div>
+                        </details>
+                        {% for field in subtask_form %}{% for error in field.errors %}<p class="field-error">{{ field.label }}: {{ error }}</p>{% endfor %}{% endfor %}
+                        {% if subtask_error %}<p class="field-error">{{ subtask_error }}</p>{% endif %}
+                    </form>
+                    {% comment %}
+                    «Добавить списком»: one line — one subtask, with the card's
+                    исполнители and срок; all or nothing.
+                    {% endcomment %}
+                    <details class="board-subtasks__list"{% if subtask_list_error %} open{% endif %}>
+                        <summary>Добавить списком</summary>
+                        <form class="board-subtasks__list-form" method="post" action="{% url 'boards:subtask_create_list' board.pk card.card.pk %}{{ filter_suffix }}" data-unsaved-guard{% if subtask_list_error %}="dirty"{% endif %}>
+                            {% csrf_token %}
+                            <label class="board-menu__label" for="board-subtasks-list">Одна строка — одна подзадача, с исполнителями и сроком карточки</label>
+                            <textarea id="board-subtasks-list" name="text" rows="5" required placeholder="Корпус 1200×800&#10;Крышка&#10;Комплект крепежа">{{ subtask_list_text }}</textarea>
+                            {% if subtask_list_error %}<p class="field-error">{{ subtask_list_error }}</p>{% endif %}
+                            <button class="link-button link-button--secondary link-button--compact" type="submit">Добавить подзадачи</button>
+                        </form>
+                    </details>
+                {% elif card.subtask_limit_reached %}
+                    <p class="board-drawer__empty">У карточки уже {{ card.subtask_count }} подзадач — больше нельзя.</p>
+                {% endif %}
+            </section>
+        {% endif %}
         <section class="board-drawer__body" data-board-tab-body="log" aria-label="Лог">
             <div data-live-board-log>{{ log_html }}</div>
         </section>

@@ -573,3 +573,65 @@ class ChatFilesMigrationTests(TransactionTestCase):
         self.assertNotIn('boards_boardcardfile', _table_names())
         self.assertTrue(apps.get_model('boards', 'BoardCard').objects.filter(pk=card.pk).exists())
         self.assertEqual(apps.get_model('boards', 'BoardCardComment').objects.filter(card_id=card.pk).count(), 2)
+
+
+SUBTASKS_BEFORE = [('boards', '0018_chat_files')]
+SUBTASKS_AFTER = [('boards', '0019_card_subtasks')]
+
+
+def _columns_of(table):
+    with connection.cursor() as cursor:
+        return {column.name for column in connection.introspection.get_table_description(cursor, table)}
+
+
+class SubtasksMigrationTests(TransactionTestCase):
+    """`boards.0019`: `BoardCard.parent` and «a subtask stands in no column»;
+    nothing is classified — every existing card stays a card — and back."""
+
+    serialized_rollback = True
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    def test_forward_one_column_and_a_constraint_then_back(self):
+        from django.db import IntegrityError, transaction
+
+        apps = migrate(SUBTASKS_BEFORE)
+        self.assertNotIn('parent_id', _columns_of('boards_boardcard'))
+        User = apps.get_model('auth', 'User')
+        Board = apps.get_model('boards', 'Board')
+        SubBoard = apps.get_model('boards', 'SubBoard')
+        BoardColumn = apps.get_model('boards', 'BoardColumn')
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        owner = User.objects.create(username='subtasks_migration_owner')
+        board = Board.objects.create(name='Доска', code='SB', owner=owner)
+        sub_board = SubBoard.objects.create(board=board, name='Основная', position=1, created_by=owner)
+        column = BoardColumn.objects.create(sub_board=sub_board, name='Сделать', position=1)
+        card = BoardCard.objects.create(
+            board=board, sub_board=sub_board, column=column, position=1024, number=1,
+            title='Заказ', created_by=owner,
+        )
+
+        apps = migrate(SUBTASKS_AFTER)
+        BoardCard = apps.get_model('boards', 'BoardCard')
+        # Nothing classified: the card is a card of its column, as it was.
+        self.assertEqual(
+            BoardCard.objects.filter(pk=card.pk).values_list('parent_id', 'column_id').get(),
+            (None, column.pk),
+        )
+        subtask = BoardCard.objects.create(
+            board_id=board.pk, sub_board_id=sub_board.pk, parent_id=card.pk, position=1, number=2,
+            title='Позиция', created_by_id=owner.pk,
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BoardCard.objects.filter(pk=subtask.pk).update(column_id=column.pk)
+        Event = apps.get_model('boards', 'BoardCardEvent')
+        Event.objects.create(card_id=card.pk, actor_id=owner.pk, kind='SUBTASK', details={'action': 'added'})
+
+        # Back: the column goes; both cards and the journal entry stay.
+        apps = migrate(SUBTASKS_BEFORE)
+        self.assertNotIn('parent_id', _columns_of('boards_boardcard'))
+        self.assertEqual(apps.get_model('boards', 'BoardCard').objects.filter(board_id=board.pk).count(), 2)
+        self.assertEqual(apps.get_model('boards', 'BoardCardEvent').objects.filter(kind='SUBTASK').count(), 1)

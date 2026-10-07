@@ -14,14 +14,15 @@ reader to its first tab (or to the tab of the card `?card=` names), and
 `/work/boards/<board>/<sub_board>/` is the page. The card drawer is part of
 it, chosen by the query string: `?card=<pk>` reads a card, `&edit=1` edits it,
 `?new=<column id>` creates one in that column, `&tab=` names the drawer's
-tab («Описание», «Чат», «Лог»; the old `files` is «Чат» showing «Только
-файлы», `&chat=files`). A refused or invalid POST renders the
+tab («Описание», «Чат», «Подзадачи» — a card's, never a subtask's — «Лог»;
+the old `files` is «Чат» showing «Только файлы», `&chat=files`). A subtask
+is opened the same way, `?card=<its pk>`, on its card's sub-board. A refused or invalid POST renders the
 sub-board again with the drawer open, the typed values in place and the error
 beside the form; a successful one redirects to the card's sub-board with the
 card open.
 
-The live blocks — the tabs, the columns, the card's guarded panel, its chat
-and its log — are rendered by `boards:fragment` through the very same context
+The live blocks — the tabs, the columns, the card's guarded panel, its chat,
+its log, its checklist, its followers and its «Подзадачи» — are rendered by `boards:fragment` through the very same context
 builder and the same partials as the page, so a refreshed block cannot
 disagree with a reload; the same answer is what `board_drawer.js` opens a
 card with, without reloading the page.
@@ -74,6 +75,7 @@ from .forms import (
     DirectionForm,
     MoveCardForm,
     SubBoardNameForm,
+    SubtaskForm,
     custom_field_name,
 )
 from .models import (
@@ -115,6 +117,7 @@ from .selectors import (
     member_preview,
     names_field_filter,
     number_input,
+    open_subtasks_warning,
     parse_board_filters,
     parse_table_sort,
     resolve_new_column,
@@ -128,6 +131,9 @@ from .services import (
     StaleCardError,
     add_board_members,
     add_checklist_item,
+    checklist_item_to_subtask,
+    create_subtask,
+    create_subtasks_from_list,
     delete_checklist_item,
     move_checklist_item,
     rename_checklist_item,
@@ -392,15 +398,23 @@ LOG_TEMPLATE = 'boards/includes/log.html'
 CHECKLIST_TEMPLATE = 'boards/includes/checklist.html'
 FACTS_TEMPLATE = 'boards/includes/facts.html'
 FOLLOWERS_TEMPLATE = 'boards/includes/followers.html'
+SUBTASKS_TEMPLATE = 'boards/includes/subtasks.html'
+SUBTASK_SUMMARY_TEMPLATE = 'boards/includes/subtask_summary.html'
+SUBTASK_WARNING_TEMPLATE = 'boards/includes/subtask_warning.html'
 DRAWER_TEMPLATE = 'boards/includes/drawer.html'
 
 # The card panel's tabs, in order: `?tab=` names one, anything else is the
-# first. «Чат» shows its number beside the name.
+# first. «Чат» shows its number beside the name, «Подзадачи» «done/total».
+# A subtask has no «Подзадачи» of its own: one level only.
 PANEL_TABS = (
     ('description', 'Описание'),
     ('chat', 'Чат'),
+    ('subtasks', 'Подзадачи'),
     ('log', 'Лог'),
 )
+SUBTASKS_TAB = 'subtasks'
+# «Скрыть выполненные» of «Подзадачи»: `&subtasks_done=hide`, drawn by the server.
+SUBTASKS_HIDE_DONE = 'hide'
 DEFAULT_PANEL_TAB = PANEL_TABS[0][0]
 # «Чат» shows every message, or — `&chat=files` — only the card's files.
 CHAT_MESSAGES = 'messages'
@@ -430,7 +444,9 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
                    execution_error='', version_conflict=False,
                    comment_text='', comment_error='', comment_mentions=(),
                    checklist_text='', checklist_error='', edit_item=None,
-                   checklist_edit_text='', checklist_edit_error='', tabs=None):
+                   checklist_edit_text='', checklist_edit_error='', tabs=None,
+                   subtask_form=None, subtask_error='', subtask_list_text='', subtask_list_error='',
+                   tab=None):
     """Everything the board page and its live fragment render.
 
     `panel` is `'view'`, `'edit'` or `'new'`; `None` decides it from `card_id`,
@@ -452,6 +468,14 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     lists being in its block.
 
     `tabs` are the board's sub-boards when the view has read them already.
+
+    «Подзадачи» (a card's, never a subtask's) are a tab of their own: the
+    list is a read-only live block, «+ Подзадача» (`subtask_form`, bound after
+    a refusal, with `subtask_error`) and «Добавить списком»
+    (`subtask_list_text`, `subtask_list_error`) are forms below it in no
+    block. `&subtasks_done=hide` («Скрыть выполненные») is kept by every
+    address the page builds for itself. `tab` forces the tab a refused POST
+    comes back on.
 
     The filters (`?mine=1`, `?overdue=1`, `?q=` and the field filters
     `f_<id>…`) are read from `request.GET` here and nowhere else — on a POST
@@ -503,7 +527,11 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         )
     if panel == 'new' and form is None:
         form = CardForm(board=board, fields=state['fields'], initial={'column': new_column.pk})
-    if panel == 'view' and can_edit_card and move_form is None:
+    if panel == 'edit' and item['is_subtask']:
+        # A subtask's срок is checked against its card's by the page's warning.
+        form.fields['due_date'].widget.attrs['data-subtask-due'] = ''
+    # A subtask lives inside its card: it is never moved to a column.
+    if panel == 'view' and can_edit_card and move_form is None and not item['is_subtask']:
         move_form = MoveCardForm(
             initial={'column_id': item['column'].pk if item['column'] else None},
         )
@@ -513,8 +541,12 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         move_form.fields['column_id'].widget.choices = state['move_choices']
     if item is not None and item['can_complete'] and execution_comment is None:
         execution_comment = item['task'].execution_comment
-    tab = parse_panel_tab(request.GET.get('tab'))
+    tab = parse_panel_tab(tab if tab is not None else request.GET.get('tab'))
+    is_subtask = bool(item and item['is_subtask'])
+    if tab == SUBTASKS_TAB and is_subtask:
+        tab = DEFAULT_PANEL_TAB
     chat_mode = parse_chat_mode(request.GET)
+    hide_done = request.GET.get('subtasks_done') == SUBTASKS_HIDE_DONE
     # «Изменить» of one item of the card's «Чек-лист»: an id of an item of
     # this very card, while the list may be changed — anything else is none.
     raw_edit_item = str(edit_item if edit_item is not None else request.GET.get('edit_item') or '')
@@ -566,11 +598,30 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
         'checklist_edit_error': checklist_edit_error,
         'tab': tab if item is not None and panel in ('view', 'edit') else DEFAULT_PANEL_TAB,
         'chat_mode': chat_mode if item is not None and panel in ('view', 'edit') else CHAT_MESSAGES,
+        # «Подзадачи» belong to a card being read or edited, never to a
+        # subtask. Their forms are below the live list, in no block.
+        'show_subtasks': bool(item is not None and panel in ('view', 'edit') and not is_subtask),
+        'subtasks_hide_done': hide_done,
+        'subtask_form': subtask_form,
+        'subtask_error': subtask_error,
+        'subtask_list_text': subtask_list_text,
+        'subtask_list_error': subtask_list_error,
+        # «Открыто подзадач: 2 (ZAP-13, ZAP-15).» — what «Завершить» and
+        # «Отменить карточку» of a card with open subtasks warn about.
+        'subtask_warning_text': open_subtasks_warning(
+            row['card'].code for row in (item['subtask_open_rows'] if item else ())
+        ),
     })
+    if state['show_subtasks'] and item['can_add_subtask'] and subtask_form is None:
+        # The card's own исполнители and срок, as the form starts.
+        state['subtask_form'] = SubtaskForm(board=board, members=item['members'], initial={
+            'due_date': item['due_date'],
+            'assignees': [user.pk for user in item['assignees']],
+        })
     fragment_base = reverse('boards:fragment', args=[board.pk, sub_board.pk])
     query = _panel_query(
         item, panel, new_column, filters, all_comments=all_comments, tab=state['tab'], edit_item=edit_item,
-        chat_mode=state['chat_mode'],
+        chat_mode=state['chat_mode'], hide_done=hide_done,
     )
     state['fragment_base'] = fragment_base
     state['fragment_url'] = fragment_base + query
@@ -605,9 +656,16 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     def panel_query(**options):
         values = {
             'all_comments': all_comments, 'tab': state['tab'], 'edit_item': edit_item,
-            'chat_mode': state['chat_mode'], **options,
+            'chat_mode': state['chat_mode'], 'hide_done': hide_done, **options,
         }
         return _panel_query(item, panel, new_column, filters, **values)
+
+    def tab_count(name):
+        if name == 'chat':
+            return item['comment_count']
+        if name == SUBTASKS_TAB:
+            return subtasks_count_label(item)
+        return None
 
     # The tab strip: each tab's own page and fragment address, built here.
     state['panel_tabs'] = [
@@ -617,10 +675,17 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
             'active': name == state['tab'],
             'page_url': board_url + panel_query(tab=name),
             'fragment_url': fragment_base + panel_query(tab=name),
-            'count': item['comment_count'] if name == 'chat' else None,
+            'count': tab_count(name),
         }
         for name, label in PANEL_TABS
+        if name != SUBTASKS_TAB or state['show_subtasks']
     ] if state['show_discussion'] else []
+    # «Подзадачи»: the tab's own address (the line «Подзадачи: 1 из 3» on
+    # «Описание» leads there), and «Скрыть выполненные» / «Показать
+    # выполненные» — the same panel with the other `subtasks_done`.
+    if state['show_subtasks']:
+        state['subtasks_tab_url'] = board_url + panel_query(tab=SUBTASKS_TAB)
+        state['subtasks_toggle_url'] = board_url + panel_query(tab=SUBTASKS_TAB, hide_done=not hide_done)
     # «Все сообщения | Только файлы» above the chat: each mode's page and
     # fragment address, on «Чат» — switched in place by `board_drawer.js`,
     # links without it.
@@ -647,8 +712,13 @@ def _board_context(request, board, sub_board, *, card_id=None, edit=False, new=N
     return state, holds_input
 
 
+def subtasks_count_label(item):
+    """«1/3» beside «Подзадачи»: done of total (cancelled ones are no work)."""
+    return f"{item['subtask_done']}/{item['subtask_total']}"
+
+
 def _panel_query(item, panel, new_column, filters, *, all_comments=False, tab=DEFAULT_PANEL_TAB,
-                 edit_item=None, chat_mode=CHAT_MESSAGES):
+                 edit_item=None, chat_mode=CHAT_MESSAGES, hide_done=False):
     """The query string that asks for exactly the panel this page shows.
 
     It goes on the live fragment's URL and on the page's own address for a
@@ -668,6 +738,8 @@ def _panel_query(item, panel, new_column, filters, *, all_comments=False, tab=DE
             query['chat'] = CHAT_FILES
         if edit_item is not None:
             query['edit_item'] = edit_item
+        if hide_done:
+            query['subtasks_done'] = SUBTASKS_HIDE_DONE
     elif panel == 'new' and new_column is not None:
         query['new'] = new_column.pk
     encoded = '&'.join(part for part in (urlencode(query), filters.query) if part)
@@ -736,6 +808,24 @@ def _board_blocks(request, context):
     followers = panel == 'view'
     followers_html = _render_block(FOLLOWERS_TEMPLATE, context, request) if followers else ''
     item = context['card']
+    # «Подзадачи»: the list (its tab), the line on «Описание» and the warning
+    # of «Завершить» — one read-only block in three containers with one
+    # fingerprint, outside the guarded panel. A subtask completed by somebody
+    # else moves `subtasks_revision` and never `panel_revision`: the guarded
+    # fingerprint is taken from a render with the warning left out, and the
+    # client sets the warning itself with the block.
+    subtasks = context['show_subtasks']
+    subtasks_html = _render_block(SUBTASKS_TEMPLATE, context, request) if subtasks else ''
+    subtask_summary_html = _render_block(SUBTASK_SUMMARY_TEMPLATE, context, request) if subtasks else ''
+    subtask_warning_html = _render_block(SUBTASK_WARNING_TEMPLATE, context, request) if subtasks else ''
+    panel_revision = content_revision(panel_html + card_html + facts_html) if panel else ''
+    if panel and item is not None and context['subtask_warning_text']:
+        quiet = {**context, 'subtask_fingerprint': True}
+        panel_revision = content_revision(
+            _render_block(PANEL_TEMPLATE, quiet, request)
+            + card_html
+            + (_render_block(FACTS_TEMPLATE, quiet, request) if panel == 'view' else '')
+        )
     blocks = {
         'tabs_html': tabs_html,
         'tabs_revision': content_revision(tabs_html),
@@ -744,7 +834,7 @@ def _board_blocks(request, context):
         'panel_html': panel_html,
         'card_html': card_html,
         'facts_html': facts_html,
-        'panel_revision': content_revision(panel_html + card_html + facts_html) if panel else '',
+        'panel_revision': panel_revision,
         'comments_html': comments_html,
         'comments_revision': content_revision(comments_html) if comments_html else '',
         'log_html': log_html,
@@ -759,6 +849,15 @@ def _board_blocks(request, context):
         'followers_revision': content_revision(followers_html) if followers else '',
         'chat_count': item['comment_count'] if discussion else 0,
         'files_count': item['files_count'] if discussion else 0,
+        'subtasks_html': subtasks_html,
+        'subtask_summary_html': subtask_summary_html,
+        'subtask_warning_html': subtask_warning_html,
+        'subtask_warning_text': context['subtask_warning_text'] if subtasks else '',
+        'subtasks_revision': (
+            content_revision(subtasks_html + subtask_summary_html + subtask_warning_html) if subtasks else ''
+        ),
+        'subtasks_count': subtasks_count_label(item) if subtasks else '',
+        'subtasks_total': item['subtask_total'] if subtasks else 0,
     }
     blocks['drawer_html'] = (
         _render_block(DRAWER_TEMPLATE, {**context, **blocks}, request) if panel else ''
@@ -832,15 +931,18 @@ def _view_switch(board_url, filter_query):
     }
 
 
-def _table_query(filters, *, cancelled, whole_board, sort):
+def _table_query(filters, *, cancelled, whole_board, sort, subtasks=False):
     """The table's own query string, without `?`: the view, the board's
-    filters, «Отменённые», «Все поддоски» and the order — in a fixed order."""
+    filters, «Отменённые», «Все поддоски», «Подзадачи» and the order — in a
+    fixed order."""
     params = [('view', TABLE_VIEW)]
     query = filters.query
     if cancelled:
         params.append(('cancelled', '1'))
     if whole_board:
         params.append(('scope', 'board'))
+    if subtasks:
+        params.append(('subtasks', '1'))
     if sort:
         params.append(('sort', sort))
     encoded = urlencode(params)
@@ -848,10 +950,11 @@ def _table_query(filters, *, cancelled, whole_board, sort):
 
 
 def _table_options(request):
-    """«Отменённые» and «Все поддоски» as the address says them."""
+    """«Отменённые», «Все поддоски» and «Подзадачи» as the address says them."""
     return {
         'cancelled': request.GET.get('cancelled') == '1',
         'whole_board': request.GET.get('scope') == 'board',
+        'subtasks': request.GET.get('subtasks') == '1',
     }
 
 
@@ -885,8 +988,7 @@ def _render_table(request, board, sub_board):
         # options — «Отменённые», «Все поддоски» and the order.
         'reset_url': f'{board_url}?{_table_query(NO_FILTERS, sort=sort, **options)}',
         'generated_at': timezone.localtime(),
-        'rows_label': f"{len(state['rows'])} "
-                      f"{plural_ru(len(state['rows']), 'карточка', 'карточки', 'карточек')}",
+        'rows_label': _rows_label(state['rows']),
         'field_filters': describe_field_filters(fields, filters),
         'field_filter_count': len(filters.fields),
         'can_work': can_work_on_board(request.user, board),
@@ -903,11 +1005,22 @@ def _render_table(request, board, sub_board):
     return render(request, 'boards/table.html', context)
 
 
+def _rows_label(rows):
+    """«8 карточек» — and «и 4 подзадачи» when the table shows them."""
+    subtasks = sum(1 for row in rows if row.get('is_subtask'))
+    cards = len(rows) - subtasks
+    label = f"{cards} {plural_ru(cards, 'карточка', 'карточки', 'карточек')}"
+    if subtasks:
+        label += f" и {subtasks} {plural_ru(subtasks, 'подзадача', 'подзадачи', 'подзадач')}"
+    return label
+
+
 def table_headers(state):
     """The header row of the table's spreadsheet."""
     return [
         'Код',
         *(['Поддоска'] if state['whole_board'] else []),
+        *(['Родитель'] if state['subtasks'] else []),
         'Название',
         'Колонка',
         'Статус',
@@ -926,8 +1039,9 @@ def table_cells(state, row):
     return [
         row['card'].code,
         *([row['sub_board'].name if row['sub_board'] else None] if state['whole_board'] else []),
+        *([row['parent_code'] or None] if state['subtasks'] else []),
         row['card'].title,
-        row['column_label'],
+        row['column_label'] or None,
         row['status_label'],
         ', '.join(person_name(user) for user in row['assignees']) or None,
         row['due_date'],
@@ -1229,7 +1343,10 @@ def card_complete(request, pk, card_pk):
             request, board, card.sub_board, card_id=card.pk, panel='view',
             execution_comment=execution_comment, execution_error=str(exc),
         )
-    messages.success(request, 'Задача выполнена, карточка в завершающей колонке.')
+    messages.success(
+        request,
+        'Подзадача выполнена.' if card.parent_id else 'Задача выполнена, карточка в завершающей колонке.',
+    )
     return redirect(_card_url(board, card, request))
 
 
@@ -1278,6 +1395,73 @@ def card_cancel(request, pk, card_pk):
         return _render_board(request, board, card.sub_board, card_id=card.pk, panel='view', error=str(exc))
     messages.success(request, 'Карточка отменена: её задача закрыта без выполнения.')
     return redirect(_card_url(board, card, request))
+
+
+# --------------------------------------------------------------------------
+# «Подзадачи»
+# --------------------------------------------------------------------------
+#
+# Ordinary POST forms on a card's «Подзадачи», so the tab works without
+# JavaScript: the right — working on the board — is asked before the method,
+# a GET goes back to the tab and changes nothing, and a refusal comes back as
+# the panel on that tab with what was typed and the message beside the form.
+
+
+def _subtask_request(request, pk, card_pk):
+    board = _board_or_404(pk)
+    _require(can_work_on_board(request.user, board))
+    card = get_object_or_404(BoardCard.objects.select_related('board'), pk=card_pk, board=board)
+    return board, card
+
+
+@login_required
+def subtask_create(request, pk, card_pk):
+    """«+ Подзадача»: `create_subtask()` with the title, the исполнители and
+    the срок of the form (which starts from the card's own)."""
+    board, card = _subtask_request(request, pk, card_pk)
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request, tab=SUBTASKS_TAB))
+    form = SubtaskForm(request.POST, board=board)
+    if form.is_valid():
+        try:
+            subtask = create_subtask(
+                card,
+                actor=request.user,
+                title=form.cleaned_data['title'],
+                assignees=[user.pk for user in form.cleaned_data['assignees']],
+                due_date=form.cleaned_data['due_date'],
+            )
+        except BoardError as exc:
+            return _render_board(
+                request, board, card.sub_board, card_id=card.pk, panel='view', tab=SUBTASKS_TAB,
+                subtask_form=form, subtask_error=str(exc),
+            )
+        messages.success(request, f'Подзадача {subtask.code} добавлена.')
+        return redirect(_card_url(board, card, request, tab=SUBTASKS_TAB))
+    return _render_board(
+        request, board, card.sub_board, card_id=card.pk, panel='view', tab=SUBTASKS_TAB, subtask_form=form,
+    )
+
+
+@login_required
+def subtask_create_list(request, pk, card_pk):
+    """«Добавить списком»: `create_subtasks_from_list()` — one subtask per
+    line, all or none."""
+    board, card = _subtask_request(request, pk, card_pk)
+    if request.method != 'POST':
+        return redirect(_card_url(board, card, request, tab=SUBTASKS_TAB))
+    text = request.POST.get('text', '')
+    try:
+        subtasks = create_subtasks_from_list(card, actor=request.user, text=text)
+    except BoardError as exc:
+        return _render_board(
+            request, board, card.sub_board, card_id=card.pk, panel='view', tab=SUBTASKS_TAB,
+            subtask_list_text=text, subtask_list_error=str(exc),
+        )
+    messages.success(
+        request, f'Добавлено {len(subtasks)} {plural_ru(len(subtasks), "подзадача", "подзадачи", "подзадач")}.',
+    )
+    return redirect(_card_url(board, card, request, tab=SUBTASKS_TAB))
 
 
 # Said beside a refused message that carried files: a browser never keeps a
@@ -1559,6 +1743,21 @@ def checklist_toggle(request, pk, card_pk, item_pk):
         return JsonResponse({
             'ok': True, 'item_id': item.pk, 'is_done': item.is_done, 'done': done, 'total': total,
         })
+    return _checklist_back(request, board, card)
+
+
+@login_required
+def checklist_to_subtask(request, pk, card_pk, item_pk):
+    """«В подзадачу» of an item, confirmed through the shared modal:
+    `checklist_item_to_subtask()`; the card stays on «Описание»."""
+    board, card, item = _checklist_request(request, pk, card_pk, item_pk)
+    if request.method == 'POST':
+        try:
+            subtask = checklist_item_to_subtask(item, actor=request.user)
+        except BoardError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, f'Пункт стал подзадачей {subtask.code}.')
     return _checklist_back(request, board, card)
 
 

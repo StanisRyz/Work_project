@@ -104,6 +104,12 @@ urlpatterns = [
         '<int:pk>/cards/<int:card_pk>/files/<int:file_pk>/delete/',
         views.file_delete, name='file_delete',
     ),
+    # «Подзадачи»: whoever works on the board, an open card that is no subtask.
+    path('<int:pk>/cards/<int:card_pk>/subtasks/create/', views.subtask_create, name='subtask_create'),
+    path(
+        '<int:pk>/cards/<int:card_pk>/subtasks/create-list/',
+        views.subtask_create_list, name='subtask_create_list',
+    ),
     # «Следить» / «Вы следите»: any reader of a live board.
     path('<int:pk>/cards/<int:card_pk>/subscribe/', views.card_subscribe, name='card_subscribe'),
     # The card's «Чек-лист»: whoever works on the board, an open card only.
@@ -120,6 +126,10 @@ urlpatterns = [
     path(
         '<int:pk>/cards/<int:card_pk>/checklist/<int:item_pk>/move/',
         views.checklist_move, name='checklist_move',
+    ),
+    path(
+        '<int:pk>/cards/<int:card_pk>/checklist/<int:item_pk>/to-subtask/',
+        views.checklist_to_subtask, name='checklist_to_subtask',
     ),
     path(
         '<int:pk>/cards/<int:card_pk>/checklist/<int:item_pk>/delete/',

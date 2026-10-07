@@ -12,7 +12,10 @@ tasks' own query (a field filter an `Exists()`), never a query of its own.
 A tile's «☑ 2/5» and «📎 N» are annotations of that same query; the open
 card's «Чек-лист» is one query, its followers (the board's readers, marked)
 one more, the mentions of its messages one prefetch, and the files of its
-«Чат» one query. Who hears about a card
+«Чат» one query. A card's «Подзадачи» are two queries (the subtasks with
+their tasks, their исполнители) and its tile's «⧉ 1/3» two subqueries of the
+tiles' query; a subtask is never a tile — `_column_tasks()` is where the
+columns, their counts and the board's filters start. Who hears about a card
 is `card_audience()`, one query.
 """
 
@@ -25,15 +28,18 @@ from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
 from django.db.models import (
-    Count, DateTimeField, Exists, F, IntegerField, Max, OuterRef, Prefetch, Q, Subquery, Value,
+    CharField, Count, DateTimeField, Exists, F, IntegerField, Max, OuterRef, Prefetch, Q, StringAgg,
+    Subquery, Value,
 )
 from django.db.models import prefetch_related_objects
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 from .columns import MAX_COLUMNS, card_column
 from .models import (
+    MAX_SUBTASKS,
     Board,
+    BoardCard,
     BoardCardChecklistItem,
     BoardCardComment,
     BoardCardCommentMention,
@@ -50,6 +56,7 @@ from .models import (
 from .permissions import (
     active_employee_q,
     board_readers_q,
+    can_add_subtask,
     can_cancel_card,
     can_delete_card_file,
     can_edit_checklist,
@@ -428,17 +435,53 @@ def _board_tasks(sub_board):
     """The sub-board's tasks with their cards, исполнители and message counts.
 
     The «Обсуждение» count is a subquery annotation of the same query, so a
-    tile's counter costs no query of its own.
+    tile's counter costs no query of its own. Cards only — never a subtask
+    (`_column_tasks()`).
     """
     return _tasks_with_cards(
-        _all_board_tasks().filter(board_card__sub_board=sub_board)
+        _column_tasks().filter(board_card__sub_board=sub_board)
+    ).annotate(open_subtask_numbers=open_subtask_numbers())
+
+
+def open_subtask_numbers():
+    """The numbers of a card's open subtasks, «13,15» — one subquery of the
+    tiles' own query, so the drop dialog of a tile can name them («Открыто
+    подзадач: 2 (ZAP-13, ZAP-15)») without a query of its own; NULL without
+    any. In no particular order: `_item()` sorts them."""
+    from tasks.models import Task
+
+    numbers = (
+        Task.objects.filter(
+            source_type=Task.SourceType.BOARD,
+            board_card__parent=OuterRef('board_card'),
+            status__is_final=False,
+        )
+        .order_by().values('board_card__parent')
+        .annotate(numbers=StringAgg(Cast('board_card__number', CharField()), Value(',')))
+        .values('numbers')
     )
+    return Subquery(numbers, output_field=CharField())
 
 
 def _all_board_tasks():
     from tasks.models import Task
 
     return Task.objects.filter(source_type=Task.SourceType.BOARD)
+
+
+def _column_tasks():
+    """The tasks of the cards that stand in columns — every `BOARD` task but
+    a subtask's.
+
+    The read side's one point of «подзадач в колонках нет»: the columns and
+    their counts (`build_board_state()`, `column_counts()`, a drag's JSON),
+    the board's filters — «Мои», the search, the fields, «Застрявшие» — and
+    the time in a column all start here, so a subtask is never a tile, never
+    counted and never stuck. A subtask is read by its card's «Подзадачи»
+    (`card_subtasks()`), by its own panel and by «Задачи». The write side's
+    twin is `services._in_column_q()`.
+    """
+    return _all_board_tasks().filter(board_card__parent__isnull=True)
 
 
 def _tasks_with_cards(tasks):
@@ -461,8 +504,23 @@ def _tasks_with_cards(tasks):
             file_count=file_count_annotation(),
             in_column_since=in_column_since(),
             **checklist_annotations(),
+            **subtask_annotations(),
         )
     )
+
+
+def subtask_annotations():
+    """«⧉ 1/3» of a tile as two subquery annotations of the tasks' own
+    query: how many of the card's subtasks are work (a cancelled one is
+    withdrawn work and counts in neither number) and how many are completed
+    — so the counter costs no query per tile."""
+    from tasks.models import Task
+
+    subtasks = Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__parent=OuterRef('board_card'))
+    return {
+        'subtask_total': _count_subquery(subtasks.exclude(status__code='CANCELLED'), 'board_card__parent'),
+        'subtask_done': _count_subquery(subtasks.filter(status__code='COMPLETED'), 'board_card__parent'),
+    }
 
 
 def file_count_annotation():
@@ -509,6 +567,15 @@ def _item(task, board):
         # «☑ 2/5»: the card's «Чек-лист», counted in the tasks' own query.
         'checklist_total': getattr(task, 'checklist_total', 0),
         'checklist_done': getattr(task, 'checklist_done', 0),
+        # «⧉ 1/3»: the card's subtasks, counted in the tasks' own query.
+        'subtask_total': getattr(task, 'subtask_total', 0),
+        'subtask_done': getattr(task, 'subtask_done', 0),
+        'subtask_open': max(getattr(task, 'subtask_total', 0) - getattr(task, 'subtask_done', 0), 0),
+        # The codes of the open ones, for the tile's drop dialog (tiles only).
+        'open_subtask_codes': [
+            f'{board.code}-{number}'
+            for number in sorted(int(part) for part in (getattr(task, 'open_subtask_numbers', '') or '').split(',') if part)
+        ],
         # «В колонке с» and the days since — for open work only: a completed
         # or cancelled card stands nowhere it could be stuck.
         'in_column_since': since,
@@ -757,15 +824,23 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
         card_id = int(card_id)
     except (TypeError, ValueError):
         return None
+    from tasks.models import Task
+
     comments = BoardCardComment.objects.filter(card=OuterRef('board_card'))
+    # A subtask's panel names the card it lives in — its number and title
+    # joined — and warns when its own срок is later than that card's: the
+    # parent's срок is a subquery of the same query.
+    parent_due = Task.objects.filter(
+        source_type=Task.SourceType.BOARD, board_card=OuterRef('board_card__parent'),
+    ).values('due_date')[:1]
     task = (
         _all_board_tasks()
         .filter(board_card__board=board, board_card_id=card_id)
         .select_related(
-            'status', 'board_card', 'board_card__created_by', 'department',
+            'status', 'board_card', 'board_card__created_by', 'board_card__parent', 'department',
             'completed_by', 'cancelled_by',
         )
-        .annotate(comment_count=_count_subquery(comments, 'card'))
+        .annotate(comment_count=_count_subquery(comments, 'card'), parent_due_date=Subquery(parent_due))
         .first()
     )
     if task is None:
@@ -780,10 +855,20 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     item = _item(task, board)
     card = task.board_card
     own_columns = columns_of.get(card.sub_board_id, [])
-    item['column'] = card_column(card, task, own_columns)
+    item['is_subtask'] = card.parent_id is not None
+    # A subtask stands in no column; «Вернуть в работу» puts it back in its
+    # card's list.
+    item['column'] = None if item['is_subtask'] else card_column(card, task, own_columns)
     # Where «Вернуть в работу» puts it: its working column, or the first one
     # if that column was deleted meanwhile.
-    item['return_column'] = _return_column(card, own_columns)
+    item['return_column'] = None if item['is_subtask'] else _return_column(card, own_columns)
+    if item['is_subtask']:
+        card.parent.board = board
+        item['parent'] = card.parent
+        item['parent_due_date'] = task.parent_due_date
+        item['later_than_parent'] = bool(
+            task.parent_due_date and task.due_date and task.due_date > task.parent_due_date
+        )
     item['moved_to'] = (
         next((tab for tab in tabs if tab.pk == card.sub_board_id), None)
         if card.sub_board_id != sub_board.pk else None
@@ -843,7 +928,13 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     # «@» offers in «Чат» (whoever no longer reads the board is neither).
     readers = list(
         get_user_model().objects.filter(board_readers_q(board))
-        .annotate(follows=Exists(BoardCardSubscription.objects.filter(card=card, user=OuterRef('pk'))))
+        .select_related('userprofile__department')
+        .annotate(
+            follows=Exists(BoardCardSubscription.objects.filter(card=card, user=OuterRef('pk'))),
+            # Whom a new subtask may be put on: the active members among them
+            # — «+ Подзадача» offers them without a query of its own.
+            is_member=Exists(BoardMember.objects.filter(board=board, user=OuterRef('pk'))),
+        )
         .distinct()
         .order_by('last_name', 'first_name', 'username', 'pk')
     )
@@ -855,8 +946,80 @@ def _panel_card(board, sub_board, columns_of, card_id, user, *, loaded, tabs, ca
     # The page is drawn for a reader of the board only.
     item['can_follow'] = can_follow_card(user, card, can_view=True)
     item['mention_people'] = [person for person in readers if person.pk != user.pk] if can_work else []
+    item['members'] = [person for person in readers if person.is_member]
     attach_field_values(item, fields, (field_rows or {}).get(card.pk, {}))
+    # «Подзадачи»: a card's own list, two queries whatever its length; a
+    # subtask has none.
+    item.update(card_subtasks(card, task, board) if not item['is_subtask'] else NO_SUBTASKS)
+    item['can_add_subtask'] = (
+        can_add_subtask(user, card, task, can_work=can_work)
+        and item['subtask_count'] < MAX_SUBTASKS
+    )
+    item['subtask_limit_reached'] = item['subtask_count'] >= MAX_SUBTASKS
     return item
+
+
+# A subtask's panel: no list of its own.
+NO_SUBTASKS = {
+    'subtasks': [], 'subtask_count': 0, 'subtask_total': 0, 'subtask_done': 0,
+    'subtask_open_rows': [], 'subtask_closed': 0,
+}
+
+
+def card_subtasks(card, task, board):
+    """«Подзадачи» of `card`: every subtask with its task, status and
+    исполнители — two queries (the tasks with their cards and statuses, the
+    исполнители of all of them), whatever the length of the list, none
+    growing with it.
+
+    `subtasks` are in the list's order — the open ones by their place, then
+    the closed ones (completed and cancelled), so «Скрыть выполненные» only
+    cuts the tail. Each is `{'card', 'task', 'assignees', 'due_date',
+    'is_closed', 'is_done', 'is_cancelled', 'later_than_parent'}`.
+    `subtask_total` counts the work (a cancelled subtask is withdrawn work and
+    is not), `subtask_done` the completed ones, `subtask_count` every subtask
+    (the limit counts them all), `subtask_open_rows` the open ones — what the
+    warnings of «Завершить» and «Отменить карточку» name.
+    """
+    from tasks.models import TaskAssignee
+
+    tasks = list(
+        _all_board_tasks().filter(board_card__parent=card)
+        .select_related('status', 'board_card')
+        .order_by('board_card__position', 'board_card__pk')
+    )
+    people = {}
+    for row in TaskAssignee.objects.filter(
+        task__source_type=task.source_type, task__board_card__parent=card,
+    ).select_related('user'):
+        people.setdefault(row.task_id, []).append(row.user)
+    rows = []
+    for subtask_task in tasks:
+        subtask = subtask_task.board_card
+        subtask.board = board
+        subtask.parent = card
+        code = subtask_task.status.code
+        rows.append({
+            'card': subtask,
+            'task': subtask_task,
+            'assignees': people.get(subtask_task.pk, []),
+            'due_date': subtask_task.due_date,
+            'is_closed': subtask_task.status.is_final,
+            'is_done': code == 'COMPLETED',
+            'is_cancelled': code == 'CANCELLED',
+            'later_than_parent': bool(
+                task.due_date and subtask_task.due_date and subtask_task.due_date > task.due_date
+            ),
+        })
+    rows.sort(key=lambda row: row['is_closed'])
+    return {
+        'subtasks': rows,
+        'subtask_count': len(rows),
+        'subtask_total': sum(1 for row in rows if not row['is_cancelled']),
+        'subtask_done': sum(1 for row in rows if row['is_done']),
+        'subtask_open_rows': [row for row in rows if not row['is_closed']],
+        'subtask_closed': sum(1 for row in rows if row['is_closed']),
+    }
 
 
 # The fields an «Изменение» entry names, in the edit form's order.
@@ -887,9 +1050,17 @@ def describe_card_event(event, code=''):
     details = event.details if isinstance(event.details, dict) else {}
     kind = event.kind
     if kind == BoardCardEvent.Kind.CREATED:
+        if details.get('parent'):
+            # A subtask: created inside its card, in no column.
+            created = f'Подзадача {code} создана' if code else 'Подзадача создана'
+            return f'{created} в карточке {details["parent"]}'
         column = details.get('column')
         created = f'Карточка {code} создана' if code else 'Карточка создана'
         return f'{created} в колонке «{column}»' if column else created
+    if kind == BoardCardEvent.Kind.SUBTASK:
+        action = SUBTASK_ACTION_LABELS.get(details.get('action'), 'изменена')
+        subtask = details.get('code') or ''
+        return f'Подзадача {subtask} {action}'.replace('  ', ' ')
     if kind == BoardCardEvent.Kind.EDITED:
         if details.get('by_column'):
             # The people pinned to the column the card came into.
@@ -913,6 +1084,8 @@ def describe_card_event(event, code=''):
         return 'Карточка отменена'
     if kind == BoardCardEvent.Kind.CHECKLIST:
         action = CHECKLIST_ACTION_LABELS.get(details.get('action'), 'изменён')
+        if details.get('action') == 'to_subtask' and details.get('code'):
+            action = f'{action} {details["code"]}'
         done, total = details.get('done'), details.get('total')
         counts = f' ({done}/{total})' if isinstance(done, int) and isinstance(total, int) else ''
         return f'Чек-лист: {action}{counts}'
@@ -927,6 +1100,15 @@ CHECKLIST_ACTION_LABELS = {
     'done': 'отмечен пункт',
     'undone': 'снята отметка с пункта',
     'deleted': 'удалён пункт',
+    'to_subtask': 'пункт стал подзадачей',
+}
+
+# «Подзадача ZAP-13 выполнена» — the action of a parent's `SUBTASK` entry.
+SUBTASK_ACTION_LABELS = {
+    'added': 'добавлена',
+    'completed': 'выполнена',
+    'reopened': 'возвращена в работу',
+    'cancelled': 'отменена',
 }
 
 
@@ -1298,6 +1480,18 @@ def build_board_state(board, sub_board, user, *, done_limit=DONE_LIMIT, card_id=
     }
 
 
+def open_subtasks_warning(codes, *, total=None):
+    """«Открыто подзадач: 2 (ZAP-13, ZAP-15).» — what «Завершить» and
+    «Отменить карточку» of a card with open subtasks say, `''` without them.
+    At most ten codes are named; the number is always the whole."""
+    codes = list(codes)
+    if not codes:
+        return ''
+    count = len(codes) if total is None else total
+    shown = ', '.join(codes[:10]) + (', …' if len(codes) > 10 else '')
+    return f'Открыто подзадач: {count} ({shown}). Они останутся в работе у своих исполнителей.'
+
+
 def column_counts(sub_board, user=None, filters=NO_FILTERS):
     """`{column id: number of cards}` — the numbers the column headers show.
 
@@ -1313,7 +1507,7 @@ def column_counts(sub_board, user=None, filters=NO_FILTERS):
     counts = {str(column.pk): 0 for column in columns}
     working = [column for column in columns if not column.is_done]
     first_working_id = working[0].pk if working else None
-    tasks = Task.objects.filter(source_type=Task.SourceType.BOARD, board_card__sub_board=sub_board)
+    tasks = _column_tasks().filter(board_card__sub_board=sub_board)
     open_cards = (
         _filtered(tasks.filter(status__is_final=False), filters, user, open_work=True, columns=columns)
         .order_by()
@@ -1529,7 +1723,7 @@ def _sorted_rows(rows, sort):
 
 
 def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', cancelled=False,
-                      whole_board=False, fields=None):
+                      whole_board=False, fields=None, subtasks=False):
     """Everything «Таблица» shows — and exactly what its Excel holds.
 
     The cards of `sub_board` — or of every sub-board of the board under
@@ -1551,6 +1745,15 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
     `cells` one per live field of the board, in order (`_table_cell()`);
     `created`/`completed` local dates. `field_columns` are those live fields.
 
+    The rows are the cards of the columns. Under `subtasks` (`?subtasks=1`,
+    off by default) each card's subtasks follow it at once — open ones by
+    their place in its list, then the closed ones — marked `is_subtask`, with
+    `parent_code` («Родитель»), no column and no time in one; they are read
+    for the cards the filters kept (the filters describe the tiles) with the
+    same states as the cards — the open and completed, the cancelled under
+    «Отменённые», only the open under «Просроченные»/«Застрявшие» — in one
+    query more. Sorting orders the cards; a card's subtasks stay under it.
+
     The order is the board's — sub-board, column, place in it, the closing
     column newest completion first, the cancelled last — unless `sort`
     (already accepted by `parse_table_sort()`) names another, applied in
@@ -1571,34 +1774,49 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
     live_fields = [field for field in fields if not field.is_archived]
 
     scope = {'board_card__board': board} if whole_board else {'board_card__sub_board': sub_board}
-    tasks = _tasks_with_cards(_all_board_tasks().filter(**scope))
+    tasks = _tasks_with_cards(_column_tasks().filter(**scope))
     shown_columns = all_columns if whole_board else columns_of.get(sub_board.pk, [])
-    if filters.overdue or filters.stale:
-        tasks = _filtered(
-            tasks.filter(status__is_final=False), filters, user, open_work=True, columns=shown_columns,
-        )
+    open_only = filters.overdue or filters.stale
+    codes = ['IN_PROGRESS', 'COMPLETED'] + (['CANCELLED'] if cancelled else [])
+    states = Q(status__is_final=False) if open_only else Q(status__is_final=False) | Q(status__code__in=codes)
+    if open_only:
+        tasks = _filtered(tasks.filter(states), filters, user, open_work=True, columns=shown_columns)
     else:
-        codes = ['IN_PROGRESS', 'COMPLETED'] + (['CANCELLED'] if cancelled else [])
-        tasks = _filtered(
-            tasks.filter(Q(status__is_final=False) | Q(status__code__in=codes)),
-            filters, user, open_work=False,
-        )
+        tasks = _filtered(tasks.filter(states), filters, user, open_work=False)
     tasks = list(tasks)
-    field_rows = card_field_rows(live_fields, [task.board_card_id for task in tasks])
+    subtask_tasks = []
+    if subtasks and tasks:
+        subtask_tasks = list(
+            _tasks_with_cards(
+                _all_board_tasks().filter(states, board_card__parent_id__in=[task.board_card_id for task in tasks])
+            ).select_related('board_card__parent')
+        )
+    field_rows = card_field_rows(
+        live_fields, [task.board_card_id for task in [*tasks, *subtask_tasks]],
+    )
 
     rows = []
-    for task in tasks:
+    for task in [*tasks, *subtask_tasks]:
         item = _item(task, board)
         card = item['card']
+        is_subtask = card.parent_id is not None
         own_columns = columns_of.get(card.sub_board_id, [])
-        column = card_column(card, task, own_columns)
+        column = None if is_subtask else card_column(card, task, own_columns)
         tab = tab_of.get(card.sub_board_id)
         card.sub_board = tab
         status = task.status.code
+        if is_subtask:
+            # A subtask stands in no column and has no time in one.
+            column_label = ''
+            item['in_column_since'] = item['in_column_days'] = None
+        else:
+            column_label = column.name if column is not None else TABLE_STATUS_LABELS['CANCELLED']
         item.update({
             'sub_board': tab,
             'column': column,
-            'column_label': column.name if column is not None else TABLE_STATUS_LABELS['CANCELLED'],
+            'column_label': column_label,
+            'is_subtask': is_subtask,
+            'parent_code': card.parent_code if is_subtask else '',
             'status': status,
             'status_label': TABLE_STATUS_LABELS.get(status, task.status.name),
             'is_stale': is_stale(item['in_column_days'], column) if not item['is_closed'] else False,
@@ -1637,8 +1855,23 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
             'completed': task.completed_at if status == 'COMPLETED' else None,
         }
         rows.append(item)
+    children = {}
+    for row in [row for row in rows if row['is_subtask']]:
+        children.setdefault(row['card'].parent_id, []).append(row)
+    rows = [row for row in rows if not row['is_subtask']]
     rows.sort(key=lambda row: row['board_order'])
     rows = _sorted_rows(rows, sort)
+    if subtasks:
+        # Each card's subtasks right under it: the open ones in the list's
+        # order, then the closed ones — as «Подзадачи» draws them.
+        ordered = []
+        for row in rows:
+            ordered.append(row)
+            ordered.extend(sorted(
+                children.get(row['card'].pk, ()),
+                key=lambda child: (child['is_closed'], child['card'].position, child['card'].pk),
+            ))
+        rows = ordered
     return {
         'board': board,
         'sub_board': sub_board,
@@ -1657,4 +1890,5 @@ def build_board_table(board, sub_board, user, *, filters=NO_FILTERS, sort='', ca
         'filters': filters,
         'cancelled': cancelled,
         'whole_board': whole_board,
+        'subtasks': subtasks,
     }

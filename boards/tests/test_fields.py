@@ -764,8 +764,9 @@ class FieldQueryCountTests(FieldsMixin, TestCase):
     # with card fields (`boards/tests/test_journal.py` measures one without);
     # two more since the card's «Чек-лист» and its followers are read; at
     # stage 19 one more for the files of «Чат» and two fewer (the member
-    # count and the tabs read once).
-    PAGE_QUERIES = 38
+    # count and the tabs read once); at stage 20 two more for the card's
+    # «Подзадачи» (the subtasks with their tasks, and their исполнители).
+    PAGE_QUERIES = 40
 
     def setUp(self):
         self.make_fields()
