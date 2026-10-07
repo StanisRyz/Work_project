@@ -1,0 +1,51 @@
+
+=== 1920×1080 ===
+PASS  «+ Связь» on «Описание»
+PASS  the kinds: Ждёт, Блокирует, Связана с, Дублирует  — ['Ждёт', 'Блокирует', 'Связана с', 'Дублирует']
+PASS  «Связи»: «Ждёт» СНБ-1, its title, status and board  — Связи ⛔ ждёт открытых: 1 Ждёт СНБ-1 Закупить лист 2 мм В работе Снабжение ×
+PASS  the tile: «⛔ ждёт СНБ-1»  — ⛔ ждёт СНБ-1
+PASS  «Лог»: «Связь: ждёт СНБ-1»
+PASS  no sideways scroll
+PASS  «Заблокированные»: only ZAP-1 in the working columns
+PASS  …the box ticked
+PASS  ivanov sees «⛔ ждёт СНБ-1» (he reads «Снабжение»)
+PASS  the badge disappears on ivanov's page…
+PASS  …without a reload
+PASS  ivanov's bell: «Карточку ZAP-1 можно начинать: СНБ-1 выполнена»  — ['Карточку ZAP-1 можно начинать: СНБ-1 выполнена\nКарточку ZAP-1 на доске «Запуск заказов» можно начинать: СНБ-1 выполнена, других открытых блокирующих карточек нет.\n07.10.2026 13:44']
+PASS  a member who manages nothing: «⋯» holds only the bell
+PASS  the header shows «🔔»
+PASS  worker2's bell: «Карточка ZAP-2 вошла в колонку «В работе»…»  — ['Карточка ZAP-2 вошла в колонку «В работе» на доске «Запуск заказов»\nКарточка ZAP-2 вошла в колонку «В работе» на доске «Запуск заказов», за которой вы следите.\n07.10.2026 13:45']
+PASS  …and nothing for admin1, who moved it
+PASS  «Сумма в колонке» offered for a number
+PASS  every header sums the cards it shows  — {'1': 'Σ Сумма: 1 340 000', '2': 'Σ Сумма: 3 350 000', '3': 'Σ Сумма: 75 000', '4': 'Σ Сумма: 990 000'}
+PASS  no sideways scroll
+PASS  the filter narrows the sum
+PASS  «Таблица»: «Ждёт» before the fields  — ['Код', 'Название', 'Колонка', 'Исполнители', 'Срок', 'Исходный срок', 'Переносов', 'Последняя причина', 'В колонке', 'Чек-лист', 'Ждёт', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена']
+PASS  «Итого» under «Сумма» is the sum of the column  — ('5\xa0755\xa0000', ['1\xa0250\xa0000', '75\xa0000', '15\xa0000', '2\xa0150\xa0000', '400\xa0000', '800\xa0000', '75\xa0000', '990\xa0000'])
+
+=== 1536×864 ===
+PASS  «+ Связь» on «Описание»
+PASS  the kinds: Ждёт, Блокирует, Связана с, Дублирует  — ['Ждёт', 'Блокирует', 'Связана с', 'Дублирует']
+PASS  «Связи»: «Ждёт» СНБ-1, its title, status and board  — Связи ⛔ ждёт открытых: 1 Ждёт СНБ-1 Закупить лист 2 мм В работе Снабжение ×
+PASS  the tile: «⛔ ждёт СНБ-1»  — ⛔ ждёт СНБ-1
+PASS  «Лог»: «Связь: ждёт СНБ-1»
+PASS  no sideways scroll
+PASS  «Заблокированные»: only ZAP-1 in the working columns
+PASS  …the box ticked
+PASS  ivanov sees «⛔ ждёт СНБ-1» (he reads «Снабжение»)
+PASS  the badge disappears on ivanov's page…
+PASS  …without a reload
+PASS  ivanov's bell: «Карточку ZAP-1 можно начинать: СНБ-1 выполнена»  — ['Карточку ZAP-1 можно начинать: СНБ-1 выполнена\nКарточку ZAP-1 на доске «Запуск заказов» можно начинать: СНБ-1 выполнена, других открытых блокирующих карточек нет.\n07.10.2026 13:46']
+PASS  a member who manages nothing: «⋯» holds only the bell
+PASS  the header shows «🔔»
+PASS  worker2's bell: «Карточка ZAP-2 вошла в колонку «В работе»…»  — ['Карточка ZAP-2 вошла в колонку «В работе» на доске «Запуск заказов»\nКарточка ZAP-2 вошла в колонку «В работе» на доске «Запуск заказов», за которой вы следите.\n07.10.2026 13:46']
+PASS  …and nothing for admin1, who moved it
+PASS  «Сумма в колонке» offered for a number
+PASS  every header sums the cards it shows  — {'1': 'Σ Сумма: 1 340 000', '2': 'Σ Сумма: 3 350 000', '3': 'Σ Сумма: 75 000', '4': 'Σ Сумма: 990 000'}
+PASS  no sideways scroll
+PASS  the filter narrows the sum
+PASS  «Таблица»: «Ждёт» before the fields  — ['Код', 'Название', 'Колонка', 'Исполнители', 'Срок', 'Исходный срок', 'Переносов', 'Последняя причина', 'В колонке', 'Чек-лист', 'Ждёт', 'Номер заявки', 'Заказ покупателя', 'Срок изготовления', 'Приоритет', 'Стоп', 'Сумма', 'Создана', 'Завершена']
+PASS  «Итого» under «Сумма» is the sum of the column  — ('5\xa0755\xa0000', ['1\xa0250\xa0000', '75\xa0000', '15\xa0000', '2\xa0150\xa0000', '400\xa0000', '800\xa0000', '75\xa0000', '990\xa0000'])
+PASS  no JavaScript errors and no browser dialogs
+
+45/45 PASS

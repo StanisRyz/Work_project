@@ -1,0 +1,75 @@
+$ python manage.py migrate   # с нуля, PostgreSQL
+  Applying boards.0021_links_column_subscriptions_sums... OK
+  Applying notifications.0015_board_unblocked_column_entered... OK
+
+$ python manage.py seed_references
+Reference data ready: 13 operations, 20 defect types, 8 act statuses, 3 task statuses, 4 priorities, 8 deviation reasons.
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-22/seed_demo.py
+seeded
+seeded stage 16
+seeded stage 17
+seeded stage 18
+seeded stage 19
+seeded stage 20
+seeded stage 21
+seeded stage 22
+
+$ python manage.py shell < tasksandreports/boards/reports/stage-22/pg_checks.py
+
+связь: BLOCKS СНБ-1 → ZAP-1
+отказ СНБ-1 (admin1): Такая связь уже есть.
+отказ СНБ-999 (admin1): Карточка не найдена.
+отказ СНБ-1 (worker2): Карточка не найдена.
+цикл: СНБ-1 уже блокирует ZAP-1 — две карточки не могут ждать друг друга.
+ограничение БД: IntegrityError new row for relation "boards_boardcardlink" violates check constraint "board_card_link_not
+ограничение БД: IntegrityError duplicate key value violates unique constraint "unique_board_card_link"
+плитка: 2 СНБ-1 + 1
+плитка для worker2 (не читает СНБ): 2 ''
+«Заблокированные»: ['ZAP-1']
+«Связи» для worker2: [('Ждёт', [False, False])]
+после первой блокирующей «можно начинать»: 0
+после последней: [('ivanov', 'Карточку ZAP-1 можно начинать: СНБ-2 выполнена')] | писем: 1
+после возврата в работу: 1 | ждёт снова: 1
+«вошла в колонку»: [('worker2', 'Карточка ZAP-2 вошла в колонку «В работе» на доске «Запуск заказов»')] | писем: 1
+worker2 по новой карточке: ['BOARD_TASK_ASSIGNED']
+суммы: {'Сделать': ['1\xa0340\xa0000'], 'В работе': ['3\xa0350\xa0000'], 'На проверке': ['75\xa0000'], 'Готово': ['990\xa0000']}
+суммы с фильтром «заказ»: {'Сделать': ['15\xa0000'], 'В работе': ['0'], 'На проверке': [], 'Готово': []}
+«Итого»: ['5\xa0755\xa0000'] | «Ждёт» у ZAP-1: СНБ-2
+запросов доски с открытой карточкой: до — 26 | после 6 связей и 6 карточек — 26
+подписок на колонки: 1
+
+$ python manage.py migrate boards 0020   # откат миграций этапа
+Operations to perform:
+  Target specific migration: 0020_due_changes, from boards
+Running migrations:
+  Rendering model states... DONE
+  Unapplying boards.0021_links_column_subscriptions_sums... OK
+$ python manage.py migrate notifications 0014
+Operations to perform:
+  Target specific migration: 0014_board_due_events, from notifications
+Running migrations:
+  Rendering model states... DONE
+  Unapplying notifications.0015_board_unblocked_column_entered... OK
+
+
+таблицы после отката: []
+sum_in_column после отката: False
+
+карточек: 26
+уведомлений этапа (строки остаются, тип — текст): 2
+
+$ python manage.py migrate   # снова вперёд
+  Applying boards.0021_links_column_subscriptions_sums... OK
+  Applying notifications.0015_board_unblocked_column_entered... OK
+
+
+связей: 0 | подписок на колонки: 0 | полей с суммой: 0
+
+$ python manage.py makemigrations --check --dry-run
+No changes detected
+
+$ python manage.py test boards dashboard tasks notifications realtime references --parallel 4   # PostgreSQL
+Found 1234 test(s).
+Ran 1234 tests in 174.076s
+OK (skipped=3)
