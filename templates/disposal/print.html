@@ -1,82 +1,91 @@
-{% load static people %}
+{% load static %}
 <!doctype html>
 <html lang="ru">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% if preview %}Акт утилизации МП (проект){% else %}{{ disposal.label }}{% endif %}</title>
+    <title>{% if preview %}Акт о списании брака (проект){% else %}{{ disposal.label }}{% endif %}</title>
     <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260925-2">
     <link rel="stylesheet" href="{% static 'css/components.css' %}?v=20260925-4">
     <link rel="stylesheet" href="{% static 'css/print.css' %}?v=20260925-2">
-    <link rel="stylesheet" href="{% static 'css/disposal.css' %}?v=20261017-1">
+    <link rel="stylesheet" href="{% static 'css/disposal.css' %}?v=20261017-2">
     {# Last: the shared user-text rules, see `static/css/text.css`. #}
     <link rel="stylesheet" href="{% static 'css/text.css' %}?v=20260925-1">
 </head>
-<body class="print-page">
+<body class="print-page disposal-form-page">
     {% comment %}
-    The disposal form, in the act print styling. Two uses, one layout: the
-    confirmation step of «Утилизировать» (`preview`: the ticked МП that still
-    wait, «Подтвердить утилизацию» posting their ids with `confirmed=1`, which
-    is the only request that writes) and the signed record of a disposal, read
-    from the item snapshots. «Печать» and the buttons are screen only.
+    «Акт о списании брака», form ДП-СМК 07.04/1, as the paper is: the number
+    and date, «Комиссия в составе», the fixed wording and the table of what was
+    destroyed. Two uses, one layout. The confirmation step of «Утилизировать»
+    (`preview`): «Комиссия в составе» is a list of «Подразделение | Сотрудник»
+    rows the master chooses — at least one, as many as sign — and «Подтвердить
+    утилизацию» is the only request that writes. The recorded act: the
+    commission as it was chosen, each with a line to sign on, ready to print.
     {% endcomment %}
-    <main class="print-document">
+    <main class="print-document disposal-form">
+    {% if preview %}<form method="post" action="{% url 'disposal:confirm' %}">{% csrf_token %}{% for pk in defect_ids %}<input type="hidden" name="defect" value="{{ pk }}">{% endfor %}{% endif %}
         <div class="print-actions">
-            <button class="link-button link-button--secondary" type="button" onclick="window.print()">Печать</button>
             {% if preview %}
-                <form method="post" action="{% url 'disposal:confirm' %}" class="disposal-print__confirm">
-                    {% csrf_token %}
-                    <input type="hidden" name="confirmed" value="1">
-                    {% for pk in defect_ids %}<input type="hidden" name="defect" value="{{ pk }}">{% endfor %}
-                    <button class="link-button" type="submit">Подтвердить утилизацию</button>
-                </form>
+                <button class="link-button" type="submit" name="confirmed" value="1">Подтвердить утилизацию</button>
                 <a class="link-button link-button--secondary" href="{% url 'disposal:list' %}?tab=pending">Отмена</a>
             {% else %}
+                <button class="link-button" type="button" onclick="window.print()">Печать</button>
                 <a class="link-button link-button--secondary" href="{% url 'disposal:list' %}?tab=done">К списку</a>
             {% endif %}
         </div>
+        {% if messages %}{% for message in messages %}<p class="disposal-form__message">{{ message }}</p>{% endfor %}{% endif %}
+        {% if error %}<p class="disposal-form__error" role="alert">{{ error }}</p>{% endif %}
 
-        <header class="print-header">
-            <p>Утилизация несоответствующей продукции · Цех МП</p>
-            <h1>{% if preview %}Акт утилизации МП{% else %}{{ disposal.label }}{% endif %}</h1>
-            <p>от {{ disposed_at|date:'d.m.Y' }}{% if preview %} · проект, ещё не подтверждён{% endif %}</p>
-        </header>
+        <p class="disposal-form__code">{{ form_code }}</p>
+        <h1 class="disposal-form__title">Акт о списании брака</h1>
+        <p class="disposal-form__number">№ {% if preview %}______{% else %}{{ disposal.pk }}{% endif %} от {{ disposed_at|date:'d.m.Y' }}</p>
 
-        <section class="print-section">
-            <h2>Утилизируемые МП (решение КО — «Запретить использование»)</h2>
-            <table class="disposal-print__items">
-                <colgroup><col class="disposal-print__narrow"><col class="disposal-print__wide"><col class="disposal-print__wide"><col><col><col><col class="disposal-print__narrow"><col><col class="disposal-print__narrow"></colgroup>
-                <thead>
-                    <tr>
-                        <th>№</th><th>Акт</th><th>Номенклатура</th><th>Заказ</th><th>ЗНП</th>
-                        <th>Партия</th><th>Тип МП</th><th>Вид дефекта</th><th>Кол-во, шт.</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in rows %}
-                        <tr>
-                            <td>{{ forloop.counter }}</td>
-                            <td>{{ row.act_number|default:'—' }}</td>
-                            <td class="user-text">{{ row.nomenclature|default:'—' }}</td>
-                            <td class="user-text">{{ row.order_number|default:'—' }}</td>
-                            <td class="user-text">{{ row.znp_number|default:'—' }}</td>
-                            <td class="user-text">{{ row.party_number|default:'—' }}</td>
-                            <td>{{ row.mp_type|default:'—' }}</td>
-                            <td class="user-text">{{ row.defect_type|default:'—' }}</td>
-                            <td>{{ row.quantity|default_if_none:'—' }}</td>
-                        </tr>
+        <section class="disposal-form__commission">
+            <span class="disposal-form__commission-label">Комиссия в составе:</span>
+            {% if preview %}
+                <div class="disposal-commission-picker" data-employee-picker>
+                    <div class="disposal-commission-picker__list" data-employee-picker-list>
+                        {% for row in member_rows %}{% include 'disposal/includes/member_row.html' %}{% endfor %}
+                    </div>
+                    <template data-employee-picker-template>
+                        {% include 'disposal/includes/member_row.html' with row=empty_member_row %}
+                    </template>
+                    <button class="link-button link-button--secondary link-button--compact" type="submit" name="add_member_row" value="1" formnovalidate data-employee-picker-add>+ Добавить члена комиссии</button>
+                    <p class="disposal-form__hint">Выберите сотрудников, которые подпишут акт после печати — хотя бы одного.</p>
+                </div>
+            {% else %}
+                <ol class="disposal-form__members">
+                    {% for member in commission %}
+                        <li><span class="disposal-form__member user-text">{% if member.position %}{{ member.position }}, {% endif %}{{ member.name }}</span><span class="disposal-form__sign"></span></li>
                     {% endfor %}
-                </tbody>
-            </table>
-            <p>Всего позиций: {{ rows|length }}.</p>
+                </ol>
+                <p class="disposal-form__caption">(должность, ФИО подпись)</p>
+            {% endif %}
         </section>
 
-        <section class="print-section disposal-print__signatures">
-            <table>
-                <tr><th>Мастер цеха МП</th><td class="disposal-print__line"></td><td>{{ disposed_by|person_name }}</td></tr>
-                <tr><th>Контролёр ОТК</th><td class="disposal-print__line"></td><td></td></tr>
-            </table>
-        </section>
+        <p class="disposal-form__text">Составила настоящий акт в том, что забракованные изделия, не нашедшие применения в производстве, изъяты из «Изолятора брака» и уничтожены.</p>
+        <p class="disposal-form__text">Брак уничтожен путем утилизации.</p>
+
+        <table class="disposal-form__table">
+            <colgroup><col class="disposal-form__c-n"><col class="disposal-form__c-act"><col class="disposal-form__c-date"><col><col class="disposal-form__c-qty"><col class="disposal-form__c-note"></colgroup>
+            <thead>
+                <tr><th>п/п</th><th>Акт о несоответ&shy;ствии</th><th>Дата составления акта</th><th>Наименование детали</th><th>Кол-во, шт.</th><th>Примечание</th></tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ row.act_number }}</td>
+                        <td>{{ row.act_date|date:'d.m.Y' }}</td>
+                        <td class="user-text">{{ row.nomenclature }}</td>
+                        <td>{{ row.quantity|default_if_none:'' }}</td>
+                        <td class="user-text">{{ row.note }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% if preview %}</form>{% endif %}
     </main>
+    {% if preview %}<script src="{% static 'js/employee_picker.js' %}?v=20261006-1"></script>{% endif %}
 </body>
 </html>

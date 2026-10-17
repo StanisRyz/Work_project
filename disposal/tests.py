@@ -9,7 +9,7 @@ from accounts.models import UserProfile
 from acts.models import Act, ActDefect
 from references.models import ActStatus, DefectType
 
-from .models import DisposalAct, DisposalItem
+from .models import DisposalAct, DisposalCommissionMember, DisposalItem
 from .permissions import can_dispose
 from .selectors import pending_defects
 from .services import DisposalError, dispose_defects
@@ -70,43 +70,80 @@ class DisposalTests(TestCase):
         self.client.force_login(self.master)
         self.assertContains(self.client.get(reverse('disposal:list')), 'data-disposal-item')
 
-    def test_dispose_is_a_print_form_first_and_a_confirmed_post_second(self):
+    def test_dispose_is_the_act_to_sign_first_and_a_confirmed_post_second(self):
         first = self._defect(znp='111')
         second = self._defect(znp='222')
         self.client.force_login(self.master)
 
         preview = self.client.post(reverse('disposal:confirm'), {'defect': [first.pk]})
         self.assertEqual(preview.status_code, 200)
+        self.assertContains(preview, 'Акт о списании брака')
+        self.assertContains(preview, 'Форма ДП-СМК 07.04/1')
         self.assertContains(preview, 'Подтвердить утилизацию')
         self.assertContains(preview, '111')
         self.assertNotContains(preview, '222')
+        # «Комиссия в составе» starts with the master; one more row on request.
+        self.assertEqual(preview.context['member_rows'][0]['user'], str(self.master.pk))
+        more = self.client.post(reverse('disposal:confirm'), {
+            'defect': [first.pk], 'member': [self.master.pk], 'add_member_row': '1',
+        })
+        self.assertEqual([row['user'] for row in more.context['member_rows']], [str(self.master.pk), ''])
         self.assertFalse(DisposalAct.objects.exists())
 
-        done = self.client.post(reverse('disposal:confirm'), {'defect': [first.pk], 'confirmed': '1'})
-        self.assertRedirects(done, f"{reverse('disposal:list')}?tab=done")
+        # Nobody in the commission: refused, the page comes back, nothing written.
+        refused = self.client.post(reverse('disposal:confirm'), {
+            'defect': [first.pk], 'member': [''], 'confirmed': '1',
+        })
+        self.assertEqual(refused.status_code, 400)
+        self.assertContains(refused, 'Выберите хотя бы одного члена комиссии.', status_code=400)
+        self.assertFalse(DisposalAct.objects.exists())
+
+        self.otk.userprofile.position = 'Контролёр ОТК'
+        self.otk.userprofile.save(update_fields=['position'])
+        done = self.client.post(reverse('disposal:confirm'), {
+            'defect': [first.pk], 'member': [self.master.pk, self.otk.pk, self.otk.pk, ''],
+            'confirmed': '1',
+        })
         disposal = DisposalAct.objects.get()
+        self.assertRedirects(done, reverse('disposal:print', args=[disposal.pk]))
         self.assertEqual(disposal.disposed_by, self.master)
         item = disposal.items.get()
         self.assertEqual((item.defect, item.znp_number, item.quantity), (first, '111', 4))
+        self.assertEqual(item.act_date, timezone.localtime(first.act.created_at).date())
+        self.assertEqual(
+            [(m.user, m.position) for m in disposal.commission.all()],
+            [(self.master, 'Мастер МП и РЛ'), (self.otk, 'Контролёр ОТК')],
+        )
         self.assertEqual(list(pending_defects()), [second])
 
         listing = self.client.get(reverse('disposal:list'), {'tab': 'done'})
         self.assertContains(listing, reverse('disposal:print', args=[disposal.pk]))
         self.client.force_login(self.otk)
         printed = self.client.get(reverse('disposal:print', args=[disposal.pk]))
-        self.assertContains(printed, disposal.label)
+        self.assertContains(printed, disposal.label.split(' №')[0])
+        self.assertContains(printed, f'№ {disposal.pk} от')
+        self.assertContains(printed, 'Контролёр ОТК')
+        self.assertContains(printed, '(должность, ФИО подпись)')
         self.assertNotContains(printed, 'Подтвердить утилизацию')
+
+    def test_a_commission_member_must_be_an_active_employee(self):
+        defect = self._defect()
+        self.otk.is_active = False
+        self.otk.save(update_fields=['is_active'])
+        with self.assertRaisesMessage(DisposalError, 'Выберите хотя бы одного члена комиссии.'):
+            dispose_defects([defect.pk], actor=self.master, member_ids=[self.otk.pk])
+        self.assertFalse(DisposalCommissionMember.objects.exists())
 
     def test_a_product_is_disposed_of_once_and_a_stale_selection_writes_nothing(self):
         first = self._defect(znp='111')
         second = self._defect(znp='222')
-        dispose_defects([first.pk], actor=self.master)
+        dispose_defects([first.pk], actor=self.master, member_ids=[self.master.pk])
         with self.assertRaises(DisposalError):
-            dispose_defects([first.pk, second.pk], actor=self.master)
+            dispose_defects([first.pk, second.pk], actor=self.master, member_ids=[self.master.pk])
         with self.assertRaises(DisposalError):
-            dispose_defects([], actor=self.master)
+            dispose_defects([], actor=self.master, member_ids=[self.master.pk])
         with self.assertRaises(DisposalError):
-            dispose_defects([second.pk], actor=self.otk)
+            dispose_defects([second.pk], actor=self.otk, member_ids=[self.otk.pk])
         self.assertEqual(DisposalItem.objects.count(), 1)
         self.assertEqual(DisposalAct.objects.count(), 1)
 

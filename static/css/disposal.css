@@ -16,25 +16,201 @@
     height: 18px;
 }
 
-.disposal-print__confirm {
-    display: inline;
+/* «Акт о списании брака» (форма ДП-СМК 07.04/1): serif 11pt on A4, as the
+   paper is; the commission picker is the confirmation step's screen only. */
+
+.disposal-form-page .disposal-form {
+    width: min(21cm, calc(100% - 32px));
+    font-family: "Times New Roman", "Liberation Serif", "DejaVu Serif", serif;
+    font-size: 11pt;
+    line-height: 1.25;
+    color: #000000;
+}
+
+.disposal-form__code {
+    margin: 0 0 8px;
+    text-align: right;
+}
+
+.disposal-form__title {
     margin: 0;
+    text-align: center;
+    font-size: 12pt;
 }
 
-/* `print.css` sizes every `th` at 190px for its two-column fact tables; the
-   list of МП is nine columns and takes its widths from the `<colgroup>`. */
-.print-section .disposal-print__items th {
-    width: auto;
+.disposal-form__number {
+    margin: 0 0 18px;
+    text-align: center;
 }
 
-.disposal-print__narrow { width: 7%; }
-.disposal-print__wide { width: 16%; }
-
-.disposal-print__signatures th {
-    width: 30%;
+.disposal-form__commission {
+    margin-bottom: 14px;
 }
 
-.disposal-print__line {
-    width: 40%;
-    border-bottom: 1px solid var(--color-text);
+.disposal-form__commission-label {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.disposal-form__members {
+    margin: 0;
+    padding-left: 1.4em;
+}
+
+.disposal-form__members li {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    padding: 6px 0 2px;
+}
+
+.disposal-form__member {
+    flex: 0 1 auto;
+}
+
+/* The line the member signs on. */
+.disposal-form__sign {
+    flex: 1 1 6cm;
+    min-width: 4cm;
+    border-bottom: 1px solid #000000;
+}
+
+.disposal-form__caption {
+    margin: 2px 0 0;
+    font-size: 8pt;
+}
+
+.disposal-form__text {
+    margin: 0 0 12px;
+    text-align: justify;
+}
+
+.disposal-form__table {
+    width: calc(100% - 1px);
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.disposal-form__table th,
+.disposal-form__table td {
+    padding: 2px 4px;
+    border: 1px solid #000000;
+    vertical-align: top;
+    font-weight: 400;
+    background: none;
+}
+
+.disposal-form__table th {
+    text-align: center;
+}
+
+.disposal-form__c-n { width: 6%; }
+.disposal-form__c-act { width: 19%; }
+.disposal-form__c-date { width: 14%; }
+.disposal-form__c-qty { width: 10%; }
+.disposal-form__c-note { width: 23%; }
+
+.disposal-form__message,
+.disposal-form__error {
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-family: inherit;
+}
+
+.disposal-form__message {
+    background: #ecfdf3;
+}
+
+.disposal-form__error {
+    background: #fef3f2;
+    color: #b42318;
+}
+
+.disposal-form__hint {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 10pt;
+}
+
+/* «Подразделение | Сотрудник» rows of the commission, on screen only. */
+.disposal-commission-picker {
+    display: grid;
+    gap: 8px;
+    justify-items: start;
+    padding: 10px 12px;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius);
+    font-family: inherit;
+}
+
+.disposal-commission-picker__list {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+}
+
+.disposal-member-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 6px 12px;
+}
+
+.disposal-member-row label {
+    display: grid;
+    gap: 4px;
+    color: var(--color-muted);
+    font-size: 10pt;
+}
+
+.disposal-member-row select {
+    width: 100%;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--control-font-size);
+}
+
+.disposal-member-row__remove {
+    width: var(--control-height);
+    height: var(--control-height);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 1.3em;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.disposal-member-row__warning {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--color-muted);
+}
+
+@page {
+    size: A4;
+    margin: 1.5cm 1.5cm 1.5cm 3cm;
+}
+
+@media print {
+    .disposal-form-page {
+        background: #ffffff;
+    }
+
+    .disposal-form-page .disposal-form {
+        width: auto;
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+
+    .disposal-form__message,
+    .disposal-form__error {
+        display: none;
+    }
 }

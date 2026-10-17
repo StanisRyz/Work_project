@@ -7,11 +7,14 @@ one `DisposalAct` per «Утилизировать» (who, when) and one `Dispos
 defect it covered. The one-to-one on the defect is the database's word that a
 product is disposed of once.
 
-An item snapshots what the signed paper says — the act's number, the product,
-the order, ЗНП, party, МП type, defect type and the quantity — because the
-paper is a document: an act returned for rework and edited later must not
+An item snapshots what the signed paper says — the act's number and date, the
+product, the order, ЗНП, party, МП type, defect type and the quantity — because
+the paper is a document: an act returned for rework and edited later must not
 rewrite a disposal already signed. The defect itself stays the only source of
-defect data everywhere else.
+defect data everywhere else. For the same reason «Комиссия в составе» is
+stored as `DisposalCommissionMember` rows with the position and the name as
+they were on the day: the people who sign the paper are chosen by the master
+when disposing, at least one.
 """
 
 from django.contrib.auth.models import User
@@ -19,7 +22,7 @@ from django.db import models
 
 
 class DisposalAct(models.Model):
-    """One «Утилизировать»: the printed form the master signed."""
+    """One «Утилизировать»: «Акт о списании брака» (форма ДП-СМК 07.04/1)."""
 
     disposed_by = models.ForeignKey(
         User, on_delete=models.PROTECT, related_name='disposal_acts', verbose_name='Утилизировал',
@@ -36,7 +39,34 @@ class DisposalAct(models.Model):
 
     @property
     def label(self):
-        return f'Акт утилизации №{self.pk}'
+        return f'Акт о списании брака №{self.pk}'
+
+
+class DisposalCommissionMember(models.Model):
+    """One person of «Комиссия в составе», who signs the printed act."""
+
+    disposal = models.ForeignKey(
+        DisposalAct, on_delete=models.CASCADE, related_name='commission', verbose_name='Акт утилизации',
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.PROTECT, related_name='disposal_commissions', verbose_name='Сотрудник',
+    )
+    position = models.CharField('Должность', max_length=120, blank=True)
+    name = models.CharField('ФИО', max_length=255)
+    order = models.PositiveIntegerField('Порядок', default=0)
+
+    class Meta:
+        ordering = ['disposal', 'order', 'pk']
+        verbose_name = 'Член комиссии'
+        verbose_name_plural = 'Комиссия'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['disposal', 'user'], name='unique_disposal_commission_member',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.disposal.label}: {self.name}'
 
 
 class DisposalItem(models.Model):
@@ -50,6 +80,7 @@ class DisposalItem(models.Model):
     )
     position = models.PositiveIntegerField('Порядок', default=0)
     act_number = models.CharField('Номер акта', max_length=32, blank=True)
+    act_date = models.DateField('Дата составления акта', null=True, blank=True)
     nomenclature = models.CharField('Номенклатура', max_length=240, blank=True)
     order_number = models.CharField('Номер заказа', max_length=80, blank=True)
     znp_number = models.CharField('Номер ЗНП', max_length=80, blank=True)

@@ -1,0 +1,18 @@
+<div class="disposal-member-row" data-employee-picker-row data-employee-pair>
+    <label>
+        <span>Подразделение</span>
+        <select data-department-select aria-label="Подразделение">
+            <option value="">Выберите подразделение</option>
+            {% include 'includes/department_options.html' with selected=row.department %}
+        </select>
+    </label>
+    <label>
+        <span>Сотрудник</span>
+        <select name="member" data-employee-select aria-label="Член комиссии">
+            <option value="">Выберите сотрудника</option>
+            {% include 'includes/employee_options.html' with selected=row.user %}
+        </select>
+    </label>
+    <button class="disposal-member-row__remove" type="button" data-employee-picker-remove aria-label="Убрать из комиссии" title="Убрать из комиссии">×</button>
+    <p class="disposal-member-row__warning" data-pair-warning role="status" hidden></p>
+</div>
