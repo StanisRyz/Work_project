@@ -40,6 +40,7 @@ urlpatterns = [
     # СМК records live under the same hierarchy and have their own registry;
     # the work they create is still read in «Задачи» like every other task.
     path('quality/smk/', include('smk.urls')),
+    path('quality/disposal/', include('disposal.urls')),
     path('calculators/winding/', include('calculator.urls')),
     path('calculators/plate-cutting/', include('plate_cutting.urls')),
     # `/work/<module>/` is the branch for working tools that are not about

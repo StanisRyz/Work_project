@@ -226,9 +226,9 @@ def reopen_task(task, user, reason):
     `completed_by`/`completed_at` are cleared on the task itself — the row is
     what keeps that history.
 
-    No notification. Nobody is being *given* work — the task was already
-    theirs — and the corrected instruction reaches them where the mistake was
-    made, on the task itself («История возвратов»).
+    Its исполнители — not the one returning it — are told
+    (`notify_task_reopened()`, `TASK_REOPENED`, bell and mail); the reason
+    itself is read on the task («История возвратов»).
     """
     reason = (reason or '').strip()
     started = time.monotonic()
@@ -267,7 +267,7 @@ def reopen_task(task, user, reason):
                 outcome='rejected',
             )
             raise TaskWorkflowError(REOPEN_REASON_REQUIRED)
-        TaskReopening.objects.create(
+        reopening = TaskReopening.objects.create(
             task=task,
             reason=reason,
             reopened_by=user,
@@ -288,6 +288,13 @@ def reopen_task(task, user, reason):
         # `emit_task_completed()`: the task is now open, and announcing it as
         # completed is precisely the claim this call withdraws.
         emit_task_updated(task, changed_fields=('status',))
+        # In the same transaction, after the row it describes exists: a
+        # refused or rolled-back return tells nobody.
+        from notifications.services import notify_task_reopened
+
+        notify_task_reopened(
+            task, user, [assignee.user for assignee in task.assignees.select_related('user')], reopening,
+        )
     log_event(
         logger,
         'INFO',

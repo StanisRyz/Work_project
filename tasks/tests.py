@@ -930,6 +930,14 @@ class TaskViewsTests(TestCase):
         self.assertEqual(reopening.previous_completed_by, self.employee)
         self.assertIsNotNone(reopening.previous_completed_at)
         self.assertEqual(reopening.previous_execution_comment, 'Ошибочно закрыл не ту задачу.')
+        # The исполнитель is told — once, by bell and mail; whoever returned it is not.
+        from notifications.models import Notification
+
+        told = Notification.objects.filter(
+            event_type=Notification.EventType.TASK_REOPENED, related_task=task,
+        )
+        self.assertEqual(list(told.values_list('recipient_id', flat=True)), [self.employee.pk])
+        self.assertTrue(told.get().deliveries.exists())
         self.assertIsNone(task.completed_by)
         self.assertIsNone(task.completed_at)
         # Kept, both of them.
@@ -940,7 +948,9 @@ class TaskViewsTests(TestCase):
         # finish it properly — the reopened task is an ordinary open task.
         self.client.force_login(self.employee)
         archive = self.client.get(reverse('tasks:list'), {'tab': 'archive'})
-        self.assertNotContains(archive, reverse('tasks:detail', args=[task.pk]))
+        # The rows, not the page: the bell now links the task too
+        # («Задача возвращена в работу»).
+        self.assertNotIn(task.pk, [row['task'].pk for row in archive.context['rows']])
         detail = self.client.get(reverse('tasks:detail', args=[task.pk]))
         self.assertTrue(detail.context['can_complete'])
         self.assertFalse(detail.context['can_reopen'])

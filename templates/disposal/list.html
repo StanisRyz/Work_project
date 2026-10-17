@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% load static people %}
+
+{% block title %}Утилизация МП · Экосистема качества{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/disposal.css' %}?v=20261017-1">
+{% endblock %}
+
+{% block content_class %}page-container--fill{% endblock %}
+
+{% block content %}
+{% comment %}
+«Утилизация МП»: every «Цех МП» product КО prohibited from use, in two tabs.
+«Ожидают утилизации» is read off the defects as they stand
+(`disposal.selectors.pending_defects()`), «Утилизировано» off the disposals
+recorded. The tick boxes, «Выбрать все» and «Утилизировать» exist only for
+whoever may dispose (`can_dispose`) — presentation; `disposal:confirm` asks the
+right again, and `dispose_defects()` once more under its locks. «Утилизировать»
+opens the print form of the ticked МП; only its «Подтвердить утилизацию»
+writes.
+{% endcomment %}
+<div class="act-registry-toolbar">
+    <nav class="act-registry-tabs" aria-label="Утилизация МП">
+        <a class="act-registry-tabs__link{% if tab == 'pending' %} act-registry-tabs__link--active{% endif %}" href="?tab=pending">Ожидают утилизации <span class="tab-count">{{ tab_counts.pending }}</span></a>
+        <a class="act-registry-tabs__link{% if tab == 'done' %} act-registry-tabs__link--active{% endif %}" href="?tab=done">Утилизировано <span class="tab-count">{{ tab_counts.done }}</span></a>
+    </nav>
+    {% if tab == 'pending' and can_dispose and defects %}
+        <button class="link-button link-button--danger" type="submit" form="disposal-form" data-disposal-submit>Утилизировать<span data-disposal-count></span></button>
+    {% endif %}
+</div>
+
+<div class="fill-region">
+{% if tab == 'pending' %}
+    {% if defects %}
+    <form id="disposal-form" class="fill-region" method="post" action="{% url 'disposal:confirm' %}" data-disposal-form>
+        {% csrf_token %}
+        <section class="table-card act-table-card">
+            <table class="data-table disposal-table">
+                <thead><tr>
+                    <th>Акт</th><th>Решение КО</th><th>Номенклатура</th><th>Заказ</th><th>ЗНП</th>
+                    <th>Партия</th><th>Тип МП</th><th>Вид дефекта</th><th>Кол-во, шт.</th>
+                    {% if can_dispose %}<th class="disposal-table__check"><label title="Выбрать все"><input type="checkbox" data-disposal-all aria-label="Выбрать все"></label></th>{% endif %}
+                </tr></thead>
+                <tbody>
+                {% for defect in defects %}
+                    <tr>
+                        <td><a class="table-link" href="{% url 'acts:detail' defect.act_id %}">{{ defect.act.number|default:'Акт б/н' }}</a></td>
+                        <td>{{ defect.ko_decision_at|date:'d.m.Y'|default:'—' }}</td>
+                        <td class="user-text">{{ defect.act.nomenclature|default:'—' }}</td>
+                        <td class="user-text">{{ defect.act.order_number|default:'—' }}</td>
+                        <td class="user-text">{{ defect.znp_number|default:'—' }}</td>
+                        <td class="user-text">{{ defect.party_number|default:'—' }}</td>
+                        <td>{{ defect.get_mp_type_display|default:'—' }}</td>
+                        <td class="user-text">{{ defect.defect_type|default:'—' }}</td>
+                        <td>{{ defect.nonconforming_quantity|default_if_none:'—' }}</td>
+                        {% if can_dispose %}<td class="disposal-table__check"><input type="checkbox" name="defect" value="{{ defect.pk }}" data-disposal-item aria-label="Утилизировать: ЗНП {{ defect.znp_number|default:'—' }}"></td>{% endif %}
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    </form>
+    {% else %}
+        <p class="placeholder-text">МП, ожидающих утилизации, нет.</p>
+    {% endif %}
+{% else %}
+    {% if items %}
+    <section class="table-card act-table-card">
+        <table class="data-table disposal-table">
+            <thead><tr>
+                <th>Акт утилизации</th><th>Дата</th><th>Утилизировал</th><th>Акт</th><th>Номенклатура</th>
+                <th>Заказ</th><th>ЗНП</th><th>Партия</th><th>Тип МП</th><th>Кол-во, шт.</th>
+            </tr></thead>
+            <tbody>
+            {% for item in items %}
+                <tr data-row-url="{% url 'disposal:print' item.disposal_id %}">
+                    <td><a class="table-link" href="{% url 'disposal:print' item.disposal_id %}">№{{ item.disposal_id }}</a></td>
+                    <td>{{ item.disposal.disposed_at|date:'d.m.Y H:i' }}</td>
+                    <td>{{ item.disposal.disposed_by|person_name }}</td>
+                    <td><a class="table-link" href="{% url 'acts:detail' item.defect.act_id %}">{{ item.act_number|default:'Акт б/н' }}</a></td>
+                    <td class="user-text">{{ item.nomenclature|default:'—' }}</td>
+                    <td class="user-text">{{ item.order_number|default:'—' }}</td>
+                    <td class="user-text">{{ item.znp_number|default:'—' }}</td>
+                    <td class="user-text">{{ item.party_number|default:'—' }}</td>
+                    <td>{{ item.mp_type|default:'—' }}</td>
+                    <td>{{ item.quantity|default_if_none:'—' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% else %}
+        <p class="placeholder-text">Утилизированных МП пока нет.</p>
+    {% endif %}
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/disposal.js' %}?v=20261017-1" defer></script>
+{% endblock %}

@@ -58,6 +58,7 @@ class Notification(models.Model):
         PROTOCOL_TASK_ASSIGNED = 'PROTOCOL_TASK_ASSIGNED', 'Назначена задача по протоколу'
         ACT_REJECTION_ASSIGNED = 'ACT_REJECTION_ASSIGNED', 'Назначена задача ПДО по браку'
         ACT_PRINT_ASSIGNED = 'ACT_PRINT_ASSIGNED', 'Назначена задача: распечатать акт'
+        TASK_REOPENED = 'TASK_REOPENED', 'Задача возвращена в работу'
         SMK_TASK_ASSIGNED = 'SMK_TASK_ASSIGNED', 'Назначена задача СМК'
         BOARD_TASK_ASSIGNED = 'BOARD_TASK_ASSIGNED', 'Назначена задача на доске'
         BOARD_TASK_CANCELLED = 'BOARD_TASK_CANCELLED', 'Карточка отменена'

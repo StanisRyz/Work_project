@@ -100,6 +100,9 @@ EMAIL_ELIGIBLE_EVENTS = {
     # assignment like the ПДО one, and the paper copy is what the controllers
     # on the shop floor wait for.
     Notification.EventType.ACT_PRINT_ASSIGNED,
+    # A completed task returned to work: the result was not accepted and the
+    # исполнитель has to do it again — work given back, like an assignment.
+    Notification.EventType.TASK_REOPENED,
     Notification.EventType.SMK_TASK_ASSIGNED,
     # A board card put on somebody: work they did not choose themselves. A
     # cancelled card, a completed one and a new message in a card's
@@ -317,6 +320,28 @@ def notify_act_print_task_assigned(task, actor, assignees):
         recipients=assignees,
         source_key=f'task:{task.pk}',
         exclude_actor=False,
+    )
+
+
+def notify_task_reopened(task, actor, assignees, reopening):
+    """Tell a returned task's исполнители that it is back in their work.
+
+    Every source a task may be reopened from (`tasks.services.reopen_task()`,
+    a board card through `reopen_card()` included). `TASK`-sourced, keyed on
+    the reopening itself — `task:<pk>:reopened:<TaskReopening pk>` — so each
+    return tells each person once and a second return tells them again.
+    `exclude_actor=True`: whoever returned it knows. The reason is never in
+    the text, as a return comment never is: it is read on the task, under
+    «История возвратов» (a card's in its «Чат»). Email-eligible — work is
+    given back to somebody.
+    """
+    return create_notifications(
+        event_type=Notification.EventType.TASK_REOPENED,
+        task=task,
+        actor=actor,
+        recipients=assignees,
+        source_key=f'task:{task.pk}:reopened:{reopening.pk}',
+        exclude_actor=True,
     )
 
 
@@ -1186,6 +1211,22 @@ def _task_event_text(event_type, task, context=None):
             f'Распечатать акт {number} и передать контроллерам ОТК',
             f'По акту {number} вынесено решение КО. Распечатайте акт и передайте его контроллерам ОТК.',
             'Распечатайте акт и завершите задачу в системе.',
+        )
+    if event_type == Notification.EventType.TASK_REOPENED:
+        if task.board_card_id:
+            card = task.board_card
+            what = 'Подзадача' if card.parent_id else 'Карточка'
+            return NotificationText(
+                f'{what} {card.code} возвращена в работу',
+                f'{what} {card.code} на доске «{card.board.name}» возвращена в работу: '
+                'результат выполнения не принят.',
+                'Прочитайте причину возврата в «Чате» карточки и выполните её снова.',
+            )
+        return NotificationText(
+            f'Задача №{task.pk} возвращена в работу',
+            f'Задача №{task.pk}, которую вы выполняли, возвращена в работу: '
+            'результат выполнения не принят.',
+            'Прочитайте причину на вкладке «История возвратов» и выполните задачу снова.',
         )
     if event_type == Notification.EventType.SMK_TASK_ASSIGNED:
         label = task.smk_source.label

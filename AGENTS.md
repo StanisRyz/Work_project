@@ -29,6 +29,7 @@ model without explicit approval.
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
 | `documents` | the documentation library at `/documents/`: `DocumentFolder` (self-referencing tree, optional `allowed_roles`), `Document` (the card, status, trash) + `DocumentVersion` (files under `media/documents/library/`, approval state, extracted text) + `DocumentVersionApproval`, `DocumentHistoryEvent`, `DocumentFavorite`, `DocumentLink`, `DocumentSubscription`; the read-only `DocumentReference` projection of act/protocol/task attachments in `documents/references.py`; search in `documents/search/`; the explorer; the three `DOCUMENT_*` task sources it drives through `tasks.services`; the commands `document_review_reminders`, `purge_document_trash`, `reindex_documents`; and every mutation in `documents/services.py` |
 | `smk` | СМК audit records: `SmkSource` (внешний/внутренний аудит, `audit_date`, `status` ACTIVE/ARCHIVED), `SmkNonConformity`, `SmkCorrectiveAction` + assignees, `SmkHistoryEvent`, the registry/form/record pages under `/quality/smk/`, and three write paths in `smk/services.py` — `create_smk_source()`, which stores the record and creates one real `tasks.Task` per мероприятие in the same transaction (reached only through the confirmation step in `smk/views.py`), `update_smk_source()`, which corrects a live record by reissuing only the мероприятия whose task-relevant state changed, and `archive_smk_source()`, the record's only shelf change. No task or notification system of its own — assignees are notified through `notifications.services.notify_smk_task_assigned()` |
+| `disposal` | «Утилизация МП» at `/quality/disposal/`: the «Цех МП» products КО prohibited from use, read live off `acts.ActDefect` (`selectors.pending_defects()`), and the record of their disposal — `DisposalAct` (who, when) + `DisposalItem` (one per defect, a one-to-one, the printed facts snapshotted), written only by `services.dispose_defects()`; the rights in `disposal/permissions.py`; the two tabs, the confirmation print form and the signed one in `disposal/views.py` + `templates/disposal/` |
 | `bugs` | «Сообщить об ошибке» from the topbar: `BugReport` (author, message, page), the POST-only `bugs:report`, the read-only report page, and `report_bug()` in `bugs/services.py`, which stores the report, raises one `tasks.Task` on it and notifies. Recipients are `accounts.UserProfile.is_bug_responsible`, set in Django Admin. No task, notification, modal or email system of its own |
 | `boards` | simple kanban boards: every board for full access (`boards.permissions.BOARD_ACCESS_ROLES` — «Администратор» — and genuine superusers, `has_full_board_access()`), the boards one is a member of for any other active employee (`can_view_board()`): `Board` (name, `code` — «ZAP», owner; a department only on the boards that already had one), `BoardMember`, `SubBoard` (the tabs of a board) and `BoardColumn` (each sub-board's own named columns, one of them closing — `is_done`; a working one may carry «Закреплённые исполнители», `BoardColumnPin` + `pinned_mode`, and a «Норматив этапа», `norm_working_days`), `BoardCard` (`sub_board`, a working `column`, `position`, `number` — «ZAP-12» with the board's code, title, description; a subtask — `parent` — stands in no column and lives in its card's «Подзадачи»), the board's own card fields (`BoardField`, `BoardFieldOption`, `BoardCardFieldValue`, set up on «Поля карточек» at `/work/boards/<board>/fields/`); `card_column()`, `DEFAULT_COLUMNS` and `MAX_COLUMNS` in `boards/columns.py`; the rights in `boards/permissions.py`; every write in `boards/services.py`; `build_board_state()`/`build_board_nav()`/`member_preview()` in `boards/selectors.py`; the pages under `/work/boards/`, every one in the frame `templates/boards/layout.html` (the boards on the left, the page on the right; no registry — `/work/boards/` goes to the sub-board opened last, else the first board, else an empty state), «Новая доска», a board — `/<board>/` leads to its first sub-board, `/<board>/<sub_board>/` is the page, with its heading, tabs, filters, columns, their menus and the card drawer `?card=<pk>` / `&edit=1` / `?new=<column id>` / `&tab=description|chat|subtasks|log` (the old `files` — «Чат» with `&chat=files`; «Подзадачи» only for a card, never a subtask), «Участники») in `boards/views.py` + `boards/forms.py` + `templates/boards/`, all of which work without JavaScript, and `static/js/board_drawer.js`, which opens, switches and closes the drawer without a reload; the drawer is where a `BOARD` task is worked (`boards:card_complete`, `boards:card_reopen`; its task's older attachments through the task's own routes), and `BoardCardEvent` is each card's journal («Лог»), written only by `boards/services.py`. Each card's work is one `tasks.Task` with `source_type=BOARD`; its исполнители are told through `notifications.services.notify_board_task_assigned()`. A card is withdrawn by `cancel_card()`, a finished board goes to the archive shelf (`Board.status`), the board filters by `?mine`/`?overdue`/`?stale`/`?blocked`/`?q` and by its fields (`?f_<id>…`, one parse — `parse_board_filters()`), an open tile says how long it has stood in its column (`in_column_since()`, from `BoardCardEvent`) and, under a «Норматив этапа», when it should leave it (the traffic light; a card's «Этапы», the «Этапы» tab of «Отклонения»), `?view=table` is the sub-board as rows («Таблица», `build_board_table()`) and `&export=xlsx` that table through `ecosystem.xlsx`, and `BoardCard.version` refuses a stale edit; a card's «Чат» is `BoardCardComment`, written only by `post_card_comment()`, which also stores whom a message mentions with «@» (`BoardCardCommentMention`) and the files it carries (`BoardCardFile` — the board's own protected files, `boards:file_download`/`file_preview`, deleted to a tombstone by `delete_card_file()`; `static/js/board_chat_files.js` chooses them); a card's «Подзадачи» are cards with a `parent` (`create_subtask()`, `create_subtasks_from_list()`, `checklist_item_to_subtask()`; one level, no column, `MAX_SUBTASKS`); a card's «Чек-лист» is `BoardCardChecklistItem` (`add_checklist_item()` and its siblings) and its followers `BoardCardSubscription` (`toggle_card_subscription()`), and who hears of a card is `selectors.card_audience()`; cards are linked across boards by `BoardCardLink` (`link_cards()`/`unlink_cards()`: «Ждёт»/«Блокирует»/«Связана»/«Дубль», blocking and `BOARD_UNBLOCKED`), a column is followed by `BoardColumnSubscription` (`toggle_column_subscription()`, `BOARD_COLUMN_ENTERED`), a number field may be summed in every column header (`BoardField.sum_in_column`), a reader may take the board's «Дайджест на почту» (`BoardDigestSubscription`, `boards/digest.py`, `manage.py board_digest` — a letter, never a `Notification`), anybody may file a request to a board that takes them («Приём заявок»: `Board.intake_*`, `BoardIntakeHandler`, `BoardRequest`; «Заявки» at `/work/requests/` and the board's «Входящие», in `boards/request_views.py`), a working column's «Правила при входе» (pins, `BoardColumnChecklistTemplate`, `BoardColumnFieldRule`, `BoardColumnFollower` — `_apply_column_entry()`) and the board's buttons «Передать дальше» (`BoardAction`, `run_board_action()`) are set up on pages of `boards/automation_views.py`, a card may be pinned first in its column (`BoardCard.is_pinned`) and «+ Карточка» takes a list («Списком», `create_cards_from_list()`). Live: every successful write in `boards/services.py` emits one `board.updated`, and `boards:fragment` returns a sub-board's live blocks (tabs, columns, the card's guarded panel, its chat with its files, its log, its checklist, its followers, its «Связи», its «Этапы» and its «Подзадачи») and the drawer around them for `static/js/realtime/boards.js` and `board_drawer.js` |
 | `notifications` | in-app notifications, routing, deduplication, email delivery queue |
@@ -37,10 +38,11 @@ model without explicit approval.
 
 The user-facing sections are Главная (`/`), Акты (`/quality/acts/`), Задачи
 (`/quality/tasks/`), Протоколы (`/quality/protocols/`), СМК (`/quality/smk/`),
+Утилизация МП (`/quality/disposal/`),
 Калькулятор времени навивки (`/calculators/winding/`), Калькулятор рубки пластин
 (`/calculators/plate-cutting/`), Документация (`/documents/`), Доски
 (`/work/boards/`) and Заявки (`/work/requests/`). Под «Качество»
-пункты идут Акты · Протоколы · СМК · Задачи; the СМК form is reachable both from
+пункты идут Акты · Протоколы · СМК · Задачи · Утилизация МП; the СМК form is reachable both from
 its own registry and, as before, from «Задачи» through `tasks:create`. `/` is the
 dashboard itself — not a redirect — and it is the login fallback for every role
 including superusers (`accounts/navigation.py` → `dashboard:home`); the topbar and
@@ -899,8 +901,14 @@ tasks never live inside `acts`.
   исполнитель corrects what was written instead of retyping it (the detail view
   puts it back into the field; `complete_task()` is still the only writer of
   that column). `emit_task_updated`, never `emit_task_completed` — the task is
-  now open. No notification: nobody is being *given* work that was not already
-  theirs, and the reason is read on the task itself. The permission is asked by the view for the button and re-asked in
+  now open. Its исполнители — never the one returning it — are told in the
+  same transaction, after the `TaskReopening` exists:
+  `notifications.services.notify_task_reopened()` (`TASK_REOPENED`,
+  `TASK`-sourced, keyed `task:<pk>:reopened:<reopening pk>` so every return
+  tells them once, `exclude_actor=True`, bell and mail — work is given back);
+  the text names the task, or a board card by its code, and never the
+  reason, which is read on the task («История возвратов») or in the card's
+  «Чат». The permission is asked by the view for the button and re-asked in
   the service under `select_for_update()`.
 - **«Завершить задачу» opens the next task, not the archive.**
   `tasks.views._redirect_to_next_task()` asks `build_task_list_state()` for
@@ -1132,7 +1140,7 @@ tasks never live inside `acts`.
   | --- | --- | --- |
   | act | `ACT_SENT_TO_KO`, `ACT_SENT_TO_TO`, `ACT_SENT_TO_OTK`, `ACT_RETURNED_TO_OTK`, `ACT_RETURNED_TO_KO`, `ACT_RETURNED_TO_TO`, `ACTION_ASSIGNED`, `ACT_APPROVED` | `COMMENT_ADDED` |
   | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
-  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `ACT_PRINT_ASSIGNED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED`, `BOARD_CARD_MENTION`, `BOARD_DUE_SOON`, `BOARD_OVERDUE`, `BOARD_UNBLOCKED`, `BOARD_COLUMN_ENTERED` | `BOARD_TASK_CANCELLED`, `BOARD_CARD_COMMENT`, `BOARD_CARD_COMPLETED`, `BOARD_SUBTASKS_DONE`, `BOARD_DUE_CHANGED` (a card withdrawn, a message in its «Обсуждение», a followed card done, «все подзадачи выполнены», «срок перенесён» — nothing new is asked of anybody) |
+  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `ACT_PRINT_ASSIGNED`, `TASK_REOPENED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED`, `BOARD_CARD_MENTION`, `BOARD_DUE_SOON`, `BOARD_OVERDUE`, `BOARD_UNBLOCKED`, `BOARD_COLUMN_ENTERED` | `BOARD_TASK_CANCELLED`, `BOARD_CARD_COMMENT`, `BOARD_CARD_COMPLETED`, `BOARD_SUBTASKS_DONE`, `BOARD_DUE_CHANGED` (a card withdrawn, a message in its «Обсуждение», a followed card done, «все подзадачи выполнены», «срок перенесён» — nothing new is asked of anybody) |
   | request | `BOARD_REQUEST_NEW`, `BOARD_REQUEST_ACCEPTED`, `BOARD_REQUEST_REJECTED`, `BOARD_REQUEST_DUPLICATE`, `BOARD_REQUEST_DONE` | — |
   | bug | `BUG_REPORTED` | — |
   | document | `DOCUMENT_ACK_REQUIRED`, `DOCUMENT_APPROVAL_REQUIRED`, `DOCUMENT_REVIEW_DUE`, `DOCUMENT_VERSION_RETURNED` | `DOCUMENT_UPDATED` (a subscriber's «новая версия» — information asked for, not a duty) |
@@ -1806,6 +1814,53 @@ tasks never live inside `acts`.
   filter is `source_type`; the task's own workflow status is a separate column,
   and the two are never conflated again. Never hard-code a public URL in a
   template.
+
+### Утилизация МП (`disposal`)
+
+- **What waits is derived, never stored.** `selectors.pending_defects()` is
+  every `ActDefect` with `workshop == MP_SHOP` and `ko_decision ==
+  PROHIBIT_USE` — the two facts `ACT_REJECTION` reads — decided in the act's
+  current КО round (`ko_round` equal to the act's), on an act not in
+  `CREATED_OTK`, `KO_REVIEW` or `CANCELLED` (`NOT_DECIDED_STATUSES`: an act
+  back in front of КО waits for its new decision), and with no
+  `disposal_item` yet. Nothing is written when КО decides and nothing is
+  migrated: a decision changed before disposal simply changes the list.
+- **Disposal is one write and a document.** `services.dispose_defects(ids, *,
+  actor)` — one `atomic()` block: the right asked inside it, the selected
+  defects locked (`select_for_update()`, no act lock, so it never meets an act
+  transition in the opposite order), re-read through `pending_defects()`, a
+  selection with any defect no longer waiting refused whole
+  (`STALE_SELECTION`), then one `DisposalAct` and one `DisposalItem` per
+  defect. `DisposalItem.defect` is a one-to-one `PROTECT`: a product is
+  disposed of once, and an `IntegrityError` from a concurrent double is the
+  same refusal. An item snapshots what the signed paper says (act number,
+  product, order, ЗНП, party, МП type, defect type, quantity), because an act
+  sent back to rework and edited later must not rewrite a signed disposal —
+  the one place defect facts are copied, on purpose; everywhere else
+  `ActDefect` stays their only source. No history event, notification or
+  realtime event: the page is not live.
+- **Who.** `permissions.can_view_disposal()` — every signed-in employee;
+  `can_dispose()` — `DISPOSAL_ROLES` («Мастер МП и РЛ», the retired «Мастер
+  производства») through `accounts.roles`, or `is_act_admin()`. The tick
+  boxes, «Выбрать все» and «Утилизировать» are drawn only for `can_dispose`
+  (presentation); `disposal:confirm` asks it before the method (403) and the
+  service asks it again.
+- **Two POSTs, like an СМК record.** «Утилизировать» posts the ticked
+  `defect` ids to `disposal:confirm`; without `confirmed=1` it writes nothing
+  and draws `templates/disposal/print.html` — the print form of exactly the
+  ticked МП still waiting, «Печать», «Подтвердить утилизацию» (the same ids
+  plus the flag) and «Отмена». Only the confirmed POST writes, then goes to
+  «Утилизировано» with «Акт утилизации №N». The same template draws a recorded
+  disposal from its snapshots at `disposal:print` (read by everyone). A GET on
+  `confirm` goes back to the list. `static/js/disposal.js` only ticks all and
+  counts; without JavaScript the boxes post as they are.
+- **The page** (`disposal:list`, `?tab=pending|done`, `page-container--fill`,
+  the registry toolbar and table card): «Ожидают утилизации» — act (a link),
+  date of the КО decision, product, order, ЗНП, party, МП type, defect type,
+  quantity and the tick box on the right; «Утилизировано» — the disposal (its
+  print form, the whole row), date, who, then the snapshot. Each tab's count
+  beside its name. In the sidebar after «Задачи» (`active_page ==
+  'disposal'`).
 
 ### Boards (`boards`)
 

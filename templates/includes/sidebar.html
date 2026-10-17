@@ -18,7 +18,7 @@ owning module's own queryset.
     </div>
     <nav class="sidebar__nav">
         <div class="sidebar__group" data-nav-group>
-            <button class="sidebar__category{% if active_page == 'acts' or active_page == 'tasks' or active_page == 'protocols' or active_page == 'smk' %} sidebar__category--active{% endif %}"
+            <button class="sidebar__category{% if active_page == 'acts' or active_page == 'tasks' or active_page == 'protocols' or active_page == 'smk' or active_page == 'disposal' %} sidebar__category--active{% endif %}"
                     type="button" aria-expanded="false" aria-controls="sidebar-submenu-quality" data-nav-category>
                 <span>Качество</span>
                 {% if my_counts.quality %}<span class="nav-count" title="Ждут вас: акты, задачи и согласования">{{ my_counts.quality }}</span>{% endif %}
@@ -29,6 +29,7 @@ owning module's own queryset.
                 <a class="sidebar__link{% if active_page == 'protocols' %} sidebar__link--active{% endif %}" href="{% url 'protocols:list' %}">Протоколы{% if my_counts.approvals %} <span class="nav-count" title="Ждут вашего согласования">{{ my_counts.approvals }}</span>{% endif %}</a>
                 <a class="sidebar__link{% if active_page == 'smk' %} sidebar__link--active{% endif %}" href="{% url 'smk:list' %}">СМК</a>
                 <a class="sidebar__link{% if active_page == 'tasks' %} sidebar__link--active{% endif %}" href="{% url 'tasks:list' %}">Задачи{% if my_counts.tasks %} <span class="nav-count{% if my_counts.tasks_overdue %} nav-count--alert{% endif %}" title="Мои задачи в работе{% if my_counts.tasks_overdue %}, просрочено: {{ my_counts.tasks_overdue }}{% endif %}">{{ my_counts.tasks }}</span>{% endif %}</a>
+                <a class="sidebar__link{% if active_page == 'disposal' %} sidebar__link--active{% endif %}" href="{% url 'disposal:list' %}">Утилизация МП</a>
             </div>
         </div>
         {% comment %}

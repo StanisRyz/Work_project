@@ -57,6 +57,8 @@ INSTALLED_APPS = [
     'tasks',
     'protocols',
     'smk',
+    # «Утилизация МП»: the disposal of «Цех МП» products КО prohibited from use.
+    'disposal',
     'calculator',
     'plate_cutting',
     'notifications',

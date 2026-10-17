@@ -1,0 +1,40 @@
+/* «Утилизация МП»: the registry's tick-box column and the print form's
+   signature lines. Card, table, tabs and buttons come from `components.css`
+   and `acts.css`; tokens only. */
+
+.act-table-card .disposal-table {
+    min-width: 1000px;
+}
+
+.disposal-table__check {
+    width: 56px;
+    text-align: center;
+}
+
+.disposal-table__check input {
+    width: 18px;
+    height: 18px;
+}
+
+.disposal-print__confirm {
+    display: inline;
+    margin: 0;
+}
+
+/* `print.css` sizes every `th` at 190px for its two-column fact tables; the
+   list of МП is nine columns and takes its widths from the `<colgroup>`. */
+.print-section .disposal-print__items th {
+    width: auto;
+}
+
+.disposal-print__narrow { width: 7%; }
+.disposal-print__wide { width: 16%; }
+
+.disposal-print__signatures th {
+    width: 30%;
+}
+
+.disposal-print__line {
+    width: 40%;
+    border-bottom: 1px solid var(--color-text);
+}

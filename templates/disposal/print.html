@@ -1,0 +1,82 @@
+{% load static people %}
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% if preview %}Акт утилизации МП (проект){% else %}{{ disposal.label }}{% endif %}</title>
+    <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260925-2">
+    <link rel="stylesheet" href="{% static 'css/components.css' %}?v=20260925-4">
+    <link rel="stylesheet" href="{% static 'css/print.css' %}?v=20260925-2">
+    <link rel="stylesheet" href="{% static 'css/disposal.css' %}?v=20261017-1">
+    {# Last: the shared user-text rules, see `static/css/text.css`. #}
+    <link rel="stylesheet" href="{% static 'css/text.css' %}?v=20260925-1">
+</head>
+<body class="print-page">
+    {% comment %}
+    The disposal form, in the act print styling. Two uses, one layout: the
+    confirmation step of «Утилизировать» (`preview`: the ticked МП that still
+    wait, «Подтвердить утилизацию» posting their ids with `confirmed=1`, which
+    is the only request that writes) and the signed record of a disposal, read
+    from the item snapshots. «Печать» and the buttons are screen only.
+    {% endcomment %}
+    <main class="print-document">
+        <div class="print-actions">
+            <button class="link-button link-button--secondary" type="button" onclick="window.print()">Печать</button>
+            {% if preview %}
+                <form method="post" action="{% url 'disposal:confirm' %}" class="disposal-print__confirm">
+                    {% csrf_token %}
+                    <input type="hidden" name="confirmed" value="1">
+                    {% for pk in defect_ids %}<input type="hidden" name="defect" value="{{ pk }}">{% endfor %}
+                    <button class="link-button" type="submit">Подтвердить утилизацию</button>
+                </form>
+                <a class="link-button link-button--secondary" href="{% url 'disposal:list' %}?tab=pending">Отмена</a>
+            {% else %}
+                <a class="link-button link-button--secondary" href="{% url 'disposal:list' %}?tab=done">К списку</a>
+            {% endif %}
+        </div>
+
+        <header class="print-header">
+            <p>Утилизация несоответствующей продукции · Цех МП</p>
+            <h1>{% if preview %}Акт утилизации МП{% else %}{{ disposal.label }}{% endif %}</h1>
+            <p>от {{ disposed_at|date:'d.m.Y' }}{% if preview %} · проект, ещё не подтверждён{% endif %}</p>
+        </header>
+
+        <section class="print-section">
+            <h2>Утилизируемые МП (решение КО — «Запретить использование»)</h2>
+            <table class="disposal-print__items">
+                <colgroup><col class="disposal-print__narrow"><col class="disposal-print__wide"><col class="disposal-print__wide"><col><col><col><col class="disposal-print__narrow"><col><col class="disposal-print__narrow"></colgroup>
+                <thead>
+                    <tr>
+                        <th>№</th><th>Акт</th><th>Номенклатура</th><th>Заказ</th><th>ЗНП</th>
+                        <th>Партия</th><th>Тип МП</th><th>Вид дефекта</th><th>Кол-во, шт.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td>{{ forloop.counter }}</td>
+                            <td>{{ row.act_number|default:'—' }}</td>
+                            <td class="user-text">{{ row.nomenclature|default:'—' }}</td>
+                            <td class="user-text">{{ row.order_number|default:'—' }}</td>
+                            <td class="user-text">{{ row.znp_number|default:'—' }}</td>
+                            <td class="user-text">{{ row.party_number|default:'—' }}</td>
+                            <td>{{ row.mp_type|default:'—' }}</td>
+                            <td class="user-text">{{ row.defect_type|default:'—' }}</td>
+                            <td>{{ row.quantity|default_if_none:'—' }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p>Всего позиций: {{ rows|length }}.</p>
+        </section>
+
+        <section class="print-section disposal-print__signatures">
+            <table>
+                <tr><th>Мастер цеха МП</th><td class="disposal-print__line"></td><td>{{ disposed_by|person_name }}</td></tr>
+                <tr><th>Контролёр ОТК</th><td class="disposal-print__line"></td><td></td></tr>
+            </table>
+        </section>
+    </main>
+</body>
+</html>
