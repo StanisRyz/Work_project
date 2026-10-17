@@ -1,0 +1,3 @@
+{% comment %}One «Должность | … | ФИО, дата* | …» row of the paper act. `sign` is
+`acts.print_form.signature()`, or None for the empty line under it.{% endcomment %}
+<tr><td>Должность</td><td class="user-text">{{ sign.position }}</td><td>ФИО, дата*</td><td class="user-text">{% if sign.name %}{{ sign.name }}{% if sign.date %}, {{ sign.date|date:'d.m.Y' }}{% endif %}{% endif %}</td></tr>

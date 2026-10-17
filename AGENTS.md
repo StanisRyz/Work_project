@@ -401,6 +401,20 @@ tasks never live inside `acts`.
   no code may reconstruct one. Never assume the first defect represents the act:
   an act may mix workshops, and reordering its defects changes nothing. An act
   with no defects renders the neutral empty state; it never gets invented data.
+- **The printed act is the paper form ДП-СМК 07/04.5, one per defect.**
+  `acts.print_form.build_act_print_form(act)` builds plain data — a form per
+  defect in the act's order (a defectless legacy act prints one from the
+  act's own decision) plus the act-level sections 2–4 they share — and
+  `templates/acts/print.html` (+ `acts/includes/print_signature.html`,
+  `static/css/act_form.css`: A4, the paper's margins, serif 11pt, the
+  paper's column grid, sections 2–4 on a sheet of their own, «Страница N из
+  M» through `@page`) only draws it. Section 1 reads the decision options and
+  «Анализ влияния отклонений» from `Act.KoDecision` and
+  `acts/quality_impact.py` (☒/☐), never restated. A signature row is the
+  profile's `position`, else its role, and the name with the step's date.
+  A box the system has no fact for — «силами поставщика/производства»,
+  «Действия с несоответствиями», «Повторная приемка», the conclusion — is
+  printed empty for the pen; nothing is derived to fill it.
 - **`acts/workshops.py` owns the workshop rules** — which fields apply, which
   are required, what is cleared when not applicable, the allowed defect type
   codes and the presentation metadata. `ActDefectForm` validates against the

@@ -1,0 +1,161 @@
+/* The printed act: form ДП-СМК 07/04.5, drawn as the paper is.
+ *
+ * A controlled document, not a screen: serif 11pt, black hairlines, A4 with
+ * the paper's margins (3 cm left, 1.5 cm elsewhere) and every table on the
+ * same 17.5 cm grid, the columns in the paper's proportions. `print.css` gives
+ * the screen frame and hides «Печать»; `text.css`, loaded last, still wraps
+ * long text. Nothing here is a token of the application's density: the form
+ * keeps the size it was approved at.
+ */
+
+@page {
+    size: A4;
+    margin: 1.5cm 1.5cm 1.5cm 3cm;
+
+    @bottom-right {
+        content: "Страница " counter(page) " из " counter(pages);
+        font-family: "Times New Roman", "Liberation Serif", serif;
+        font-size: 10pt;
+    }
+}
+
+.act-form-page .act-form-document {
+    width: min(21cm, calc(100% - 32px));
+    font-family: "Times New Roman", "Liberation Serif", "DejaVu Serif", serif;
+    font-size: 11pt;
+    line-height: 1.2;
+    color: #000000;
+}
+
+.act-form + .act-form {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px dashed #d9dee8;
+}
+
+.act-form__code {
+    margin: 0 0 4px;
+    text-align: right;
+    font-size: 11pt;
+}
+
+.act-form__table {
+    /* A collapsed border is drawn half outside the table: one pixel less
+       keeps the right edge on the sheet instead of under the margin. */
+    width: calc(100% - 1px);
+    margin-bottom: 14px;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.act-form__table th,
+.act-form__table td {
+    padding: 2px 4px;
+    border: 1px solid #000000;
+    text-align: left;
+    vertical-align: top;
+    font-weight: 400;
+    background: none;
+}
+
+.act-form__table .act-form__title {
+    text-align: center;
+    font-weight: 700;
+}
+
+.act-form__part {
+    font-weight: 400;
+}
+
+.act-form__w16 { width: 16%; }
+.act-form__w17 { width: 17%; }
+.act-form__w20 { width: 20%; }
+.act-form__w21 { width: 21%; }
+.act-form__w23 { width: 23%; }
+.act-form__w24 { width: 24%; }
+.act-form__w27 { width: 27%; }
+.act-form__w28 { width: 28%; }
+.act-form__w29 { width: 29%; }
+
+/* The empty space the paper leaves for writing by hand. */
+.act-form__tall td { height: 2.4em; }
+.act-form__box td { height: 5em; }
+.act-form__box--tall td { height: 6.5em; }
+
+.act-form__label,
+.act-form__line,
+.act-form__check {
+    display: block;
+}
+
+.act-form__checks .act-form__check {
+    margin: 1px 0 4px;
+}
+
+.act-form__checks--dense .act-form__check {
+    margin: 0;
+}
+
+.act-form__label {
+    font-weight: 400;
+}
+
+.act-form__checks--dense .act-form__label {
+    font-weight: 700;
+}
+
+.act-form__hint {
+    font-size: 9pt;
+    font-weight: 400;
+}
+
+/* The paper's «________» with what was entered written on it. */
+.act-form__fill {
+    display: inline-block;
+    min-width: 8em;
+    border-bottom: 1px solid #000000;
+}
+
+.act-form__fill--wide {
+    display: block;
+    min-width: 0;
+    min-height: 1.3em;
+}
+
+.act-form__footnote {
+    margin: -8px 0 0 1.25cm;
+}
+
+/* «Продолжение»: sections 2–4 start a sheet of their own, as on the paper. */
+.act-form__sheet-break {
+    margin-top: 20px;
+}
+
+@media print {
+    .act-form-page {
+        background: #ffffff;
+    }
+
+    .act-form-page .act-form-document {
+        width: auto;
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+
+    .act-form + .act-form {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: 0;
+        break-before: page;
+    }
+
+    .act-form__sheet-break {
+        margin-top: 0;
+        break-before: page;
+    }
+
+    .act-form__table {
+        break-inside: avoid;
+    }
+}

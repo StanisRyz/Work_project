@@ -1071,11 +1071,11 @@ class ActViewTests(TestCase):
         self.assertEqual(act.status.code, 'TO_ANALYSIS')
 
     def test_the_printable_form_carries_the_decision_and_analysis_per_defect(self):
-        """Печатная форма — это бумажный акт, и раздел 1 в нём поблочный.
+        """Печатная форма — бланк ДП-СМК 07/04.5, по бланку на несоответствие.
 
-        До изм.2 она печатала одно решение на весь акт, хотя решения хранятся
-        по дефектам; теперь она печатает решение и анализ каждого дефекта, а
-        автора и дату — один раз, потому что вносят их одним действием.
+        Раздел 1 каждого бланка — решение КО по этому дефекту (☒ у выбранного)
+        и «Анализ влияния отклонений» с его значениями; у запрещающего решения
+        пункты анализа пусты.
         """
         act = self._create_act(self.status_to)
         ActDefect.objects.create(
@@ -1095,14 +1095,26 @@ class ActViewTests(TestCase):
         response = self.client.get(reverse('acts:print', args=[act.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Дефект 1')
-        self.assertContains(response, 'Дефект 2')
-        self.assertContains(response, 'Анализ влияния отклонений на качество изделия')
-        self.assertContains(response, 'Собираемость обеспечена')
-        self.assertContains(response, '1,2 мГн (допуск по КД/ГОСТ: ±5%)')
-        # У запрещающего решения анализа нет и быть не должно — блок для него
-        # не печатается вовсе, а не печатается пустым.
-        self.assertContains(response, 'Анализ влияния отклонений на качество изделия', count=1)
+        self.assertContains(response, 'Форма ДП-СМК 07/04.5', count=4)   # 2 бланка × 2 листа
+        self.assertContains(response, 'Акт регистрации и устранения несоответствия', count=2)
+        self.assertContains(response, 'несоответствие 1 из 2')
+        self.assertContains(response, 'несоответствие 2 из 2')
+        forms = response.context['forms']
+        self.assertEqual(
+            [[row['label'] for row in form['decisions'] if row['checked']] for form in forms],
+            [
+                ['Разрешить использование изделия с отклонением без доработки'],
+                ['Запретить использование'],
+            ],
+        )
+        self.assertTrue(next(
+            item for item in forms[0]['impact'] if item['field'] == 'quality_impact_assembly'
+        )['checked'])
+        self.assertContains(response, '1,2 мГн')
+        self.assertContains(response, '±5%')
+        # У запрещающего решения анализ пуст: ни одной отметки во втором бланке.
+        self.assertFalse(any(item['checked'] for item in forms[1]['impact']))
+        self.assertContains(response, 'Комментарий КО: Допущено')
 
     def test_ko_decision_stores_the_quality_impact_analysis_per_defect(self):
         act = self._create_act(self.status_ko)

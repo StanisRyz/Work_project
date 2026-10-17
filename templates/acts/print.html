@@ -8,193 +8,111 @@
     <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260925-2">
     <link rel="stylesheet" href="{% static 'css/components.css' %}?v=20260925-4">
     <link rel="stylesheet" href="{% static 'css/print.css' %}?v=20260925-2">
+    <link rel="stylesheet" href="{% static 'css/act_form.css' %}?v=20261017-1">
     {# Last: the shared user-text rules, see `static/css/text.css`. #}
     <link rel="stylesheet" href="{% static 'css/text.css' %}?v=20260925-1">
 </head>
-<body class="print-page">
-    <main class="print-document">
-        <div class="print-actions">
-            <button class="link-button" type="button" onclick="window.print()">Печать</button>
-            <a class="link-button link-button--secondary" href="{% url 'acts:detail' act.pk %}">К акту</a>
+<body class="print-page act-form-page">
+{% comment %}
+The printed act is the plant's paper form ДП-СМК 07/04.5 «Акт регистрации и
+устранения несоответствия», table for table: the header, the nonconformity,
+1. the КО decision with «Анализ влияния отклонений», then — on its own sheet,
+«Продолжение» — 2. the way it is resolved, 3. the causes, 4. the execution.
+One form per defect (`acts.print_form.build_act_print_form()`); sections 2–4
+are the act's and repeat on each. A box the system has no answer for stays
+empty for the pen. «☒» is a ticked box, «☐» an empty one.
+{% endcomment %}
+<main class="print-document act-form-document">
+    <div class="print-actions">
+        <button class="link-button" type="button" onclick="window.print()">Печать</button>
+        <a class="link-button link-button--secondary" href="{% url 'acts:detail' act.pk %}">К акту</a>
+    </div>
+
+    {% for form in forms %}
+    <article class="act-form">
+        <p class="act-form__code">{{ form_code }}</p>
+
+        <table class="act-form__table">
+            <colgroup><col class="act-form__w28"><col></colgroup>
+            <tr><th colspan="2" class="act-form__title">{{ company }}</th></tr>
+            <tr><th colspan="2" class="act-form__title">Акт регистрации и устранения несоответствия № {{ act.number|default:'______' }}{% if form.count > 1 %} <span class="act-form__part">(несоответствие {{ form.index }} из {{ form.count }})</span>{% endif %}</th></tr>
+            <tr><td>Дата выявления</td><td>{{ form.defect.detected_at|date:'d.m.Y' }}</td></tr>
+            <tr><td>Наименование продукции</td><td class="user-text">{{ act.nomenclature }}</td></tr>
+        </table>
+
+        <table class="act-form__table">
+            <colgroup><col class="act-form__w28"><col class="act-form__w29"><col class="act-form__w23"><col class="act-form__w20"></colgroup>
+            <tr><td>Поставщик / цех</td><td>{{ form.defect.get_workshop_display }}</td><td>Партия / заказ</td><td class="user-text">{{ form.party_order }}</td></tr>
+            <tr><td>Обозначение по КД</td><td colspan="3" class="user-text">{{ act.kd_designation }}</td></tr>
+            <tr><td>Проверено всего продукции</td><td>{{ form.defect.checked_quantity|default_if_none:'' }}</td><td>Количество несоответствующей продукции</td><td>{{ form.defect.nonconforming_quantity|default_if_none:'' }}</td></tr>
+            <tr><td rowspan="3">Описание несоответствия</td><td>Наименование параметра</td><td>Требование</td><td>Фактическое значение</td></tr>
+            <tr class="act-form__tall"><td class="user-text">{{ form.defect.defect_type|default_if_none:'' }}</td><td></td><td class="user-text">{{ form.defect.description|linebreaksbr }}</td></tr>
+            <tr class="act-form__tall"><td></td><td></td><td></td></tr>
+            <tr class="act-form__box"><td colspan="4"><span class="act-form__label">Комментарии</span>{% for line in form.comments %}<span class="act-form__line user-text">{{ line }}</span>{% endfor %}</td></tr>
+            {% include 'acts/includes/print_signature.html' with sign=form.otk_signature %}
+            {% include 'acts/includes/print_signature.html' with sign=None %}
+        </table>
+
+        <table class="act-form__table">
+            <colgroup><col class="act-form__w28"><col class="act-form__w27"><col class="act-form__w21"><col class="act-form__w24"></colgroup>
+            <tr><th colspan="4" class="act-form__title">1. Решение о возможности использования с/без отклонения от КД</th></tr>
+            <tr><td colspan="4" class="act-form__checks">
+                {% for row in form.decisions %}<span class="act-form__check">{% if row.checked %}☒{% else %}☐{% endif %} {{ row.label }}</span>{% endfor %}
+                {% if form.legacy_decision %}<span class="act-form__check">☒ {{ form.legacy_decision }}</span>{% endif %}
+            </td></tr>
+            <tr><td colspan="4" class="act-form__checks act-form__checks--dense">
+                <span class="act-form__label">Анализ влияния отклонений на качество изделия <em class="act-form__hint">(Заполняет сотрудник КТО)</em></span>
+                {% for item in form.impact %}
+                    <span class="act-form__check">{% if item.checked %}☒{% else %}☐{% endif %}
+                    {% if item.field == 'quality_impact_em_parameters' %}{{ item.label }}: <span class="act-form__fill">{{ item.texts.0|default:'' }}</span> (Допуск по КД/ГОСТ: <span class="act-form__fill">{{ item.texts.1|default:'' }}</span>)
+                    {% elif item.field == 'quality_impact_other' %}{{ item.label }} <span class="act-form__fill act-form__fill--wide user-text">{{ item.texts.0|default:'' }}</span>
+                    {% else %}{{ item.label }}{% endif %}</span>
+                {% endfor %}
+            </td></tr>
+            {% include 'acts/includes/print_signature.html' with sign=form.ko_signature %}
+            {% include 'acts/includes/print_signature.html' with sign=None %}
+        </table>
+
+        <div class="act-form__sheet-break">
+            <p class="act-form__code">{{ form_code }}<br>Продолжение</p>
         </div>
 
-        <header class="print-header">
-            <p>Акт операционного контроля</p>
-            <h1>{{ act.number }}</h1>
-        </header>
+        <table class="act-form__table">
+            <colgroup><col class="act-form__w28"><col class="act-form__w29"><col class="act-form__w23"><col class="act-form__w20"></colgroup>
+            <tr><th colspan="4" class="act-form__title">2. Решение о способе устранения (коррекция)/корректирующие действия</th></tr>
+            <tr><td colspan="4" class="act-form__checks">
+                <span class="act-form__check">☐ Устранение силами поставщика</span>
+                <span class="act-form__check">☐ Устранение силами производства</span>
+            </td></tr>
+            <tr class="act-form__box act-form__box--tall"><td colspan="4"><span class="act-form__label">Действия с несоответствиями</span></td></tr>
+            <tr class="act-form__box"><td colspan="4"><span class="act-form__label">Комментарии</span>{% if form.ko_comment %}<span class="act-form__line user-text">Комментарий КО: {{ form.ko_comment|linebreaksbr }}</span>{% endif %}</td></tr>
+            <tr class="act-form__box"><td colspan="4"><span class="act-form__label">Корректирующие действия</span>
+                {% for action in shared.actions %}<span class="act-form__line user-text">{{ forloop.counter }}. {{ action.text }} — {{ action.department }}, срок {{ action.due_date|date:'d.m.Y' }}{% if action.assignees %}, исполнители: {{ action.assignees }}{% endif %}</span>{% endfor %}
+                {% if shared.legacy_actions %}<span class="act-form__line user-text">{{ shared.legacy_actions|linebreaksbr }}</span>{% endif %}
+            </td></tr>
+            {% include 'acts/includes/print_signature.html' with sign=shared.to_signature %}
+            {% include 'acts/includes/print_signature.html' with sign=None %}
+            <tr><td colspan="2">Срок выполнения{% if shared.due_date %}: {{ shared.due_date|date:'d.m.Y' }}{% endif %}</td><td colspan="2" class="user-text">Ответственный (ФИО): {{ shared.responsible }}</td></tr>
+        </table>
 
-        <section class="print-section">
-            <h2>Данные акта</h2>
-            <table>
-                <tr><th>Номер акта</th><td>{{ act.number|default:'—' }}</td></tr>
-                <tr><th>Создан</th><td>{{ act.created_at|date:'d.m.Y H:i' }}</td></tr>
-                <tr><th>Создал</th><td>{{ act.created_by.get_full_name|default:act.created_by.username }}</td></tr>
-                <tr><th>Заказчик</th><td>{{ act.customer|default:'—' }}</td></tr>
-                <tr><th>Заказ покупателя</th><td>{{ act.order_number|default:'—' }}</td></tr>
-                <tr><th>Наименование продукции</th><td>{{ act.nomenclature|default:'—' }}</td></tr>
-                <tr><th>Обозначение по КД</th><td>{{ act.kd_designation|default:'—' }}</td></tr>
-                <tr><th>Приоритет</th><td>{{ act.priority|default:'—' }}</td></tr>
-                <tr><th>Статус</th><td>{{ act.status }}</td></tr>
-                <tr><th>Срок</th><td>{{ act.due_date|date:'d.m.Y'|default:'—' }}</td></tr>
-            </table>
-        </section>
+        <table class="act-form__table">
+            <colgroup><col class="act-form__w28"><col class="act-form__w29"><col class="act-form__w23"><col class="act-form__w20"></colgroup>
+            <tr><th colspan="4" class="act-form__title">3. Причины</th></tr>
+            <tr class="act-form__box act-form__box--tall"><td colspan="4">{% for cause in shared.causes %}<span class="act-form__line user-text">{% if shared.causes|length > 1 %}{{ forloop.counter }}. {% endif %}{{ cause|linebreaksbr }}</span>{% endfor %}</td></tr>
+            {% include 'acts/includes/print_signature.html' with sign=shared.to_signature %}
+            {% include 'acts/includes/print_signature.html' with sign=None %}
+        </table>
 
-        {% comment %}
-        Per-defect data: a ПиР defect carries no party number, operation, МП
-        type or description, so those cells stay «—» instead of being filled
-        with the act summary of another workshop.
-        {% endcomment %}
-        <section class="print-section">
-            <h2>Дефекты</h2>
-            {% if defects %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>№</th>
-                            <th>Цех/поставщик</th>
-                            <th>Номер ЗНП</th>
-                            <th>Номер партии</th>
-                            <th>Вид дефекта</th>
-                            <th>Операция</th>
-                            <th>Тип МП</th>
-                            <th>Дата обнаружения</th>
-                            <th>Проверено</th>
-                            <th>С отклонением</th>
-                            <th>Описание</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for defect in defects %}
-                            <tr>
-                                <td>{{ forloop.counter }}</td>
-                                <td>{{ defect.get_workshop_display|default:'—' }}</td>
-                                <td>{{ defect.znp_number|default:'—' }}</td>
-                                <td>{{ defect.party_number|default:'—' }}</td>
-                                <td>{{ defect.defect_type|default:'—' }}</td>
-                                <td>{{ defect.operation|default:'—' }}</td>
-                                <td>{{ defect.get_mp_type_display|default:'—' }}</td>
-                                <td>{{ defect.detected_at|date:'d.m.Y'|default:'—' }}</td>
-                                <td>{{ defect.checked_quantity|default_if_none:'—' }}</td>
-                                <td>{{ defect.nonconforming_quantity|default_if_none:'—' }}</td>
-                                <td>{{ defect.description|default:'—' }}</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>Дефекты не добавлены.</p>
-            {% endif %}
-        </section>
-
-        <section class="print-section">
-            <h2>Решение КО</h2>
-            {% comment %}
-            Раздел 1 бумажного акта: по блоку на дефект — решение, комментарий
-            и «Анализ влияния отклонений на качество изделия». Поблочно, а не
-            колонками в таблице дефектов выше: чек-лист из шести пунктов в
-            ячейку не помещается, и на бумаге он тоже идёт отдельной строкой.
-
-            Автор и дата решения одни на весь акт — их вносят одним действием,
-            поэтому они остаются здесь, а не повторяются в каждом блоке.
-            {% endcomment %}
-            {% for row in defect_decision_rows %}
-                <h3>Дефект {{ forloop.counter }}. {{ row.defect.defect_type|default:'-' }}</h3>
-                <table>
-                    <tr><th>Решение</th><td>{{ row.defect.get_ko_decision_display|default:'-' }}</td></tr>
-                    <tr><th>Комментарий</th><td>{{ row.defect.ko_comment|default:'-' }}</td></tr>
-                    {% if row.impact_applies %}
-                        <tr><th>Анализ влияния отклонений на качество изделия</th><td>
-                            {% if row.impact %}
-                                {% for item in row.impact %}{{ item.label }}{% if item.detail %}: {{ item.detail }}{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}
-                            {% else %}Не заполнялся{% endif %}
-                        </td></tr>
-                    {% endif %}
-                </table>
-            {% empty %}
-                {# Устаревший акт без дефектов: решение хранится на самом акте. #}
-                <table>
-                    <tr><th>Решение</th><td>{{ act.get_ko_decision_display|default:'-' }}</td></tr>
-                    <tr><th>Комментарий</th><td>{{ act.ko_comment|default:'-' }}</td></tr>
-                </table>
-            {% endfor %}
-            <table>
-                <tr><th>Автор</th><td>{{ act.ko_decision_by|default:'-' }}</td></tr>
-                <tr><th>Дата</th><td>{{ act.ko_decision_at|date:'d.m.Y H:i'|default:'-' }}</td></tr>
-            </table>
-        </section>
-
-        <section class="print-section">
-            <h2>Анализ ТО</h2>
-            <table>
-                <tr><th>Корневая причина</th><td>{{ act.to_root_cause|default:'-' }}</td></tr>
-                <tr><th>Мероприятия</th><td>{{ act.to_action_summary|default:'-' }}</td></tr>
-                <tr><th>Автор</th><td>{{ act.to_analysis_by|default:'-' }}</td></tr>
-                <tr><th>Дата</th><td>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</td></tr>
-            </table>
-        </section>
-
-        <section class="print-section">
-            <h2>Закрытие</h2>
-            <table>
-                <tr><th>Закрыл</th><td>{{ act.closed_by|default:'-' }}</td></tr>
-                <tr><th>Дата закрытия</th><td>{{ act.closed_at|date:'d.m.Y H:i'|default:'-' }}</td></tr>
-                <tr><th>Комментарий</th><td>{{ act.closing_comment|default:'-' }}</td></tr>
-            </table>
-        </section>
-
-        {% if act.status.code == 'ARCHIVED' %}
-        <section class="print-section">
-            <h2>Утверждение</h2>
-            <table>
-                <tr><th>Утвердил</th><td>{{ act.approved_by|default:'-' }}</td></tr>
-                <tr><th>Дата утверждения</th><td>{{ act.approved_at|date:'d.m.Y H:i'|default:'-' }}</td></tr>
-            </table>
-        </section>
-        {% endif %}
-
-        <section class="print-section">
-            <h2>Вложения</h2>
-            {% if attachments %}
-                <ul>
-                    {% for attachment in attachments %}
-                        <li>
-                            <strong>{{ attachment.original_name }}</strong>
-                            {% if attachment.description %} — {{ attachment.description }}{% endif %}
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p>Вложения не добавлены.</p>
-            {% endif %}
-        </section>
-
-        <section class="print-section">
-            <h2>Ключевые события истории</h2>
-            {% if history_events %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Дата</th>
-                            <th>Событие</th>
-                            <th>Пользователь</th>
-                            <th>Комментарий</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for event in history_events %}
-                            <tr>
-                                <td>{{ event.created_at|date:'d.m.Y H:i' }}</td>
-                                <td>{{ event.get_event_type_display }}</td>
-                                <td>{{ event.user.get_full_name|default:event.user.username|default:'Система' }}{% if event.substitution_note %} ({{ event.substitution_note }}){% endif %}</td>
-                                <td>{{ event.message }}</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>История акта пока пуста.</p>
-            {% endif %}
-        </section>
-    </main>
+        <table class="act-form__table">
+            <colgroup><col class="act-form__w27"><col class="act-form__w17"><col class="act-form__w16"><col class="act-form__w23"><col class="act-form__w17"></colgroup>
+            <tr><th colspan="5" class="act-form__title">4. Коррекция/ корректирующие действия</th></tr>
+            <tr><td>Отметка о выполнении</td><td>{% if shared.execution.total %}Выполнено {{ shared.execution.done }} из {{ shared.execution.total }}{% endif %}</td><td>ФИО, дата</td><td colspan="2">{% if shared.execution.signature %}{{ shared.execution.signature.name }}, {{ shared.execution.signature.date|date:'d.m.Y' }}{% endif %}</td></tr>
+            <tr><td>Повторная приемка продукции</td><td></td><td>ФИО, дата</td><td colspan="2"></td></tr>
+            <tr><td>Заключение о выполнение корректирующих действий</td><td>Выполнено/ не выполнено <small>(выбрать)</small></td><td>ФИО</td><td>Результативно/ не результативно <small>(выбрать)</small></td><td>ФИО</td></tr>
+        </table>
+        <p class="act-form__footnote">*Срок прохождения документа 5 дней</p>
+    </article>
+    {% endfor %}
+</main>
 </body>
 </html>

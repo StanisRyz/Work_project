@@ -32,6 +32,7 @@ from .forms import (
     ToAnalysisStructureForm,
 )
 from .models import Act, ActAttachment, ActHistoryEvent, calculate_act_due_date, get_act_status
+from .print_form import build_act_print_form
 from .permissions import (
     WORKSHOP_KO_ROLES,
     decidable_defects,
@@ -586,23 +587,9 @@ def act_print(request, pk):
     if not can_view_act(act, request.user):
         raise Http404('No Act matches the given query.')
 
-    defects = list(
-        act.defects.select_related('defect_type', 'operation').order_by('created_at', 'pk')
-    )
-
-    return render(
-        request,
-        'acts/print.html',
-        {
-            'act': act,
-            'defects': defects,
-            # Те же строки, что и на странице акта: раздел «Решение КО» печатной
-            # формы читает решение и анализ по каждому дефекту.
-            'defect_decision_rows': _defect_decision_rows(defects),
-            'attachments': act.attachments.select_related('uploaded_by'),
-            'history_events': act.history_events.select_related('user', 'from_status', 'to_status')[:20],
-        },
-    )
+    # The paper form ДП-СМК 07/04.5, one per defect: `acts/print_form.py`
+    # builds every box, the template only draws them.
+    return render(request, 'acts/print.html', {'act': act, **build_act_print_form(act)})
 
 
 @login_required
@@ -849,11 +836,10 @@ def _decidable_defects_queryset(act, user):
 
 
 def _defect_decision_rows(defects, ko_forms=(), act=None):
-    """Дефекты вместе с решением КО — одна форма строки для страницы и печати.
+    """Дефекты вместе с решением КО — строки страницы акта.
 
-    `ko_forms` пуст везде, кроме страницы акта в статусе KO_REVIEW: в печатной
-    форме решение только читается. Разобранный анализ считается всегда, потому
-    что читают его обе.
+    `ko_forms` пуст везде, кроме страницы акта в статусе KO_REVIEW. Печатная
+    форма (ДП-СМК 07/04.5) строит свои строки сама — `acts/print_form.py`.
 
     `impact_applies` отделяет «здесь анализа быть не должно» — запрещающее
     решение стирает его — от «анализ не заполняли»: акт, решённый до изм.2,
