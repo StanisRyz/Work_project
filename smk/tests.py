@@ -28,7 +28,8 @@ from notifications.models import Notification, NotificationDelivery
 from notifications.services import get_notification_header_state
 from references.models import TaskStatus
 from tasks.models import Task, TaskAssignee
-from tasks.services import TaskWorkflowError, add_task_attachment, complete_task
+from tasks.permissions import can_reopen_task
+from tasks.services import TaskWorkflowError, add_task_attachment, complete_task, reopen_task
 
 from .models import SmkHistoryEvent, SmkSource
 from .selectors import build_smk_list_state
@@ -151,6 +152,64 @@ class SmkTests(TestCase):
         response = self.client.get(reverse('tasks:create'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse('smk:create'))
+
+    # -------------------------------------------------------------- reopening
+
+    def test_smk_employee_reopens_a_completed_smk_task_with_a_reason(self):
+        """The Отдел СМК takes back a result it does not accept — its own tasks only."""
+        source = create_smk_source(
+            origin=SmkSource.Origin.INTERNAL_AUDIT,
+            audit_date=self.audit_date,
+            department=self.department,
+            non_conformities=[{'id': None, 'text': 'Нет журнала'}],
+            actions=self._actions(),
+            created_by=self.smk,
+        )
+        task = Task.objects.get(smk_source=source)
+        self.assertFalse(can_reopen_task(task, self.smk))   # still open
+        self._complete(task, 'Журнал заведён.')
+        task.refresh_from_db()
+
+        self.assertTrue(can_reopen_task(task, self.smk))
+        self.assertTrue(can_reopen_task(task, self.admin))
+        # Not the исполнитель, not a руководитель.
+        self.assertFalse(can_reopen_task(task, self.employee))
+        self.assertFalse(can_reopen_task(task, self.manager))
+
+        self.client.force_login(self.smk)
+        page = self.client.get(reverse('tasks:detail', args=[task.pk]))
+        self.assertContains(page, reverse('tasks:reopen', args=[task.pk]))
+        self.assertContains(page, 'data-confirm-comment="required"')
+
+        with self.assertRaises(TaskWorkflowError):
+            reopen_task(task, self.smk, '  ')
+        response = self.client.post(
+            reverse('tasks:reopen', args=[task.pk]), {'reopen_reason': 'В журнале нет подписей.'},
+        )
+        self.assertRedirects(
+            response, f"{reverse('tasks:detail', args=[task.pk])}?section=returns",
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'IN_PROGRESS')
+        self.assertEqual(task.reopenings.get().reopened_by, self.smk)
+
+    def test_smk_employee_does_not_reopen_another_sources_task(self):
+        from acts.models import Act
+        from references.models import ActStatus
+
+        act = Act.objects.create(
+            created_by=self.employee, nomenclature='Изделие',
+            status=ActStatus.objects.get(code='ARCHIVED'),
+        )
+        task = Task.objects.create(
+            source_type=Task.SourceType.ACT_PRINT, act=act,
+            task_text='Распечатать акт и передать контроллерам ОТК',
+            due_date=timezone.localdate(), created_by=self.employee,
+            status=TaskStatus.objects.get(code='COMPLETED'),
+        )
+        TaskAssignee.objects.create(task=task, user=self.employee)
+        self.assertFalse(can_reopen_task(task, self.smk))
+        self.assertTrue(can_reopen_task(task, self.admin))
 
     # ----------------------------------------------------------- task creation
 

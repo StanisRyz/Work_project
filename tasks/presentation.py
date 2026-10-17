@@ -47,6 +47,7 @@ def describe_task_source(task):
         Task.SourceType.ACT,
         Task.SourceType.ACT_WORKFLOW,
         Task.SourceType.ACT_REJECTION,
+        Task.SourceType.ACT_PRINT,
     }:
         if task.act_id is None:
             return {'label': '', 'url': ''}

@@ -1558,7 +1558,9 @@ def card_reopen(request, pk, card_pk):
     completed task — and it is asked before the method, so a typed-in URL
     without it is a 403 and a GET with it changes nothing. `reopen_card()`
     asks it again under the locks; a refusal (an archived board, a task
-    reopened meanwhile) comes back as the panel with the message.
+    reopened meanwhile, an empty reason) comes back as the panel with the
+    message. The reason arrives as `reopen_reason`, the name the panel's
+    confirmation trigger gives the modal's comment.
     """
     board = _board_or_404(pk)
     _require(can_view_board(request.user, board))
@@ -1568,7 +1570,7 @@ def card_reopen(request, pk, card_pk):
     if request.method != 'POST':
         return redirect(_card_url(board, card, request))
     try:
-        reopen_card(card, actor=request.user)
+        reopen_card(card, actor=request.user, reason=request.POST.get('reopen_reason', ''))
     except BoardError as exc:
         return _render_board(request, board, card.sub_board, card_id=card.pk, panel='view', error=str(exc))
     messages.success(request, 'Задача возвращена в работу.')

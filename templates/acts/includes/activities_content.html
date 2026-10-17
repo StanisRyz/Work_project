@@ -1,10 +1,12 @@
 {% load people %}
 {% comment %}
-Related corrective actions and their tasks. Read-only and permission-filtered
-by `get_related_tasks`, so it is safe to replace live.
+The real work this act produced: corrective actions of the ТО analysis and the
+two tasks of the КО decision (ПДО's «запретить использование» notice and the
+print task for ОТК). Read-only and permission-filtered by `get_related_tasks`,
+so it is safe to replace live.
 {% endcomment %}
 <header class="related-activities__header">
-    <div><h2>Связанные мероприятия</h2><p>Задачи, созданные по анализу ТО</p></div>
+    <div><h2>Связанные мероприятия</h2><p>Задачи, созданные по решению КО и анализу ТО</p></div>
     <span class="related-activities__count">Задач: {{ related_tasks|length }}</span>
 </header>
 {% if related_tasks %}
@@ -23,8 +25,18 @@ by `get_related_tasks`, so it is safe to replace live.
                 whole row.
                 {% endcomment %}
                 <td><strong class="user-text text-clamp-3" title="{{ task.task_text }}">{{ task.task_text }}</strong></td>
-                {# The same three-line limit, for the same reason. #}
+                {% comment %}
+                The same three-line limit, for the same reason. A corrective
+                action names its root cause; the two КО-decision tasks have
+                none and name the decision that produced them instead.
+                {% endcomment %}
+                {% if task.is_act_rejection_task %}
+                <td><span class="user-text">Решение КО: запретить использование</span></td>
+                {% elif task.is_act_print_task %}
+                <td><span class="user-text">Решение КО</span></td>
+                {% else %}
                 <td><span class="user-text text-clamp-3" title="{{ task.root_analysis.root_cause|default:'—' }}">{{ task.root_analysis.root_cause|default:'—' }}</span></td>
+                {% endif %}
                 {# One name per line, three of them, then «…». #}
                 <td><span class="user-text text-clamp-3" title="{% for assignee in task.assignees.all %}{{ assignee.user|person_name }}{% if not forloop.last %}, {% endif %}{% endfor %}">{% for assignee in task.assignees.all %}<span class="related-activities__assignee">{{ assignee.user|person_name }}</span>{% empty %}—{% endfor %}</span></td>
                 <td>{{ task.due_date|date:'d.m.Y' }}</td>

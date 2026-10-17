@@ -1519,16 +1519,26 @@ def complete_card(card, *, actor, execution_comment):
     return task
 
 
-def reopen_card(card, *, actor):
+def reopen_message(reason):
+    """The «Чат» message a reopening leaves, in the returner's name."""
+    return f'Возвращено в работу. Причина: {reason.strip()}'
+
+
+def reopen_card(card, *, actor, reason):
     """Put a completed card back into work — `tasks.services.reopen_task()`.
 
     The right is the task's own (`can_reopen_task()`: an administrator, a
-    `COMPLETED` task), asked by `reopen_task()` under the task's lock; the
+    `COMPLETED` task), asked by `reopen_task()` under the task's lock, and so
+    is the required `reason` (stored there as the task's `TaskReopening`); the
     board adds only that an archived board stays as it was shelved. The card
     returns to the working column it kept, or to the first one if that column
     was deleted meanwhile (`columns.card_column()` decides; nothing is
-    written to `column`), and the journal names that column. The open cards
-    it blocks wait for it again, silently.
+    written to `column`), and the journal names that column — never the
+    reason: the journal holds no text. The reason is said where the card's
+    people read it, as one «Чат» message in the returner's name
+    (`reopen_message()`), with no notification of its own — exactly as
+    «Принять» opens a card's «Чат». The open cards it blocks wait for it
+    again, silently.
     """
     from tasks.services import TaskWorkflowError, reopen_task
 
@@ -1538,9 +1548,10 @@ def reopen_card(card, *, actor):
         task = _lock_card_task(card)
         _refuse_archived('reopen_card', board, actor=actor, card_id=card.pk)
         try:
-            task = reopen_task(task, actor)
+            task = reopen_task(task, actor, reason)
         except TaskWorkflowError as exc:
             raise BoardError(str(exc)) from exc
+        BoardCardComment.objects.create(card=card, author=actor, text=reopen_message(reason))
         if card.parent_id is not None:
             # A subtask returns to its card's list, not to a column.
             card.board = board

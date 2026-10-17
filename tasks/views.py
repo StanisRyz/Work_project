@@ -161,7 +161,7 @@ def task_detail(request, pk):
         tab = request.GET.get('tab', '')
         return redirect(board_card_url(task, tab if tab.isalpha() else ''))
     context = _task_detail_context(
-        task, request.user, request.GET.urlencode(),
+        task, request.user, _list_query(request.GET),
         # The parked upload draft first, then whatever the task already holds.
         # For an ordinary open task the second is empty; for one an
         # administrator has just reopened it is the result written before the
@@ -169,16 +169,53 @@ def task_detail(request, pk):
         # it instead of retyping it. Reading it is all that happens here —
         # `complete_task()` is still the only writer of that column.
         execution_comment=take_execution_draft(request, task) or task.execution_comment,
+        section=request.GET.get(SECTION_PARAM, ''),
     )
     context['header_title'] = f'Задача №{task.pk}'
     return render(request, 'tasks/detail.html', context)
 
 
+# The task page's own tabs travel as `?section=`: `tab` is already taken by the
+# registry state the page carries back to «←» (`?tab=my`), and the board's
+# `?tab=chat` is read before any of this.
+SECTION_PARAM = 'section'
+SECTIONS = ('task', 'returns')
+
+
+def _list_query(params):
+    """The registry state the page came from, without the page's own tab."""
+    params = params.copy()
+    params.pop(SECTION_PARAM, None)
+    return params.urlencode()
+
+
+def _section_urls(list_query):
+    """`?<registry state>&section=…` for each tab, the default one bare."""
+    urls = {}
+    for section in SECTIONS:
+        query = '&'.join(
+            part for part in (list_query, '' if section == 'task' else f'{SECTION_PARAM}={section}')
+            if part
+        )
+        urls[section] = f'?{query}' if query else '?'
+    return urls
+
+
 def _task_detail_context(
     task, user, list_query='', execution_comment='', execution_error='',
-    attachment_form=None,
+    attachment_form=None, section='',
 ):
+    # Every «Вернуть в работу» of this task, newest first, with who returned it
+    # and the completion it withdrew. One query, read for both tabs: the main
+    # one shows the latest reason above «Выполнение» while the task is open.
+    reopenings = list(
+        task.reopenings.select_related('reopened_by', 'previous_completed_by')
+    )
     return {
+        'section': section if section in SECTIONS else 'task',
+        'section_urls': _section_urls(list_query),
+        'reopenings': reopenings,
+        'last_reopening': reopenings[0] if reopenings and not task.status.is_final else None,
         'active_page': 'tasks', 'header_title': f'Задача №{task.pk}', 'task': task, 'today': timezone.localdate(),
         'can_complete': can_complete_task(task, user), 'list_query': list_query,
         # «Вернуть в работу», offered only to an administrator and only for a
@@ -263,12 +300,14 @@ def _redirect_to_next_task(request, done_task, list_query):
 @login_required
 @require_POST
 def task_reopen(request, pk):
-    """«Вернуть в работу» — POST only, administrators only.
+    """«Вернуть в работу» — POST only, for whoever `can_reopen_task()` admits.
 
     The view confirms nothing itself: the modal in the browser is the fast path
-    to this POST, and `reopen_task()` re-checks the right under the task's row
+    to this POST and carries the required reason as `reopen_reason`, and
+    `reopen_task()` re-checks the right and the reason under the task's row
     lock. A refusal comes back as a message on the task, which stays readable —
     reopening hides nothing, exactly as archiving an СМК record hides nothing.
+    A success opens «История возвратов», where the reason now stands.
 
     The task is loaded through the *readable* queryset rather than the visible
     one: an administrator is not an исполнитель of the tasks they correct.
@@ -276,15 +315,19 @@ def task_reopen(request, pk):
     task = get_object_or_404(get_readable_tasks_queryset(request.user), pk=pk)
     if task.is_board_task and task.board_card_id:
         return _to_board_card(request, task)
-    list_query = request.POST.get('list_query', '')
+    # The modal posts to the URL the button names, which carries the registry
+    # state «←» goes back to.
+    list_query = request.POST.get('list_query') or _list_query(request.GET)
     try:
-        reopen_task(task, request.user)
+        reopen_task(task, request.user, request.POST.get('reopen_reason', ''))
     except TaskWorkflowError as exc:
         messages.error(request, str(exc))
+        section = 'task'
     else:
         messages.success(request, 'Задача возвращена в работу.')
+        section = 'returns'
     return redirect(f"{reverse('tasks:detail', args=[task.pk])}"
-                    f"{'?' + list_query if list_query else ''}")
+                    f"{_section_urls(list_query)[section].rstrip('?')}")
 
 
 @login_required

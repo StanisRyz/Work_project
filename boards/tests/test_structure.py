@@ -265,7 +265,7 @@ class ColumnTests(BoardFixtureMixin, TestCase):
         done = self.card('Была в первой', stage='TODO')
         complete_task(task_of(done), self.member, 'Да')
         delete_column(self.column('TODO'), actor=self.owner)
-        reopen_task(task_of(done), self.admin)
+        reopen_task(task_of(done), self.admin, 'Нужно доделать')
         # Reopened with no column: it stands in the new first column, which
         # therefore holds an open card and cannot be deleted under it.
         first = column_of(self.board, 'TODO')
@@ -284,7 +284,7 @@ class CardColumnTests(BoardFixtureMixin, TestCase):
         self.assertEqual(self.column_of_card(card), self.column('IN_PROGRESS'))
         complete_task(task_of(card), self.member, 'Да')
         self.assertEqual(self.column_of_card(card), done_column_of(self.board))
-        reopen_task(task_of(card), self.admin)
+        reopen_task(task_of(card), self.admin, 'Нужно доделать')
         self.assertEqual(self.column_of_card(card), self.column('IN_PROGRESS'))
         cancel_card(card, actor=self.member, reason='Ошибка')
         self.assertIsNone(self.column_of_card(card))
@@ -301,7 +301,7 @@ class CardColumnTests(BoardFixtureMixin, TestCase):
         self.assertEqual(self.column_of_card(card), done_column_of(self.board))
         state = build_board_state(self.board, self.main, self.admin, card_id=card.pk)
         self.assertEqual(state['card']['return_column'], self.column('TODO'))
-        reopen_task(task_of(card), self.admin)
+        reopen_task(task_of(card), self.admin, 'Нужно доделать')
         self.assertEqual(self.column_of_card(card), self.column('TODO'))
         state = build_board_state(self.board, self.main, self.member)
         self.assertEqual([item['card'] for item in state['columns'][0]['cards']], [card])

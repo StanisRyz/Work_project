@@ -10,7 +10,7 @@ from ecosystem.logging_utils import log_event
 from realtime.emitters import emit_task_completed, emit_task_created, emit_task_updated
 from references.models import TaskStatus
 
-from .models import Task, TaskAssignee
+from .models import Task, TaskAssignee, TaskReopening
 from .permissions import (
     can_complete_task,
     can_delete_task_attachment,
@@ -201,7 +201,10 @@ def complete_task(task, user, execution_comment):
     return task
 
 
-def reopen_task(task, user):
+REOPEN_REASON_REQUIRED = 'Укажите причину возврата задачи в работу.'
+
+
+def reopen_task(task, user, reason):
     """Put one wrongly closed task back into work, keeping everything it holds.
 
     The counterpart of `complete_task()` and deliberately its narrow mirror: it
@@ -216,10 +219,18 @@ def reopen_task(task, user):
     reopened in another tab since the page was rendered must not still accept
     the request.
 
+    `reason` is required: a non-whitespace sentence saying why the result was
+    not accepted, checked after the permission under the same lock. It is
+    stored as one `TaskReopening` row in the same transaction, together with
+    the completion it withdraws (who, when, the result written then), because
+    `completed_by`/`completed_at` are cleared on the task itself — the row is
+    what keeps that history.
+
     No notification. Nobody is being *given* work — the task was already
     theirs — and the corrected instruction reaches them where the mistake was
-    made, on the task itself.
+    made, on the task itself («История возвратов»).
     """
+    reason = (reason or '').strip()
     started = time.monotonic()
     with transaction.atomic():
         task = (
@@ -242,6 +253,28 @@ def reopen_task(task, user):
                 outcome='rejected',
             )
             raise TaskWorkflowError('Возврат задачи в работу недоступен.')
+        if not reason:
+            log_event(
+                logger,
+                'INFO',
+                'task.operation_rejected',
+                operation='reopen',
+                task_id=task.pk,
+                act_id=task.act_id,
+                actor_user_id=_pk_of(user),
+                previous_status=previous_status,
+                reason='missing_reopen_reason',
+                outcome='rejected',
+            )
+            raise TaskWorkflowError(REOPEN_REASON_REQUIRED)
+        TaskReopening.objects.create(
+            task=task,
+            reason=reason,
+            reopened_by=user,
+            previous_completed_by_id=task.completed_by_id,
+            previous_completed_at=task.completed_at,
+            previous_execution_comment=task.execution_comment,
+        )
         task.status = _active_status('IN_PROGRESS', 'В работе')
         task.completed_by = None
         task.completed_at = None
@@ -1273,6 +1306,99 @@ def ensure_act_rejection_task(act, defects, *, created_by):
     from notifications.services import notify_act_rejection_task_assigned
 
     notify_act_rejection_task_assigned(task, created_by, recipients)
+    return task
+
+
+# The wording the plant uses for the paper copy of a decided act. The act's
+# number is not repeated in it: «Источник» names and links the act.
+ACT_PRINT_TASK_TEXT = 'Распечатать акт и передать контроллерам ОТК'
+# The paper goes to the controllers the next working day at the latest.
+ACT_PRINT_DUE_WORKING_DAYS = 1
+
+
+def act_print_recipient_roles(act):
+    """Who prints the decided act: ОТК, and the мастера of the act's цеха.
+
+    The мастер of each цех the act has defects in — «Цех МП» → «Мастер МП и
+    РЛ», «Цех ПиР» → «Мастер ПиР», «Цех ТР» → «Мастер ТР» — plus the retired
+    «Мастер производства», who still stands for every цех, exactly as the
+    retired general КО still decides every defect. A defect with no workshop,
+    or an act with no defects, is every цех's. Routing only: none of these
+    roles gains a right from being told.
+    """
+    from accounts.models import UserProfile
+    from acts import workshops
+
+    masters = {
+        workshops.MP_SHOP: UserProfile.Role.MAS_MP_RL,
+        workshops.PIR_SHOP: UserProfile.Role.MAS_PIR,
+        workshops.TR_SHOP: UserProfile.Role.MAS_TR,
+    }
+    roles = {UserProfile.Role.OTK, UserProfile.Role.MAS}
+    defect_workshops = [defect.workshop for defect in act.defects.all()]
+    if not defect_workshops or any(workshop not in masters for workshop in defect_workshops):
+        roles |= set(masters.values())
+    else:
+        roles |= {masters[workshop] for workshop in defect_workshops}
+    return frozenset(roles)
+
+
+def ensure_act_print_task(act, *, created_by):
+    """«Распечатать акт и передать контроллерам ОТК» once КО has decided.
+
+    Called by `acts/services.apply_ko_decision()` inside the transition's
+    `atomic()` block, under the act row lock, on the call that moves the act
+    from `KO_REVIEW` to `TO_ANALYSIS` — every defect decided. One shared task
+    for the act: every active holder of a role `act_print_recipient_roles()`
+    names — ОТК and the мастера of the act's цеха — is an исполнитель
+    (`active_users_for_roles()`, lent roles included), and whoever prints the
+    act closes it for the rest.
+
+    At most one *open* print task per act. A decision taken again after ТО
+    returned the act to КО asks for a fresh copy only when the previous one was
+    already printed; while it is still open, the same task stands — the act it
+    names is the current one. The act row lock is what makes that check
+    sufficient: two КО transitions of one act cannot run at once, exactly as
+    for the act's routing entry. Nobody holding any of those roles skips the
+    task and logs it — it never blocks the КО decision.
+    """
+    from ecosystem.workdays import add_working_days
+
+    if Task.objects.filter(
+        act=act, source_type=Task.SourceType.ACT_PRINT, status__code='IN_PROGRESS',
+    ).exists():
+        log_event(
+            logger,
+            'INFO',
+            'task.act_print_skipped',
+            act_id=_pk_of(act),
+            reason='already_open',
+            outcome='skipped',
+        )
+        return None
+    recipients = active_users_for_roles(act_print_recipient_roles(act))
+    if not recipients:
+        log_event(
+            logger,
+            'INFO',
+            'task.act_print_skipped',
+            act_id=_pk_of(act),
+            reason='no_recipients',
+            outcome='skipped',
+        )
+        return None
+    task = Task(
+        source_type=Task.SourceType.ACT_PRINT,
+        act=act,
+        task_text=ACT_PRINT_TASK_TEXT,
+        due_date=add_working_days(timezone.localdate(), ACT_PRINT_DUE_WORKING_DAYS),
+        created_by=created_by,
+        status=_active_status('IN_PROGRESS', 'В работе'),
+    )
+    task = _save_new_task(task, [user.pk for user in recipients], actor=created_by)
+    from notifications.services import notify_act_print_task_assigned
+
+    notify_act_print_task_assigned(task, created_by, recipients)
     return task
 
 

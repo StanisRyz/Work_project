@@ -784,6 +784,33 @@
     line-height: 1.55;
 }
 
+/* The task page's tabs sit under the heading, as on the act and СМК pages. */
+.task-detail-tabs {
+    margin-bottom: 10px;
+}
+
+/* «Задача возвращена в работу»: the latest reason, above «Выполнение», in the
+   warning colours of «Вернуть в работу» itself. */
+.task-detail-reopened {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 14px 20px;
+    background: #fff7ed;
+    border: 1px solid #fcd9a4;
+    border-radius: var(--radius);
+}
+
+.task-detail-reopened h2 {
+    margin: 0;
+    color: #92400e;
+    font-size: 15px;
+}
+
+.task-detail-reopened .task-comment-block {
+    background: var(--color-surface);
+}
+
 .task-detail-context {
     border-top: 1px solid var(--color-border);
     padding-top: 8px;

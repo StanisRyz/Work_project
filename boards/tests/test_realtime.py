@@ -317,7 +317,7 @@ class BoardEmissionTests(BoardFixtureMixin, TestCase):
         events, publisher = self.emitted(lambda: complete_task(task, self.member, 'Готово'))
         self.assertEqual(events, [])
         self.assertTrue(publisher.events_of_type(RealtimeEventType.TASK_COMPLETED))
-        events, _ = self.emitted(lambda: reopen_task(task_of(self.a), self.admin))
+        events, _ = self.emitted(lambda: reopen_task(task_of(self.a), self.admin, 'Нужно доделать'))
         self.assertEqual(events, [])
 
 
@@ -561,7 +561,7 @@ class BoardSyncRevisionTests(BoardFixtureMixin, TestCase):
         # A task closed behind the board's back (not by `complete_card()`).
         self.assert_moves(lambda: complete_task(task_of(self.a), self.member, 'Готово'))
         self.assertEqual(task_of(self.a).status.code, 'COMPLETED')
-        self.assert_moves(lambda: reopen_task(task_of(self.a), self.admin))
+        self.assert_moves(lambda: reopen_task(task_of(self.a), self.admin, 'Нужно доделать'))
         newcomer = make_user('rt_board_sync_newcomer')
         self.assert_moves(lambda: add_board_members(self.board, [newcomer.pk], actor=self.owner))
         self.assert_moves(lambda: remove_board_member(self.board, newcomer, actor=self.owner))

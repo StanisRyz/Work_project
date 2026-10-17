@@ -721,6 +721,75 @@ class ActWorkflowTests(TestCase):
         self.assertTrue(can_contribute_to_act(orphan, second_otk))
         self.assertIn(orphan, get_visible_acts_queryset(second_otk))
 
+    def test_ko_decision_creates_one_print_task_for_otk_and_the_workshop_masters(self):
+        """«Распечатать акт и передать контроллерам ОТК» — who, when, how often."""
+        from notifications.models import Notification
+        from tasks.services import ACT_PRINT_TASK_TEXT
+        from tasks.services import complete_task as finish
+
+        mp_master = self._create_user('mas_mp', UserProfile.Role.MAS_MP_RL)
+        pir_master = self._create_user('mas_pir', UserProfile.Role.MAS_PIR)
+        legacy_master = self._create_user('mas_any', UserProfile.Role.MAS)
+        act = self._create_act(self.status_ko)
+        defect = self._mp_defect(act, znp='1', party='2', rejected=1)
+
+        # Nothing while КО is still deciding.
+        self.assertFalse(Task.objects.filter(act=act, source_type=Task.SourceType.ACT_PRINT).exists())
+        apply_ko_decision(
+            act, self.ko_user,
+            [(defect, Act.KoDecision.ALLOW_NO_REWORK, 'Разрешено', self._impact())],
+        )
+        task = Task.objects.get(act=act, source_type=Task.SourceType.ACT_PRINT)
+        self.assertEqual(task.task_text, ACT_PRINT_TASK_TEXT)
+        self.assertEqual(task.status.code, 'IN_PROGRESS')
+        self.assertIsNone(task.department_id)
+        self.assertEqual(task.created_by, self.ko_user)
+        self.assertGreater(task.due_date, timezone.localdate())
+        # ОТК and the мастер of the act's цех (and the retired «Мастер
+        # производства», who stands for every цех) — not the ПиР мастер.
+        self.assertEqual(
+            set(task.assignees.values_list('user_id', flat=True)),
+            {self.otk_user.pk, mp_master.pk, legacy_master.pk},
+        )
+        self.assertNotIn(pir_master.pk, task.assignees.values_list('user_id', flat=True))
+        # Ordinary work, listed in «Связанные мероприятия», and announced once
+        # to each исполнитель.
+        self.assertTrue(can_complete_task(task, mp_master))
+        self.assertIn(task, get_related_tasks(act, self.otk_user))
+        notified = Notification.objects.filter(
+            event_type=Notification.EventType.ACT_PRINT_ASSIGNED, related_task=task,
+        )
+        self.assertEqual(
+            set(notified.values_list('recipient_id', flat=True)),
+            {self.otk_user.pk, mp_master.pk, legacy_master.pk},
+        )
+
+        # ТО returns the act to КО: while the copy is still unprinted the same
+        # task stands; once printed, a new decision asks for a fresh one.
+        def decide_again():
+            act.refresh_from_db()
+            return_to_ko(act, self.to_user, 'Уточнить решение')
+            act.refresh_from_db()
+            apply_ko_decision(
+                act, self.ko_user,
+                [(ActDefect.objects.get(pk=defect.pk), Act.KoDecision.PROHIBIT_USE, 'Запрет', {})],
+            )
+
+        decide_again()
+        self.assertEqual(Task.objects.filter(act=act, source_type=Task.SourceType.ACT_PRINT).count(), 1)
+        finish(task, mp_master, 'Распечатан и передан.')
+        decide_again()
+        self.assertEqual(Task.objects.filter(act=act, source_type=Task.SourceType.ACT_PRINT).count(), 2)
+
+    def test_print_task_without_anybody_to_print_never_blocks_the_ko_decision(self):
+        self.otk_user.userprofile.is_active = False
+        self.otk_user.userprofile.save(update_fields=['is_active'])
+        act = self._create_act(self.status_ko)
+        apply_ko_decision(act, self.ko_user, [(None, Act.KoDecision.ALLOW_NO_REWORK, 'Решение', {})])
+        act.refresh_from_db()
+        self.assertEqual(act.status.code, 'TO_ANALYSIS')
+        self.assertFalse(Task.objects.filter(act=act, source_type=Task.SourceType.ACT_PRINT).exists())
+
     def test_prohibited_mp_defects_create_one_pdo_task_for_the_whole_act(self):
         """The ПДО replanning notice: what triggers it, and what it says."""
         # Seeded by `accounts.0003`, so it is looked up rather than created.
@@ -770,9 +839,10 @@ class ActWorkflowTests(TestCase):
         self.assertEqual(task.department_id, pdo_department.pk)
         self.assertEqual(task.due_date, act.due_date)
         self.assertEqual(task.created_by, self.ko_user)
-        # Ordinary executable work: completable, and not in «Связанные мероприятия».
+        # Ordinary executable work: completable, and listed in «Связанные
+        # мероприятия» of the act it came from.
         self.assertTrue(can_complete_task(task, planner))
-        self.assertNotIn(task, get_related_tasks(act, planner))
+        self.assertIn(task, get_related_tasks(act, planner))
         # The routing queue moved on independently.
         self.assertEqual(
             Task.objects.filter(act=act, source_type=Task.SourceType.ACT_WORKFLOW)

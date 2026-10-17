@@ -142,8 +142,8 @@ class JournalWritesTests(BoardFixtureMixin, TestCase):
             complete_card(self.card_obj, actor=self.member, execution_comment='  ')
         complete_card(self.card_obj, actor=self.member, execution_comment='Готово')
         with self.assertRaises(BoardError):
-            reopen_card(self.card_obj, actor=self.member)
-        reopen_card(self.card_obj, actor=self.admin)
+            reopen_card(self.card_obj, actor=self.member, reason='Нужно доделать')
+        reopen_card(self.card_obj, actor=self.admin, reason='Нужно доделать')
         cancel_card(self.card_obj, actor=self.member, reason='Ошибка')
         self.assertEqual(kinds(self.card_obj), ['CREATED', 'COMPLETED', 'REOPENED', 'CANCELLED'])
         reopened = self.card_obj.events.get(kind='REOPENED')
@@ -188,8 +188,11 @@ class OtherSourcesTests(BoardFixtureMixin, TestCase):
         task.refresh_from_db()
         self.assertEqual(task.status.code, 'COMPLETED')
         self.client.force_login(self.admin)
-        response = self.client.post(reverse('tasks:reopen', args=[task.pk]))
-        self.assertRedirects(response, reverse('tasks:detail', args=[task.pk]), fetch_redirect_response=False)
+        response = self.client.post(reverse('tasks:reopen', args=[task.pk]), {'reopen_reason': 'Не исправлено'})
+        self.assertRedirects(
+            response, f"{reverse('tasks:detail', args=[task.pk])}?section=returns",
+            fetch_redirect_response=False,
+        )
         task.refresh_from_db()
         self.assertEqual(task.status.code, 'IN_PROGRESS')
 
@@ -204,7 +207,7 @@ class ReopenCardTests(BoardFixtureMixin, TestCase):
 
     def test_one_event_and_the_card_back_in_its_column(self):
         with capture_realtime_events() as publisher, self.captureOnCommitCallbacks(execute=True):
-            reopen_card(self.card_obj, actor=self.admin)
+            reopen_card(self.card_obj, actor=self.admin, reason='Нужно доделать')
         events = publisher.events_of_type(RealtimeEventType.BOARD_UPDATED)
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].data, {
@@ -219,11 +222,11 @@ class ReopenCardTests(BoardFixtureMixin, TestCase):
             with self.subTest(actor=actor.username):
                 with capture_realtime_events() as publisher, self.captureOnCommitCallbacks(execute=True):
                     with self.assertRaises(BoardError):
-                        reopen_card(self.card_obj, actor=actor)
+                        reopen_card(self.card_obj, actor=actor, reason='Нужно доделать')
                 self.assertEqual(publisher.events_of_type(RealtimeEventType.BOARD_UPDATED), [])
-        reopen_card(self.card_obj, actor=self.admin)
+        reopen_card(self.card_obj, actor=self.admin, reason='Нужно доделать')
         with self.assertRaises(BoardError):
-            reopen_card(self.card_obj, actor=self.admin)   # already open
+            reopen_card(self.card_obj, actor=self.admin, reason='Нужно доделать')   # already open
         self.assertEqual(self.card_obj.events.filter(kind='REOPENED').count(), 1)
 
     def test_an_archived_board_stays_as_it_was_shelved(self):
@@ -231,7 +234,7 @@ class ReopenCardTests(BoardFixtureMixin, TestCase):
         cancel_card(other, actor=self.member, reason='Не нужна')
         archive_board(self.board, actor=self.owner)
         with self.assertRaises(BoardError):
-            reopen_card(self.card_obj, actor=self.admin)
+            reopen_card(self.card_obj, actor=self.admin, reason='Нужно доделать')
         self.task.refresh_from_db()
         self.assertEqual(self.task.status.code, 'COMPLETED')
         self.client.force_login(self.admin)
@@ -247,10 +250,21 @@ class ReopenCardTests(BoardFixtureMixin, TestCase):
         self.assertRedirects(self.client.get(self.url), self.card_url, fetch_redirect_response=False)
         self.task.refresh_from_db()
         self.assertEqual(self.task.status.code, 'COMPLETED')
-        response = self.client.post(f'{self.url}?mine=1')
+        # No reason: the drawer comes back with the refusal and nothing changes.
+        response = self.client.post(f'{self.url}?mine=1', {'reopen_reason': ' '})
+        self.assertContains(response, 'Укажите причину возврата задачи в работу.')
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status.code, 'COMPLETED')
+        response = self.client.post(f'{self.url}?mine=1', {'reopen_reason': 'Остатки не сходятся'})
         self.assertRedirects(response, f'{self.card_url}&mine=1', fetch_redirect_response=False)
         self.task.refresh_from_db()
         self.assertEqual(self.task.status.code, 'IN_PROGRESS')
+        # The reason is the task's record, and the card's «Чат» says it.
+        self.assertEqual(self.task.reopenings.get().reason, 'Остатки не сходятся')
+        self.assertEqual(
+            list(self.card_obj.comments.values_list('text', flat=True)),
+            ['Возвращено в работу. Причина: Остатки не сходятся'],
+        )
         # Open now: the right is gone, so the route is a 403 again.
         self.assertEqual(self.client.post(self.url).status_code, 403)
 

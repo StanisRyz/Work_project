@@ -193,7 +193,7 @@ class PanelWorkTests(PanelTestMixin, TestCase):
         self.assertContains(response, reopen_url)
         self.assertNotContains(response, reverse('tasks:reopen', args=[self.task.pk]))
         self.assertContains(response, 'Сверено, расхождений нет')
-        response = self.client.post(reopen_url, follow=True)
+        response = self.client.post(reopen_url, {'reopen_reason': 'Расхождение нашлось'}, follow=True)
         self.assertRedirects(response, self.card_url)
         self.task.refresh_from_db()
         self.assertEqual(self.task.status.code, 'IN_PROGRESS')

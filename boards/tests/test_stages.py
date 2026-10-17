@@ -229,7 +229,7 @@ class StagePathTests(StageFixture, TestCase):
     def test_completed_reopened_and_moved_between_sub_boards(self):
         card = self.card('Заказ')
         complete_card(card, actor=self.member, execution_comment='Да')
-        reopen_card(card, actor=self.admin)
+        reopen_card(card, actor=self.admin, reason='Нужно доделать')
         other_tab = create_sub_board(self.board, actor=self.owner, name='Цех')
         target = BoardColumn.objects.filter(sub_board=other_tab, is_done=False).order_by('position').first()
         move_card(card, actor=self.member, column=target)

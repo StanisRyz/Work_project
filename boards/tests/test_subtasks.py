@@ -291,7 +291,7 @@ class SubtaskLifeTests(SubtaskMixin, TestCase):
         child.refresh_from_db()
         self.assertEqual((child.title, child.version), ('Корпус 1200', 2))
         complete_card(child, actor=self.colleague, execution_comment='Сварен')
-        reopen_card(child, actor=self.admin)
+        reopen_card(child, actor=self.admin, reason='Нужно доделать')
         cancel_card(child, actor=self.member, reason='Не нужен')
         self.assertEqual(
             [entry['action'] for entry in subtask_entries(self.parent)],
@@ -375,7 +375,7 @@ class SubtasksDoneTests(SubtaskMixin, TestCase):
     def test_again_after_a_reopening_and_a_new_closing(self):
         complete_card(self.first, actor=self.colleague, execution_comment='Готово')
         complete_card(self.second, actor=self.colleague, execution_comment='Готово')
-        reopen_card(self.second, actor=self.admin)
+        reopen_card(self.second, actor=self.admin, reason='Нужно доделать')
         self.assertEqual(done_notifications().count(), 1)
         complete_card(self.second, actor=self.colleague, execution_comment='Переделано')
         self.assertEqual(done_notifications().count(), 2)

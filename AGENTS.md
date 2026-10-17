@@ -23,7 +23,7 @@ model without explicit approval.
 | `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`). No user-facing pages beyond login/logout — user/department management is Django Admin only |
 | `references` | operations, defect types, act/task statuses, priorities, the reasons a board card's срок moves (`DeviationReason`, «Причины отклонений»: `code`, `name`, `is_active`, `display_order`; eight seeded by `references.0005` from `DEVIATION_REASONS`); `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
-| `tasks` | tasks created by act and protocol workflows, their assignees, completion and optional attachments |
+| `tasks` | tasks created by act and protocol workflows, their assignees, completion, optional attachments and the reasons a closed task was returned to work (`TaskReopening`) |
 | `protocols` | meeting protocols: `ProtocolType`, `Protocol`, participants, agenda, «Слушали», `ProtocolAction`, `ProtocolApproval`, history; the pages under `/quality/protocols/`; numbering, the approval workflow and every other mutation in `protocols/services.py`. Independent from `acts` |
 | `calculator` | winding-time calculator and the shared «Проработка» journal: `WindingEntry`, the JSON endpoints under `/calculators/winding/`, the `.xlsx` export and `import_calculator_json` |
 | `plate_cutting` | Калькулятор рубки пластин: the page at `/calculators/plate-cutting/`, the agreed coefficients in `plate_cutting/constants.py`, and the saved package sets (`PlateCuttingPreset`, `PlateCuttingPresetPackage`) written only through `plate_cutting/services.py` |
@@ -487,8 +487,8 @@ tasks never live inside `acts`.
   `cancel_document_tasks()` (a document's round, acknowledgements or review
   withdrawn) and `cancel_board_card_task()` (`boards.services.cancel_card()`).
   A new source gets its own writer there, never a direct status write.
-- **A task's origin is `source_type`, never a nullable relation.** Eleven values
-  exist — `ACT`, `ACT_WORKFLOW`, `ACT_REJECTION`, `PROTOCOL_APPROVAL`,
+- **A task's origin is `source_type`, never a nullable relation.** Twelve values
+  exist — `ACT`, `ACT_WORKFLOW`, `ACT_REJECTION`, `ACT_PRINT`, `PROTOCOL_APPROVAL`,
   `PROTOCOL_ACTION`, `SMK`, `BUG`, `DOCUMENT_ACK`, `DOCUMENT_APPROVAL`,
   `DOCUMENT_REVIEW`, `BOARD` — and exactly one relation shape is valid for each,
   enforced by `Task.clean()` and by the
@@ -499,6 +499,7 @@ tasks never live inside `acts`.
   | `ACT` | `act`, `root_analysis`, `source_action`, `department` | `protocol`, `protocol_action`, `workflow_stage` |
   | `ACT_WORKFLOW` | `act`, `workflow_stage` | `root_analysis`, `source_action`, `protocol`, `protocol_action`, `individual_assignee` |
   | `ACT_REJECTION` | `act`, `department` | `root_analysis`, `source_action`, `protocol`, `protocol_action`, `individual_assignee`, `workflow_stage` |
+  | `ACT_PRINT` | `act` | `root_analysis`, `source_action`, `protocol`, `protocol_action`, `individual_assignee`, `workflow_stage`; `department` free (its исполнители hold two roles across any departments) |
   | `PROTOCOL_APPROVAL` | `protocol`, `department` | `act`, `root_analysis`, `source_action`, `protocol_action`, `individual_assignee`, `workflow_stage` |
   | `PROTOCOL_ACTION` | `protocol`, `protocol_action`, `department` | `act`, `root_analysis`, `source_action`, `workflow_stage` |
   | `SMK` | `smk_source`, `smk_action`, `department` | `act`, `root_analysis`, `source_action`, `protocol`, `protocol_action`, `workflow_stage` |
@@ -534,7 +535,8 @@ tasks never live inside `acts`.
   `ACT` task.** An `ACT` task is a corrective action somebody performs; an
   `ACT_WORKFLOW` task is a work-queue entry saying which stage the act is
   waiting on. The two never merge: `get_related_tasks()` («Связанные
-  мероприятия») filters `source_type=ACT`, and the corrective-action behaviour,
+  мероприятия») lists `acts.selectors.related_task_sources()` — `ACT`,
+  `ACT_REJECTION`, `ACT_PRINT`, never `ACT_WORKFLOW` — and the corrective-action behaviour,
   its split mode and its constraints are untouched.
   `Task.workflow_stage` — `KO_REVIEW`, `TO_ANALYSIS`, `OTK_REVIEW`,
   `OTK_REWORK` — is **persisted**, not read back off `Act.status`: a closed
@@ -571,8 +573,31 @@ tasks never live inside `acts`.
   logs the reason — it must never block the act. `unique_act_rejection_task`
   (partial, on `source_type='ACT_REJECTION'`) is what makes a retry or a
   concurrent transition unable to duplicate it; the service's existence check
-  is only the readable path to the same answer. It is *not* an `ACT` task and
-  never appears in «Связанные мероприятия».
+  is only the readable path to the same answer. It is *not* an `ACT` task, but
+  it is real work of the act: «Связанные мероприятия» lists it, its «Причина»
+  cell reading «Решение КО: запретить использование» instead of a root cause.
+- **`ACT_PRINT` is ordinary executable work from the same КО decision.**
+  «Распечатать акт и передать контроллерам ОТК» (`ACT_PRINT_TASK_TEXT`),
+  created by `tasks.services.ensure_act_print_task()`, called once by
+  `acts/services._ensure_print_task()` inside the successful `KO_REVIEW →
+  TO_ANALYSIS` transition, after the ПДО notice, under the act row lock — a
+  rolled-back decision takes it with it. **One shared task per act, by role,
+  never by department**: `act_print_recipient_roles()` — ОТК plus the мастер
+  of every цех the act has defects in (`MP_SHOP` → `MAS_MP_RL`, `PIR_SHOP` →
+  `MAS_PIR`, `TR_SHOP` → `MAS_TR`) plus the retired `MAS`, which stands for
+  every цех as the retired general КО does; a defect with no workshop, or an
+  act with none, is every цех's — resolved through `active_users_for_roles()`,
+  so a lent role counts. Routing only: none of these roles gains a right.
+  `department` is NULL, the deadline is the next working day, `created_by` the
+  КО user. **At most one open print task per act**: while one is
+  `IN_PROGRESS` a later decision (after ТО → КО) creates nothing; once it is
+  completed a later decision asks for a fresh copy. No database constraint
+  states it — the act row lock serializes the two КО transitions, exactly as
+  for the routing entry. Nobody to print it skips the task and logs it, never
+  blocking the act. Each исполнитель gets `notify_act_print_task_assigned()`
+  (`ACT_PRINT_ASSIGNED`, `TASK`-sourced, keyed `task:<pk>`,
+  `exclude_actor=False`, email-eligible), only on the call that created the
+  task. Listed in «Связанные мероприятия» with «Решение КО» as its «Причина».
 - **`SMK` is ordinary executable work with a source document of its own.** It
   appears in the registry and in `my`, opens as a normal task page, takes
   attachments and is completed by its assignee with the usual execution
@@ -840,11 +865,28 @@ tasks never live inside `acts`.
   is paid for already: the «×» remove button sits **inside** `<summary>`, so its
   handler must `preventDefault()` — otherwise deleting a card also toggles the
   neighbour it lands on.
-- **A closed task is reopened by an administrator, and only a `COMPLETED`
-  ordinary one.** `tasks:reopen` (POST only) → `reopen_task()`, guarded by
+- **A closed task is reopened by an administrator — an `SMK` one also by the
+  Отдел СМК — only a `COMPLETED` ordinary one, and always with a reason.**
+  `tasks:reopen` (POST only) → `reopen_task(task, user, reason)`, guarded by
   `can_reopen_task()`: `is_act_admin()` — the role «Администратор» or a
   superuser, never the исполнитель who closed it and never a руководитель —
-  plus `status.code == 'COMPLETED'` and `not is_routing_task`. That makes it
+  or, for `source_type == SMK` alone, `is_smk()` (the owner of the record the
+  measure came from, a lent role included) — plus `status.code ==
+  'COMPLETED'` and `not is_routing_task`. The reason is required: a
+  non-whitespace text, asked after the permission under the row lock
+  («Укажите причину возврата задачи в работу.»), posted as `reopen_reason` by
+  the shared modal (`data-confirm-comment="required"`), and stored as one
+  append-only `TaskReopening` (`reason`, `reopened_by`, `reopened_at`, and the
+  completion it withdraws — `previous_completed_by`/`_at`/`_execution_comment`
+  — because the task's own columns are cleared; `task_reopening_reason_not_empty`
+  closes the other paths). The task page has two tabs, links chosen by the
+  server as `?section=` (`tab` already carries the registry state «←» returns
+  to): «Задача» and «История возвратов (N)» (`tasks/includes/reopenings.html`,
+  the history timeline markup); while the task is open again the latest reason
+  stands above «Выполнение». A board card is reopened on the board
+  (`reopen_card(card, *, actor, reason)`) with the same required reason, which
+  the card's «Чат» also shows as the returner's message (`reopen_message()`,
+  no notification; the journal holds no text). That makes it
   the exact inverse of `can_complete_task()`: a task is never both completable
   and reopenable. Two closed shapes are refused whoever asks — a routing entry
   (`PROTOCOL_APPROVAL`, `ACT_WORKFLOW`), because it is closed by its document
@@ -858,7 +900,7 @@ tasks never live inside `acts`.
   puts it back into the field; `complete_task()` is still the only writer of
   that column). `emit_task_updated`, never `emit_task_completed` — the task is
   now open. No notification: nobody is being *given* work that was not already
-  theirs. The permission is asked by the view for the button and re-asked in
+  theirs, and the reason is read on the task itself. The permission is asked by the view for the button and re-asked in
   the service under `select_for_update()`.
 - **«Завершить задачу» opens the next task, not the archive.**
   `tasks.views._redirect_to_next_task()` asks `build_task_list_state()` for
@@ -1090,7 +1132,7 @@ tasks never live inside `acts`.
   | --- | --- | --- |
   | act | `ACT_SENT_TO_KO`, `ACT_SENT_TO_TO`, `ACT_SENT_TO_OTK`, `ACT_RETURNED_TO_OTK`, `ACT_RETURNED_TO_KO`, `ACT_RETURNED_TO_TO`, `ACTION_ASSIGNED`, `ACT_APPROVED` | `COMMENT_ADDED` |
   | protocol | `PROTOCOL_APPROVAL_REQUIRED`, `PROTOCOL_RETURNED_FOR_REVISION`, `PROTOCOL_APPROVED` | — |
-  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED`, `BOARD_CARD_MENTION`, `BOARD_DUE_SOON`, `BOARD_OVERDUE`, `BOARD_UNBLOCKED`, `BOARD_COLUMN_ENTERED` | `BOARD_TASK_CANCELLED`, `BOARD_CARD_COMMENT`, `BOARD_CARD_COMPLETED`, `BOARD_SUBTASKS_DONE`, `BOARD_DUE_CHANGED` (a card withdrawn, a message in its «Обсуждение», a followed card done, «все подзадачи выполнены», «срок перенесён» — nothing new is asked of anybody) |
+  | task | `PROTOCOL_TASK_ASSIGNED`, `ACT_REJECTION_ASSIGNED`, `ACT_PRINT_ASSIGNED`, `SMK_TASK_ASSIGNED`, `BOARD_TASK_ASSIGNED`, `BOARD_CARD_MENTION`, `BOARD_DUE_SOON`, `BOARD_OVERDUE`, `BOARD_UNBLOCKED`, `BOARD_COLUMN_ENTERED` | `BOARD_TASK_CANCELLED`, `BOARD_CARD_COMMENT`, `BOARD_CARD_COMPLETED`, `BOARD_SUBTASKS_DONE`, `BOARD_DUE_CHANGED` (a card withdrawn, a message in its «Обсуждение», a followed card done, «все подзадачи выполнены», «срок перенесён» — nothing new is asked of anybody) |
   | request | `BOARD_REQUEST_NEW`, `BOARD_REQUEST_ACCEPTED`, `BOARD_REQUEST_REJECTED`, `BOARD_REQUEST_DUPLICATE`, `BOARD_REQUEST_DONE` | — |
   | bug | `BUG_REPORTED` | — |
   | document | `DOCUMENT_ACK_REQUIRED`, `DOCUMENT_APPROVAL_REQUIRED`, `DOCUMENT_REVIEW_DUE`, `DOCUMENT_VERSION_RETURNED` | `DOCUMENT_UPDATED` (a subscriber's «новая версия» — information asked for, not a duty) |
@@ -1484,7 +1526,9 @@ tasks never live inside `acts`.
   creating an СМК record and the tasks it produces, correcting a live one
   (`smk.permissions.can_create_smk_task()`/`can_edit_smk_source()`, which also admit руководитель and
   администратор), and archiving one
-  (`smk.permissions.can_archive_smk_source()`, the same three roles). It changes no act, protocol, calculator or admin right, and
+  (`smk.permissions.can_archive_smk_source()`, the same three roles), plus
+  returning a completed `SMK` task to work (`tasks.permissions.can_reopen_task()`,
+  СМК alone beside the administrator). It changes no act, protocol, calculator or admin right, and
   no check keys on the department. The department «Отдел СМК» (`SMK`, seeded
   idempotently by `accounts.0007` and listed in `MIGRATION_SEEDED_ROWS`) is
   organisational only. Руководитель and администратор are shown a task-type

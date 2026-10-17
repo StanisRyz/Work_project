@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from ecosystem.admin import ReadOnlyAdminMixin
 
-from .models import Task, TaskAssignee, TaskAttachment
+from .models import Task, TaskAssignee, TaskAttachment, TaskReopening
 
 
 @admin.register(Task)
@@ -29,6 +29,7 @@ class TaskAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
             Task.SourceType.ACT,
             Task.SourceType.ACT_WORKFLOW,
             Task.SourceType.ACT_REJECTION,
+            Task.SourceType.ACT_PRINT,
         }:
             return obj.act
         if obj.source_type == Task.SourceType.PROTOCOL_ACTION:
@@ -50,3 +51,13 @@ class TaskAttachmentAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     search_fields = ('original_name', 'task__task_text')
     list_filter = ('created_at',)
     readonly_fields = ('created_at',)
+
+
+@admin.register(TaskReopening)
+class TaskReopeningAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """Diagnostics only: a task is returned to work on its page, never here."""
+
+    list_display = ('id', 'task', 'reopened_by', 'reopened_at')
+    search_fields = ('task__task_text', 'reason')
+    list_filter = ('reopened_at',)
+    readonly_fields = ('reopened_at',)

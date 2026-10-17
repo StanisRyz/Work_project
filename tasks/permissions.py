@@ -1,6 +1,6 @@
 from django.db.models import Q
 
-from acts.permissions import has_full_act_access, is_act_admin
+from acts.permissions import has_full_act_access, is_act_admin, is_smk
 # The one `tasks` module that asks `boards`; `tasks.selectors` takes
 # `can_use_boards` from here.
 from boards.permissions import (  # noqa: F401 — can_use_boards is re-exported
@@ -140,6 +140,13 @@ def can_reopen_task(task, user):
     fact the registry already reported as finished; the исполнитель who closed
     it by mistake asks an administrator rather than undoing it themselves.
 
+    One owner besides: an `SMK` task is also reopened by the Отдел СМК
+    (`is_smk()`, a lent role included). The record it came from is theirs —
+    they issued the measure and they are the ones who check what was done
+    about it — so a result they do not accept goes back to work without an
+    administrator in between. It widens nothing else: another source's task
+    is still the administrator's alone.
+
     Two kinds of closed task are refused whoever asks:
 
     * a routing entry (`PROTOCOL_APPROVAL`, `ACT_WORKFLOW`) — it is not work
@@ -156,7 +163,11 @@ def can_reopen_task(task, user):
     """
     if task.is_routing_task:
         return False
-    return task.status.code == 'COMPLETED' and is_act_admin(user)
+    if task.status.code != 'COMPLETED':
+        return False
+    if is_act_admin(user):
+        return True
+    return task.source_type == Task.SourceType.SMK and is_smk(user)
 
 
 def can_upload_task_attachment(task, user):

@@ -1,0 +1,44 @@
+{% load people %}
+{% comment %}
+«История возвратов»: every «Вернуть в работу» of this task, newest first, in
+the timeline markup the act, protocol and СМК histories use. Each entry is the
+reason given, who returned the task and when, and the completion it withdrew —
+who had closed the task and the result written then — because reopening
+clears those facts on the task itself and `TaskReopening` is what keeps them.
+Read-only: written by `tasks.services.reopen_task()` alone.
+{% endcomment %}
+<section class="detail-section act-history-section task-reopenings">
+    <div class="history-feed__header">
+        <h2>История возвратов</h2>
+        <span class="history-feed__filter">Возвратов: {{ reopenings|length }}</span>
+    </div>
+    {% if reopenings %}
+        <div class="history-feed">
+            <div class="history-day__events">
+                {% for reopening in reopenings %}
+                    <article class="history-event history-event--reopened">
+                        <span class="history-event__icon" aria-hidden="true">
+                            <svg class="ui-icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/></svg>
+                        </span>
+                        <div class="history-event__content">
+                            <strong>Возвращена в работу</strong>
+                            <p class="user-text">{{ reopening.reason|linebreaksbr }}</p>
+                            {% if reopening.previous_completed_by or reopening.previous_execution_comment %}
+                                <details class="task-detail-context">
+                                    <summary>Результат до возврата{% if reopening.previous_completed_by %} · {{ reopening.previous_completed_by|person_name }}{% endif %}{% if reopening.previous_completed_at %}, {{ reopening.previous_completed_at|date:'d.m.Y H:i' }}{% endif %}</summary>
+                                    <div class="task-comment-block user-text">{{ reopening.previous_execution_comment|default:'—'|linebreaksbr }}</div>
+                                </details>
+                            {% endif %}
+                        </div>
+                        <div class="history-event__meta">
+                            <time datetime="{{ reopening.reopened_at|date:'c' }}">{{ reopening.reopened_at|date:'d.m.Y H:i' }}</time>
+                            <span>{{ reopening.reopened_by|person_name }}</span>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+        </div>
+    {% else %}
+        <p class="placeholder-text">Задачу в работу не возвращали.</p>
+    {% endif %}
+</section>

@@ -69,7 +69,7 @@ class BoardStateTests(BoardFixtureMixin, TestCase):
         self.assertEqual(titles['Готово'], ['Сделать отчёт'])
         self.assertEqual(titles['На проверке'], [])
 
-        reopen_task(task_of(card), self.admin)
+        reopen_task(task_of(card), self.admin, 'Нужно доделать')
         titles = self._titles(build_board_state(self.board, self.main, self.member))
         self.assertEqual(titles['Готово'], [])
         self.assertEqual(titles['На проверке'], ['Сделать отчёт'])

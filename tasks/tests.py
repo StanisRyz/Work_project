@@ -868,7 +868,7 @@ class TaskViewsTests(TestCase):
             with self.subTest(user=user.username):
                 self.assertFalse(can_reopen_task(task, user))
                 with self.assertRaises(TaskWorkflowError):
-                    reopen_task(task, user)
+                    reopen_task(task, user, 'Нужно доделать')
 
         task.refresh_from_db()
         self.assertEqual(task.status.code, 'COMPLETED')
@@ -909,11 +909,27 @@ class TaskViewsTests(TestCase):
 
         administrator = self._user('admin_reopen_flow', UserProfile.Role.ADMIN, self.department)
         self.client.force_login(administrator)
-        response = self.client.post(reverse('tasks:reopen', args=[task.pk]))
+        # The reason is required: without it nothing changes.
+        response = self.client.post(reverse('tasks:reopen', args=[task.pk]), {'reopen_reason': '   '})
         self.assertRedirects(response, reverse('tasks:detail', args=[task.pk]))
+        task.refresh_from_db()
+        self.assertEqual(task.status.code, 'COMPLETED')
+        self.assertFalse(task.reopenings.exists())
+
+        response = self.client.post(
+            reverse('tasks:reopen', args=[task.pk]), {'reopen_reason': 'Не тот отчёт приложен.'},
+        )
+        self.assertRedirects(response, f"{reverse('tasks:detail', args=[task.pk])}?section=returns")
 
         task.refresh_from_db()
         self.assertEqual(task.status.code, 'IN_PROGRESS')
+        reopening = task.reopenings.get()
+        self.assertEqual(reopening.reason, 'Не тот отчёт приложен.')
+        self.assertEqual(reopening.reopened_by, administrator)
+        # The completion it withdrew is kept on the record.
+        self.assertEqual(reopening.previous_completed_by, self.employee)
+        self.assertIsNotNone(reopening.previous_completed_at)
+        self.assertEqual(reopening.previous_execution_comment, 'Ошибочно закрыл не ту задачу.')
         self.assertIsNone(task.completed_by)
         self.assertIsNone(task.completed_at)
         # Kept, both of them.
@@ -928,6 +944,14 @@ class TaskViewsTests(TestCase):
         detail = self.client.get(reverse('tasks:detail', args=[task.pk]))
         self.assertTrue(detail.context['can_complete'])
         self.assertFalse(detail.context['can_reopen'])
+        # The исполнитель reads why, above «Выполнение» and on its own tab.
+        self.assertContains(detail, 'Задача возвращена в работу')
+        self.assertContains(detail, 'Не тот отчёт приложен.')
+        returns = self.client.get(reverse('tasks:detail', args=[task.pk]), {'section': 'returns'})
+        self.assertEqual(returns.context['section'], 'returns')
+        self.assertContains(returns, 'История возвратов (1)')
+        self.assertContains(returns, 'Не тот отчёт приложен.')
+        self.assertContains(returns, 'Результат до возврата')
         # The kept result is put back into the field rather than hidden.
         self.assertEqual(detail.context['execution_comment'], 'Ошибочно закрыл не ту задачу.')
         complete_task(task, self.employee, 'Выполнено верно.')
@@ -967,7 +991,7 @@ class TaskViewsTests(TestCase):
         for task in (cancelled, routing):
             with self.subTest(task=task.pk):
                 with self.assertRaises(TaskWorkflowError):
-                    reopen_task(task, administrator)
+                    reopen_task(task, administrator, 'Нужно доделать')
                 previous = task.status.code
                 self.client.post(reverse('tasks:reopen', args=[task.pk]))
                 task.refresh_from_db()

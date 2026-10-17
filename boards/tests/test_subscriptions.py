@@ -175,7 +175,7 @@ class AudienceNoticeTests(SubscriptionMixin, TestCase):
 
     def test_completed_again_after_a_reopening_says_so_again(self):
         complete_card(self.card_obj, actor=self.colleague, execution_comment='Сделано')
-        reopen_card(self.card_obj, actor=self.admin)
+        reopen_card(self.card_obj, actor=self.admin, reason='Нужно доделать')
         complete_card(self.card_obj, actor=self.colleague, execution_comment='Теперь точно')
         self.assertEqual(
             notes(Notification.EventType.BOARD_CARD_COMPLETED).filter(recipient=self.follower).count(), 2,

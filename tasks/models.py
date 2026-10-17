@@ -51,6 +51,12 @@ class Task(models.Model):
         # the КО decision rather than from the ТО analysis, so it has no
         # corrective-action chain to hang on.
         ACT_REJECTION = 'ACT_REJECTION', 'Брак по акту'
+        # Real, executable work for ОТК and the мастера цеха once КО has
+        # decided on every defect: the act is printed and handed to the ОТК
+        # controllers. Like `ACT_REJECTION` it comes from the КО decision and
+        # has no corrective-action chain; unlike it, it belongs to two roles
+        # rather than to one department, so `department` is free.
+        ACT_PRINT = 'ACT_PRINT', 'Печать акта для ОТК'
         # A корректирующее мероприятие from an Отдел СМК audit record. An
         # ordinary work item — completed by its исполнитель with an execution
         # comment, exactly like `PROTOCOL_ACTION` — and its own source type so
@@ -353,6 +359,25 @@ class Task(models.Model):
                         department__isnull=False,
                         workflow_stage='',
                     )
+                    # ОТК and мастера цеха print the decided act: the act
+                    # alone, no corrective-action chain, no protocol, nobody to
+                    # split it between, and the department free — its
+                    # assignees hold two roles across any departments.
+                    | Q(
+                        source_type='ACT_PRINT',
+                        document_version__isnull=True,
+                        board_card__isnull=True,
+                        bug_report__isnull=True,
+                        smk_source__isnull=True,
+                        smk_action__isnull=True,
+                        act__isnull=False,
+                        root_analysis__isnull=True,
+                        source_action__isnull=True,
+                        protocol__isnull=True,
+                        protocol_action__isnull=True,
+                        individual_assignee__isnull=True,
+                        workflow_stage='',
+                    )
                     # The routing entry for an act stage: the act alone, no
                     # corrective-action chain, no protocol, nobody to split it
                     # between — and a stage that must actually be named.
@@ -576,6 +601,10 @@ class Task(models.Model):
         return self.source_type == self.SourceType.ACT_REJECTION
 
     @property
+    def is_act_print_task(self):
+        return self.source_type == self.SourceType.ACT_PRINT
+
+    @property
     def is_smk_task(self):
         return self.source_type == self.SourceType.SMK
 
@@ -651,6 +680,11 @@ class Task(models.Model):
                  'individual_assignee'),
             ),
             self.SourceType.ACT_REJECTION: (
+                ('act',),
+                ('root_analysis', 'source_action', 'protocol', 'protocol_action',
+                 'individual_assignee'),
+            ),
+            self.SourceType.ACT_PRINT: (
                 ('act',),
                 ('root_analysis', 'source_action', 'protocol', 'protocol_action',
                  'individual_assignee'),
@@ -773,7 +807,9 @@ class Task(models.Model):
             # number of departments, where it is free.
             if (
                 required
-                and self.source_type not in (self.SourceType.BUG, self.SourceType.BOARD)
+                and self.source_type not in (
+                    self.SourceType.BUG, self.SourceType.BOARD, self.SourceType.ACT_PRINT,
+                )
                 and not self.is_document_task
                 and self.department_id is None
             ):
@@ -862,3 +898,60 @@ class TaskAttachment(models.Model):
 
     def __str__(self):
         return f'Задача #{self.task_id}: {self.original_name}'
+
+
+class TaskReopening(models.Model):
+    """One «Вернуть в работу» of a completed task, with the reason it was given.
+
+    Append-only and written by `tasks.services.reopen_task()` alone, inside the
+    reopening's transaction under the task's row lock, so a refused or
+    rolled-back return leaves no row. The reason is required there — a task
+    taken back out of «Архив» must say why — and is what the исполнитель reads
+    on the task page («История возвратов»).
+
+    Reopening clears `Task.completed_by`/`completed_at`, so the completion it
+    withdrew is snapshotted here: who closed the task, when, and the result
+    they wrote. The history therefore keeps every completion that was
+    returned, not only the last one.
+    """
+
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name='reopenings',
+        verbose_name='Задача',
+    )
+    reason = models.TextField('Причина возврата')
+    reopened_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='task_reopenings',
+        verbose_name='Вернул в работу',
+    )
+    reopened_at = models.DateTimeField('Возвращена в работу', auto_now_add=True)
+    previous_completed_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='+',
+        null=True,
+        blank=True,
+        verbose_name='Завершил до возврата',
+    )
+    previous_completed_at = models.DateTimeField('Завершена до возврата', null=True, blank=True)
+    previous_execution_comment = models.TextField('Результат до возврата', blank=True)
+
+    class Meta:
+        ordering = ['-reopened_at', '-pk']
+        verbose_name = 'Возврат задачи в работу'
+        verbose_name_plural = 'Возвраты задач в работу'
+        constraints = [
+            # The reason is the point of the record: never empty, whatever path
+            # wrote the row.
+            models.CheckConstraint(
+                condition=~Q(reason=''),
+                name='task_reopening_reason_not_empty',
+            ),
+        ]
+
+    def __str__(self):
+        return f'Задача #{self.task_id}: возврат {self.reopened_at:%d.%m.%Y %H:%M}'

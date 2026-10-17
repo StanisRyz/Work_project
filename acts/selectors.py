@@ -231,21 +231,29 @@ def get_act_comments(act):
     return act.comments.select_related('author')
 
 
-def get_related_tasks(act, user):
-    """«Связанные мероприятия» — the corrective-action tasks of this act.
-
-    `source_type=ACT` only. An `ACT_WORKFLOW` row is a routing entry for the
-    stage the act waits on, not work created by the ТО analysis, and listing it
-    here would turn the section into a second copy of the act's own route. An
-    `ACT_REJECTION` row is ПДО's replanning notice from the КО decision, which
-    exists before any corrective action does.
-    """
+def related_task_sources():
+    """The task sources «Связанные мероприятия» lists, in one place."""
     from tasks.models import Task
+
+    return (Task.SourceType.ACT, Task.SourceType.ACT_REJECTION, Task.SourceType.ACT_PRINT)
+
+
+def get_related_tasks(act, user):
+    """«Связанные мероприятия» — the real work this act produced.
+
+    `RELATED_TASK_SOURCES`: the corrective-action tasks of the ТО analysis
+    (`ACT`) and the two tasks the КО decision creates — ПДО's replanning
+    notice for products prohibited from use (`ACT_REJECTION`) and «Распечатать
+    акт и передать контроллерам ОТК» (`ACT_PRINT`). Never an `ACT_WORKFLOW`
+    row: it is a routing entry for the stage the act waits on, not work, and
+    listing it here would turn the section into a second copy of the act's own
+    route. The corrective-action blocks of «Анализ ТО» still read `ACT` alone.
+    """
     from tasks.permissions import get_readable_tasks_queryset
 
     return (
         get_readable_tasks_queryset(user)
-        .filter(act=act, source_type=Task.SourceType.ACT)
+        .filter(act=act, source_type__in=related_task_sources())
         .select_related('department', 'status', 'root_analysis', 'completed_by')
         .prefetch_related('assignees__user__userprofile')
     )

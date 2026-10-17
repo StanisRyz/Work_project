@@ -142,7 +142,7 @@ class InColumnSinceTests(ColumnTimeMixin, TestCase):
         complete_card(card, actor=self.member, execution_comment='Готово')
         age(card, days=7)
         self.assertIsNone(tile_items(self.state()).get(card.pk)['in_column_days'])
-        reopen_card(card, actor=self.admin)
+        reopen_card(card, actor=self.admin, reason='Нужно доделать')
         age(card, kinds=('CREATED', 'MOVED'), days=7)
         self.assertEqual(self.item(card)['in_column_days'], 0)
 

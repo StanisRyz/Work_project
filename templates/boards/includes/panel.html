@@ -105,9 +105,12 @@ the route.
             <button class="link-button link-button--warning link-button--compact" type="button"
                     data-confirm
                     data-confirm-title="Вернуть задачу {{ card.task.pk }} в работу?"
-                    data-confirm-text="{% if card.is_subtask %}Подзадача вернётся в работу, в список своей карточки.{% else %}Карточка вернётся в колонку «{{ card.return_column.name }}».{% endif %} Вложения и результат выполнения сохранятся."
+                    data-confirm-text="{% if card.is_subtask %}Подзадача вернётся в работу, в список своей карточки.{% else %}Карточка вернётся в колонку «{{ card.return_column.name }}».{% endif %} Вложения и результат выполнения сохранятся, причина появится в «Чате» карточки."
                     data-confirm-label="Вернуть в работу"
                     data-confirm-variant="warning"
+                    data-confirm-comment="required"
+                    data-confirm-comment-label="Причина возврата"
+                    data-confirm-comment-name="reopen_reason"
                     data-confirm-url="{% url 'boards:card_reopen' board.pk card.card.pk %}{{ filter_suffix }}">Вернуть в работу</button>
         {% endif %}
         <a class="board-drawer__close" href="{{ close_url }}" data-board-drawer-close aria-label="Закрыть карточку" title="Закрыть (Esc)">×</a>

@@ -412,6 +412,8 @@ def apply_ko_decision(act, user, defect_decisions):
             or defect_decisions,
             user,
         )
+        # ОТК and the мастера цеха print the decided act for the controllers.
+        _ensure_print_task(act, user)
     return act
 
 
@@ -495,6 +497,20 @@ def _ensure_rejection_task(act, defect_decisions, user):
         and defect.ko_decision == Act.KoDecision.PROHIBIT_USE
     ]
     return ensure_act_rejection_task(act, rejected, created_by=user)
+
+
+def _ensure_print_task(act, user):
+    """«Распечатать акт и передать контроллерам ОТК» for the decided act.
+
+    Every КО decision that moves the act to ТО asks for the paper copy, in the
+    transition's `atomic()` block under the act row lock — a rolled-back
+    decision takes the task with it. Who and how often is
+    `tasks.services.ensure_act_print_task()`'s; nobody to print it is not an
+    error and never blocks the act.
+    """
+    from tasks.services import ensure_act_print_task
+
+    return ensure_act_print_task(act, created_by=user)
 
 
 def return_to_otk(act, user, return_comment):
@@ -1113,6 +1129,7 @@ def clear_all_acts():
                 Task.SourceType.ACT,
                 Task.SourceType.ACT_WORKFLOW,
                 Task.SourceType.ACT_REJECTION,
+                Task.SourceType.ACT_PRINT,
             ]
         ).delete()
         Act.objects.all().delete()

@@ -96,6 +96,10 @@ EMAIL_ELIGIBLE_EVENTS = {
     Notification.EventType.PROTOCOL_APPROVED,
     Notification.EventType.PROTOCOL_TASK_ASSIGNED,
     Notification.EventType.ACT_REJECTION_ASSIGNED,
+    # «Распечатать акт и передать контроллерам ОТК» after the КО decision: an
+    # assignment like the ПДО one, and the paper copy is what the controllers
+    # on the shop floor wait for.
+    Notification.EventType.ACT_PRINT_ASSIGNED,
     Notification.EventType.SMK_TASK_ASSIGNED,
     # A board card put on somebody: work they did not choose themselves. A
     # cancelled card, a completed one and a new message in a card's
@@ -286,6 +290,28 @@ def notify_act_rejection_task_assigned(task, actor, assignees):
         raise ValueError('Уведомление о браке создаётся только для задачи ПДО по браку.')
     return create_notifications(
         event_type=Notification.EventType.ACT_REJECTION_ASSIGNED,
+        task=task,
+        actor=actor,
+        recipients=assignees,
+        source_key=f'task:{task.pk}',
+        exclude_actor=False,
+    )
+
+
+def notify_act_print_task_assigned(task, actor, assignees):
+    """Tell ОТК and the мастера цеха that the decided act is to be printed.
+
+    Task-sourced and keyed on the task, so `ensure_act_print_task()` — which
+    reaches this only on the call that really created the task — can never
+    hand anybody a second notification for it. `exclude_actor=False`: a КО
+    employee lent the ОТК role still gets their own work item.
+    """
+    from tasks.models import Task
+
+    if task.source_type != Task.SourceType.ACT_PRINT:
+        raise ValueError('Уведомление о печати акта создаётся только для задачи печати акта.')
+    return create_notifications(
+        event_type=Notification.EventType.ACT_PRINT_ASSIGNED,
         task=task,
         actor=actor,
         recipients=assignees,
@@ -996,6 +1022,8 @@ def _task_source_context(task):
         return f'Доска «{card.board.name}» · карточка {card.code}'
     if task.source_type == Task.SourceType.ACT_REJECTION and task.act_id:
         return f'Брак по акту {task.act.number}'
+    if task.source_type == Task.SourceType.ACT_PRINT and task.act_id:
+        return f'Решение КО по акту {task.act.number}'
     if task.smk_source_id:
         return task.smk_source.label
     if task.document_version_id:
@@ -1151,6 +1179,13 @@ def _task_event_text(event_type, task, context=None):
             f'Назначена задача ПДО по браку (акт {number})',
             f'Вы назначены исполнителем задачи ПДО по браку, выявленному актом {number}.',
             'Ознакомьтесь с задачей в системе.',
+        )
+    if event_type == Notification.EventType.ACT_PRINT_ASSIGNED:
+        number = task.act.number
+        return NotificationText(
+            f'Распечатать акт {number} и передать контроллерам ОТК',
+            f'По акту {number} вынесено решение КО. Распечатайте акт и передайте его контроллерам ОТК.',
+            'Распечатайте акт и завершите задачу в системе.',
         )
     if event_type == Notification.EventType.SMK_TASK_ASSIGNED:
         label = task.smk_source.label

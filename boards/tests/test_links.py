@@ -426,7 +426,7 @@ class UnblockedNotificationTests(LinkFixture, TestCase):
         self.assertEqual(unblocked().count(), 2)
         with capture_realtime_events() as publisher:
             with self.captureOnCommitCallbacks(execute=True):
-                reopen_card(self.paint, actor=self.admin)
+                reopen_card(self.paint, actor=self.admin, reason='Нужно доделать')
             # «Снабжение» hears its own card, «Запуск» its waiting tile.
             self.assertIn(
                 (self.zap.pk, self.order.pk, 'card_updated'),
