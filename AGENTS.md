@@ -383,27 +383,33 @@ tasks never live inside `acts`.
   Everything else follows that block too: tokens only (`--color-text`,
   `--color-muted`, `--radius` — no hex, no 10px, no pill), form controls at the
   project's `padding: var(--control-padding)` + `font: inherit` so this `select` and the
-  department `select` below it match, and the checklist drawn as the same
-  `--color-bg` block with a 13px/700 muted label that «Исполнители» uses.
-  `fieldset`/`legend` are kept for the screen-reader grouping and styled flat.
-  Facts reuse `.act-defect-card__grid` (six columns, `__full`/`__half` spans)
-  rather than a `<dl>`, because `.detail-section dl` in `components.css` lays
-  every `dl` out as 130px + 1fr and would win on specificity.
+  department `select` below it match, and the checklist drawn with no
+  background at all — a hairline separates it from the decision (on top while
+  they stack, on the left side by side); the grey block it used to be was the
+  heaviest patch of the card. `fieldset`/`legend` are kept for the
+  screen-reader grouping and styled flat.
+  Facts are **one line of «label value» pairs** (`.act-defect-card__facts`),
+  wrapping whole facts, not a grid: a six-column grid gave every short fact two
+  lines of height and left half the card empty. The line is
+  `acts.views._defect_facts()` — party, МП type, detected date and the two
+  quantities, **only those the defect's workshop collects** (a ПиР defect has
+  no party, so no «Номер партии —»), every one for a defect with no workshop,
+  the neutral «—» for a value that is missing; «Описание» follows on its own
+  line the same way. The header's «150 / 12 (8 %)» stands only on a collapsed
+  card: an open one has the quantities in that line. Read-only «Решение КО» and
+  «Комментарий КО» are the same «label value» lines.
   Above 1240px the decision and the analysis sit **side by side**
-  (`.act-defect-card__work`); below it they stack. Three numbers are
+  (`.act-defect-card__work`); below it they stack. Two numbers are
   load-bearing and were measured, not guessed: the left column's
-  `minmax(448px, …)` is the longest decision wording, `.act-defect-card__field`'s
-  `max-width: 560px` keeps the `select` from stretching across the whole card
-  when no analysis sits beside it, and the facts grid drops to 3 columns under
-  980px and 2 under 560px, where six columns squeeze labels onto a second line
-  and knock neighbouring values off one baseline.
-  Two traps worth naming, both already paid for: address the checklist's text
+  `minmax(448px, …)` is the longest decision wording, and
+  `.act-defect-card__field`'s `max-width: 560px` keeps the `select` from
+  stretching across the whole card when no analysis sits beside it. The
+  checklist's values are `--field-short` wide, and «Другое» is a one-row
+  textarea (`rows: 1` in `ActDefectKoDecisionForm`) that `autogrow.js` grows
+  with its text — `rows: 2` made the empty field the tallest row of the list.
+  One trap worth naming, already paid for: address the checklist's text
   inputs through `.act-defect-card__impact-value`, never `.act-defect-card__impact
-  input` — the latter catches the checkboxes and stretches them across the row;
-  and `.act-defect-card__grid`'s responsive rules must live **next to that
-  rule** near the end of `acts.css`, because at equal specificity the later
-  declaration wins and a media query placed earlier in the file silently does
-  nothing.
+  input` — the latter catches the checkboxes and stretches them across the row.
 - **`Act` owns document and workflow data; `ActDefect` is the only source of
   defect data.** The act keeps its number, creator, customer, order,
   nomenclature, КД designation, type, status/priority, the КО/ТО/approval/
@@ -886,6 +892,11 @@ tasks never live inside `acts`.
   `ToAnalysisStructureForm.has_errors` is computed from the rows themselves,
   not from `_valid`, so it is correct at any moment of rendering — `_valid` is
   only set once `is_valid()` has run.
+  Neither level draws a box: a root cause is a line on its left, its field has
+  no caption of its own (the summary already says «Корневая причина N»), and a
+  corrective action is three rows — wording and «Срок» side by side, the
+  «Исполнители» rows with their «Отдел»/«Исполнитель» captions visually hidden,
+  and both execution options on one line of checkboxes.
   The script adds three things and no rules: a preview of what is typed in each
   collapsed header (read from the fields, so there is no second source of
   truth), «open the new card and fold its siblings» on add, and `keepOneOpen()`

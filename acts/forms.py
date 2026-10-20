@@ -368,7 +368,7 @@ class ActDefectKoDecisionForm(forms.ModelForm):
                 attrs={'placeholder': 'Допуск по КД/ГОСТ'},
             ),
             'quality_impact_other_text': forms.Textarea(
-                attrs={'rows': 2, 'placeholder': 'Уточните'},
+                attrs={'rows': 1, 'placeholder': 'Уточните'},
             ),
         }
 

@@ -897,22 +897,55 @@
    шумом. */
 .act-defect-card__verdict { flex: none; margin-left: auto; }
 .act-defect-card[open] .act-defect-card__verdict { display: none; }
+/* У раскрытой карточки количества стоят в строке фактов, с подписями. */
+.act-defect-card[open] .act-defect-card__qty { display: none; }
 
 .act-defect-card__body {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 0 0 10px 26px;
+    gap: 6px;
+    padding: 0 0 12px 26px;
 }
 
-/* Длинное описание не растягивается на всю ширину монитора: строка в полторы
-   тысячи пикселей нечитаема, где бы она ни стояла. */
-.act-defect-card__grid .act-defect-card__full p { max-width: var(--field-text); }
+/* Факты дефекта — одна строка «подпись значение», переносится целыми
+   фактами. Сетка из шести колонок отдавала каждому короткому факту две строки
+   высоты и полстраницы пустоты справа. */
+.act-defect-card__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 20px;
+    font-size: 13px;
+}
+
+.act-defect-card__fact { min-width: 0; }
+
+.act-defect-card__fact-label {
+    margin-right: 4px;
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+}
+
+.act-defect-card__fact-value {
+    color: var(--color-text);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Описание и строки решения в режиме чтения — та же «подпись значение».
+   Длинный текст не растягивается на всю ширину монитора. */
+.act-defect-card__description,
+.act-defect-card__line {
+    max-width: var(--field-text);
+    margin: 0;
+    color: var(--color-text);
+    font-size: 13px;
+    line-height: 1.6;
+}
 
 
 .act-defect-card__label {
     display: block;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
@@ -922,8 +955,9 @@
 .act-defect-card__work {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
+    gap: 8px 24px;
     align-items: start;
+    margin-top: 4px;
 }
 
 @media (min-width: 1240px) {
@@ -947,9 +981,11 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(448px, 560px));
     justify-content: start;
-    gap: 10px 16px;
+    gap: 6px 16px;
     min-width: 0;
 }
+
+.act-defect-card__decision--readonly { gap: 4px 16px; grid-template-columns: minmax(0, 1fr); }
 
 /* Поле не растёт бесконечно. Когда анализа нет, решение занимает всю ширину
    карточки, и без этого предела `select` с одной фразой растянулся бы на
@@ -974,28 +1010,37 @@
     font-size: var(--control-font-size);
 }
 
-.act-defect-card__decision textarea { min-height: 46px; resize: vertical; }
+.act-defect-card__decision textarea { min-height: 0; resize: vertical; }
 
-/* Чек-лист анализа — вложенный блок ровно того вида, каким «Исполнители»
-   отделены внутри корректирующего мероприятия: фон страницы, скругление,
-   мелкая жирная подпись и никакой рамки. `fieldset`/`legend` оставлены ради
-   группировки для скринридера, но нарисованы как обычный блок. */
+/* Чек-лист анализа — без подложки: тонкая линия отделяет его от решения
+   (сверху, пока они друг под другом; слева, когда рядом). Серый блок с
+   отступами со всех сторон был самым тяжёлым пятном карточки.
+   `fieldset`/`legend` оставлены ради группировки для скринридера. */
 .act-defect-card__impact {
     min-width: 0;
     margin: 0;
-    padding: 8px 10px;
+    padding: 6px 0 0;
     border: 0;
-    border-radius: var(--radius);
-    background: var(--color-bg);
+    border-top: 1px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
 }
 
-/* Floated so the label stands inside the grey block: a `legend` is otherwise
+@media (min-width: 1240px) {
+    .act-defect-card__impact {
+        padding: 0 0 0 16px;
+        border-top: 0;
+        border-left: 1px solid var(--color-border);
+    }
+}
+
+/* Floated so the label stands inside the block: a `legend` is otherwise
    drawn across the fieldset's top edge, half outside it. */
 .act-defect-card__impact legend {
     float: left;
     width: 100%;
     padding: 0;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
     font-weight: 600;
@@ -1007,8 +1052,9 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 4px 10px;
-    padding: 2px 0;
+    gap: 2px 10px;
+    min-height: 24px;
+    padding: 1px 0;
 }
 
 .act-defect-card__impact-check {
@@ -1024,32 +1070,34 @@
 
 /* Поля отмеченного пункта: короткие значения, а не поля во всю строку —
    «1,2 мГн» и «±5%» не нуждаются в трёхстах пикселях. */
-.act-defect-card__impact-value { flex: 1 1 140px; min-width: 0; max-width: 220px; }
+.act-defect-card__impact-value { flex: 0 1 var(--field-short); min-width: 0; }
 
+.act-defect-card__impact-value input { height: calc(var(--control-height) - 4px); }
 .act-defect-card__impact-value input,
-.act-defect-card__impact-value textarea { padding: var(--control-padding); }
+.act-defect-card__impact-value textarea { padding: 3px 8px; }
 
 /* «Другое» — единственный пункт со свободным текстом: ему нужна вся ширина
    строки, поэтому ограничение снимается. */
 .act-defect-card__impact-row:last-child .act-defect-card__impact-value {
     flex: 1 1 240px;
-    max-width: none;
+    max-width: calc(var(--field-line) * 1.5);
 }
 
-.act-defect-card__impact--readonly { background: transparent; padding: 0; }
+/* «Другое» начинается одной строкой, как поле, и растёт с текстом
+   (`autogrow.js`) — двухстрочная пустая область была выше всего списка. */
+.act-defect-card__impact-row:last-child textarea { resize: vertical; }
 
 .act-defect-card__impact-list {
     margin: 0;
     padding-left: 18px;
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 1.45;
 }
-
-.act-defect-card__impact-list li { margin-bottom: 2px; }
 
 .act-defect-card__impact-detail {
     display: block;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 @media (max-width: 640px) {
@@ -1699,57 +1747,6 @@
 
 .act-party-data dd { color: var(--color-text); font-weight: 500; }
 
-/* Six columns across the main column, which the side panel already keeps
-   to about 1500 px. */
-.act-defect-card__grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 8px 24px;
-}
-
-.act-defect-card__grid > div {
-    display: grid;
-    gap: 1px;
-}
-
-.act-defect-card__grid span {
-    color: var(--color-muted);
-    font-size: var(--font-size-sm);
-}
-
-.act-defect-card__grid .act-defect-card__value {
-    color: var(--color-text);
-    font-weight: 500;
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-}
-
-.act-defect-card__grid p {
-    margin: 0;
-    color: var(--color-text);
-}
-
-.act-defect-card__grid .act-defect-card__full {
-    grid-column: 1 / -1;
-}
-
-.act-defect-card__grid .act-defect-card__third {
-    grid-column: span 2;
-}
-
-.act-defect-card__grid .act-defect-card__half {
-    grid-column: span 3;
-}
-/* Шести колонок хватает только на широком экране. Ниже они сужаются настолько,
-   что подписи вроде «Дата обнаружения» переносятся на вторую строку, и значения
-   в соседних колонках перестают стоять на одной линии. */
-@media (max-width: 980px) {
-    .act-defect-card__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-@media (max-width: 560px) {
-    .act-defect-card__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 
 
 .placeholder-text {
@@ -2467,11 +2464,20 @@
     background: var(--color-surface-muted);
 }
 
+/* Корневая причина — без собственной рамки: линия слева, как у
+   утверждённого анализа ниже, держит её мероприятия вместе. Коробка с
+   коробками внутри давала три уровня отступов на одну мысль. */
 .root-analysis-card {
-    gap: 8px;
-    padding: 8px 12px 10px;
-    background: var(--color-surface);
+    gap: 6px;
+    padding: 0 0 0 12px;
+    border: 0;
+    border-left: 2px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
 }
+
+.root-analysis-card[open] { border-left-color: var(--color-primary-border); }
+.root-analysis-card + .root-analysis-card { margin-top: 12px; }
 
 .root-analysis-card__title {
     display: inline-flex;
@@ -2482,14 +2488,25 @@
     font-weight: 600;
 }
 
-.root-analysis-card__cause { display: grid; gap: 4px; max-width: var(--field-text); margin-top: 6px; }
-.root-analysis-card__cause textarea { min-height: 46px; resize: vertical; }
+.root-analysis-card__cause { display: grid; gap: 4px; max-width: var(--field-text); }
+.root-analysis-card__cause textarea { min-height: 0; resize: vertical; }
+
+/* Подпись поля, которую заголовок карточки уже произносит: остаётся для
+   скринридера, глазу не мешает. */
+.to-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
 
 .corrective-action-list { gap: 0; }
 
 .corrective-action-card {
-    gap: 8px;
-    padding: 8px 0 0;
+    gap: 6px;
+    padding: 6px 0 0;
     border: 0;
     border-top: 1px solid var(--color-border);
     border-radius: 0;
@@ -2525,14 +2542,6 @@
     font-size: var(--control-font-size);
 }
 
-/* «Срок» is a date: as wide as a date, not a third of the screen. */
-.corrective-action-card__fields {
-    display: grid;
-    grid-template-columns: minmax(0, var(--field-short));
-    gap: 10px;
-    margin-top: 6px;
-}
-
 /* Corrective-action card: the «Исполнители» block ------------------------- */
 
 .corrective-action-card__title {
@@ -2541,44 +2550,50 @@
     font-weight: 600;
 }
 
-/* The wording and «Обязательно вложение» share one row: the requirement is a
-   property of what has to be done, so it reads next to it rather than among
-   the fields below. Editable form only — the approved analysis never shows it. */
+/* Формулировка и срок — одна строка: срок короткий, как дата, и стоит
+   справа от того, к чему относится. Вместе не шире поля длинного текста. */
 .corrective-action-card__statement {
     display: grid;
-    grid-template-columns: minmax(0, var(--field-text)) max-content;
-    justify-content: start;
+    grid-template-columns: minmax(0, 1fr) max-content;
     align-items: start;
-    gap: 16px;
-    margin-top: 6px;
+    gap: 12px;
+    max-width: var(--field-text);
 }
 
-/* Aligned with the textarea beside it rather than with its own label row,
-   which the checkbox does not have. */
-.corrective-action-card__requirement { padding-top: 24px; }
+.corrective-action-card__comment textarea { min-height: 0; resize: vertical; }
 
-.corrective-action-card__comment { align-self: stretch; }
-.corrective-action-card__comment textarea { min-height: 46px; resize: vertical; }
+.to-analysis-form .corrective-action-card__due {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: var(--control-height);
+}
 
-/* The executors, set apart from the fields above them the way a protocol task
-   card sets its own apart — one block, identical rows inside it. */
-/* The block is as wide as its rows, not as the card: two selects and a «×»
-   on a grey band 1800 px long was the emptiest part of the page. */
+.to-analysis-form .corrective-action-card__due input { width: var(--field-short); }
+
+/* Исполнители — подпись слева и строки «отдел | сотрудник | ×» справа, без
+   серой подложки. Подписи «Отдел»/«Исполнитель» над каждой строкой скрыты:
+   пустой список и так говорит «Выберите отдел»/«Выберите исполнителя». */
 .corrective-action-card__assignees {
-    display: grid;
-    justify-items: start;
-    gap: 6px;
-    width: fit-content;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
     max-width: 100%;
-    padding: 8px 10px;
-    border-radius: var(--radius);
-    background: var(--color-bg);
 }
 
 .corrective-action-card__assignees-label {
+    flex: none;
+    min-width: 76px;
+    padding-top: 7px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
-    font-weight: 600;
+}
+
+.corrective-action-card__assignees-body {
+    display: grid;
+    justify-items: start;
+    gap: 6px;
+    min-width: 0;
 }
 
 .to-assignee-list { display: grid; gap: 6px; width: 100%; }
@@ -2586,10 +2601,19 @@
 /* Every row identical, first one included: department, employee, compact ×. */
 .to-assignee-row {
     display: grid;
-    grid-template-columns: minmax(0, 300px) minmax(0, var(--field-line)) auto;
+    grid-template-columns: minmax(0, 240px) minmax(0, 280px) auto;
     gap: 8px;
-    align-items: end;
+    align-items: center;
     width: 100%;
+}
+
+.to-assignee-row label > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
 }
 
 .to-assignee-row .analysis-remove-button { margin-bottom: 0; }
@@ -2633,10 +2657,21 @@
 /* «Разбить задачу для исполнителей»: an execution option, deliberately
    quieter than the fields above it, and greyed out whole while the card names
    fewer than two executors. */
+/* Обе настройки исполнения — одной строкой галочек под исполнителями, с
+   отступом подписи «Исполнители», чтобы читались как их продолжение. */
+.corrective-action-card__options {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 24px;
+    padding-left: 88px;
+}
+
 .to-split-option {
-    display: grid;
-    gap: 4px;
-    justify-items: start;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
 }
 
 .to-split-option:has(input:disabled) { opacity: 0.55; }
@@ -2644,15 +2679,13 @@
 .to-split-hint {
     margin: 0;
     color: var(--color-muted);
-    font-size: 12px;
-    font-style: italic;
+    font-size: var(--font-size-sm);
     line-height: 1.35;
 }
 
 .to-split-hint [hidden] { display: none; }
 
-.root-analysis-card .act-inline-actions { gap: 8px; }
-.root-analysis-card .act-inline-actions .link-button { margin-top: 0; }
+.to-analysis-form .act-inline-actions .link-button { margin-top: 0; }
 .root-analysis-card [data-root-analysis-actions] { padding-top: 2px; }
 
 /* Заголовок карточки анализа. Это `<summary>`: щелчок по нему сворачивает и
@@ -2938,7 +2971,6 @@
     }
 
     .corrective-action-row { grid-template-columns: 1fr; }
-    .corrective-action-card__fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
     .act-collaboration-layout { grid-template-columns: 1fr; }
     .related-activities__table { min-width: 880px; }
@@ -2968,8 +3000,7 @@
     .act-collaboration-layout .attachment-card { grid-template-columns: 32px minmax(0, 1fr); }
     .act-collaboration-layout .attachment-card__actions { grid-column: 2; grid-row: auto; }
     .act-collaboration-layout .comment-card__meta { align-items: flex-start; flex-direction: column; gap: 2px; }
-    .act-party-data,
-    .act-defect-card__grid {
+    .act-party-data {
         grid-template-columns: 1fr !important;
     }
 
@@ -2977,26 +3008,15 @@
     .act-defect-card__body { padding-left: 0; }
     .act-party-data dd + dt { margin-top: 8px; }
 
-    .act-defect-card__grid .act-defect-card__full {
-        grid-column: 1;
-    }
-
     /* A phone has no viewport to spare for a bar that follows the scroll:
        the buttons stand at the end of the form, where they are drawn. */
     .act-primary-actions,
     .act-form-actions { position: static; box-shadow: none; }
 
-    .act-defect-card__grid .act-defect-card__third,
-    .act-defect-card__grid .act-defect-card__half {
-        grid-column: 1;
-    }
-
-    .corrective-action-card__fields,
-    .corrective-action-card__statement {
-        grid-template-columns: 1fr;
-    }
-
-    .corrective-action-card__requirement { padding-top: 0; }
+    .corrective-action-card__statement { grid-template-columns: 1fr; }
+    .corrective-action-card__assignees { flex-direction: column; gap: 4px; }
+    .corrective-action-card__assignees-label { padding-top: 0; }
+    .corrective-action-card__options { padding-left: 0; }
 
     .to-assignee-row { grid-template-columns: minmax(0, 1fr); }
     .to-assignee-row .analysis-remove-button { justify-self: end; margin-bottom: 0; }

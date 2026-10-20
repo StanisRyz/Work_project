@@ -70,6 +70,7 @@ from .services import (
     send_to_ko,
 )
 from .workshops import client_config as workshop_client_config
+from .workshops import get_profile as get_workshop_profile
 
 
 @login_required
@@ -855,6 +856,40 @@ def _decidable_defects_queryset(act, user):
     return act.defects.filter(pk__in=ids).select_related('defect_type').order_by('created_at', 'pk')
 
 
+# The facts a defect card prints in one line, in this order, under the names
+# the act form gives them. Вид, цех, ЗНП stand in the card's heading and the
+# description under the line, so they are not repeated here.
+DEFECT_CARD_FACTS = (
+    ('party_number', 'Номер партии'),
+    ('mp_type', 'Тип МП'),
+    ('detected_at', 'Дата обнаружения'),
+    ('checked_quantity', 'Всего проверено'),
+    ('nonconforming_quantity', 'С отклонением'),
+)
+
+
+def _defect_facts(defect, profile):
+    """`(label, value)` for every fact the defect's workshop collects.
+
+    A field the workshop does not collect — a ПиР defect has no party and no
+    МП type — is left out instead of drawn as «—»: it is not missing data, it
+    does not exist. A defect without a workshop (legacy) keeps every field,
+    and a missing value there is the neutral «—» as anywhere else.
+    """
+    facts = []
+    for name, label in DEFECT_CARD_FACTS:
+        if profile is not None and not profile.applies(name):
+            continue
+        if name == 'mp_type':
+            value = defect.get_mp_type_display()
+        elif name == 'detected_at':
+            value = defect.detected_at.strftime('%d.%m.%Y') if defect.detected_at else ''
+        else:
+            value = getattr(defect, name)
+        facts.append((label, '—' if value in (None, '') else value))
+    return facts
+
+
 def _defect_decision_rows(defects, ko_forms=(), act=None):
     """Дефекты вместе с решением КО — строки страницы акта.
 
@@ -875,8 +910,11 @@ def _defect_decision_rows(defects, ko_forms=(), act=None):
         # While КО is deciding, a decision from an earlier round is not the
         # answer: the card says whose decision it is waiting for instead.
         pending = in_review and not is_decided_this_round(defect, act)
+        profile = get_workshop_profile(defect.workshop)
         rows.append({
             'defect': defect,
+            'facts': _defect_facts(defect, profile),
+            'shows_description': profile is None or profile.applies('description'),
             'ko_form': forms_by_defect.get(defect.pk),
             'ko_pending_label': ko_role_label_for_defect(defect) if pending else '',
             'impact': quality_impact.describe(quality_impact.values_of(defect)),

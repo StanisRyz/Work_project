@@ -26,11 +26,11 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
         читается почти как прежняя таблица. Скрипт нужен ровно для одного —
         показывать и прятать блок анализа при смене решения.
 
-        Факты дефекта лежат в общей сетке `.act-defect-card__grid` — шесть
-        колонок с модификаторами `__full`/`__half`, — а не в `<dl>`: любой
-        `dl` внутри `.detail-section` раскладывается `components.css` в две
-        колонки «подпись/значение», что для шести коротких фактов на широком
-        экране читается хуже и потребовало бы борьбы за специфичность.
+        Факты — одной строкой «подпись значение», а не сеткой из шести колонок:
+        сетка отдавала по две строки высоты на каждый короткий факт. В строке
+        только то, что собирает цех дефекта (`_defect_facts()`): у дефекта ПиР
+        нет ни партии, ни типа МП, и прочерк на их месте читался бы как
+        недостающие данные.
         {% endcomment %}
         {% if not defect_decision_rows %}<p class="placeholder-text">Дефекты не добавлены.</p>{% endif %}
         <div class="act-defect-cards">
@@ -64,14 +64,10 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                     {% if row.ko_form %}{% elif row.ko_pending_label %}<span class="act-defect-card__meta act-defect-card__verdict">Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--decision act-badge--decision-{{ row.defect.ko_decision|lower }} act-defect-card__verdict">{{ row.defect.get_ko_decision_display }}</span>{% endif %}
                 </summary>
                 <div class="act-defect-card__body">
-                    <div class="act-defect-card__grid">
-                        <div><span>Номер партии</span><p class="act-defect-card__value user-text">{{ row.defect.party_number|default:'—' }}</p></div>
-                        <div><span>Тип МП</span><p class="act-defect-card__value">{{ row.defect.get_mp_type_display|default:'—' }}</p></div>
-                        <div><span>Дата обнаружения</span><p class="act-defect-card__value">{{ row.defect.detected_at|date:'d.m.Y'|default:'—' }}</p></div>
-                        <div><span>Всего проверено</span><p class="act-defect-card__value">{{ row.defect.checked_quantity|default_if_none:'—' }}</p></div>
-                        <div><span>С отклонением</span><p class="act-defect-card__value">{{ row.defect.nonconforming_quantity|default_if_none:'—' }}</p></div>
-                        <div class="act-defect-card__full"><span>Описание</span><p class="user-text">{{ row.defect.description|default:'—' }}</p></div>
+                    <div class="act-defect-card__facts">
+                        {% for label, value in row.facts %}<span class="act-defect-card__fact"><span class="act-defect-card__fact-label">{{ label }}</span> <span class="act-defect-card__fact-value user-text">{{ value }}</span></span>{% endfor %}
                     </div>
+                    {% if row.shows_description %}<p class="act-defect-card__description"><span class="act-defect-card__fact-label">Описание</span> <span class="user-text">{{ row.defect.description|default:'—' }}</span></p>{% endif %}
 
                     {% comment %}
                     Решение и анализ — рядом, а не друг под другом: на широком
@@ -120,14 +116,8 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                         {% endif %}
                     {% else %}
                         <div class="act-defect-card__decision act-defect-card__decision--readonly">
-                            <div class="act-defect-card__field">
-                                <span class="act-defect-card__label">Решение КО</span>
-                                {% if row.ko_pending_label %}<span>Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--decision act-badge--decision-{{ row.defect.ko_decision|lower }}">{{ row.defect.get_ko_decision_display }}</span>{% else %}<span>—</span>{% endif %}
-                            </div>
-                            {% if not row.ko_pending_label %}<div class="act-defect-card__field">
-                                <span class="act-defect-card__label">Комментарий КО</span>
-                                <p class="user-text">{{ row.defect.ko_comment|default:'—' }}</p>
-                            </div>{% endif %}
+                            <p class="act-defect-card__line"><span class="act-defect-card__fact-label">Решение КО</span> {% if row.ko_pending_label %}<span>Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--decision act-badge--decision-{{ row.defect.ko_decision|lower }}">{{ row.defect.get_ko_decision_display }}</span>{% else %}<span>—</span>{% endif %}</p>
+                            {% if not row.ko_pending_label %}<p class="act-defect-card__line"><span class="act-defect-card__fact-label">Комментарий КО</span> <span class="user-text">{{ row.defect.ko_comment|default:'—' }}</span></p>{% endif %}
                         </div>
                         {% comment %}
                         Блок анализа в режиме чтения показывается только там,
@@ -185,19 +175,27 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                             {% if to_analysis_form.root_rows|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-root-analysis aria-label="Удалить корневую проработку" title="Удалить корневую проработку">×</button>{% endif %}
                         </summary>
                         <input type="hidden" data-root-total-name value="{{ forloop.counter0 }}">
-                        <label class="root-analysis-card__cause"><span>Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="2" required>{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
+                        {# Подпись поля скрыта: заголовок карточки над ним говорит то же самое. #}
+                        <label class="root-analysis-card__cause"><span class="to-visually-hidden">Корневая причина</span><textarea name="root-{{ root.index }}-root_cause" rows="2" required placeholder="В чём корневая причина несоответствия">{{ root.root_cause }}</textarea>{% for error in root.root_cause_errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
                         <div class="corrective-action-list" data-corrective-action-list>
                             {% for action in root.actions %}
                             {% comment %}
-                            One corrective action, laid out like a protocol task
-                            card: title and a compact remove, the wording, the
-                            deadline, then a clearly separated «Исполнители»
-                            block of identical rows and the execution mode under
-                            it. The act's own structure is untouched — this card
-                            still lives inside its root cause, still posts the
-                            same nested `root-N-actions-M-*` names, and still
-                            carries the act's department field on its first
-                            assignee row.
+                            Одно корректирующее мероприятие — три строки, а не
+                            стопка блоков: формулировка рядом со сроком,
+                            исполнители (отдел | сотрудник | ×) одной строкой
+                            каждый, и обе настройки исполнения галочками под
+                            ними. Структура акта та же: карточка лежит в своей
+                            корневой причине, поля называются
+                            `root-N-actions-M-*`, а отдел первого исполнителя
+                            по-прежнему и есть отдел мероприятия.
+
+                            «Обязательно вложение» есть только здесь: в
+                            утверждённом «Анализе ТО» и в печатной форме его
+                            нет. Оно хранится на `ActCorrectiveAction` и один
+                            раз копируется в задачу при утверждении акта; в
+                            отличие от «Разбить задачу» оно не отключается —
+                            обязательный файл значит одно и то же при одном
+                            исполнителе и при пяти.
                             {% endcomment %}
                             <details class="corrective-action-card" data-corrective-action{% if forloop.last or to_analysis_form.has_errors %} open{% endif %}>
                                 <summary class="analysis-card-header" data-corrective-action-header>
@@ -207,33 +205,13 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                                     <span class="analysis-card-preview" data-corrective-action-preview></span>
                                     {% if root.actions|length > 1 and forloop.last %}<button class="analysis-remove-button" type="button" data-remove-corrective-action aria-label="Удалить мероприятие" title="Удалить мероприятие">×</button>{% endif %}
                                 </summary>
-                                {% comment %}
-                                The wording and the one requirement that
-                                belongs to it, side by side, and only in this
-                                editable form: the approved, read-only «Анализ
-                                ТО» table and the printed act deliberately say
-                                nothing about it. «Обязательно вложение» is
-                                stored on the `ActCorrectiveAction` and copied
-                                onto the real task once, when the act is
-                                approved; unlike «Разбить задачу» it is never
-                                disabled, because a required file means the same
-                                whether the action has one исполнитель or five.
-                                {% endcomment %}
                                 <div class="corrective-action-card__statement">
                                     <label class="corrective-action-card__comment">
-                                        <span>Корректирующее мероприятие</span>
-                                        <textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="2" required>{{ action.comment }}</textarea>
+                                        <span class="to-visually-hidden">Корректирующее мероприятие</span>
+                                        <textarea name="root-{{ root.index }}-actions-{{ action.index }}-comment" rows="2" required placeholder="Что будет сделано">{{ action.comment }}</textarea>
                                         {% if action.errors.comment %}<span class="field-error">{{ action.errors.comment }}</span>{% endif %}
                                     </label>
-                                    <div class="corrective-action-card__requirement">
-                                        <label class="to-checkbox">
-                                            <input type="checkbox" name="root-{{ root.index }}-actions-{{ action.index }}-requires_attachment" data-requires-attachment-checkbox{% if action.requires_attachment %} checked{% endif %}>
-                                            <span>Обязательно вложение</span>
-                                        </label>
-                                    </div>
-                                </div>
-                                <div class="corrective-action-card__fields">
-                                    <label>
+                                    <label class="corrective-action-card__due">
                                         <span>Срок</span>
                                         <input type="date" name="root-{{ root.index }}-actions-{{ action.index }}-due_date" min="{{ today|date:'Y-m-d' }}" value="{{ action.due_date }}" required>
                                         {% if action.errors.due_date %}<span class="field-error">{{ action.errors.due_date }}</span>{% endif %}
@@ -241,46 +219,54 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                                 </div>
                                 <div class="corrective-action-card__assignees">
                                     <span class="corrective-action-card__assignees-label">Исполнители</span>
-                                    <div class="to-assignee-list" data-assignee-list>
-                                        {% for assignee in action.assignee_rows %}{% include 'acts/includes/to_analysis_assignee_row.html' with assignee=assignee root_index=root.index action_index=action.index is_first=forloop.first %}{% endfor %}
+                                    <div class="corrective-action-card__assignees-body">
+                                        <div class="to-assignee-list" data-assignee-list>
+                                            {% for assignee in action.assignee_rows %}{% include 'acts/includes/to_analysis_assignee_row.html' with assignee=assignee root_index=root.index action_index=action.index is_first=forloop.first %}{% endfor %}
+                                        </div>
+                                        {% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}
+                                        {% if action.errors.assignees %}<span class="field-error">{{ action.errors.assignees }}</span>{% endif %}
+                                        <button class="link-button link-button--secondary link-button--compact" type="button" data-add-assignee>+ Исполнитель</button>
                                     </div>
-                                    {% if action.errors.department %}<span class="field-error">{{ action.errors.department }}</span>{% endif %}
-                                    {% if action.errors.assignees %}<span class="field-error">{{ action.errors.assignees }}</span>{% endif %}
-                                    <button class="link-button link-button--secondary link-button--compact" type="button" data-add-assignee>+ Исполнитель</button>
                                 </div>
                                 {% comment %}
-                                Execution mode, and nothing else: it changes how
-                                many real tasks approving the act creates, never
-                                the root cause, the corrective action itself or
-                                the printed document. Meaningless below two
-                                исполнителя, so it is rendered disabled until the
-                                card has two and the script keeps that in step —
-                                a disabled checkbox is not posted, and
-                                `apply_structured_to_analysis()` normalizes the
-                                flag off for a single assignee anyway.
+                                Настройки исполнения, и ничего больше: сколько
+                                реальных задач создаст утверждение акта и нужен
+                                ли в них файл — никогда не причина, не текст
+                                мероприятия и не печатная форма. «Разбить»
+                                бессмысленно меньше чем при двух исполнителях,
+                                поэтому до двух оно отключено и скрипт держит
+                                это в такт; отключённая галочка не отправляется,
+                                а `apply_structured_to_analysis()` всё равно
+                                сбрасывает флаг для одного исполнителя.
                                 {% endcomment %}
-                                <div class="to-split-option" data-split-option>
+                                <div class="corrective-action-card__options">
                                     <label class="to-checkbox">
-                                        <input type="checkbox" name="root-{{ root.index }}-actions-{{ action.index }}-split_for_assignees" data-split-checkbox{% if action.split_for_assignees %} checked{% endif %}{% if action.assignee_rows|length < 2 %} disabled{% endif %}>
-                                        <span>Разбить задачу для исполнителей</span>
+                                        <input type="checkbox" name="root-{{ root.index }}-actions-{{ action.index }}-requires_attachment" data-requires-attachment-checkbox{% if action.requires_attachment %} checked{% endif %}>
+                                        <span>Обязательно вложение</span>
                                     </label>
-                                    <p class="to-split-hint">
-                                        <span data-split-hint-off{% if action.split_for_assignees %} hidden{% endif %}>Одна общая задача на всех: выполнение любым исполнителем закрывает её для остальных.</span>
-                                        <span data-split-hint-on{% if not action.split_for_assignees %} hidden{% endif %}>Каждый исполнитель получит собственную задачу и выполнит её независимо.</span>
-                                    </p>
+                                    <div class="to-split-option" data-split-option>
+                                        <label class="to-checkbox">
+                                            <input type="checkbox" name="root-{{ root.index }}-actions-{{ action.index }}-split_for_assignees" data-split-checkbox{% if action.split_for_assignees %} checked{% endif %}{% if action.assignee_rows|length < 2 %} disabled{% endif %}>
+                                            <span>Разбить задачу для исполнителей</span>
+                                        </label>
+                                        <p class="to-split-hint">
+                                            <span data-split-hint-off{% if action.split_for_assignees %} hidden{% endif %}>одна общая задача: выполнение любым исполнителем закрывает её для остальных</span>
+                                            <span data-split-hint-on{% if not action.split_for_assignees %} hidden{% endif %}>каждый исполнитель получит собственную задачу</span>
+                                        </p>
+                                    </div>
                                 </div>
                             </details>
                             {% endfor %}
                         </div>
                         <input type="hidden" name="root-{{ root.index }}-actions-TOTAL_FORMS" value="{{ root.actions|length }}" data-actions-total>
                         <div class="act-inline-actions" data-root-analysis-actions>
-                            <button class="link-button link-button--success" type="button" data-add-corrective-action>Добавить корректирующее мероприятие</button>
+                            <button class="link-button link-button--success link-button--compact" type="button" data-add-corrective-action>+ Корректирующее мероприятие</button>
                         </div>
                     </details>
                     {% endfor %}
                 </div>
                 <input type="hidden" name="root-TOTAL_FORMS" value="{{ to_analysis_form.root_rows|length }}" data-root-total>
-                <div class="act-inline-actions"><button class="link-button link-button--success" type="button" data-add-root-analysis>Добавить корневую проработку</button></div>
+                <div class="act-inline-actions"><button class="link-button link-button--success link-button--compact" type="button" data-add-root-analysis>+ Корневая причина</button></div>
             </form>
         {% elif root_analyses %}
             <section class="to-analysis-readonly-list" aria-label="Анализ ТО: причины и корректирующие действия">
