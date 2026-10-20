@@ -12,6 +12,7 @@ from accounts.models import Department, UserProfile
 from acts.models import (
     Act,
     ActComment,
+    ActDefect,
     ActCorrectiveAction,
     ActHistoryEvent,
     ActRootAnalysis,
@@ -455,9 +456,14 @@ class ActWorkFragmentTests(ActLiveMixin, TestCase):
 
         self.assertTemplateUsed(page, 'acts/includes/work_content.html')
         self.assertEqual(payload['status_code'], 'CREATED_OTK')
-        # Party data and the defect card come from the same partial.
-        self.assertIn('Данные акта', payload['html'])
-        self.assertIn(self.act.nomenclature, payload['html'])
+        # The defect cards come from the same partial; the act's own facts
+        # stand in the side panel of the summary fragment, on every tab.
+        self.assertIn('Дефекты и решение КО', payload['html'])
+        summary = self.client.get(
+            reverse('acts:live_summary_fragment', args=[self.act.pk])
+        ).json()
+        self.assertIn('Сведения об акте', summary['html'])
+        self.assertIn(self.act.nomenclature, summary['html'])
 
     def test_the_fragment_carries_the_actions_the_status_allows(self):
         payload = self.client.get(self.url).json()
@@ -533,9 +539,14 @@ class ActWorkFingerprintTests(ActLiveMixin, TestCase):
         self.assertEqual(first['revision'], second['revision'])
 
     def test_the_fingerprint_moves_when_the_tab_changes(self):
+        defect = ActDefect.objects.create(
+            act=self.act, defect_type=self.defect_type,
+            workshop=ActDefect.Workshop.MP_SHOP, party_number='100',
+            detected_at=timezone.localdate(),
+        )
         before = self.client.get(reverse('acts:work_fragment', args=[self.act.pk])).json()
-        self.act.nomenclature = 'Другая номенклатура'
-        self.act.save(update_fields=['nomenclature'])
+        defect.party_number = '200'
+        defect.save(update_fields=['party_number'])
 
         after = self.client.get(reverse('acts:work_fragment', args=[self.act.pk])).json()
 

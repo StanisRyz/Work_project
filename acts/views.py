@@ -40,6 +40,7 @@ from .permissions import (
 )
 from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_contribute_to_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act
 from .selectors import (
+    ROUTE_STEPS,
     build_act_list_state,
     build_route_steps,
     get_act_comments,
@@ -313,6 +314,11 @@ def act_create(request):
             'form': form,
             'defect_formset': defect_formset,
             'workshop_profiles': workshop_client_config(),
+            # The form's «Сводка»: what the new act will be. The deadline is
+            # the one rule, computed here — never restated in the browser.
+            'today': timezone.localdate(),
+            'planned_due_date': calculate_act_due_date(),
+            'route_names': [name for name, _code in ROUTE_STEPS],
         },
     )
 
@@ -385,6 +391,7 @@ def act_edit(request, pk):
             'workshop_profiles': workshop_client_config(),
             'act': act,
             'is_edit': True,
+            'route_names': [name for name, _code in ROUTE_STEPS],
         },
     )
 

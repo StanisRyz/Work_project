@@ -378,28 +378,48 @@
     stroke-width: 1.8;
 }
 
-/* The act's document header: one card holding the heading row — back, the
-   number, the status and the facts — and, under a hairline, the route. It is
-   the `[data-live-act-summary]` container, so a live replacement swaps its
-   contents and the card stays. */
-.act-summary {
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
+/* The act page: an object page with a properties panel.
+
+   The layout every mature work tool converged on — SAP Fiori's object page,
+   the issue view of Jira, Linear or GitHub: the heading across the top, the
+   work in a wide main column on the left, and on the right a narrow panel of
+   the object's properties that stays in view while the work is scrolled.
+   The right-hand third of a 1920 px screen is no longer empty: it holds
+   what a reader looks up again and again — the deadline, the author, the
+   customer, the product, where the act is on its route.
+
+   `.act-summary` is the live container and is `display: contents`, so its
+   heading and its panel are placed by this grid directly and a live
+   replacement of its contents changes nothing in the layout. */
+.act-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-areas:
+        'head head'
+        'main side';
+    align-items: start;
+    gap: 10px 16px;
 }
+
+.act-summary { display: contents; }
+
+.act-page > .act-summary > .act-detail-heading,
+.act-page .act-detail-heading { grid-area: head; }
+.act-page .act-side { grid-area: side; }
+.act-page__main {
+    grid-area: main;
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+}
+
+.act-page__main > * { min-width: 0; }
 
 .act-detail-heading {
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
+    align-items: center;
+    gap: 10px;
     min-height: var(--control-height);
-    padding: 10px 14px 8px;
-}
-
-.act-detail-heading__body {
-    display: grid;
-    gap: 2px;
-    min-width: 0;
 }
 
 .act-detail-heading h1 {
@@ -416,58 +436,95 @@
 .act-detail-heading__title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: var(--control-height); }
 .act-stage-badge { display: inline-flex; align-items: center; padding: 2px 9px 2px 8px; font-size: var(--font-size-sm); }
 
-/* «Создан · Срок · Тип»: label and value inline, the facts a reader looks for
-   before anything else on the page. */
-.act-detail-facts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px 24px;
+/* The properties panel. Sticky under the topbar, so the facts stay beside
+   whatever defect or analysis is being worked on; a panel taller than the
+   window scrolls inside itself rather than being cut off. */
+.act-side {
+    position: sticky;
+    top: 10px;
+    display: grid;
+    gap: 10px;
+    max-height: calc(100vh - 68px);
+    overflow-y: auto;
+}
+
+.act-side__card {
+    padding: 10px 14px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.act-side__title {
+    margin: 0 0 8px;
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+
+/* Label left, value right: a properties list reads down one column. */
+.act-side__facts {
+    display: grid;
+    gap: 6px;
     margin: 0;
-    color: var(--color-text);
+}
+
+.act-side__facts > div {
+    display: grid;
+    grid-template-columns: 132px minmax(0, 1fr);
+    align-items: baseline;
+    gap: 10px;
+}
+
+.act-side__facts dt {
+    color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
 
-.act-detail-facts > div {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.act-detail-facts .due-date { font-size: var(--font-size-sm); }
-
-.act-detail-facts dt {
-    color: var(--color-muted);
-}
-
-.act-detail-facts dd {
+.act-side__facts dd {
     margin: 0;
+    color: var(--color-text);
+    font-weight: 500;
 }
 
-.act-route {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 10px;
-    margin: 0;
-    padding: 6px 14px 8px;
-    overflow-x: auto;
-    list-style: none;
+.act-side__facts dd .due-date-cell { gap: 2px 6px; }
+
+.act-side__facts + .act-side__facts {
+    margin-top: 10px;
+    padding-top: 10px;
     border-top: 1px solid var(--color-border);
 }
 
+/* The route, vertical: one step per line with its date, joined by a rail —
+   a narrow column is where a stepper reads best. */
+.act-route {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
 .act-route__step {
+    position: relative;
     display: flex;
-    min-width: 145px;
-    align-items: center;
-    gap: 8px;
+    align-items: flex-start;
+    gap: 10px;
+    padding-bottom: 12px;
     color: var(--color-subtle);
     font-size: var(--font-size-sm);
 }
 
+.act-route__step:last-child { padding-bottom: 0; }
+
 .act-route__step:not(:last-child)::after {
-    flex: 1 1 auto;
-    min-width: 16px;
-    height: 2px;
-    margin-left: 4px;
+    position: absolute;
+    top: 22px;
+    bottom: 2px;
+    left: 9px;
+    width: 2px;
     border-radius: 1px;
     background: var(--color-border);
     content: '';
@@ -486,16 +543,46 @@
     font-weight: 600;
 }
 
-.act-route__copy { display: grid; gap: 0; min-width: max-content; line-height: 1.35; }
-.act-route__copy strong { font-size: var(--font-size-sm); font-weight: 600; }
+.act-route__copy { display: grid; gap: 0; min-width: 0; padding-top: 1px; line-height: 1.35; }
+.act-route__copy strong { font-size: 13px; font-weight: 600; }
 .act-route__copy small { color: var(--color-subtle); font-size: 11px; font-weight: 400; }
 
 .act-route__step--completed { color: var(--color-text); }
-.act-route__step--completed::after { background: var(--color-success-border); }
+.act-route__step--completed::after { background: var(--color-success-border) !important; }
 .act-route__step--completed .act-route__marker { border-color: var(--color-success); background: var(--color-success); color: #fff; }
 .act-route__step--current { color: var(--color-primary); }
 .act-route__step--current .act-route__marker { border-color: var(--color-primary); background: var(--color-primary); color: #fff; box-shadow: 0 0 0 3px var(--color-primary-soft); }
 .act-route__step--current .act-route__copy small { color: var(--color-primary); }
+
+/* Narrower than 1280 px the panel moves under the heading and lays its facts
+   out across the width instead of down a column. */
+@media (max-width: 1280px) {
+    .act-page {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+            'head'
+            'side'
+            'main';
+    }
+
+    .act-side {
+        position: static;
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        max-height: none;
+        overflow: visible;
+    }
+
+    .act-side__facts {
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 6px 20px;
+    }
+
+    .act-side__facts > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+
+@media (max-width: 760px) {
+    .act-side { grid-template-columns: minmax(0, 1fr); }
+}
 
 .act-defects-table-wrap {
     width: 100%;
@@ -674,7 +761,7 @@
        448px — это самая длинная формулировка решения (396px текста плюс
        отступы и стрелка `select`): доли 4fr на такой ширине не хватает, и
        выбранное решение обрезалось бы на «…с дор…». */
-    .act-defect-card__work { grid-template-columns: minmax(448px, 560px) minmax(0, 780px); justify-content: start; }
+    .act-defect-card__work { grid-template-columns: minmax(448px, 560px) minmax(0, 1fr); }
     /* Анализа нет — запрещающее решение или акт до изм.2: решение занимает всю
        ширину, а не половину с пустотой рядом. */
     .act-defect-card__work:not(:has(.act-defect-card__impact:not([hidden]))) {
@@ -1441,12 +1528,11 @@
 
 .act-party-data dd { color: var(--color-text); font-weight: 500; }
 
-/* Six columns as before, each no wider than a fact needs: spread over the
-   whole 1920 px a row of six short values was a row of gaps. */
+/* Six columns across the main column, which the side panel already keeps
+   to about 1500 px. */
 .act-defect-card__grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 190px));
-    justify-content: start;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 8px 24px;
 }
 
@@ -1645,8 +1731,7 @@
 /* Данные акта: five fields, with a compact номер акта ahead of the text ones,
    each as wide as what is typed into it. */
 .act-form-row--act {
-    grid-template-columns: minmax(0, 120px) repeat(4, minmax(0, var(--field-line)));
-    justify-content: start;
+    grid-template-columns: minmax(0, 120px) repeat(4, minmax(0, 1fr));
 }
 
 .act-form-field--number input {
@@ -1732,11 +1817,11 @@
     margin-top: 0;
 }
 
-/* Three groups side by side, none wider than its fields need. */
+/* Three groups side by side across the main column — beside the «Сводка»
+   panel it is about 1500 px, so a third is a field group, not a runway. */
 .defect-form-block__groups {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 400px));
-    justify-content: start;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 24px;
 }
 
@@ -1805,10 +1890,8 @@
     resize: vertical;
 }
 
-/* As wide as the three groups above it (3 × 400 px and two gaps). */
 .defect-form-block__description {
     gap: 4px !important;
-    max-width: 1248px;
 }
 
 /* `.act-form--editor label` sets `display: grid`, and an author declaration
@@ -1825,6 +1908,57 @@
 .add-defect-button .ui-icon {
     width: 16px;
     height: 16px;
+}
+
+/* The act form as an object page: sections on the left, the «Сводка» panel
+   on the right — the act's facts, its route and the form's buttons, sticky,
+   so «Создать акт» is in view however long the list of defects grows. The
+   panel reuses the act page's `.act-side`. */
+.act-form--split {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    align-items: start;
+    gap: 10px 16px;
+}
+
+.act-form-main {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.act-side__hint {
+    color: var(--color-muted);
+    font-size: 11px;
+    font-weight: 400;
+}
+
+/* In the panel the buttons are part of the summary card: full width, the
+   primary one first — the «Опубликовать» box of a CMS, not a toolbar. */
+.act-form-side .act-form-actions {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin-top: 12px;
+    padding: 12px 0 0;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.act-form-side .act-form-actions .link-button {
+    min-width: 0;
+    width: 100%;
+}
+
+@media (max-width: 1280px) {
+    .act-form--split { grid-template-columns: minmax(0, 1fr); }
+    .act-form-side {
+        position: static;
+        max-height: none;
+        overflow: visible;
+    }
 }
 
 /* «Добавить ещё дефект» — a dashed placeholder for the next block, not a
@@ -2405,7 +2539,7 @@
 .to-analysis-readonly-list { display: grid; gap: 10px; }
 .to-analysis-readonly {
     display: grid;
-    grid-template-columns: 40px minmax(230px, 0.9fr) minmax(0, 2.5fr);
+    grid-template-columns: 40px minmax(200px, 0.8fr) minmax(0, 2.5fr);
     overflow: hidden;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -2424,6 +2558,7 @@
 .to-analysis-readonly .to-analysis-table td { padding: 9px 10px; border: 0; border-bottom: 1px solid var(--color-border); color: var(--color-text); font-size: 13px; text-align: left; vertical-align: middle; }
 .to-analysis-readonly .to-analysis-table th { padding: 8px 10px; background: var(--color-surface-muted); color: var(--color-muted); font-size: 12px; font-weight: 600; }
 .to-analysis-readonly .to-analysis-table tbody tr:last-child td { border-bottom: 0; }
+.to-analysis-readonly .to-analysis-table td:nth-child(4) { white-space: nowrap; }
 .to-analysis-readonly .to-analysis-table td:nth-child(2),
 .to-analysis-readonly .to-analysis-table td:nth-child(3) { text-align: left; }
 .to-analysis-table__number { width: 7%; }
@@ -2551,7 +2686,6 @@
         justify-content: flex-start;
     }
 
-    .act-route { grid-template-columns: repeat(5, 170px); }
 
     .act-form-row {
         grid-template-columns: 1fr;
@@ -2602,7 +2736,6 @@
 @media (max-width: 700px) {
     .act-registry-toolbar { align-items: stretch; flex-direction: column; gap: 8px; }
     .act-registry-toolbar > .link-button { margin: 0 0 8px; width: 100%; justify-content: center; }
-    .act-detail-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
     .act-detail-heading h1 { font-size: 22px; }
 
     .act-form-page { padding-bottom: 74px; }

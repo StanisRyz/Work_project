@@ -6,17 +6,11 @@ replacement is byte-for-byte what a reload would produce.
 It DOES contain working forms, so the client replaces it only when the
 user has no unsaved input; a dirty form is never touched.
 {% endcomment %}
+{% comment %}
+The act's own facts — заказчик, заказ, продукция, КД — are not repeated
+here: they stand in the side panel (`live_summary.html`), on every tab.
+{% endcomment %}
 <section class="act-work-sequence">
-    <article class="detail-section">
-        <h2>Данные акта</h2>
-        <dl class="act-party-data">
-            <dt>Номер акта</dt><dd class="user-text">{{ act.number|default:'—' }}</dd>
-            <dt>Заказчик</dt><dd class="user-text">{{ act.customer|default:'—' }}</dd>
-            <dt>Заказ покупателя</dt><dd class="user-text">{{ act.order_number|default:'—' }}</dd>
-            <dt>Наименование продукции</dt><dd class="user-text">{{ act.nomenclature|default:'—' }}</dd>
-            <dt>Обозначение по КД</dt><dd class="user-text">{{ act.kd_designation|default:'—' }}</dd>
-        </dl>
-    </article>
 
     <article class="detail-section">
         <h2>Дефекты и решение КО</h2>

@@ -17,13 +17,22 @@
      data-work-bound="{% if work_is_bound %}true{% else %}false{% endif %}"></div>
 
 {% comment %}
-Read-only: number, status badge and route. Replaced live on act.updated
-and act.status_changed.
+The page is a grid (`.act-page` in `acts.css`): the heading across the top,
+the work on the left — banners, tabs and the tab — and the side panel with
+the act's facts and route on the right, sticky. The live summary container
+holds both the heading and the panel and is `display: contents`, so a live
+replacement keeps the grid as it is. Below 1280px it is one column.
+{% endcomment %}
+<div class="act-page">
+{% comment %}
+Read-only: number, status badge, facts and route. Replaced live on
+act.updated and act.status_changed.
 {% endcomment %}
 <div class="act-summary" data-live-act-summary>
     {% include 'acts/includes/live_summary.html' %}
 </div>
 
+<div class="act-page__main">
 <div class="act-conflict-banner" data-act-conflict-banner hidden role="alert">
     <div>
         <strong>Акт изменён другим пользователем.</strong>
@@ -66,6 +75,8 @@ and act.status_changed.
         {% include 'acts/includes/activities_content.html' %}
     </section>
 {% endif %}
+</div>
+</div>
 
 {% endblock %}
 

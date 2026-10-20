@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static people %}
 
 {% block title %}{% if is_edit %}Редактирование акта{% else %}Создание акта{% endif %} · Экосистема качества{% endblock %}
 
@@ -15,8 +15,16 @@
         </div>
     </header>
 
-    <form class="act-form act-form--editor" method="post" data-unsaved-guard{% if form.is_bound %}="dirty"{% endif %} data-draft-key="{{ user.pk }}:act:{% if is_edit %}{{ act.pk }}:edit{% else %}new{% endif %}"{% if is_edit %} data-draft-base="{{ act.updated_at|date:'U' }}"{% endif %}>
+    {% comment %}
+    The same object-page layout as the act itself: the form's sections on the
+    left, and on the right a sticky «Сводка» — what the act will be, its route
+    and the form's own buttons, always in view however many defects are
+    added. The deadline shown is the server's (`calculate_act_due_date()`);
+    nothing here computes it.
+    {% endcomment %}
+    <form class="act-form act-form--editor act-form--split" method="post" data-unsaved-guard{% if form.is_bound %}="dirty"{% endif %} data-draft-key="{{ user.pk }}:act:{% if is_edit %}{{ act.pk }}:edit{% else %}new{% endif %}"{% if is_edit %} data-draft-base="{{ act.updated_at|date:'U' }}"{% endif %}>
         {% csrf_token %}
+        <div class="act-form-main">
         {{ form.non_field_errors }}
         {{ defect_formset.non_form_errors }}
 
@@ -122,10 +130,38 @@
             </button>
         </section>
 
-        <footer class="form-actions act-form-actions">
-            <a class="link-button link-button--secondary" href="{% if is_edit %}{% url 'acts:detail' act.pk %}?tab=work{% else %}{% url 'acts:list' %}{% endif %}">Отмена</a>
-            <button class="link-button" type="submit">{% if is_edit %}Сохранить изменения{% else %}Создать акт{% endif %}</button>
-        </footer>
+        </div>
+
+        <aside class="act-side act-form-side" aria-label="Сводка">
+            <section class="act-side__card">
+                <h2 class="act-side__title">Сводка</h2>
+                <dl class="act-side__facts">
+                    {% if is_edit %}
+                        <div><dt>Номер</dt><dd class="user-text">{{ act.number|default:'—' }}</dd></div>
+                        <div><dt>Создан</dt><dd>{{ act.created_at|date:'d.m.Y H:i' }}</dd></div>
+                        <div><dt>Автор</dt><dd>{% if act.created_by %}{{ act.created_by|person_name }}{% else %}—{% endif %}</dd></div>
+                        <div><dt>Срок</dt><dd>{% if act.due_date %}{% include 'includes/due_date.html' with date=act.due_date done=act.status.is_final %}{% else %}—{% endif %}</dd></div>
+                    {% else %}
+                        <div><dt>Тип</dt><dd>Операционный контроль</dd></div>
+                        <div><dt>Автор</dt><dd>{{ user|person_name }}</dd></div>
+                        <div><dt>Дата</dt><dd>{{ today|date:'d.m.Y' }}</dd></div>
+                        <div><dt>Срок рассмотрения</dt><dd>{{ planned_due_date|date:'d.m.Y' }} <small class="act-side__hint">3 рабочих дня</small></dd></div>
+                    {% endif %}
+                </dl>
+                <footer class="form-actions act-form-actions">
+                    <button class="link-button" type="submit">{% if is_edit %}Сохранить изменения{% else %}Создать акт{% endif %}</button>
+                    <a class="link-button link-button--secondary" href="{% if is_edit %}{% url 'acts:detail' act.pk %}?tab=work{% else %}{% url 'acts:list' %}{% endif %}">Отмена</a>
+                </footer>
+            </section>
+            <section class="act-side__card">
+                <h2 class="act-side__title">Маршрут согласования</h2>
+                <ol class="act-route" aria-label="Маршрут согласования">
+                    {% for name in route_names %}
+                        <li class="act-route__step act-route__step--{% if forloop.first %}current{% else %}future{% endif %}"><span class="act-route__marker">{{ forloop.counter }}</span><span class="act-route__copy"><strong>{{ name }}</strong>{% if forloop.first %}<small>{% if is_edit %}Редактирование{% else %}Заполнение акта{% endif %}</small>{% endif %}</span></li>
+                    {% endfor %}
+                </ol>
+            </section>
+        </aside>
     </form>
 </div>
 {% endblock %}
