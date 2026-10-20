@@ -350,8 +350,8 @@ Django, клиент подставляет уже готовый фрагмен
 | Колокольчик | `/notifications/header-fragment/` | `notifications` |
 | Реестр задач | `/quality/tasks/list-fragment/` | `tasks` |
 | Реестр актов | `/quality/acts/list-fragment/` | `acts` |
-| Шапка акта (номер, статус) | `/quality/acts/<pk>/live-summary-fragment/` | `acts` |
-| Панель акта (сведения, маршрут и участники) | `/quality/acts/<pk>/live-summary-fragment/?part=side` | `acts` |
+| Шапка акта (номер, статус, маршрут) | `/quality/acts/<pk>/live-summary-fragment/` | `acts` |
+| Панель акта (сведения) | `/quality/acts/<pk>/live-summary-fragment/?part=side` | `acts` |
 | Рабочая вкладка акта | `/quality/acts/<pk>/work-fragment/` | `acts` |
 | История акта | `/quality/acts/<pk>/history-fragment/` | `comments` |
 | Комментарии акта | `/quality/acts/<pk>/comments-fragment/` | `comments` |

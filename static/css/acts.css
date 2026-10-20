@@ -404,8 +404,17 @@
 
 .act-summary { display: contents; }
 
-.act-page > .act-summary > .act-detail-heading,
-.act-page .act-detail-heading { grid-area: head; }
+.act-page .act-head { grid-area: head; min-width: 0; }
+
+/* The heading card: number and status, and under a hairline the route,
+   horizontal, with who took each step. */
+.act-head {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.act-head .act-detail-heading { padding: 8px 12px; }
 .act-page .act-side-column { grid-area: side; }
 .act-page__main {
     grid-area: main;
@@ -566,6 +575,33 @@
 .act-route__step--current .act-route__marker { border-color: var(--color-primary); background: var(--color-primary); color: #fff; box-shadow: 0 0 0 3px var(--color-primary-soft); }
 .act-route__step--current .act-route__copy small { color: var(--color-primary); }
 
+/* The route across the heading card: five steps in a row joined by a
+   line, each with its date and who took it. The vertical route above stays
+   the form's «Сводка». */
+.act-route--flow {
+    grid-template-columns: repeat(5, minmax(max-content, 1fr));
+    gap: 10px;
+    padding: 8px 12px 10px;
+    overflow-x: auto;
+    border-top: 1px solid var(--color-border);
+}
+
+.act-route--flow .act-route__step {
+    align-items: center;
+    padding-bottom: 0;
+}
+
+.act-route--flow .act-route__step:not(:last-child)::after {
+    position: static;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 12px;
+    height: 2px;
+    margin-left: 2px;
+}
+
+.act-route--flow .act-route__copy { min-width: max-content; }
+
 /* Who took the step: the route doubles as the act's «Участники». */
 .act-route__person { color: var(--color-text); }
 
@@ -678,15 +714,15 @@
 
 .act-chat__readonly { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--color-border); }
 
-/* Narrower than 1280 px the panel moves under the heading and lays its facts
-   out across the width instead of down a column. */
+/* Narrower than 1280 px the column follows the work — facts, then the
+   discussion — and the facts are laid out across the width. */
 @media (max-width: 1280px) {
     .act-page {
         grid-template-columns: minmax(0, 1fr);
         grid-template-areas:
             'head'
-            'side'
-            'main';
+            'main'
+            'side';
     }
 
     .act-side-column { position: static; height: auto; overflow: visible; }

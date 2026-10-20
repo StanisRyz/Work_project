@@ -1,10 +1,20 @@
 {% load people %}
 {% comment %}
-Read-only act heading: number and status. Safe to replace live — it holds no
-form and no user input. The side panel (`live_side.html`) is the second
-container the same fragment view fills, with `?part=side`.
+Read-only act heading: one card across the left-hand column — back, number
+and status on top, and under a hairline the approval route, horizontal, each
+completed step with who took it and when, so the route is also the act's
+«Участники». Safe to replace live — it holds no form and no user input. The
+side panel's facts (`live_side.html`) are the second container the same
+fragment view fills, with `?part=side`.
 {% endcomment %}
-<section class="act-detail-heading">
-    <a class="act-back-link" href="{% url 'acts:list' %}" aria-label="К списку актов" title="К списку актов"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></a>
-    <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge act-stage-badge--{{ act.status.code|lower }}" data-act-status-badge>{{ act.status }}</span></div>
+<section class="act-head">
+    <div class="act-detail-heading">
+        <a class="act-back-link" href="{% url 'acts:list' %}" aria-label="К списку актов" title="К списку актов"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></a>
+        <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge act-stage-badge--{{ act.status.code|lower }}" data-act-status-badge>{{ act.status }}</span></div>
+    </div>
+    <ol class="act-route act-route--flow" aria-label="Маршрут согласования">
+        {% for step in route_steps %}
+            <li class="act-route__step act-route__step--{{ step.state }}"><span class="act-route__marker">{% if step.state == 'completed' %}✓{% else %}{{ forloop.counter }}{% endif %}</span><span class="act-route__copy"><strong>{{ step.name }}</strong>{% if step.state == 'current' %}<small>Текущий этап</small>{% elif step.state == 'future' %}<small>Ожидает</small>{% else %}<small>{% if step.person %}<span class="act-route__person">{{ step.person|person_name }}</span>{% if step.date %} · {% endif %}{% endif %}{% if step.date %}{{ step.date|date:'d.m H:i' }}{% endif %}</small>{% endif %}</span></li>
+        {% endfor %}
+    </ol>
 </section>
