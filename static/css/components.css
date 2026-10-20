@@ -29,7 +29,7 @@
 }
 
 .sidebar__link--active {
-    background: #eef4ff;
+    background: var(--color-primary-soft);
     color: var(--color-primary-dark);
     font-weight: 700;
 }
@@ -191,7 +191,7 @@
 }
 
 .notification-filter--active {
-    background: #e8f0ff;
+    background: var(--color-primary-soft);
     color: var(--color-primary-dark);
 }
 
@@ -209,7 +209,7 @@
 
 .notification-card--unread {
     border-left: 4px solid var(--color-primary);
-    background: #f4f8ff;
+    background: var(--color-primary-soft);
 }
 
 .notification-card__content {
@@ -252,7 +252,7 @@
 
 .link-button--muted {
     border-color: var(--color-border);
-    background: #f7f9fc;
+    background: var(--color-surface-muted);
     color: var(--color-text);
 }
 
@@ -291,10 +291,10 @@
     display: inline-flex;
     width: fit-content;
     padding: 4px 10px;
-    border-radius: 999px;
-    background: #eef4ff;
+    border-radius: var(--radius-sm);
+    background: var(--color-primary-soft);
     color: var(--color-primary-dark);
-    font-weight: 700;
+    font-weight: 600;
 }
 
 /* Shared button system.
@@ -329,13 +329,13 @@
     color: #ffffff;
     font-family: inherit;
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1.2;
     text-align: center;
     vertical-align: middle;
     white-space: nowrap;
     cursor: pointer;
-    transition: background .15s ease, border-color .15s ease, color .15s ease;
+    transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
 }
 
 .link-button:hover {
@@ -343,8 +343,8 @@
 }
 
 .link-button:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 .link-button:disabled,
@@ -360,7 +360,8 @@
 }
 
 .link-button--secondary:hover {
-    background: var(--color-bg);
+    border-color: var(--color-border-strong);
+    background: var(--color-hover);
 }
 
 /* The one dense size, for buttons sitting inside a card's own toolbar. */
@@ -376,14 +377,16 @@
     height: 15px;
 }
 
+/* A return or a correction: outlined, so it never competes with the one
+   filled button that moves the document forward. */
 .link-button--warning {
-    border-color: #fcd9a4;
-    background: #fff7ed;
-    color: #92400e;
+    border-color: var(--color-warning-border);
+    background: var(--color-surface);
+    color: var(--color-warning);
 }
 
 .link-button--warning:hover {
-    background: #fdebd0;
+    background: var(--color-warning-soft);
 }
 
 .auth-layout {
@@ -401,7 +404,6 @@
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    box-shadow: 0 12px 32px rgb(15 23 42 / 8%);
 }
 
 .auth-panel h1 {
@@ -458,17 +460,17 @@
 .auth-form .errorlist {
     margin: 0;
     padding: 0;
-    color: #991b1b;
+    color: var(--color-danger);
     font-size: 13px;
     list-style: none;
 }
 
 .form-error {
     padding: 10px 12px;
-    border: 1px solid #fecaca;
+    border: 1px solid var(--color-danger-border);
     border-radius: var(--radius);
-    background: #fef2f2;
-    color: #991b1b;
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
 }
 
 .message-list {
@@ -477,20 +479,29 @@
 }
 
 .message {
-    padding: 10px 12px;
+    padding: 9px 12px;
     border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-primary);
     border-radius: var(--radius);
     background: var(--color-surface);
 }
 
 .message--success {
-    border-color: #bbf7d0;
-    background: #f0fdf4;
+    border-color: var(--color-success-border);
+    border-left-color: var(--color-success);
+    background: var(--color-success-soft);
+}
+
+.message--warning {
+    border-color: var(--color-warning-border);
+    border-left-color: var(--color-warning);
+    background: var(--color-warning-soft);
 }
 
 .message--error {
-    border-color: #fecaca;
-    background: #fef2f2;
+    border-color: var(--color-danger-border);
+    border-left-color: var(--color-danger);
+    background: var(--color-danger-soft);
 }
 
 .action-panel,
@@ -570,6 +581,26 @@ select {
     background-color: var(--color-surface);
 }
 
+/* One focus treatment for every field: the accent border and a soft ring in
+   place of the browser's own outline, which differs between engines. */
+input:not([type='checkbox'], [type='radio'], [type='file'], [type='range'], [type='color']):focus,
+select:focus,
+textarea:focus {
+    border-color: var(--color-primary);
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--color-subtle);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+    accent-color: var(--color-primary);
+}
+
 .form-actions {
     display: flex;
     flex-wrap: wrap;
@@ -595,9 +626,11 @@ select {
 }
 
 .data-table th {
+    background: var(--color-surface-muted);
     color: var(--color-muted);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .01em;
 }
 
 /* Registry conveniences shared by every list (`ecosystem/templatetags/registry.py`). */
@@ -605,12 +638,13 @@ select {
     display: inline-block;
     min-width: 20px;
     margin-left: 4px;
-    padding: 1px 6px;
-    border-radius: 999px;
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
     background: var(--color-bg);
     color: var(--color-muted);
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
     line-height: 1.4;
     text-align: center;
 }
@@ -627,8 +661,13 @@ select {
 }
 
 .table-link {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.table-link:hover {
     color: var(--color-primary-dark);
-    font-weight: 700;
+    text-decoration: underline;
 }
 
 /* Clickable object rows -------------------------------------------------
@@ -640,17 +679,19 @@ select {
    never created — keeps the default cursor and no hover, which is what tells
    the user there is nothing to open. */
 tr[data-row-url] { cursor: pointer; }
-tr[data-row-url]:hover { background: #f7f9ff; }
+tr[data-row-url]:hover { background: var(--color-hover); }
 
 .status-badge {
     display: inline-flex;
     width: fit-content;
-    padding: 4px 8px;
-    border-radius: 999px;
-    background: #eef4ff;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--color-primary-soft);
     color: var(--color-primary-dark);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
 }
 
 /* The state of a document, as a pill on the same `status-badge` base so the
@@ -659,9 +700,9 @@ tr[data-row-url]:hover { background: #f7f9ff; }
    «shelved», green for «done», blue for «running» — rather than four new
    colours. Used by the СМК registry and record page, whose four states are
    derived from the tasks and never stored. */
-.status-badge--created { background: #fff7ed; color: #9a3412; }
-.status-badge--in_progress { background: #eef4ff; color: var(--color-primary-dark); }
-.status-badge--completed { background: #ecfdf5; color: #15803d; }
+.status-badge--created { background: var(--color-warning-soft); color: var(--color-warning); }
+.status-badge--in_progress { background: var(--color-primary-soft); color: var(--color-primary-dark); }
+.status-badge--completed { background: var(--color-success-soft); color: var(--color-success); }
 .status-badge--archived { background: var(--color-bg); color: var(--color-muted); }
 
 /* One approval decision, as a pill. Shared: the protocol page renders it per
@@ -670,15 +711,16 @@ tr[data-row-url]:hover { background: #f7f9ff; }
 .approval-status {
     display: inline-flex;
     width: fit-content;
-    padding: 4px 8px;
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.5;
 }
 
-.approval-status--pending { background: #fff7ed; color: #9a3412; }
-.approval-status--approved { background: #ecfdf5; color: #15803d; }
-.approval-status--returned { background: #fef2f2; color: #b91c1c; }
+.approval-status--pending { background: var(--color-warning-soft); color: var(--color-warning); }
+.approval-status--approved { background: var(--color-success-soft); color: var(--color-success); }
+.approval-status--returned { background: var(--color-danger-soft); color: var(--color-danger); }
 .approval-status--cancelled { background: var(--color-bg); color: var(--color-muted); }
 
 .route-summary {
@@ -706,6 +748,10 @@ tr[data-row-url]:hover { background: #f7f9ff; }
 .detail-section h2,
 .detail-section h3 {
     margin: 0 0 12px;
+}
+
+.detail-section h2 {
+    font-size: 16px;
 }
 
 .detail-section dl {
@@ -763,11 +809,11 @@ tr[data-row-url]:hover { background: #f7f9ff; }
     border-radius: var(--radius);
     background: var(--color-surface);
     color: var(--color-text);
-    box-shadow: 0 24px 48px rgb(15 23 42 / 22%);
+    box-shadow: var(--shadow-overlay);
 }
 
 .app-modal::backdrop {
-    background: rgb(15 23 42 / 45%);
+    background: rgb(16 24 40 / 40%);
 }
 
 .app-modal__form {
@@ -782,7 +828,7 @@ tr[data-row-url]:hover { background: #f7f9ff; }
 }
 
 .app-modal__form h2 {
-    font-size: 20px;
+    font-size: 18px;
 }
 
 .app-modal__form > p {
@@ -840,7 +886,7 @@ tr[data-row-url]:hover { background: #f7f9ff; }
 
 .app-modal__error {
     margin: 0;
-    color: #991b1b;
+    color: var(--color-danger);
     font-size: 13px;
 }
 
@@ -885,7 +931,7 @@ tr[data-row-url]:hover { background: #f7f9ff; }
     border-left: 3px solid var(--color-primary);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: 0 12px 28px rgb(15 23 42 / 18%);
+    box-shadow: var(--shadow-overlay);
     pointer-events: auto;
     animation: toast-in 160ms ease-out;
 }
@@ -944,7 +990,7 @@ tr[data-row-url]:hover { background: #f7f9ff; }
 }
 
 .toast__close:hover {
-    background: #f1f4fa;
+    background: var(--color-hover);
     color: var(--color-text);
 }
 
@@ -985,16 +1031,16 @@ tr[data-row-url]:hover { background: #f7f9ff; }
     gap: 14px;
     margin: 0 0 14px;
     padding: 12px 15px;
-    border: 1px solid #f0c36d;
-    border-left: 3px solid #d97706;
+    border: 1px solid var(--color-warning-border);
+    border-left: 3px solid var(--color-warning);
     border-radius: var(--radius);
-    background: #fffaf0;
+    background: var(--color-warning-soft);
 }
 
 .act-access-banner {
-    border-color: #f3b0b0;
-    border-left-color: #dc2626;
-    background: #fdf3f3;
+    border-color: var(--color-danger-border);
+    border-left-color: var(--color-danger);
+    background: var(--color-danger-soft);
 }
 
 .act-conflict-banner[hidden],
@@ -1074,10 +1120,10 @@ tr[data-row-url]:hover { background: #f7f9ff; }
     max-width: min(320px, calc(100vw - 32px));
     padding: 9px 13px;
     border: 1px solid var(--color-border);
-    border-left: 3px solid #d97706;
+    border-left: 3px solid var(--color-warning);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: 0 8px 20px rgb(15 23 42 / 12%);
+    box-shadow: var(--shadow-overlay);
     color: var(--color-muted);
     font-size: 12px;
 }
@@ -1109,7 +1155,7 @@ tr[data-row-url]:hover { background: #f7f9ff; }
 .doc-linked__row:first-child { border-top: 0; }
 .doc-linked__row form { margin: 0 0 0 auto; }
 .doc-linked__remove { border: 0; background: none; color: var(--color-muted); font-size: 18px; line-height: 1; cursor: pointer; }
-.doc-linked__remove:hover { color: #b91c1c; }
+.doc-linked__remove:hover { color: var(--color-danger); }
 .doc-linked__empty { margin: 0; color: var(--color-muted); font-size: 13px; }
 .doc-linked__form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .doc-linked__form select { flex: 1 1 320px; max-width: 640px; }

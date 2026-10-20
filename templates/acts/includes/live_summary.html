@@ -1,10 +1,24 @@
+{% load people %}
 {% comment %}
-Read-only act summary: number, status badge and the approval route. Safe to
-replace live — it contains no form and no user input.
+Read-only act summary: number, status badge, the act's own facts and the
+approval route. Safe to replace live — it contains no form and no user input.
+One card: the heading row on top, the route under a hairline (`.act-summary`
+in `acts.css`).
+
+The facts line is what a reader looks for first and used to find nowhere on
+the page: when and by whom the act was written, and its deadline — drawn by
+the one `includes/due_date.html`, uncoloured once the act is over.
 {% endcomment %}
 <section class="act-detail-heading">
-    <a class="act-back-link" href="{% url 'acts:list' %}" aria-label="К списку актов">←</a>
-    <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge" data-act-status-badge>{{ act.status }}</span></div>
+    <a class="act-back-link" href="{% url 'acts:list' %}" aria-label="К списку актов" title="К списку актов"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></a>
+    <div class="act-detail-heading__body">
+        <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge act-stage-badge--{{ act.status.code|lower }}" data-act-status-badge>{{ act.status }}</span></div>
+        <dl class="act-detail-facts">
+            <div><dt>Создан</dt><dd>{{ act.created_at|date:'d.m.Y' }}{% if act.created_by %} · {{ act.created_by|person_name }}{% endif %}</dd></div>
+            <div><dt>Срок</dt><dd>{% if act.due_date %}{% include 'includes/due_date.html' with date=act.due_date done=act.status.is_final %}{% else %}—{% endif %}</dd></div>
+            <div><dt>Тип</dt><dd>{{ act.get_act_type_display }}</dd></div>
+        </dl>
+    </div>
 </section>
 
 <ol class="act-route" aria-label="Маршрут согласования">

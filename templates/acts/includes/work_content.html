@@ -61,7 +61,7 @@ user has no unsaved input; a dirty form is never touched.
                     вносят, авторитет у `select` в теле карточки, и бейдж рядом
                     с ним показывал бы устаревшее значение.
                     {% endcomment %}
-                    {% if row.ko_form %}{% elif row.ko_pending_label %}<span class="act-defect-card__meta act-defect-card__verdict">Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--status act-defect-card__verdict">{{ row.defect.get_ko_decision_display }}</span>{% endif %}
+                    {% if row.ko_form %}{% elif row.ko_pending_label %}<span class="act-defect-card__meta act-defect-card__verdict">Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--decision act-badge--decision-{{ row.defect.ko_decision|lower }} act-defect-card__verdict">{{ row.defect.get_ko_decision_display }}</span>{% endif %}
                 </summary>
                 <div class="act-defect-card__body">
                     <div class="act-defect-card__grid">
@@ -122,7 +122,7 @@ user has no unsaved input; a dirty form is never touched.
                         <div class="act-defect-card__decision act-defect-card__decision--readonly">
                             <div class="act-defect-card__field">
                                 <span class="act-defect-card__label">Решение КО</span>
-                                {% if row.ko_pending_label %}<span>Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--status">{{ row.defect.get_ko_decision_display }}</span>{% else %}<span>—</span>{% endif %}
+                                {% if row.ko_pending_label %}<span>Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--decision act-badge--decision-{{ row.defect.ko_decision|lower }}">{{ row.defect.get_ko_decision_display }}</span>{% else %}<span>—</span>{% endif %}
                             </div>
                             {% if not row.ko_pending_label %}<div class="act-defect-card__field">
                                 <span class="act-defect-card__label">Комментарий КО</span>

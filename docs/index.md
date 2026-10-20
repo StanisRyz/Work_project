@@ -12,6 +12,7 @@
 | [Архитектура](architecture.md) | из чего состоит система, кто за что отвечает, направления зависимостей, источники истины |
 | [Предметная область](domain.md) | роли, видимость актов, статусы и переходы, задачи, уведомления |
 | [Разработка](development.md) | окружение, зависимости, база, миграции, справочники, запуск, тесты |
+| [Интерфейс](ui.md) | визуальный стиль: принципы, токены, компоненты, вид страниц актов |
 | [Real-time](realtime.md) | контракт событий, Redis Pub/Sub, SSE, сверка, fallback polling, вкладки |
 | [Развёртывание](deployment.md) | production-окружение, чистый bootstrap PostgreSQL, ASGI, proxy, Redis, SMTP, health |
 | [Эксплуатация](operations.md) | журнал, `request_id`, расследование инцидента, health, email worker, диагностика |
@@ -28,6 +29,7 @@
 | Логирование, диагностика, health, email worker | [operations.md](operations.md) |
 | Резервное копирование и восстановление | [backup_restore.md](backup_restore.md) |
 | Локальный запуск, тесты, отладка | [development.md](development.md) |
+| Цвета, шрифт, кнопки, метки, вид страниц | [ui.md](ui.md) |
 
 ## Единые источники истины
 
@@ -54,7 +56,8 @@
 - [Перенос данных из SQLite в PostgreSQL](archive/postgresql_migration.md);
 - [Репетиция переноса SQLite → PostgreSQL](archive/postgresql_rehearsal.md);
 - [Производительность real-time](archive/realtime_performance.md);
-- [Аудит репозитория 25.09.2026](archive/audit_2026-09-25.md).
+- [Аудит репозитория 25.09.2026](archive/audit_2026-09-25.md);
+- [Визуальный аудит интерфейса 20.10.2026](archive/ui_audit_2026-10-20.md).
 
 ## Проверка документации
 

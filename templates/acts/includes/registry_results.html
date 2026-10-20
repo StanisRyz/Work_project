@@ -18,6 +18,8 @@ replaces a control the user may be typing into.
                     {% if scope == 'archive' %}{% sortable_th 'Дата архивации' 'date' sort %}{% else %}{% sortable_th 'Дата создания' 'date' sort %}{% endif %}
                     <th>Тип</th>
                     {% sortable_th 'Заказчик' 'customer' sort %}
+                    {% comment %}The same column the Excel export already carries: the product is how an act is recognised on the shop floor.{% endcomment %}
+                    <th>Наименование продукции</th>
                     {% sortable_th 'Статус' 'status' sort %}
                     {% sortable_th 'Срок' 'due' sort %}
                 </tr>
@@ -37,6 +39,7 @@ replaces a control the user may be typing into.
                         <td>{{ act.get_act_type_display }}</td>
                         {# Free text typed on the act: one line here, the whole name on hover and on the act page. #}
                         <td>{% if act.customer %}<span class="user-text text-clamp-1" title="{{ act.customer }}">{{ act.customer }}</span>{% else %}—{% endif %}</td>
+                        <td>{% if act.nomenclature %}<span class="user-text text-clamp-1" title="{{ act.nomenclature }}">{{ act.nomenclature }}</span>{% else %}—{% endif %}</td>
                         <td>{% include 'acts/includes/status_badge.html' with status=act.status %}</td>
                         <td>
                             {% if act.due_date %}

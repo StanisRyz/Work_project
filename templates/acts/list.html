@@ -7,7 +7,7 @@
 
 {% block content %}
 {% comment %}
-The registry opens on its tabs, like Задачи and Калькулятор. «Создать АКТ»
+The registry opens on its tabs, like Задачи and Калькулятор. «Создать акт»
 shares that top row instead of owning a heading block of its own.
 {% endcomment %}
 {% comment %}
@@ -22,7 +22,7 @@ browser only. The counts beside the tabs are the unfiltered size of each tab.
         <a class="act-registry-tabs__link{% if scope == 'archive' %} act-registry-tabs__link--active{% endif %}" href="?scope=archive">Архив <span class="tab-count">{{ tab_counts.archive }}</span></a>
     </nav>
     {% if can_create %}
-        <a class="link-button" href="{% url 'acts:create' %}">Создать АКТ</a>
+        <a class="link-button" href="{% url 'acts:create' %}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Создать акт</a>
     {% endif %}
 </div>
 
@@ -75,7 +75,8 @@ filters and search survive.
             <option value="not_overdue"{% if selected.due == 'not_overdue' %} selected{% endif %}>Не просроченные</option>
         </select>
     </label>
-    <button class="link-button" type="submit">Применить</button>
+    {% comment %}The filters apply themselves (`registry_tools.js`); «Применить» is the no-JavaScript path, so it does not compete with «Создать акт» for the eye.{% endcomment %}
+    <button class="link-button link-button--secondary" type="submit">Применить</button>
     <a class="link-button link-button--secondary" href="{% url 'acts:list' %}?scope={{ scope }}">Сбросить</a>
     {% comment %}The list exactly as shown — tab, filters, search and order — as a spreadsheet.{% endcomment %}
     <a class="link-button link-button--secondary" href="{% query_with export='xlsx' %}" title="Выгрузить список в Excel" download>Excel</a>

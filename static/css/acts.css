@@ -1,7 +1,9 @@
+/* The KPI strip is a row of quick filters, not a row of tiles: each counter
+   is as wide as its words and the list below keeps the screen. */
 .act-kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 /* The registry's top row: the scope tabs plus «Создать АКТ», sharing one
@@ -32,20 +34,20 @@
     flex: none;
 }
 
-/* A strip, not a row of tiles: number and label on one line, so the five
-   counters cost one control height and the list below keeps the screen. The
-   markup keeps label-then-number; `row-reverse` only puts the figure first.
-   Each card is a link to the filter it counts (`registry_kpis.html`). */
+/* Number and label on one line, one control height. The markup keeps
+   label-then-number; `row-reverse` only puts the figure first. Each card is a
+   link to the filter it counts (`registry_kpis.html`). */
 .act-kpi-card {
     color: inherit;
     text-decoration: none;
     transition: border-color .15s ease, background .15s ease;
-    display: flex;
+    display: inline-flex;
     flex-direction: row-reverse;
-    align-items: baseline;
+    align-items: center;
     justify-content: flex-end;
-    gap: 10px;
-    padding: 8px 14px;
+    gap: 8px;
+    min-height: var(--control-height);
+    padding: 0 12px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -59,32 +61,65 @@
 
 .act-kpi-card strong {
     flex: none;
-    color: var(--color-primary-dark);
-    font-size: 22px;
+    color: var(--color-text);
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
     line-height: 1.1;
 }
 
 .act-kpi-card:hover {
-    border-color: #9db8ed;
+    border-color: var(--color-border-strong);
+    background: var(--color-hover);
 }
 
-.act-kpi-card--active {
-    border-color: var(--color-primary);
-    background: #f4f8ff;
-    box-shadow: inset 0 0 0 1px var(--color-primary);
+.act-kpi-card--active,
+.act-kpi-card--active:hover {
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
 }
 
-.act-kpi-card--warning strong {
-    color: #b45309;
+.act-kpi-card--active span,
+.act-kpi-card--active strong {
+    color: var(--color-primary-dark);
+}
+
+/* «Просрочено» turns red only when there is something overdue: a red zero
+   would be an alarm about nothing. */
+.act-kpi-card--alert strong {
+    color: var(--color-danger);
 }
 
 /* Fields are as wide as what is typed into them, not as wide as the screen:
    on 1920 px a «Все» select used to stretch to 390 px. The row starts at the
-   left and the spare width stays spare. */
+   left and the spare width stays spare.
+
+   The filter row and the list below it are one panel — the filters are the
+   list's own toolbar — so the row loses its bottom border and radius and the
+   table card its top ones (`.act-table-card` below). */
 .act-filter-panel {
     margin: 0;
     grid-template-columns: minmax(220px, 420px) repeat(3, minmax(150px, 240px)) repeat(3, auto);
     justify-content: start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom-color: var(--color-border);
+    border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.act-filter-panel label {
+    gap: 4px;
+    font-size: 12px;
+}
+
+.act-filter-panel .link-button {
+    margin-top: 0;
+}
+
+.act-filter-panel + .fill-region > .act-table-card,
+.act-filter-panel + .fill-region > .empty-state {
+    border-top: 0;
+    border-radius: 0 0 var(--radius) var(--radius);
 }
 
 .act-clear-form {
@@ -118,7 +153,8 @@
 }
 
 .act-table-card .data-table th {
-    background: var(--color-surface);
+    background: var(--color-surface-muted);
+    white-space: nowrap;
 }
 
 /* A registry row is one line of facts and a pill or two; centring keeps the
@@ -145,18 +181,85 @@
     line-height: 1.2;
 }
 
-.act-badge--status {
-    border: 1px solid #bfdbfe;
-    border-radius: 5px;
-    background: #f8fbff;
-    color: var(--color-primary);
+/* A status is a neutral label with a coloured dot: the colour says which
+   stage the act stands at, and a column of them is scanned by colour without
+   a page full of tinted pills. The dot reads `--stage-color`, set per status
+   code below; a status without one (tasks, protocols) gets the neutral dot. */
+.act-badge--status,
+.act-stage-badge {
+    gap: 6px;
+    padding: 2px 8px 2px 7px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.act-badge--status::before,
+.act-stage-badge::before {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--stage-color, var(--color-subtle));
+    content: '';
+}
+
+.act-badge--created_otk,
+.act-stage-badge--created_otk { --stage-color: var(--stage-otk); }
+.act-badge--ko_review,
+.act-stage-badge--ko_review { --stage-color: var(--stage-ko); }
+.act-badge--to_analysis,
+.act-stage-badge--to_analysis { --stage-color: var(--stage-to); }
+.act-badge--otk_review,
+.act-stage-badge--otk_review { --stage-color: var(--stage-review); }
+.act-badge--actions_assigned,
+.act-stage-badge--actions_assigned { --stage-color: var(--stage-actions); }
+.act-badge--archived,
+.act-stage-badge--archived { --stage-color: var(--stage-done); }
+.act-badge--closed,
+.act-stage-badge--closed { --stage-color: var(--stage-closed); }
+.act-badge--cancelled,
+.act-stage-badge--cancelled { --stage-color: var(--stage-cancelled); }
+
+/* A КО decision is a verdict, so it carries its meaning in the tint itself:
+   prohibited red, permitted with rework amber, permitted green. A legacy
+   value outside these codes stays neutral. */
+.act-badge--decision {
+    padding: 2px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-muted);
+    color: var(--color-text);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.act-badge--decision-prohibit_use {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+}
+
+.act-badge--decision-allow_with_rework {
+    border-color: var(--color-warning-border);
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+}
+
+.act-badge--decision-allow_no_rework,
+.act-badge--decision-allow_no_deviation_rework {
+    border-color: var(--color-success-border);
+    background: var(--color-success-soft);
+    color: var(--color-success);
 }
 
 .act-badge--priority {
-    background: #fff7ed;
-    color: #9a3412;
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
 }
 
 .act-badge--muted {
@@ -164,25 +267,28 @@
     color: var(--color-muted);
 }
 
+/* A date is plain text; only a deadline that needs attention is tinted. */
 .due-date {
     display: inline-flex;
     width: fit-content;
-    padding: 4px 8px;
-    border-radius: 999px;
-    background: var(--color-bg);
+    padding: 1px 0;
+    border-radius: var(--radius-sm);
     color: var(--color-text);
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 500;
 }
 
 .due-date--overdue {
-    background: #fef2f2;
-    color: #991b1b;
+    padding: 1px 6px;
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+    font-weight: 600;
 }
 
 .due-date--soon {
-    background: #fff7ed;
-    color: #9a3412;
+    padding: 1px 6px;
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
 }
 
 /* `includes/due_date.html`: the pill and, beside it, the same date in words. */
@@ -200,7 +306,7 @@
 }
 
 .due-date__hint--overdue {
-    color: #991b1b;
+    color: var(--color-danger);
 }
 
 .act-detail-header__main {
@@ -227,7 +333,7 @@
 
 .act-detail-tabs {
     display: flex;
-    gap: 20px;
+    gap: 4px;
     border-bottom: 1px solid var(--color-border);
     overflow-x: auto;
 }
@@ -235,20 +341,31 @@
 .act-detail-tabs__link {
     display: inline-flex;
     align-items: center;
-    gap: 9px;
-    padding: 9px 12px 8px;
-    border-bottom: 3px solid transparent;
+    gap: 8px;
+    margin-bottom: -1px;
+    padding: 9px 12px;
+    border-bottom: 2px solid transparent;
     color: var(--color-muted);
-    font-weight: 700;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.act-detail-tabs__link .ui-icon {
+    width: 16px;
+    height: 16px;
 }
 
 .act-detail-tabs__link:hover {
-    color: var(--color-primary-dark);
+    color: var(--color-text);
 }
 
 .act-detail-tabs__link--active {
     border-bottom-color: var(--color-primary);
-    color: var(--color-primary-dark);
+    color: var(--color-text);
+}
+
+.act-detail-tabs__link--active .ui-icon {
+    color: var(--color-primary);
 }
 
 .ui-icon {
@@ -261,37 +378,78 @@
     stroke-width: 1.8;
 }
 
+/* The act's document header: one card holding the heading row — back, the
+   number, the status and the facts — and, under a hairline, the route. It is
+   the `[data-live-act-summary]` container, so a live replacement swaps its
+   contents and the card stays. */
+.act-summary {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
 .act-detail-heading {
     display: flex;
-    align-items: center;
-    gap: 18px;
+    align-items: flex-start;
+    gap: 14px;
     min-height: var(--control-height);
+    padding: 14px 16px 12px;
+}
+
+.act-detail-heading__body {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
 }
 
 .act-detail-heading h1 {
     display: inline-block;
-    margin: 0 14px 0 0;
-    color: var(--color-primary-dark);
-    font-size: 22px;
-    line-height: 1.2;
+    margin: 0;
+    color: var(--color-text);
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.25;
 }
 
-.act-back-link { display: inline-grid; width: var(--control-height); height: var(--control-height); place-items: center; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: #2d477f; font-size: 25px; line-height: 1; }
-.act-back-link:hover { border-color: #9db8ed; color: var(--color-primary); }
-.act-detail-heading__title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.act-stage-badge { display: inline-flex; align-items: center; min-height: 30px; padding: 5px 12px; border: 1px solid #fdba74; border-radius: 5px; background: #fffaf5; color: #f97316; font-size: 13px; font-weight: 700; }
+.act-back-link { display: inline-grid; flex: none; width: var(--control-height); height: var(--control-height); place-items: center; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); color: var(--color-muted); }
+.act-back-link:hover { border-color: var(--color-border-strong); background: var(--color-hover); color: var(--color-text); }
+.act-detail-heading__title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: var(--control-height); }
+.act-stage-badge { display: inline-flex; align-items: center; padding: 3px 10px 3px 9px; font-size: 13px; }
+
+/* «Создан · Срок · Тип»: label and value inline, the facts a reader looks for
+   before anything else on the page. */
+.act-detail-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 28px;
+    margin: 0;
+    color: var(--color-text);
+    font-size: 13px;
+}
+
+.act-detail-facts > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.act-detail-facts dt {
+    color: var(--color-muted);
+}
+
+.act-detail-facts dd {
+    margin: 0;
+}
 
 .act-route {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 14px;
+    gap: 12px;
     margin: 0;
-    padding: 10px 14px;
+    padding: 10px 16px 12px;
     overflow-x: auto;
     list-style: none;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
 }
 
 .act-route__step {
@@ -299,38 +457,43 @@
     min-width: 145px;
     align-items: center;
     gap: 9px;
-    color: var(--color-muted);
+    color: var(--color-subtle);
     font-size: 13px;
 }
 
 .act-route__step:not(:last-child)::after {
-    width: 100%;
-    height: 1px;
-    margin-left: 8px;
+    flex: 1 1 auto;
+    min-width: 16px;
+    height: 2px;
+    margin-left: 4px;
+    border-radius: 1px;
     background: var(--color-border);
     content: '';
 }
 
 .act-route__marker {
     display: inline-grid;
-    width: 23px;
-    height: 23px;
-    flex: 0 0 23px;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
     place-items: center;
-    border: 1px solid #cbd5e1;
+    border: 1px solid var(--color-border-strong);
     border-radius: 50%;
     background: var(--color-surface);
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 600;
 }
 
-.act-route__copy { display: grid; gap: 2px; min-width: max-content; }
-.act-route__copy strong { font-size: 13px; }
-.act-route__copy small { color: #6b82b6; font-size: 11px; font-weight: 400; }
+.act-route__copy { display: grid; gap: 1px; min-width: max-content; }
+.act-route__copy strong { font-size: 13px; font-weight: 600; }
+.act-route__copy small { color: var(--color-subtle); font-size: 11px; font-weight: 400; }
 
 .act-route__step--completed { color: var(--color-text); }
-.act-route__step--completed .act-route__marker { border-color: #16a34a; background: #16a34a; color: #fff; }
+.act-route__step--completed::after { background: var(--color-success-border); }
+.act-route__step--completed .act-route__marker { border-color: var(--color-success); background: var(--color-success); color: #fff; }
 .act-route__step--current { color: var(--color-primary); }
-.act-route__step--current .act-route__marker { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }
+.act-route__step--current .act-route__marker { border-color: var(--color-primary); background: var(--color-primary); color: #fff; box-shadow: 0 0 0 3px var(--color-primary-soft); }
+.act-route__step--current .act-route__copy small { color: var(--color-primary); }
 
 .act-defects-table-wrap {
     width: 100%;
@@ -354,8 +517,8 @@
     font-size: 12px;
 }
 
-.act-defects-table th { background: #fbfcff; color: #1d2d5e; text-align: center; white-space: normal; }
-.act-defects-table td { color: #223764; text-align: center; }
+.act-defects-table th { background: var(--color-surface-muted); color: var(--color-text); text-align: center; white-space: normal; }
+.act-defects-table td { color: var(--color-text); text-align: center; }
 .act-defects-table__number { width: 2.3%; }
 .act-defects-table__workshop { width: 8.4%; }
 .act-defects-table__znp { width: 5.9%; }
@@ -420,7 +583,7 @@
     align-items: baseline;
     flex-wrap: wrap;
     gap: 4px 10px;
-    padding: 12px 0;
+    padding: 10px 0;
     cursor: pointer;
     list-style: none;
 }
@@ -428,6 +591,7 @@
 /* Стрелка рисуется своя, поэтому родная маркер-стрелка убирается в обоих
    движках. */
 .act-defect-card__header::-webkit-details-marker { display: none; }
+.act-defect-card__header:hover .act-defect-card__chevron { color: var(--color-text); }
 .act-defect-card__header::marker { content: ''; }
 
 .act-defect-card__chevron {
@@ -444,8 +608,8 @@
 /* Тот же размер и вес, что у заголовка корректирующего мероприятия. */
 .act-defect-card__number {
     color: var(--color-text);
-    font-size: 15px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 600;
 }
 
 /* Номер, вид и мета читаются как одна фраза, поэтому имя не растёт: иначе оно
@@ -457,7 +621,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 15px;
+    font-size: 14px;
 }
 
 /* Цех и ЗНП — обычным приглушённым текстом. Пилюль в проекте нет нигде, и
@@ -627,16 +791,17 @@
 
 .related-activities { padding: 16px; }
 .related-activities__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
-.related-activities__header h2 { margin: 0 0 3px; color: #162852; font-size: 18px; }
-.related-activities__header p { margin: 0; color: #6a7b9d; font-size: 13px; }
-.related-activities__count { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 26px; padding: 3px 8px; border: 1px solid #d6e3f8; border-radius: 5px; background: #f5f9ff; color: #3561a4; font-size: 12px; font-weight: 700; }
+.related-activities__header h2 { margin: 0 0 3px; color: var(--color-text); font-size: 16px; }
+.related-activities__header p { margin: 0; color: var(--color-muted); font-size: 13px; }
+.related-activities__count { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 24px; padding: 2px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-muted); font-size: 12px; font-weight: 600; }
 .related-activities__table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--color-border); border-radius: 6px; }
 .related-activities__table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
 .related-activities__table th,
 .related-activities__table td {
     /* Wrapping is `text.css`; this is spacing and colour only. */
-    padding: 14px 12px; border: 1px solid var(--color-border); color: #253b66; font-size: 15px; text-align: center; vertical-align: middle; }
-.related-activities__table th { padding: 13px 12px; border: 1px solid var(--color-border); background: #fbfcff; color: #4f648c; font-size: 14px; font-weight: 700; text-align: center; vertical-align: middle; }
+    padding: 10px 12px; border-bottom: 1px solid var(--color-border); color: var(--color-text); font-size: 14px; text-align: left; vertical-align: middle; }
+.related-activities__table th { padding: 9px 12px; border-bottom: 1px solid var(--color-border); background: var(--color-surface-muted); color: var(--color-muted); font-size: 12px; font-weight: 600; text-align: left; vertical-align: middle; }
+.related-activities__table tbody tr:last-child td { border-bottom: 0; }
 .related-activities__number { width: 9%; }
 .related-activities__action { width: 25%; }
 .related-activities__cause { width: 29%; }
@@ -651,9 +816,9 @@
    full regardless. Shared by the акт, протокол and СМК tables. */
 .related-activities__assignee { display: block; }
 
-.related-activities__task-link { color: var(--color-primary); font-size: 15px; font-weight: 700; }
-.related-activities__table td strong { color: #162852; font-size: 15px; font-weight: 700; }
-.related-activities__empty { margin: 2px 0 0; color: #6a7b9d; font-size: 13px; }
+.related-activities__task-link { color: var(--color-primary); font-size: 14px; font-weight: 600; }
+.related-activities__table td strong { color: var(--color-text); font-size: 14px; font-weight: 600; }
+.related-activities__empty { margin: 2px 0 0; color: var(--color-muted); font-size: 13px; }
 .to-analysis-table { min-width: 680px; }
 .to-analysis-table { border-collapse: collapse; }
 .to-analysis-table th, .to-analysis-table td { padding: 8px 12px; border: 1px solid var(--color-border); font-size: 13px; }
@@ -670,18 +835,25 @@
 }
 
 .act-registry-tabs__link {
-    padding: 10px 14px;
-    border-bottom: 3px solid transparent;
+    margin-bottom: -1px;
+    padding: 9px 12px;
+    border-bottom: 2px solid transparent;
     color: var(--color-muted);
-    font-weight: 700;
+    font-weight: 600;
+    white-space: nowrap;
 }
 
 .act-registry-tabs__link:hover {
-    color: var(--color-primary-dark);
+    color: var(--color-text);
 }
 
 .act-registry-tabs__link--active {
     border-bottom-color: var(--color-primary);
+    color: var(--color-text);
+}
+
+.act-registry-tabs__link--active .tab-count {
+    background: var(--color-primary-soft);
     color: var(--color-primary-dark);
 }
 
@@ -796,14 +968,14 @@
     gap: 8px;
     margin-bottom: 10px;
     padding: 14px 20px;
-    background: #fff7ed;
-    border: 1px solid #fcd9a4;
+    background: var(--color-warning-soft);
+    border: 1px solid var(--color-warning-border);
     border-radius: var(--radius);
 }
 
 .task-detail-reopened h2 {
     margin: 0;
-    color: #92400e;
+    color: var(--color-warning);
     font-size: 15px;
 }
 
@@ -848,7 +1020,7 @@
 .task-detail-execution-card h2,
 .task-detail-attachments-card h2 {
     margin: 0;
-    color: #162852;
+    color: var(--color-text);
     font-size: 16px;
     line-height: 1.5;
 }
@@ -860,7 +1032,7 @@
     padding: 8px 12px;
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: #fbfcfe;
+    background: var(--color-surface-muted);
     font-size: 15px;
     color: var(--color-text);
 }
@@ -900,7 +1072,7 @@
     border: 1px solid var(--color-border);
     border-radius: 50%;
     background: var(--color-surface);
-    color: #3c5488;
+    color: var(--color-muted);
     list-style: none;
     cursor: pointer;
     transition: background .15s ease, border-color .15s ease, color .15s ease;
@@ -909,8 +1081,8 @@
 .task-detail-assignee-toggle-button::-webkit-details-marker { display: none; }
 
 .task-detail-assignee-toggle-button:hover {
-    border-color: #9db8ed;
-    background: #f4f7fc;
+    border-color: var(--color-primary-border);
+    background: var(--color-hover);
     color: var(--color-primary);
 }
 
@@ -921,7 +1093,7 @@
 
 .task-detail-assignee-toggle[open] .task-detail-assignee-toggle-button {
     border-color: var(--color-primary);
-    background: #eef4ff;
+    background: var(--color-primary-soft);
     color: var(--color-primary);
 }
 
@@ -989,7 +1161,7 @@
     flex: 0 0 30px;
     place-items: center;
     border-radius: 50%;
-    background: #eaf2ff;
+    background: var(--color-primary-soft);
     color: var(--color-primary);
     font-size: 12px;
     font-weight: 700;
@@ -1012,14 +1184,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     border-radius: 999px;
-    background: #eef4ff;
+    background: var(--color-primary-soft);
     color: var(--color-primary-dark);
     font-size: 12px;
     font-weight: 700;
 }
 
 .task-detail-eyebrow {
-    color: #7281a5;
+    color: var(--color-muted);
     font-size: 12px;
     font-weight: 700;
     letter-spacing: .03em;
@@ -1081,7 +1253,7 @@
     padding: 8px 12px;
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    background: #fbfcfe;
+    background: var(--color-surface-muted);
 }
 
 /* The name over its metadata, as before. `min-width: 0` is what lets a long
@@ -1114,18 +1286,18 @@
     border: 1px solid transparent;
     border-radius: 6px;
     background: transparent;
-    color: #b91c1c;
+    color: var(--color-danger);
     place-items: center;
     cursor: pointer;
 }
 
 .task-attachment-delete:hover {
-    border-color: #f3c4c4;
-    background: #fdf0f0;
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-soft);
 }
 
 .task-attachment-delete:focus-visible {
-    outline: 2px solid #b91c1c;
+    outline: 2px solid var(--color-danger);
     outline-offset: 1px;
 }
 
@@ -1140,10 +1312,10 @@
 .task-attachment-required {
     margin: 0;
     padding: 8px 12px;
-    border: 1px solid #f0c98a;
-    border-radius: 8px;
-    background: #fff8ea;
-    color: #7a4b06;
+    border: 1px solid var(--color-warning-border);
+    border-radius: var(--radius);
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
     font-size: 13px;
 }
 
@@ -1155,15 +1327,15 @@
 
 .act-work-sequence {
     display: grid;
-    gap: 10px;
+    gap: 12px;
 }
 
 /* `#ko-decision-form` holds only hidden fields — its visible controls live in
    the defects table and are linked by their `form` attribute — so it must not
    claim a grid row of its own. */
 .act-work-sequence > #ko-decision-form { display: none; }
-.act-work-sequence > .detail-section { padding: 10px 12px; }
-.act-work-sequence > .detail-section > h2 { margin-bottom: 10px; color: #162852; font-size: 17px; }
+.act-work-sequence > .detail-section { padding: 14px 16px; }
+.act-work-sequence > .detail-section > h2 { margin-bottom: 12px; color: var(--color-text); font-size: 16px; }
 
 .act-work-decision-row {
     display: grid;
@@ -1228,7 +1400,7 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: 0 5px 18px rgb(15 23 42 / 7%);
+    box-shadow: var(--shadow-sticky);
     align-items: center;
     flex-wrap: wrap;
 }
@@ -1239,27 +1411,24 @@
 
 .act-primary-actions .link-button { margin-top: 0; }
 
-/* Данные акта: номер акта is deliberately narrower than the four text fields. */
+/* Данные акта: номер акта is deliberately narrower than the four text fields.
+   Two rows filled column by column — each label over its value — so no pair
+   has to be placed by hand. */
 .act-party-data {
     grid-template-columns: minmax(0, 0.6fr) repeat(4, minmax(0, 1fr)) !important;
+    grid-template-rows: auto auto;
+    grid-auto-flow: column;
     gap: 3px 24px !important;
 }
 
 .act-party-data dt {
-    grid-row: 1;
-    color: #7281a5 !important;
+    color: var(--color-muted) !important;
     font-size: 12px;
     font-weight: 400;
     white-space: nowrap;
 }
 
-.act-party-data dd { grid-row: 2; color: #1d2d5e; font-weight: 700; }
-
-.act-party-data dt:nth-of-type(1), .act-party-data dt:nth-of-type(1) + dd { grid-column: 1; }
-.act-party-data dt:nth-of-type(2), .act-party-data dt:nth-of-type(2) + dd { grid-column: 2; }
-.act-party-data dt:nth-of-type(3), .act-party-data dt:nth-of-type(3) + dd { grid-column: 3; }
-.act-party-data dt:nth-of-type(4), .act-party-data dt:nth-of-type(4) + dd { grid-column: 4; }
-.act-party-data dt:nth-of-type(5), .act-party-data dt:nth-of-type(5) + dd { grid-column: 5; }
+.act-party-data dd { color: var(--color-text); font-weight: 500; }
 
 .act-defect-card__grid {
     display: grid;
@@ -1274,13 +1443,14 @@
 
 .act-defect-card__grid span {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .act-defect-card__grid .act-defect-card__value {
     color: var(--color-text);
-    font-weight: 400;
-    font-size: 16px;
+    font-weight: 500;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
 }
 
 .act-defect-card__grid p {
@@ -1316,15 +1486,16 @@
 }
 
 .empty-state {
-    padding: 28px;
-    border: 1px dashed var(--color-border);
+    padding: 32px 28px;
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
     text-align: center;
 }
 
 .empty-state h2 {
-    margin: 0 0 8px;
+    margin: 0 0 6px;
+    font-size: 16px;
 }
 
 .empty-state p {
@@ -1338,11 +1509,11 @@
 
 .act-form-page {
     display: grid;
-    gap: 18px;
-    margin: 0 16px;
-    padding-bottom: 82px;
+    gap: 12px;
 }
 
+/* The same heading as the act page: a bordered back button, the title, the
+   kind of act beneath it. */
 .act-form-page__header {
     display: flex;
     align-items: center;
@@ -1351,33 +1522,40 @@
 
 .act-form-page__header h1 {
     margin: 0;
-    color: var(--color-primary-dark);
-    font-size: 29px;
-    line-height: 1.2;
+    color: var(--color-text);
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.25;
 }
 
 .act-form-page__header p {
-    margin: 3px 0 0;
+    margin: 2px 0 0;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .act-form-page__back {
     display: inline-grid;
-    width: 28px;
-    height: 28px;
-    flex: 0 0 28px;
+    width: var(--control-height);
+    height: var(--control-height);
+    flex: none;
     place-items: center;
-    color: var(--color-primary-dark);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-muted);
 }
 
 .act-form-page__back:hover {
-    color: var(--color-primary);
+    border-color: var(--color-border-strong);
+    background: var(--color-hover);
+    color: var(--color-text);
 }
 
 .act-form--editor {
     display: grid;
     gap: 12px;
+    counter-reset: act-form-section;
 }
 
 .act-form--editor label {
@@ -1395,26 +1573,52 @@
     min-height: var(--control-height);
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--radius);
     background: var(--color-surface);
     color: var(--color-text);
     font: inherit;
     font-size: var(--control-font-size);
 }
 
+.act-form--editor input:hover,
+.act-form--editor select:hover,
+.act-form--editor textarea:hover {
+    border-color: var(--color-border-strong);
+}
+
 .act-form-section {
     display: grid;
-    gap: 18px;
-    padding: 20px 22px;
+    gap: 16px;
+    padding: 16px 18px 18px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
 }
 
+/* A numbered step — «1 Данные акта», «2 Дефекты» — so the form reads as the
+   order it is filled in. A counter, not markup: the headings stay plain. */
 .act-form-section h2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     margin: 0;
-    color: #162852;
-    font-size: 18px;
+    color: var(--color-text);
+    font-size: 16px;
+    counter-increment: act-form-section;
+}
+
+.act-form-section h2::before {
+    display: inline-grid;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--color-primary-soft);
+    color: var(--color-primary-dark);
+    content: counter(act-form-section);
+    font-size: 12px;
+    font-weight: 600;
 }
 
 .act-form-row {
@@ -1451,7 +1655,7 @@
 }
 
 .act-defect-section__heading p {
-    margin: 6px 0 0;
+    margin: 4px 0 0 32px;
     color: var(--color-muted);
     font-size: 13px;
 }
@@ -1460,7 +1664,7 @@
     margin: 0;
     padding: 3px 8px;
     border-radius: 999px;
-    background: #eaf2ff;
+    background: var(--color-primary-soft);
     color: var(--color-primary);
     font-size: 12px;
     font-weight: 700;
@@ -1468,18 +1672,18 @@
 
 .defect-form-list {
     display: grid;
-    gap: 16px;
+    gap: 12px;
 }
 
+/* One defect, one block: a quiet inset with its own heading, so two defects
+   of different workshops never read as one long form. */
 .defect-form-block {
     display: grid;
     gap: 14px;
-    padding-top: 2px;
-}
-
-.defect-form-block + .defect-form-block {
-    padding-top: 20px;
-    border-top: 1px solid var(--color-border);
+    padding: 14px 16px 16px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface-muted);
 }
 
 .defect-form-block__heading {
@@ -1487,16 +1691,24 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    min-height: 30px;
 }
 
 .defect-form-block__heading h3 {
     margin: 0;
-    color: #162852;
-    font-size: 15px;
+    color: var(--color-text);
+    font-size: 14px;
+    font-weight: 600;
 }
 
+/* A lone defect needs no «Дефект 1» over it; the moment a second one is
+   added, the first is titled too, so every block says which it is. */
 .defect-form-block__heading--initial {
     display: none;
+}
+
+.defect-form-list:has(> .defect-form-block + .defect-form-block) .defect-form-block__heading--initial {
+    display: flex;
 }
 
 .defect-form-block__heading .link-button,
@@ -1557,17 +1769,17 @@
 }
 
 .defect-field-group label > span {
-    color: #526788;
+    color: var(--color-muted);
 }
 
 .defect-field-group legend {
     width: 100%;
     margin: 0 0 2px;
-    padding: 0 0 9px;
+    padding: 0 0 7px;
     border-bottom: 1px solid var(--color-border);
-    color: #162852;
+    color: var(--color-text);
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .defect-form-block__description textarea {
@@ -1595,33 +1807,40 @@
     height: 16px;
 }
 
+/* «Добавить ещё дефект» — a dashed placeholder for the next block, not a
+   second primary action. */
 .act-defect-section .add-defect-button {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 9px 14px;
-    border-color: #2563eb;
-    background: #fff;
-    color: #155eef;
+    border: 1px dashed var(--color-border-strong);
+    background: var(--color-surface);
+    color: var(--color-primary);
     font-weight: 600;
 }
 
 .act-defect-section .add-defect-button:hover {
-    background: #f5f9ff;
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-soft);
 }
 
+/* The form's buttons ride the bottom edge of the window, as the act page's
+   workflow row does: a long act with three defects is never scrolled to the
+   end just to press «Создать акт». */
 .act-form-actions {
+    position: sticky;
+    bottom: 8px;
+    z-index: 5;
     display: flex;
     justify-content: flex-end;
     align-items: center;
     gap: 10px;
     margin: 0;
-    padding: 10px 16px;
+    padding: 8px 12px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: rgb(255 255 255 / 96%);
-    box-shadow: 0 4px 14px rgb(15 23 42 / 6%);
-    backdrop-filter: blur(6px);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-sticky);
 }
 
 .act-form-actions .link-button {
@@ -1641,10 +1860,10 @@
 .act-form .errorlist {
     margin: 0;
     padding: 8px 10px;
-    border: 1px solid #fecaca;
+    border: 1px solid var(--color-danger-border);
     border-radius: var(--radius);
-    background: #fef2f2;
-    color: #991b1b;
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
     list-style-position: inside;
     font-size: 13px;
 }
@@ -1652,20 +1871,20 @@
 .act-form .field--invalid input,
 .act-form .field--invalid select,
 .act-form .field--invalid textarea {
-    border-color: #dc2626;
-    background: #fef2f2;
+    border-color: var(--color-danger);
+    background: var(--color-danger-soft);
 }
 
 .client-field-error {
     display: block;
     min-height: 20px;
-    color: #b91c1c;
+    color: var(--color-danger);
     font-size: 13px;
 }
 
 .field-hint {
     display: block;
-    color: #7281a5;
+    color: var(--color-subtle);
     font-size: 12px;
 }
 
@@ -1769,45 +1988,45 @@
     padding: 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: #fbfcfe;
+    background: var(--color-surface-muted);
 }
 
 .act-collaboration-layout { display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; overflow-x: clip; }
 .act-collaboration-layout .detail-section { min-width: 0; max-width: 100%; padding: 16px; overflow-x: clip; }
 .act-collaboration-section__header { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 10px; }
-.act-collaboration-section__header h2 { margin: 0; color: #162852; font-size: 18px; }
-.act-collaboration-section__hint { min-width: 0; color: #6a7b9d; font-size: 12px; text-align: right; }
+.act-collaboration-section__header h2 { margin: 0; color: var(--color-text); font-size: 18px; }
+.act-collaboration-section__hint { min-width: 0; color: var(--color-muted); font-size: 12px; text-align: right; }
 .attachment-form,
 .comment-form { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
-.attachment-picker { position: relative; display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 48px; padding: 7px 8px 7px 12px; border: 1px dashed #8db7ff; border-radius: 7px; background: #f8fbff; color: #5c6f92; font-size: 13px; }
+.attachment-picker { position: relative; display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 48px; padding: 7px 8px 7px 12px; border: 1px dashed var(--color-primary-border); border-radius: 7px; background: var(--color-surface-muted); color: var(--color-muted); font-size: 13px; }
 .attachment-picker > input[type='file'] { position: absolute; top: 0; left: 0; width: 1px; min-width: 0; height: 1px; padding: 0; overflow: hidden; border: 0; clip-path: inset(50%); opacity: 0; pointer-events: none; }
-.attachment-picker > .ui-icon { width: 18px; height: 18px; color: #2563eb; }
+.attachment-picker > .ui-icon { width: 18px; height: 18px; color: var(--color-primary); }
 .attachment-picker [data-attachment-file-name] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attachment-picker--selected { border-style: solid; border-color: #86efac; background: #f3fdf7; color: #166534; }
+.attachment-picker--selected { border-style: solid; border-color: var(--color-success-border); background: var(--color-success-soft); color: var(--color-success); }
 .attachment-description { display: grid; gap: 5px; color: var(--color-muted); font-size: 13px; }
 .attachment-description textarea,
 .comment-form textarea { box-sizing: border-box; width: 100%; min-height: 58px; padding: var(--control-padding); border: 1px solid var(--color-border); border-radius: 6px; font: inherit; font-size: var(--control-font-size); resize: vertical; }
 .attachment-list,
 .comment-list { gap: 0; }
 .attachment-card { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
-.attachment-card__icon { display: inline-grid; width: 30px; height: 34px; place-items: center; border-radius: 6px; background: #f1f5fb; color: #2563eb; }
+.attachment-card__icon { display: inline-grid; width: 30px; height: 34px; place-items: center; border-radius: 6px; background: var(--color-surface-muted); color: var(--color-primary); }
 .attachment-card__icon .ui-icon { width: 18px; height: 18px; }
 .attachment-card__main { display: grid; gap: 3px; min-width: 0; }
-.attachment-card__main strong { overflow: hidden; color: #1f315c; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.attachment-card__main p { margin: 0; color: #6a7b9d; font-size: 12px; }
-.attachment-card__meta { display: grid; gap: 2px; color: #6a7b9d; font-size: 11px; }
+.attachment-card__main strong { overflow: hidden; color: var(--color-text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-card__main p { margin: 0; color: var(--color-muted); font-size: 12px; }
+.attachment-card__meta { display: grid; gap: 2px; color: var(--color-muted); font-size: 11px; }
 .attachment-card__actions { display: flex; grid-column: 3; grid-row: 1 / span 2; gap: 6px; }
 .attachment-card__actions form { margin: 0; }
-.attachment-action { display: inline-grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: #3863a5; }
+.attachment-action { display: inline-grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-primary); }
 .attachment-action .ui-icon { width: 16px; height: 16px; }
-.attachment-action--danger { cursor: pointer; color: #b45309; }
-.attachment-action:hover { border-color: #9db8ed; background: #f8fbff; }
-.act-collaboration-empty { margin: 2px 0 0; color: #6a7b9d; font-size: 13px; }
+.attachment-action--danger { cursor: pointer; color: var(--color-danger); }
+.attachment-action:hover { border-color: var(--color-primary-border); background: var(--color-surface-muted); }
+.act-collaboration-empty { margin: 2px 0 0; color: var(--color-muted); font-size: 13px; }
 .comment-card { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
-.comment-card__avatar { display: inline-grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: #eaf2ff; color: #2563eb; font-size: 11px; font-weight: 700; }
-.comment-card__meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 3px; color: #6a7b9d; font-size: 11px; }
-.comment-card__meta strong { color: #1f315c; font-size: 13px; }
-.comment-card p { margin: 0; color: #405778; font-size: 13px; line-height: 1.4; }
+.comment-card__avatar { display: inline-grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--color-primary-soft); color: var(--color-primary); font-size: 11px; font-weight: 700; }
+.comment-card__meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 3px; color: var(--color-muted); font-size: 11px; }
+.comment-card__meta strong { color: var(--color-text); font-size: 13px; }
+.comment-card p { margin: 0; color: var(--color-text); font-size: 13px; line-height: 1.4; }
 
 .history-feed { display: grid; gap: 18px; }
 .history-feed__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -1815,28 +2034,28 @@
 .history-feed__filter { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-muted); font-size: 13px; }
 .history-feed__filter .ui-icon { width: 15px; height: 15px; }
 .history-day { display: grid; gap: 8px; }
-.history-day h3 { display: flex; align-items: center; gap: 10px; margin: 0; color: #6a7b9d; font-size: 13px; font-weight: 700; }
+.history-day h3 { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--color-muted); font-size: 13px; font-weight: 700; }
 .history-day h3::after { height: 1px; flex: 1; background: var(--color-border); content: ''; }
 .history-day__events { border-top: 1px solid var(--color-border); }
 .history-event { display: grid; grid-template-columns: 38px minmax(0, 1fr) minmax(180px, auto); align-items: center; gap: 12px; min-height: 68px; padding: 10px 4px; border-bottom: 1px solid var(--color-border); }
 .history-event:last-child { border-bottom: 0; }
-.history-event__icon { display: inline-grid; width: 34px; height: 34px; place-items: center; border-radius: 7px; background: #f1f5fb; color: #6c7f9f; }
+.history-event__icon { display: inline-grid; width: 34px; height: 34px; place-items: center; border-radius: 7px; background: var(--color-surface-muted); color: var(--color-muted); }
 .history-event__icon .ui-icon { width: 18px; height: 18px; }
 .history-event__content { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 5px 8px; }
-.history-event__content strong { color: #162852; font-size: 14px; }
-.history-event__content p { width: 100%; margin: 0; color: #5d6f90; font-size: 13px; line-height: 1.35; }
-.history-event__meta { display: grid; justify-items: end; gap: 3px; color: #6a7b9d; font-size: 12px; white-space: nowrap; }
-.history-event__transition { width: fit-content; padding: 3px 7px; border: 1px solid #bfdbfe; border-radius: 999px; background: #f5f9ff; color: #2563eb; font-size: 11px; font-weight: 700; }
-.history-event--approved .history-event__icon { background: #ecfdf3; color: #16a34a; }
-.history-event--ko_decision_applied .history-event__icon { background: #fff7ed; color: #ea8a18; }
+.history-event__content strong { color: var(--color-text); font-size: 14px; }
+.history-event__content p { width: 100%; margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.35; }
+.history-event__meta { display: grid; justify-items: end; gap: 3px; color: var(--color-muted); font-size: 12px; white-space: nowrap; }
+.history-event__transition { width: fit-content; padding: 1px 7px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-muted); font-size: 11px; font-weight: 600; }
+.history-event--approved .history-event__icon { background: var(--color-success-soft); color: var(--color-success); }
+.history-event--ko_decision_applied .history-event__icon { background: var(--color-warning-soft); color: var(--color-warning); }
 .history-event--returned_to_otk .history-event__icon,
 .history-event--returned_to_ko .history-event__icon,
-.history-event--returned_to_to .history-event__icon { background: #fff1f2; color: #e05d3c; }
+.history-event--returned_to_to .history-event__icon { background: var(--color-danger-soft); color: var(--color-danger); }
 .history-event--comment_added .history-event__icon,
 .history-event--attachment_added .history-event__icon,
 .history-event--attachment_deleted .history-event__icon,
 .history-event--act_edited .history-event__icon,
-.history-event--act_closed .history-event__icon { background: #f4f6f9; color: #6c7f9f; }
+.history-event--act_closed .history-event__icon { background: var(--color-surface-muted); color: var(--color-muted); }
 
 .comment-form {
     display: grid;
@@ -1844,7 +2063,7 @@
     padding: 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: #fbfcfe;
+    background: var(--color-surface-muted);
 }
 
 .comment-form label {
@@ -1879,7 +2098,7 @@
     padding: 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: #fbfcfe;
+    background: var(--color-surface-muted);
 }
 
 .root-analysis-card {
@@ -1892,9 +2111,9 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    color: var(--color-primary);
+    color: var(--color-text);
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .root-analysis-card__cause { display: grid; gap: 6px; }
@@ -1925,7 +2144,7 @@
     display: grid;
     gap: 6px;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .to-analysis-form textarea,
@@ -1950,8 +2169,8 @@
 
 .corrective-action-card__title {
     color: var(--color-text);
-    font-size: 15px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 600;
 }
 
 /* The wording and «Обязательно вложение» share one row: the requirement is a
@@ -1966,7 +2185,7 @@
 
 /* Aligned with the textarea beside it rather than with its own label row,
    which the checkbox does not have. */
-.corrective-action-card__requirement { padding-top: 26px; }
+.corrective-action-card__requirement { padding-top: 30px; }
 
 .corrective-action-card__comment { align-self: stretch; }
 .corrective-action-card__comment textarea { min-height: 54px; resize: vertical; }
@@ -2007,21 +2226,35 @@
 .to-pair-warning {
     grid-column: 1 / -1;
     margin: 0;
-    color: #b45309;
+    color: var(--color-warning);
     font-size: 13px;
     line-height: 1.35;
 }
 
 .to-pair-warning[hidden] { display: none; }
 
-.to-checkbox {
+/* Box and words on one line. Qualified by the form because
+   `.to-analysis-form label` lays every label out as a grid and
+   `.to-analysis-form input` stretches every input — together they stood the
+   box on a line of its own above its words. */
+.to-checkbox,
+.to-analysis-form .to-checkbox {
     display: flex;
     align-items: center;
     gap: 8px;
+    color: var(--color-text);
+    font-size: 14px;
     white-space: nowrap;
 }
 
-.to-checkbox input { width: auto; }
+.to-checkbox input,
+.to-analysis-form .to-checkbox input {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+}
 
 /* «Разбить задачу для исполнителей»: an execution option, deliberately
    quieter than the fields above it, and greyed out whole while the card names
@@ -2102,28 +2335,31 @@
     flex: 0 0 34px;
     place-items: center;
     padding: 0;
-    border: 1px solid #fecaca;
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: #fef2f2;
-    color: #b91c1c;
+    background: var(--color-surface);
+    color: var(--color-muted);
     cursor: pointer;
-    font-size: 26px;
-    font-weight: 700;
+    font-size: 22px;
+    font-weight: 400;
     line-height: 1;
 }
 
+/* A quiet «×» until it is pointed at: removing is a correction, and a red
+   box beside every row was louder than the rows themselves. */
 .analysis-remove-button:hover {
-    border-color: #fca5a5;
-    background: #fee2e2;
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
 }
 
 .analysis-remove-button:focus-visible {
-    outline: 3px solid #fca5a5;
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 .field-error {
-    color: #b91c1c;
+    color: var(--color-danger);
     font-size: 13px;
 }
 
@@ -2141,24 +2377,25 @@
 .to-analysis-readonly-list { display: grid; gap: 10px; }
 .to-analysis-readonly {
     display: grid;
-    grid-template-columns: 42px minmax(230px, 0.9fr) minmax(0, 2.5fr);
+    grid-template-columns: 40px minmax(230px, 0.9fr) minmax(0, 2.5fr);
     overflow: hidden;
-    border: 1px solid #1e407a;
-    border-radius: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
     background: var(--color-surface);
 }
 
 .to-analysis-readonly + .to-analysis-readonly { margin-top: 10px; }
-.to-analysis-readonly__rail { display: grid; grid-row: 1; place-items: center; padding: 12px 0; background: #123d7a; color: #fff; font-size: 24px; font-weight: 700; }
-.to-analysis-readonly__cause { display: grid; align-content: start; gap: 8px; padding: 14px 12px; border-right: 1px solid #1e407a; background: #fff; }
-.to-analysis-readonly__cause > span { color: #162852; font-size: 14px; font-weight: 700; }
-.to-analysis-readonly__cause p { margin: 0; color: #253b66; font-size: 14px; line-height: 1.45; }
+.to-analysis-readonly__rail { display: grid; grid-row: 1; align-content: start; justify-items: center; padding: 12px 0; border-right: 1px solid var(--color-border); background: var(--color-surface-muted); color: var(--color-muted); font-size: 15px; font-weight: 600; }
+.to-analysis-readonly__cause { display: grid; align-content: start; gap: 6px; padding: 12px 14px; border-right: 1px solid var(--color-border); background: var(--color-surface); }
+.to-analysis-readonly__cause > span { color: var(--color-muted); font-size: 12px; font-weight: 600; }
+.to-analysis-readonly__cause p { margin: 0; color: var(--color-text); font-size: 14px; line-height: 1.45; }
 .to-analysis-readonly__actions { min-width: 0; }
 .to-analysis-readonly .act-defects-table-wrap { width: 100%; margin: 0; overflow: visible; border-radius: 0; }
 .to-analysis-readonly .to-analysis-table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
 .to-analysis-readonly .to-analysis-table th,
-.to-analysis-readonly .to-analysis-table td { padding: 10px 9px; border: 1px solid #aab9d0; color: #253b66; font-size: 13px; text-align: center; vertical-align: middle; }
-.to-analysis-readonly .to-analysis-table th { padding: 9px; border: 1px solid #1e407a; background: #f5f8fd; color: #162852; font-size: 12px; text-align: center; }
+.to-analysis-readonly .to-analysis-table td { padding: 9px 10px; border: 0; border-bottom: 1px solid var(--color-border); color: var(--color-text); font-size: 13px; text-align: left; vertical-align: middle; }
+.to-analysis-readonly .to-analysis-table th { padding: 8px 10px; background: var(--color-surface-muted); color: var(--color-muted); font-size: 12px; font-weight: 600; }
+.to-analysis-readonly .to-analysis-table tbody tr:last-child td { border-bottom: 0; }
 .to-analysis-readonly .to-analysis-table td:nth-child(2),
 .to-analysis-readonly .to-analysis-table td:nth-child(3) { text-align: left; }
 .to-analysis-table__number { width: 7%; }
@@ -2176,7 +2413,7 @@
     padding: 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: #fbfcfe;
+    background: var(--color-surface-muted);
 }
 
 .attachment-form label {
@@ -2234,13 +2471,13 @@
 .act-collaboration-layout .comment-list { display: grid; gap: 0; }
 .act-collaboration-layout .attachment-card { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
 .act-collaboration-layout .attachment-card__main { display: grid; gap: 3px; min-width: 0; }
-.act-collaboration-layout .attachment-card__main strong { overflow: hidden; color: #1f315c; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.act-collaboration-layout .attachment-card__main p { margin: 0; color: #6a7b9d; font-size: 12px; }
-.act-collaboration-layout .attachment-card__meta { display: grid; gap: 2px; color: #6a7b9d; font-size: 11px; }
+.act-collaboration-layout .attachment-card__main strong { overflow: hidden; color: var(--color-text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.act-collaboration-layout .attachment-card__main p { margin: 0; color: var(--color-muted); font-size: 12px; }
+.act-collaboration-layout .attachment-card__meta { display: grid; gap: 2px; color: var(--color-muted); font-size: 11px; }
 .act-collaboration-layout .attachment-card__actions { display: flex; grid-column: 3; grid-row: 1 / span 2; flex-wrap: nowrap; gap: 6px; }
 .act-collaboration-layout .comment-form textarea { box-sizing: border-box; width: 100%; min-height: 58px; padding: var(--control-padding); border: 1px solid var(--color-border); border-radius: 6px; font: inherit; font-size: var(--control-font-size); resize: vertical; }
 .act-collaboration-layout .comment-card { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
-.act-collaboration-layout .comment-card p { margin: 0; color: #405778; font-size: 13px; line-height: 1.4; }
+.act-collaboration-layout .comment-card p { margin: 0; color: var(--color-text); font-size: 13px; line-height: 1.4; }
 
 .act-close-context dl {
     grid-template-columns: 180px minmax(0, 1fr);
@@ -2250,34 +2487,27 @@
     max-width: 760px;
 }
 
+/* Outlined, like «--warning»: one filled button per screen is the action
+   that moves the work forward, and a destructive or an additive one is never
+   it. The meaning is in the border and the text. */
 .link-button--danger {
-    border: 1px solid #fecaca;
-    background: #fef2f2;
-    color: #991b1b;
+    border: 1px solid var(--color-danger-border);
+    background: var(--color-surface);
+    color: var(--color-danger);
 }
 
 .link-button--danger:hover {
-    background: #fee2e2;
-}
-
-.link-button--danger:focus-visible {
-    outline: 3px solid #fca5a5;
-    outline-offset: 2px;
+    background: var(--color-danger-soft);
 }
 
 .link-button--success {
-    border: 1px solid #86efac;
-    background: #dcfce7;
-    color: #166534;
+    border: 1px solid var(--color-success-border);
+    background: var(--color-surface);
+    color: var(--color-success);
 }
 
 .link-button--success:hover {
-    background: #bbf7d0;
-}
-
-.link-button--success:focus-visible {
-    outline: 3px solid #86efac;
-    outline-offset: 2px;
+    background: var(--color-success-soft);
 }
 
 @media (max-width: 1000px) {
@@ -2317,15 +2547,13 @@
         grid-template-columns: 1fr;
     }
 
-    .act-party-data { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-    .act-party-data dt:nth-of-type(1), .act-party-data dt:nth-of-type(1) + dd { grid-column: 1; grid-row: 1; }
-    .act-party-data dt:nth-of-type(2), .act-party-data dt:nth-of-type(2) + dd { grid-column: 2; grid-row: 1; }
-    .act-party-data dt:nth-of-type(3), .act-party-data dt:nth-of-type(3) + dd { grid-column: 1; grid-row: 3; }
-    .act-party-data dt:nth-of-type(4), .act-party-data dt:nth-of-type(4) + dd { grid-column: 2; grid-row: 3; }
-    .act-party-data dt:nth-of-type(5), .act-party-data dt:nth-of-type(5) + dd { grid-column: 1; grid-row: 5; }
-    .act-party-data dd:nth-of-type(1), .act-party-data dd:nth-of-type(2) { grid-row: 2; }
-    .act-party-data dd:nth-of-type(3), .act-party-data dd:nth-of-type(4) { grid-row: 4; }
-    .act-party-data dd:nth-of-type(5) { grid-row: 6; }
+    /* Label beside value, one fact per line. */
+    .act-party-data {
+        grid-template-columns: minmax(120px, 200px) minmax(0, 1fr) !important;
+        grid-template-rows: none;
+        grid-auto-flow: row;
+        gap: 6px 16px !important;
+    }
 
     .act-primary-actions {
         align-items: stretch;
@@ -2373,14 +2601,17 @@
         grid-template-columns: 1fr !important;
     }
 
-    .act-party-data dt,
-    .act-party-data dd,
+    .act-party-data { gap: 2px !important; }
+    .act-party-data dd + dt { margin-top: 8px; }
+
     .act-defect-card__grid .act-defect-card__full {
         grid-column: 1;
     }
 
-    .act-party-data dt:nth-of-type(1), .act-party-data dt:nth-of-type(2), .act-party-data dt:nth-of-type(3), .act-party-data dt:nth-of-type(4), .act-party-data dt:nth-of-type(5) { grid-row: auto; }
-    .act-party-data dd:nth-of-type(1), .act-party-data dd:nth-of-type(2), .act-party-data dd:nth-of-type(3), .act-party-data dd:nth-of-type(4), .act-party-data dd:nth-of-type(5) { grid-row: auto; }
+    /* A phone has no viewport to spare for a bar that follows the scroll:
+       the buttons stand at the end of the form, where they are drawn. */
+    .act-primary-actions,
+    .act-form-actions { position: static; box-shadow: none; }
 
     .act-defect-card__grid .act-defect-card__third,
     .act-defect-card__grid .act-defect-card__half {
@@ -2401,7 +2632,7 @@
     .to-analysis-readonly .to-analysis-table { min-width: 680px; }
     .to-analysis-readonly { grid-template-columns: 42px minmax(0, 1fr); }
     .to-analysis-readonly__rail { grid-row: 1 / span 2; }
-    .to-analysis-readonly__cause { grid-column: 2; border-right: 0; border-bottom: 1px solid #1e407a; }
+    .to-analysis-readonly__cause { grid-column: 2; border-right: 0; border-bottom: 1px solid var(--color-border); }
     .to-analysis-readonly__actions { grid-column: 2; }
 }
 

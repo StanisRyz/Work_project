@@ -1,12 +1,62 @@
+/* The design tokens. Every module names these and never restates a value.
+
+   The visual language is deliberately plain: a neutral graphite text on a
+   light grey page, white surfaces separated by hairline borders rather than
+   shadows, one restrained accent for what is clickable or current, and colour
+   reserved for meaning — a status, a deadline, a warning. Shadows exist only
+   for what floats above the page: menus, dialogs, the sticky action bars. */
 :root {
-    --color-primary: #2563eb;
-    --color-primary-dark: #1d4ed8;
-    --color-bg: #f6f7f9;
+    /* Accent: a deep steel blue. Links, the primary button, the current step,
+       the active tab. Never decoration. */
+    --color-primary: #1d4f91;
+    --color-primary-dark: #163e73;
+    --color-primary-soft: #e9eff8;
+    --color-primary-border: #b6c8e2;
+
+    /* Neutrals. `--color-bg` is the page, `--color-surface` a card,
+       `--color-surface-muted` a quiet inset (table head, nested block). */
+    --color-bg: #f2f4f7;
     --color-surface: #ffffff;
-    --color-text: #172033;
-    --color-muted: #667085;
-    --color-border: #d9dee8;
-    --radius: 8px;
+    --color-surface-muted: #f7f8fa;
+    --color-hover: #f3f6fa;
+    --color-text: #1a2230;
+    --color-muted: #5f6b7a;
+    --color-subtle: #8a94a3;
+    --color-border: #dfe3e8;
+    --color-border-strong: #c5ccd5;
+
+    /* Meaning. Each is a text colour, a tint and a border, so a badge, a
+       message and a banner of the same meaning read alike. */
+    --color-success: #1f7a4d;
+    --color-success-soft: #e8f4ee;
+    --color-success-border: #b5dbc6;
+    --color-warning: #8f5300;
+    --color-warning-soft: #fdf3e2;
+    --color-warning-border: #efcf96;
+    --color-danger: #b42318;
+    --color-danger-soft: #fdeceb;
+    --color-danger-border: #f2c0ba;
+
+    /* The act's stages, as the dot beside a status. One hue per stage so a
+       registry is scanned by colour; the badge itself stays neutral. */
+    --stage-otk: #64748b;
+    --stage-ko: #6b4fbf;
+    --stage-to: #c27c0e;
+    --stage-review: #1d4f91;
+    --stage-actions: #0f7c74;
+    --stage-done: #1f7a4d;
+    --stage-closed: #98a2b0;
+    --stage-cancelled: #b42318;
+
+    --radius: 6px;
+    --radius-sm: 4px;
+    --shadow-overlay: 0 12px 32px rgb(16 24 40 / 14%);
+    --shadow-sticky: 0 -6px 16px rgb(16 24 40 / 6%);
+    --focus-ring: 0 0 0 3px rgb(29 79 145 / 20%);
+
+    /* Segoe UI is what the plant's Windows workstations have; the rest is the
+       same family of neutral grotesques elsewhere. */
+    --font-family: 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
 
     /* Density. One set of numbers every module's controls, buttons and table
        cells read, sized for the plant's 23–24" 1920×1080 screens: 14px text,
@@ -27,12 +77,29 @@ body {
     min-height: 100vh;
     background: var(--color-bg);
     color: var(--color-text);
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--font-family);
     font-size: var(--font-size-base);
     line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Form controls do not inherit the font by default; without this a select
+   or a button would fall back to the browser's own face. */
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
 }
 
 a {
     color: inherit;
     text-decoration: none;
+}
+
+/* Figures line up in columns: numbers, dates and quantities everywhere. */
+table,
+time,
+.due-date {
+    font-variant-numeric: tabular-nums;
 }

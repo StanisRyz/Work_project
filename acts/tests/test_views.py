@@ -524,10 +524,10 @@ class ActViewTests(TestCase):
         self.client.force_login(self.otk_user)
         response = self.client.get(reverse('acts:list'))
         self.assertEqual(response.context['header_title'], 'Акты')
-        self.assertContains(response, 'Создать АКТ')
+        self.assertContains(response, 'Создать акт')
 
         self.client.force_login(self.ko_user)
-        self.assertNotContains(self.client.get(reverse('acts:list')), 'Создать АКТ')
+        self.assertNotContains(self.client.get(reverse('acts:list')), 'Создать акт')
 
     def test_registry_cleanup_control_is_hidden_unless_the_demo_flag_is_on(self):
         # The safeguard is the feature flag, not the name of a demo account.

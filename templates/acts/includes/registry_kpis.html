@@ -10,7 +10,7 @@ list exactly as long as its number.
     <span>Всего на проработке</span>
     <strong>{{ kpis.total }}</strong>
 </a>
-<a class="act-kpi-card act-kpi-card--warning{% if selected.due == 'overdue' %} act-kpi-card--active{% endif %}" href="{% query_with due='overdue' status=None scope=scope %}">
+<a class="act-kpi-card act-kpi-card--warning{% if kpis.overdue %} act-kpi-card--alert{% endif %}{% if selected.due == 'overdue' %} act-kpi-card--active{% endif %}" href="{% query_with due='overdue' status=None scope=scope %}">
     <span>Просрочено</span>
     <strong>{{ kpis.overdue }}</strong>
 </a>

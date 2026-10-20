@@ -212,10 +212,10 @@ class ActRegistryFragmentTests(ActLiveMixin, TestCase):
         self.assertNotIn('<h1>Акты</h1>', registry)
         self.assertNotIn('calc-heading', calculator)
         self.assertNotIn('<h1>Калькулятор</h1>', calculator)
-        # The tabs and «Создать АКТ» now share one top row.
+        # The tabs and «Создать акт» now share one top row.
         self.assertIn('act-registry-toolbar', registry)
         self.assertIn('Мои акты', registry)
-        self.assertIn('Создать АКТ', registry)
+        self.assertIn('Создать акт', registry)
         self.assertIn('calc-tabs', calculator)
 
 

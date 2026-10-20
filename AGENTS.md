@@ -199,6 +199,15 @@ tasks never live inside `acts`.
   with capped columns (`.act-filter-panel`, `.task-filter-panel`), and a pair of
   person selects stops at 760px (`.protocol-participant-card`). The printed
   documents are not screens and keep their own size (`.print-page` is 16px).
+- **One palette, named, never typed.** Colours, radii, shadows, the focus ring
+  and the font are tokens in the same `:root` (`docs/ui.md`): one accent
+  (`--color-primary*`) for what is clickable or current, neutrals, and
+  meaning — `--color-success|warning|danger` each with `-soft` and `-border`.
+  A new rule names a token, never a hex value; colour carries meaning only
+  (a red zero is an alarm about nothing). One filled button per screen; a
+  return, a removal or an addition is outlined. An act status is a neutral
+  `act-badge--status`/`act-stage-badge` plus `--<status code>`, whose dot
+  reads `--stage-*`; a КО decision is `act-badge--decision-<code>`, tinted.
 - **Registry conveniences are one set of tools, and none of them is a rule.**
   Every registry (акты, задачи, протоколы, СМК) shows the unfiltered — or, for
   СМК, the filtered — size of each tab beside its name, applies its filters by
