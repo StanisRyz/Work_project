@@ -3,17 +3,19 @@
 
 {% block title %}Главная · Экосистема качества{% endblock %}
 
-{% block extra_head %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20260925-1">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20261020-1">{% endblock %}
 
 {% block content %}
 {% comment %}
-The landing page. Two blocks side by side on a wide screen and stacked on a
-narrow one: «Быстрый доступ» — only the sections this user may open, decided in
-`dashboard/sections.py` — and «Мои задачи», the shortened «Мои» tab of the task
-registry, built from the registry's own queryset and row description.
+The landing page is a work screen, not a shop window. Across the top, what is
+waiting for this user, each number a link to the list it counts. Below, on
+the left, the user's own work — «Мои задачи», «Мои акты в работе» — and on the
+right what needs their signature and the sections they may open, as a list.
+Every row comes from the owning module's own queryset (`dashboard/selectors.py`,
+`dashboard/sections.py`); this page restates no rule.
 
-The icons live in one inline sprite below and are referenced by `<use>`, so a
-card carries an icon *name* and no markup is assembled in Python.
+The icons live in one inline sprite and are referenced by `<use>`, so a
+section carries an icon *name* and no markup is assembled in Python.
 {% endcomment %}
 <svg class="dashboard-sprite" aria-hidden="true" focusable="false">
     <symbol id="dash-icon-acts" viewBox="0 0 24 24">
@@ -49,16 +51,16 @@ card carries an icon *name* and no markup is assembled in Python.
     </symbol>
 </svg>
 
-<section class="dashboard-intro">
+<header class="dashboard-intro">
     <h1>Добро пожаловать, {{ user.get_full_name|default:user.username }}!</h1>
-    <p class="dashboard-intro__lead">Быстрый доступ к ключевым разделам системы</p>
-</section>
+    <p class="dashboard-intro__lead">{{ today|date:'l, j E Y'|capfirst }}</p>
+</header>
 
 {% comment %}
-«Сегодня»: what is waiting for this user, each figure a link to the list it
-counts. The numbers are `dashboard/summary.py` — the owning modules' own
+«Сегодня»: the numbers are `dashboard/summary.py` — the owning modules' own
 querysets, the same ones the menu counts read — so the page, the menu and the
-lists behind the links agree.
+lists behind the links agree. A number turns red (overdue) or amber (a
+signature is waiting) only when it is not zero: colour carries meaning only.
 {% endcomment %}
 <section class="dashboard-today" aria-label="Что ждёт вас сегодня">
     <a class="dashboard-today__item" href="{% url 'acts:list' %}?scope=my">
@@ -79,67 +81,118 @@ lists behind the links agree.
 </section>
 
 <div class="dashboard-layout">
-    <section class="dashboard-sections" aria-label="Быстрый доступ">
-        {% for section in quick_access_sections %}
-            <a class="dashboard-card" href="{{ section.url }}">
-                <span class="dashboard-card__icon dashboard-card__icon--{{ section.accent }}" aria-hidden="true">
-                    <svg class="ui-icon"><use href="#dash-icon-{{ section.icon }}"></use></svg>
-                </span>
-                <strong class="dashboard-card__title">{{ section.label }}</strong>
-                <span class="dashboard-card__description">{{ section.description }}</span>
-                <svg class="ui-icon dashboard-card__arrow dashboard-card__arrow--{{ section.accent }}" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
-            </a>
-        {% endfor %}
-    </section>
+    <div class="dashboard-main">
+        {% comment %}
+        «Мои задачи»: the same rows the registry's «Мои» tab renders, the
+        nearest deadlines first. The status is the task's *real* business
+        state — for a protocol approval that is the decision, not the queue's
+        own «Выполнено» — and the deadline is the shared `due_date.html`, which
+        says «просрочен на N дней» itself.
+        {% endcomment %}
+        <section class="dashboard-panel" aria-labelledby="dashboard-tasks-title">
+            <div class="dashboard-panel__heading">
+                <h2 id="dashboard-tasks-title">Мои задачи</h2>
+                <a class="table-link" href="{% url 'tasks:list' %}?tab=my">Все задачи</a>
+            </div>
+            {% if task_rows %}
+                <ul class="dashboard-rows">
+                    {% for row in task_rows %}
+                        <li class="dashboard-task">
+                            {% comment %}
+                            Display limits only, from the shared `text.css`
+                            helpers: the задача is cut at two lines and the
+                            источник at one, both carrying the whole value on
+                            `title`. Nothing here shortens what is stored.
+                            {% endcomment %}
+                            <a class="dashboard-row__main" href="{% url 'tasks:detail' row.task.pk %}">
+                                <strong class="user-text text-clamp-2" title="{{ row.task.task_text }}">{{ row.task.task_text }}</strong>
+                                <span class="user-text text-ellipsis" title="{% if row.source.label %}{{ row.source.label }}{% else %}{{ row.type_label }}{% endif %}">№{{ row.task.pk }} · {% if row.source.label %}{{ row.source.label }}{% else %}{{ row.type_label }}{% endif %}</span>
+                            </a>
+                            <span class="dashboard-row__state">{% if row.state.variant %}<span class="approval-status approval-status--{{ row.state.variant }}">{{ row.state.label }}</span>{% else %}<span class="status-badge status-badge--{{ row.state.badge }}">{{ row.state.label }}</span>{% endif %}</span>
+                            <span class="dashboard-row__due">{% include 'includes/due_date.html' with date=row.task.due_date done=row.task.status.is_final %}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="dashboard-panel__empty">Активных задач нет.</p>
+            {% endif %}
+        </section>
 
-    {% comment %}
-    «Мои задачи»: the same rows the registry's «Мои» tab renders, the five
-    nearest by deadline. The status is the task's *real* business state — for a
-    protocol approval that is the decision, not the queue's own «Выполнено» —
-    and an overdue row says so instead, in the pill the rest of the application
-    uses for a returned document.
+        {% comment %}
+        «Мои акты в работе»: the act registry's «Мои акты» queue, the nearest
+        deadline first — what this person is expected to move next.
+        {% endcomment %}
+        <section class="dashboard-panel" aria-labelledby="dashboard-acts-title">
+            <div class="dashboard-panel__heading">
+                <h2 id="dashboard-acts-title">Мои акты в работе</h2>
+                <a class="table-link" href="{% url 'acts:list' %}?scope=my">Все акты</a>
+            </div>
+            {% if act_rows %}
+                <ul class="dashboard-rows">
+                    {% for act in act_rows %}
+                        <li class="dashboard-act">
+                            <a class="dashboard-row__main" href="{% url 'acts:detail' act.pk %}">
+                                <strong>{{ act.number }}</strong>
+                                <span class="user-text text-ellipsis" title="{{ act.nomenclature }}{% if act.customer %} · {{ act.customer }}{% endif %}">{{ act.nomenclature|default:'—' }}{% if act.customer %} · {{ act.customer }}{% endif %}</span>
+                            </a>
+                            <span class="dashboard-row__state"><span class="act-badge act-badge--status act-badge--{{ act.status.code|lower }}">{{ act.status }}</span></span>
+                            <span class="dashboard-row__due">{% include 'includes/due_date.html' with date=act.due_date done=act.status.is_final %}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="dashboard-panel__empty">Актов в работе нет.</p>
+            {% endif %}
+        </section>
+    </div>
 
-    Three grid rows — heading, list, link — with the list taking the middle
-    `1fr`, so «Перейти ко всем задачам» sits on the bottom edge of the panel and
-    the panel ends level with the card grid beside it.
-    {% endcomment %}
-    <section class="dashboard-tasks table-card" aria-label="Мои задачи">
-        <div class="dashboard-tasks__heading">
-            <h2>Мои задачи</h2>
-            <a class="dashboard-tasks__all" href="{% url 'tasks:list' %}">Перейти ко всем</a>
-        </div>
-        {% if task_rows %}
-            <ul class="dashboard-tasks__list">
-                {% for row in task_rows %}
-                    <li class="dashboard-task">
-                        {% comment %}
-                        Display limits only, from the shared `text.css` helpers:
-                        the задача is cut at two lines and the источник at one,
-                        both carrying the whole value on `title`. Nothing here
-                        shortens what is stored or what «Задачи» shows.
-                        {% endcomment %}
-                        <a class="dashboard-task__text" href="{% url 'tasks:detail' row.task.pk %}">
-                            <strong class="user-text text-clamp-2" title="{{ row.task.task_text }}">{{ row.task.task_text }}</strong>
-                            <span class="user-text text-ellipsis" title="{% if row.source.label %}{{ row.source.label }}{% else %}{{ row.type_label }}{% endif %}">{% if row.source.label %}{{ row.source.label }}{% else %}{{ row.type_label }}{% endif %}</span>
+    <aside class="dashboard-side" aria-label="Подписи и разделы">
+        {% comment %}
+        Drawn only while something waits: an empty «Ждут вашей подписи» card
+        would be one more thing to read that says nothing.
+        {% endcomment %}
+        {% if approval_rows %}
+            <section class="dashboard-panel dashboard-panel--attention" aria-labelledby="dashboard-approvals-title">
+                <div class="dashboard-panel__heading">
+                    <h2 id="dashboard-approvals-title">Ждут вашей подписи</h2>
+                </div>
+                <ul class="dashboard-rows">
+                    {% for approval in approval_rows %}
+                        <li class="dashboard-approval">
+                            <a class="dashboard-row__main" href="{% url 'protocols:detail' approval.protocol.pk %}">
+                                <strong>{{ approval.protocol.protocol_type.name }} №{{ approval.protocol.number }}</strong>
+                                <span>Редакция {{ approval.revision }}</span>
+                            </a>
+                            {% if approval.task %}<span class="dashboard-row__due">{% include 'includes/due_date.html' with date=approval.task.due_date done=False %}</span>{% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        {% endif %}
+
+        {% comment %}
+        The sections this user may open, decided in `dashboard/sections.py`, as
+        a list: the menu already carries them, so here they are a quick way in,
+        not the page's main content.
+        {% endcomment %}
+        <section class="dashboard-panel" aria-label="Быстрый доступ">
+            <div class="dashboard-panel__heading">
+                <h2>Разделы</h2>
+            </div>
+            <ul class="dashboard-sections">
+                {% for section in quick_access_sections %}
+                    <li>
+                        <a class="dashboard-card" href="{{ section.url }}">
+                            <span class="dashboard-card__icon" aria-hidden="true"><svg class="ui-icon"><use href="#dash-icon-{{ section.icon }}"></use></svg></span>
+                            <span class="dashboard-card__copy">
+                                <strong class="dashboard-card__title">{{ section.label }}</strong>
+                                <span class="dashboard-card__description">{{ section.description }}</span>
+                            </span>
                         </a>
-                        <span class="dashboard-task__meta">
-                            {% if row.task.due_date < today %}
-                                <span class="approval-status approval-status--returned">Просрочено</span>
-                            {% elif row.state.variant %}
-                                <span class="approval-status approval-status--{{ row.state.variant }}">{{ row.state.label }}</span>
-                            {% else %}
-                                <span class="status-badge status-badge--in_progress">{{ row.state.label }}</span>
-                            {% endif %}
-                            <span class="{% if row.task.due_date < today %}due-date due-date--overdue{% else %}due-date{% endif %}">{{ row.task.due_date|date:'d.m.Y' }}</span>
-                        </span>
                     </li>
                 {% endfor %}
             </ul>
-            <a class="dashboard-tasks__footer-link" href="{% url 'tasks:list' %}">Перейти ко всем задачам</a>
-        {% else %}
-            <p class="dashboard-tasks__empty">Активных задач нет.</p>
-            <a class="dashboard-tasks__footer-link" href="{% url 'tasks:list' %}">Перейти ко всем задачам</a>
-        {% endif %}
-    </section>
+        </section>
+    </aside>
 </div>
 {% endblock %}

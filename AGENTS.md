@@ -19,7 +19,7 @@ model without explicit approval.
 | App | Owns |
 | --- | --- |
 | `ecosystem` | settings, URLconf, ASGI/WSGI, deployment checks, health, logging, middleware, working-day arithmetic (`workdays.py`: `add_working_days()` and its inverse `working_days_between()`), the registry template tags (`templatetags/registry.py`: sortable headers, the query-string rewrite, the deadline in words) and the dependency-free `.xlsx` writer for registry exports (`xlsx.py`). No models |
-| `dashboard` | the landing page at `/`: the «Быстрый доступ» grid declared in `dashboard/sections.py` (each card carries the owning section's existing permission rule), the shortened «Мои задачи» block in `dashboard/selectors.py` (the task registry's own queryset and `tasks.presentation.describe_task()`), the «Что ждёт меня» counts in `dashboard/summary.py` (the menu badges and the «Сегодня» strip) and the topbar quick search at `/search/` in `dashboard/search.py`. Read-only. No models, no migrations, no services |
+| `dashboard` | the landing page at `/`, a work screen: the «Сегодня» counts across the top, the user's own work — «Мои задачи» (the task registry's own queryset and `tasks.presentation.describe_task()`, `TASK_LIMIT` 8) and «Мои акты в работе» (`acts.permissions.get_visible_acts_queryset()` without the archive, `ACT_LIMIT` 6) — on the left, and on the right «Ждут вашей подписи» (the `PENDING` current-revision `ProtocolApproval` rows the count reads, drawn only when there are some) and «Разделы», the section list declared in `dashboard/sections.py` (each entry carries the owning section's existing permission rule); the lists in `dashboard/selectors.py`, the «Что ждёт меня» counts in `dashboard/summary.py` (the menu badges and the «Сегодня» strip) and the topbar quick search at `/search/` in `dashboard/search.py`. Read-only. No models, no migrations, no services |
 | `accounts` | `Department`, `UserProfile` (role, department), login, landing target (`accounts/navigation.py`). No user-facing pages beyond login/logout — user/department management is Django Admin only |
 | `references` | operations, defect types, act/task statuses, priorities, the reasons a board card's срок moves (`DeviationReason`, «Причины отклонений»: `code`, `name`, `is_active`, `display_order`; eight seeded by `references.0005` from `DEVIATION_REASONS`); `seed_references`. No user-facing pages — reference management is Django Admin only |
 | `acts` | acts, defects, root analyses, corrective actions, history, comments, attachments, workflow, permissions |
@@ -80,7 +80,7 @@ it, Заявки: the same first-level plain link, to `/work/requests/`, drawn f
 every active employee while some live board takes requests
 (`boards.context_processors.requests_access` → `can_use_requests`, lazy — a
 `SimpleLazyObject` whose `EXISTS` runs only when a template asks;
-`active_page == 'requests'`); the dashboard's «Быстрый доступ» card «Заявки»
+`active_page == 'requests'`); the dashboard's «Разделы» entry «Заявки»
 asks the same rule. Only leaf items are links; categories are buttons, one submenu open at a time,
 and the panel and the profile menu are never open together. All of that state
 lives in `static/js/app.js`.

@@ -1,9 +1,9 @@
-"""The landing page: it opens, the grid respects the section permissions, and
-the task block shows the user's own open work.
+"""The landing page: it opens, the section list respects the permissions, and
+the lists show the user's own open work — tasks, acts, signatures.
 
-Deliberately three tests. The sections behind the cards and the task registry
-itself are covered by their own apps' suites; what is new here is the page, the
-filtering of the grid and the shortened «Мои задачи» list.
+The sections behind the links and the registries themselves are covered by
+their own apps' suites; what is tested here is the page, the filtering of the
+section list and the shortened lists.
 """
 
 from datetime import timedelta
@@ -15,6 +15,8 @@ from django.utils import timezone
 
 from accounts.models import Department, UserProfile
 from acts.models import Act
+from protocols.models import QUALITY_PROTOCOL_TYPE_CODE, ProtocolAgendaItem, ProtocolType
+from protocols.services import add_participant, add_speech, create_protocol, send_protocol_for_approval
 from references.models import ActStatus, TaskStatus
 from tasks.models import Task, TaskAssignee
 
@@ -102,12 +104,12 @@ class DashboardTaskBlockTests(TestCase):
         # whole задача stays on `title`.
         self.assertContains(response, 'text-clamp-2')
 
-    def test_the_block_never_shows_more_than_five_tasks(self):
+    def test_the_block_never_shows_more_than_eight_tasks(self):
         assignee = _create_user('otk_limit', UserProfile.Role.OTK)
         department = Department.objects.create(code='LIMIT', name='ПДО')
         archived = ActStatus.objects.get(code='ARCHIVED')
         task_status = TaskStatus.objects.get(code='IN_PROGRESS')
-        for index in range(7):
+        for index in range(10):
             act = Act.objects.create(
                 number=f'АОК-2026-0020{index}', nomenclature='Изделие',
                 status=archived, created_by=assignee,
@@ -123,7 +125,46 @@ class DashboardTaskBlockTests(TestCase):
         self.client.force_login(assignee)
         response = self.client.get(reverse('dashboard:home'))
 
-        # The five nearest deadlines, in that order; the rest stay in «Задачи».
-        self.assertEqual(response.content.decode().count('class="dashboard-task"'), 5)
-        self.assertContains(response, 'Мероприятие 4')
-        self.assertNotContains(response, 'Мероприятие 5')
+        # The eight nearest deadlines, in that order; the rest stay in «Задачи».
+        self.assertEqual(response.content.decode().count('class="dashboard-task"'), 8)
+        self.assertContains(response, 'Мероприятие 7')
+        self.assertNotContains(response, 'Мероприятие 8')
+
+
+class DashboardActAndApprovalBlockTests(TestCase):
+    def test_my_acts_are_the_registrys_own_queue(self):
+        author = _create_user('otk_acts', UserProfile.Role.OTK)
+        other = _create_user('otk_acts_other', UserProfile.Role.OTK)
+        created, _ = ActStatus.objects.get_or_create(code='CREATED_OTK', defaults={'name': 'Создан ОТК'})
+        Act.objects.create(number='АОК-2026-00301', nomenclature='Моё изделие', status=created, created_by=author)
+        Act.objects.create(number='АОК-2026-00302', nomenclature='Чужое изделие', status=created, created_by=other)
+
+        self.client.force_login(author)
+        response = self.client.get(reverse('dashboard:home'))
+
+        # «Мои акты» is the creator's own CREATED_OTK act, never a colleague's.
+        self.assertContains(response, 'Мои акты в работе')
+        self.assertContains(response, 'АОК-2026-00301')
+        self.assertNotContains(response, 'АОК-2026-00302')
+
+    def test_a_protocol_waiting_for_my_signature_is_listed_only_for_me(self):
+        department = Department.objects.create(name='ТО', code='DASH_TO')
+        author = _create_user('dash_author', UserProfile.Role.OTK)
+        approver = _create_user('dash_approver', UserProfile.Role.OTK)
+        for user in (author, approver):
+            user.userprofile.department = department
+            user.userprofile.save(update_fields=['department'])
+        protocol = create_protocol(ProtocolType.objects.get(code=QUALITY_PROTOCOL_TYPE_CODE), author)
+        add_participant(protocol, approver, department=department, requires_approval=True, display_order=1)
+        ProtocolAgendaItem.objects.create(protocol=protocol, text='Вопрос', display_order=0)
+        add_speech(protocol, protocol.participants.get(user=author), 'Доложил.')
+        send_protocol_for_approval(protocol, author)
+
+        self.client.force_login(approver)
+        mine = self.client.get(reverse('dashboard:home'))
+        self.assertContains(mine, 'Ждут вашей подписи')
+        self.assertContains(mine, reverse('protocols:detail', args=[protocol.pk]))
+
+        # The author signs nothing, so the card is not drawn at all.
+        self.client.force_login(author)
+        self.assertNotContains(self.client.get(reverse('dashboard:home')), 'Ждут вашей подписи')

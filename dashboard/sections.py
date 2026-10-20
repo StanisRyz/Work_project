@@ -24,9 +24,8 @@ def _always(user):
     return bool(getattr(user, 'is_authenticated', False))
 
 
-# `icon` names a `<symbol>` in the sprite at the top of `dashboard/home.html`;
-# `accent` picks one of the tints in `static/css/dashboard.css`. Neither is a
-# permission, and neither is read anywhere but the template.
+# `icon` names a `<symbol>` in the sprite at the top of `dashboard/home.html`.
+# It is not a permission, and it is read nowhere but the template.
 QUICK_ACCESS_SECTIONS = (
     {
         'code': 'acts',
@@ -34,7 +33,6 @@ QUICK_ACCESS_SECTIONS = (
         'description': 'Создание и просмотр актов',
         'url_name': 'acts:list',
         'icon': 'acts',
-        'accent': 'blue',
         'is_visible': _always,
     },
     {
@@ -43,7 +41,6 @@ QUICK_ACCESS_SECTIONS = (
         'description': 'Протоколы проверок и совещаний',
         'url_name': 'protocols:list',
         'icon': 'protocols',
-        'accent': 'violet',
         'is_visible': _always,
     },
     {
@@ -52,7 +49,6 @@ QUICK_ACCESS_SECTIONS = (
         'description': 'Процессы и документы системы качества',
         'url_name': 'smk:list',
         'icon': 'smk',
-        'accent': 'green',
         'is_visible': _always,
     },
     {
@@ -61,7 +57,6 @@ QUICK_ACCESS_SECTIONS = (
         'description': 'Мои задачи и поручения',
         'url_name': 'tasks:list',
         'icon': 'tasks',
-        'accent': 'amber',
         'is_visible': _always,
     },
     {
@@ -73,7 +68,6 @@ QUICK_ACCESS_SECTIONS = (
         'description': 'Расчетные инструменты и шаблоны',
         'url_name': 'calculator:page',
         'icon': 'calculator',
-        'accent': 'blue',
         'is_visible': _always,
     },
     {
@@ -82,7 +76,6 @@ QUICK_ACCESS_SECTIONS = (
         'description': 'Нормативные и справочные документы',
         'url_name': 'documents:browse',
         'icon': 'documents',
-        'accent': 'blue',
         'is_visible': can_view_documents,
     },
     {
@@ -91,7 +84,6 @@ QUICK_ACCESS_SECTIONS = (
         'description': 'Канбан-доски отделов',
         'url_name': 'boards:list',
         'icon': 'boards',
-        'accent': 'green',
         'is_visible': can_use_boards,
     },
     {
@@ -102,21 +94,19 @@ QUICK_ACCESS_SECTIONS = (
         'description': 'Подать заявку на доску и следить за ней',
         'url_name': 'boards:requests',
         'icon': 'requests',
-        'accent': 'amber',
         'is_visible': can_use_requests,
     },
 )
 
 
 def get_quick_access_sections(user):
-    """The cards this user may see, in declaration order, with resolved URLs."""
+    """The sections this user may open, in declaration order, with resolved URLs."""
     return [
         {
             'code': section['code'],
             'label': section['label'],
             'description': section['description'],
             'icon': section['icon'],
-            'accent': section['accent'],
             'url': reverse(section['url_name']),
         }
         for section in QUICK_ACCESS_SECTIONS
