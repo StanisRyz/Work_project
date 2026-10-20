@@ -3,7 +3,7 @@
 .act-kpi-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
 }
 
 /* The registry's top row: the scope tabs plus «Создать АКТ», sharing one
@@ -30,7 +30,7 @@
 }
 
 .act-registry-toolbar > .link-button {
-    margin: 0 0 6px;
+    margin: 0 0 4px;
     flex: none;
 }
 
@@ -45,9 +45,9 @@
     flex-direction: row-reverse;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
-    min-height: var(--control-height);
-    padding: 0 12px;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -56,13 +56,13 @@
 .act-kpi-card span {
     min-width: 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 .act-kpi-card strong {
     flex: none;
     color: var(--color-text);
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     line-height: 1.1;
@@ -101,8 +101,8 @@
     margin: 0;
     grid-template-columns: minmax(220px, 420px) repeat(3, minmax(150px, 240px)) repeat(3, auto);
     justify-content: start;
-    gap: 10px;
-    padding: 10px 12px;
+    gap: 8px;
+    padding: 8px 10px;
     border-bottom-color: var(--color-border);
     border-radius: var(--radius) var(--radius) 0 0;
 }
@@ -341,9 +341,9 @@
 .act-detail-tabs__link {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     margin-bottom: -1px;
-    padding: 9px 12px;
+    padding: 6px 10px;
     border-bottom: 2px solid transparent;
     color: var(--color-muted);
     font-weight: 600;
@@ -351,8 +351,8 @@
 }
 
 .act-detail-tabs__link .ui-icon {
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
 }
 
 .act-detail-tabs__link:hover {
@@ -391,14 +391,14 @@
 .act-detail-heading {
     display: flex;
     align-items: flex-start;
-    gap: 14px;
+    gap: 12px;
     min-height: var(--control-height);
-    padding: 14px 16px 12px;
+    padding: 10px 14px 8px;
 }
 
 .act-detail-heading__body {
     display: grid;
-    gap: 6px;
+    gap: 2px;
     min-width: 0;
 }
 
@@ -406,7 +406,7 @@
     display: inline-block;
     margin: 0;
     color: var(--color-text);
-    font-size: 20px;
+    font-size: var(--font-size-page);
     font-weight: 600;
     line-height: 1.25;
 }
@@ -414,24 +414,26 @@
 .act-back-link { display: inline-grid; flex: none; width: var(--control-height); height: var(--control-height); place-items: center; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); color: var(--color-muted); }
 .act-back-link:hover { border-color: var(--color-border-strong); background: var(--color-hover); color: var(--color-text); }
 .act-detail-heading__title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: var(--control-height); }
-.act-stage-badge { display: inline-flex; align-items: center; padding: 3px 10px 3px 9px; font-size: 13px; }
+.act-stage-badge { display: inline-flex; align-items: center; padding: 2px 9px 2px 8px; font-size: var(--font-size-sm); }
 
 /* «Создан · Срок · Тип»: label and value inline, the facts a reader looks for
    before anything else on the page. */
 .act-detail-facts {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 28px;
+    gap: 2px 24px;
     margin: 0;
     color: var(--color-text);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 .act-detail-facts > div {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
+
+.act-detail-facts .due-date { font-size: var(--font-size-sm); }
 
 .act-detail-facts dt {
     color: var(--color-muted);
@@ -444,9 +446,9 @@
 .act-route {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
     margin: 0;
-    padding: 10px 16px 12px;
+    padding: 6px 14px 8px;
     overflow-x: auto;
     list-style: none;
     border-top: 1px solid var(--color-border);
@@ -456,9 +458,9 @@
     display: flex;
     min-width: 145px;
     align-items: center;
-    gap: 9px;
+    gap: 8px;
     color: var(--color-subtle);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 .act-route__step:not(:last-child)::after {
@@ -473,9 +475,9 @@
 
 .act-route__marker {
     display: inline-grid;
-    width: 22px;
-    height: 22px;
-    flex: 0 0 22px;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
     place-items: center;
     border: 1px solid var(--color-border-strong);
     border-radius: 50%;
@@ -484,8 +486,8 @@
     font-weight: 600;
 }
 
-.act-route__copy { display: grid; gap: 1px; min-width: max-content; }
-.act-route__copy strong { font-size: 13px; font-weight: 600; }
+.act-route__copy { display: grid; gap: 0; min-width: max-content; line-height: 1.35; }
+.act-route__copy strong { font-size: var(--font-size-sm); font-weight: 600; }
 .act-route__copy small { color: var(--color-subtle); font-size: 11px; font-weight: 400; }
 
 .act-route__step--completed { color: var(--color-text); }
@@ -583,7 +585,7 @@
     align-items: baseline;
     flex-wrap: wrap;
     gap: 4px 10px;
-    padding: 10px 0;
+    padding: 6px 0;
     cursor: pointer;
     list-style: none;
 }
@@ -608,7 +610,7 @@
 /* Тот же размер и вес, что у заголовка корректирующего мероприятия. */
 .act-defect-card__number {
     color: var(--color-text);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
 }
 
@@ -621,7 +623,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 14px;
+    font-size: 13px;
 }
 
 /* Цех и ЗНП — обычным приглушённым текстом. Пилюль в проекте нет нигде, и
@@ -629,7 +631,7 @@
 .act-defect-card__meta {
     flex: none;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 /* Решение в шапке — это то, что видно у свёрнутой карточки. У раскрытой оно
@@ -641,20 +643,20 @@
 .act-defect-card__body {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 0 0 16px;
+    gap: 10px;
+    padding: 0 0 10px 26px;
 }
 
 /* Длинное описание не растягивается на всю ширину монитора: строка в полторы
    тысячи пикселей нечитаема, где бы она ни стояла. */
-.act-defect-card__grid .act-defect-card__full p { max-width: 110ch; }
+.act-defect-card__grid .act-defect-card__full p { max-width: var(--field-text); }
 
 
 .act-defect-card__label {
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 /* Решение и анализ. В одну колонку по умолчанию; на широком экране — рядом,
@@ -662,7 +664,7 @@
 .act-defect-card__work {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 14px;
+    gap: 12px;
     align-items: start;
 }
 
@@ -672,7 +674,7 @@
        448px — это самая длинная формулировка решения (396px текста плюс
        отступы и стрелка `select`): доли 4fr на такой ширине не хватает, и
        выбранное решение обрезалось бы на «…с дор…». */
-    .act-defect-card__work { grid-template-columns: minmax(448px, 4fr) minmax(0, 8fr); }
+    .act-defect-card__work { grid-template-columns: minmax(448px, 560px) minmax(0, 780px); justify-content: start; }
     /* Анализа нет — запрещающее решение или акт до изм.2: решение занимает всю
        ширину, а не половину с пустотой рядом. */
     .act-defect-card__work:not(:has(.act-defect-card__impact:not([hidden]))) {
@@ -685,8 +687,9 @@
    говорит КО, что он выбрал; шире — становятся рядом. */
 .act-defect-card__decision {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(448px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(448px, 560px));
+    justify-content: start;
+    gap: 10px 16px;
     min-width: 0;
 }
 
@@ -713,7 +716,7 @@
     font-size: var(--control-font-size);
 }
 
-.act-defect-card__decision textarea { min-height: 62px; resize: vertical; }
+.act-defect-card__decision textarea { min-height: 46px; resize: vertical; }
 
 /* Чек-лист анализа — вложенный блок ровно того вида, каким «Исполнители»
    отделены внутри корректирующего мероприятия: фон страницы, скругление,
@@ -722,26 +725,32 @@
 .act-defect-card__impact {
     min-width: 0;
     margin: 0;
-    padding: 12px;
+    padding: 8px 10px;
     border: 0;
     border-radius: var(--radius);
     background: var(--color-bg);
 }
 
+/* Floated so the label stands inside the grey block: a `legend` is otherwise
+   drawn across the fieldset's top edge, half outside it. */
 .act-defect-card__impact legend {
+    float: left;
+    width: 100%;
     padding: 0;
     margin-bottom: 4px;
     color: var(--color-muted);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
 }
+
+.act-defect-card__impact legend + * { clear: both; }
 
 .act-defect-card__impact-row {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 6px 10px;
-    padding: 3px 0;
+    gap: 4px 10px;
+    padding: 2px 0;
 }
 
 .act-defect-card__impact-check {
@@ -749,7 +758,7 @@
     align-items: center;
     gap: 8px;
     color: var(--color-text);
-    font-size: 14px;
+    font-size: 13px;
     cursor: pointer;
 }
 
@@ -836,7 +845,7 @@
 
 .act-registry-tabs__link {
     margin-bottom: -1px;
-    padding: 9px 12px;
+    padding: 6px 10px;
     border-bottom: 2px solid transparent;
     color: var(--color-muted);
     font-weight: 600;
@@ -1327,15 +1336,15 @@
 
 .act-work-sequence {
     display: grid;
-    gap: 12px;
+    gap: 8px;
 }
 
 /* `#ko-decision-form` holds only hidden fields — its visible controls live in
    the defects table and are linked by their `form` attribute — so it must not
    claim a grid row of its own. */
 .act-work-sequence > #ko-decision-form { display: none; }
-.act-work-sequence > .detail-section { padding: 14px 16px; }
-.act-work-sequence > .detail-section > h2 { margin-bottom: 12px; color: var(--color-text); font-size: 16px; }
+.act-work-sequence > .detail-section { padding: 10px 14px 12px; }
+.act-work-sequence > .detail-section > h2 { margin-bottom: 8px; color: var(--color-text); font-size: var(--font-size-title); }
 
 .act-work-decision-row {
     display: grid;
@@ -1395,8 +1404,8 @@
     z-index: 5;
     display: flex;
     justify-content: space-between;
-    gap: 12px;
-    padding: 8px 12px;
+    gap: 10px;
+    padding: 6px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -1415,41 +1424,46 @@
    Two rows filled column by column — each label over its value — so no pair
    has to be placed by hand. */
 .act-party-data {
-    grid-template-columns: minmax(0, 0.6fr) repeat(4, minmax(0, 1fr)) !important;
+    grid-template-columns: minmax(0, 160px) repeat(4, minmax(0, 300px)) !important;
     grid-template-rows: auto auto;
     grid-auto-flow: column;
-    gap: 3px 24px !important;
+    justify-content: start;
+    gap: 1px 28px !important;
+    margin: 0 !important;
 }
 
 .act-party-data dt {
     color: var(--color-muted) !important;
-    font-size: 12px;
+    font-size: var(--font-size-sm);
     font-weight: 400;
     white-space: nowrap;
 }
 
 .act-party-data dd { color: var(--color-text); font-weight: 500; }
 
+/* Six columns as before, each no wider than a fact needs: spread over the
+   whole 1920 px a row of six short values was a row of gaps. */
 .act-defect-card__grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 14px 18px;
+    grid-template-columns: repeat(6, minmax(0, 190px));
+    justify-content: start;
+    gap: 8px 24px;
 }
 
 .act-defect-card__grid > div {
     display: grid;
-    gap: 4px;
+    gap: 1px;
 }
 
 .act-defect-card__grid span {
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: var(--font-size-sm);
 }
 
 .act-defect-card__grid .act-defect-card__value {
     color: var(--color-text);
     font-weight: 500;
-    font-size: 14px;
+    font-size: 13px;
     font-variant-numeric: tabular-nums;
 }
 
@@ -1509,7 +1523,7 @@
 
 .act-form-page {
     display: grid;
-    gap: 12px;
+    gap: 10px;
 }
 
 /* The same heading as the act page: a bordered back button, the title, the
@@ -1523,15 +1537,15 @@
 .act-form-page__header h1 {
     margin: 0;
     color: var(--color-text);
-    font-size: 20px;
+    font-size: var(--font-size-page);
     font-weight: 600;
     line-height: 1.25;
 }
 
 .act-form-page__header p {
-    margin: 2px 0 0;
+    margin: 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 .act-form-page__back {
@@ -1554,15 +1568,15 @@
 
 .act-form--editor {
     display: grid;
-    gap: 12px;
+    gap: 8px;
     counter-reset: act-form-section;
 }
 
 .act-form--editor label {
     display: grid;
-    gap: 6px;
+    gap: 4px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 .act-form--editor input,
@@ -1588,8 +1602,8 @@
 
 .act-form-section {
     display: grid;
-    gap: 16px;
-    padding: 16px 18px 18px;
+    gap: 10px;
+    padding: 10px 14px 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -1600,37 +1614,39 @@
 .act-form-section h2 {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     margin: 0;
     color: var(--color-text);
-    font-size: 16px;
+    font-size: var(--font-size-title);
     counter-increment: act-form-section;
 }
 
 .act-form-section h2::before {
     display: inline-grid;
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     flex: none;
     place-items: center;
     border-radius: 50%;
     background: var(--color-primary-soft);
     color: var(--color-primary-dark);
     content: counter(act-form-section);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
 }
 
 .act-form-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+    gap: 10px 12px;
     align-items: start;
 }
 
-/* Данные акта: five fields, with a compact номер акта ahead of the text ones. */
+/* Данные акта: five fields, with a compact номер акта ahead of the text ones,
+   each as wide as what is typed into it. */
 .act-form-row--act {
-    grid-template-columns: minmax(0, 0.55fr) repeat(4, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 120px) repeat(4, minmax(0, var(--field-line)));
+    justify-content: start;
 }
 
 .act-form-field--number input {
@@ -1655,7 +1671,7 @@
 }
 
 .act-defect-section__heading p {
-    margin: 4px 0 0 32px;
+    margin: 2px 0 0 28px;
     color: var(--color-muted);
     font-size: 13px;
 }
@@ -1672,15 +1688,15 @@
 
 .defect-form-list {
     display: grid;
-    gap: 12px;
+    gap: 8px;
 }
 
 /* One defect, one block: a quiet inset with its own heading, so two defects
    of different workshops never read as one long form. */
 .defect-form-block {
     display: grid;
-    gap: 14px;
-    padding: 14px 16px 16px;
+    gap: 8px;
+    padding: 8px 12px 12px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface-muted);
@@ -1691,13 +1707,13 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    min-height: 30px;
+    min-height: 26px;
 }
 
 .defect-form-block__heading h3 {
     margin: 0;
     color: var(--color-text);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
 }
 
@@ -1716,17 +1732,19 @@
     margin-top: 0;
 }
 
+/* Three groups side by side, none wider than its fields need. */
 .defect-form-block__groups {
     display: grid;
-    grid-template-columns: 0.92fr 1.15fr 1fr;
-    gap: 22px;
+    grid-template-columns: repeat(3, minmax(0, 400px));
+    justify-content: start;
+    gap: 24px;
 }
 
 .defect-field-group {
     display: grid;
     align-content: start;
     min-width: 0;
-    gap: 10px;
+    gap: 6px;
     margin: 0;
     padding: 0;
     border: 0;
@@ -1735,7 +1753,7 @@
 .defect-field-group label {
     grid-template-columns: minmax(116px, 0.8fr) minmax(0, 1.35fr);
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     pointer-events: none;
 }
 
@@ -1775,20 +1793,22 @@
 .defect-field-group legend {
     width: 100%;
     margin: 0 0 2px;
-    padding: 0 0 7px;
+    padding: 0 0 4px;
     border-bottom: 1px solid var(--color-border);
     color: var(--color-text);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
     font-weight: 600;
 }
 
 .defect-form-block__description textarea {
-    min-height: 66px;
+    min-height: 46px;
     resize: vertical;
 }
 
+/* As wide as the three groups above it (3 × 400 px and two gaps). */
 .defect-form-block__description {
-    gap: 7px !important;
+    gap: 4px !important;
+    max-width: 1248px;
 }
 
 /* `.act-form--editor label` sets `display: grid`, and an author declaration
@@ -1834,9 +1854,9 @@
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     margin: 0;
-    padding: 8px 12px;
+    padding: 6px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -1848,12 +1868,12 @@
 }
 
 .act-form-actions .link-button:not(.link-button--secondary) {
-    min-width: 180px;
+    min-width: 150px;
     justify-content: center;
 }
 
 .act-form-actions .link-button--secondary {
-    min-width: 132px;
+    min-width: 110px;
     justify-content: center;
 }
 
@@ -1919,12 +1939,12 @@
 .act-inline-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
 }
 
 .act-inline-actions .link-button {
-    margin-top: 14px;
+    margin-top: 8px;
 }
 
 .act-decision-form {
@@ -2102,8 +2122,8 @@
 }
 
 .root-analysis-card {
-    gap: 10px;
-    padding: 12px;
+    gap: 8px;
+    padding: 8px 12px 10px;
     background: var(--color-surface);
 }
 
@@ -2116,14 +2136,14 @@
     font-weight: 600;
 }
 
-.root-analysis-card__cause { display: grid; gap: 6px; }
-.root-analysis-card__cause textarea { min-height: 54px; resize: vertical; }
+.root-analysis-card__cause { display: grid; gap: 4px; max-width: var(--field-text); margin-top: 6px; }
+.root-analysis-card__cause textarea { min-height: 46px; resize: vertical; }
 
 .corrective-action-list { gap: 0; }
 
 .corrective-action-card {
-    gap: 10px;
-    padding: 12px 0 0;
+    gap: 8px;
+    padding: 8px 0 0;
     border: 0;
     border-top: 1px solid var(--color-border);
     border-radius: 0;
@@ -2142,9 +2162,9 @@
 
 .to-analysis-form label {
     display: grid;
-    gap: 6px;
+    gap: 4px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
 .to-analysis-form textarea,
@@ -2159,10 +2179,12 @@
     font-size: var(--control-font-size);
 }
 
+/* «Срок» is a date: as wide as a date, not a third of the screen. */
 .corrective-action-card__fields {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
+    grid-template-columns: minmax(0, var(--field-short));
+    gap: 10px;
+    margin-top: 6px;
 }
 
 /* Corrective-action card: the «Исполнители» block ------------------------- */
@@ -2178,47 +2200,53 @@
    the fields below. Editable form only — the approved analysis never shows it. */
 .corrective-action-card__statement {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
+    grid-template-columns: minmax(0, var(--field-text)) max-content;
+    justify-content: start;
     align-items: start;
-    gap: 14px;
+    gap: 16px;
+    margin-top: 6px;
 }
 
 /* Aligned with the textarea beside it rather than with its own label row,
    which the checkbox does not have. */
-.corrective-action-card__requirement { padding-top: 30px; }
+.corrective-action-card__requirement { padding-top: 24px; }
 
 .corrective-action-card__comment { align-self: stretch; }
-.corrective-action-card__comment textarea { min-height: 54px; resize: vertical; }
+.corrective-action-card__comment textarea { min-height: 46px; resize: vertical; }
 
 /* The executors, set apart from the fields above them the way a protocol task
    card sets its own apart — one block, identical rows inside it. */
+/* The block is as wide as its rows, not as the card: two selects and a «×»
+   on a grey band 1800 px long was the emptiest part of the page. */
 .corrective-action-card__assignees {
     display: grid;
     justify-items: start;
-    gap: 10px;
-    padding: 12px;
+    gap: 6px;
+    width: fit-content;
+    max-width: 100%;
+    padding: 8px 10px;
     border-radius: var(--radius);
     background: var(--color-bg);
 }
 
 .corrective-action-card__assignees-label {
     color: var(--color-muted);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
 }
 
-.to-assignee-list { display: grid; gap: 10px; width: 100%; }
+.to-assignee-list { display: grid; gap: 6px; width: 100%; }
 
 /* Every row identical, first one included: department, employee, compact ×. */
 .to-assignee-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-    gap: 12px;
+    grid-template-columns: minmax(0, 300px) minmax(0, var(--field-line)) auto;
+    gap: 8px;
     align-items: end;
     width: 100%;
 }
 
-.to-assignee-row .analysis-remove-button { margin-bottom: 4px; }
+.to-assignee-row .analysis-remove-button { margin-bottom: 0; }
 .to-assignee-row .analysis-remove-button[hidden] { display: none; }
 
 /* A saved employee who no longer matches the chosen department. Spans the
@@ -2243,7 +2271,7 @@
     align-items: center;
     gap: 8px;
     color: var(--color-text);
-    font-size: 14px;
+    font-size: 13px;
     white-space: nowrap;
 }
 
@@ -2330,9 +2358,9 @@
 
 .analysis-remove-button {
     display: inline-grid;
-    width: 34px;
-    height: 34px;
-    flex: 0 0 34px;
+    width: var(--control-height);
+    height: var(--control-height);
+    flex: 0 0 var(--control-height);
     place-items: center;
     padding: 0;
     border: 1px solid var(--color-border);
@@ -2340,7 +2368,7 @@
     background: var(--color-surface);
     color: var(--color-muted);
     cursor: pointer;
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 400;
     line-height: 1;
 }
@@ -2602,6 +2630,7 @@
     }
 
     .act-party-data { gap: 2px !important; }
+    .act-defect-card__body { padding-left: 0; }
     .act-party-data dd + dt { margin-top: 8px; }
 
     .act-defect-card__grid .act-defect-card__full {

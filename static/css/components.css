@@ -320,7 +320,7 @@
     width: fit-content;
     min-height: var(--control-height);
     margin-top: 14px;
-    padding: 6px 14px;
+    padding: 4px 12px;
     /* A transparent border on the filled variants: an outlined neighbour is
        then exactly the same height. */
     border: 1px solid transparent;
@@ -328,7 +328,7 @@
     background: var(--color-primary);
     color: #ffffff;
     font-family: inherit;
-    font-size: 14px;
+    font-size: var(--control-font-size);
     font-weight: 600;
     line-height: 1.2;
     text-align: center;
@@ -366,15 +366,15 @@
 
 /* The one dense size, for buttons sitting inside a card's own toolbar. */
 .link-button--compact {
-    min-height: 30px;
+    min-height: 26px;
     margin-top: 0;
-    padding: 5px 10px;
-    font-size: 13px;
+    padding: 3px 8px;
+    font-size: var(--font-size-sm);
 }
 
 .link-button--compact .ui-icon {
-    width: 15px;
-    height: 15px;
+    width: 14px;
+    height: 14px;
 }
 
 /* A return or a correction: outlined, so it never competes with the one
@@ -479,7 +479,7 @@
 }
 
 .message {
-    padding: 9px 12px;
+    padding: 7px 10px;
     border: 1px solid var(--color-border);
     border-left: 3px solid var(--color-primary);
     border-radius: var(--radius);
@@ -508,7 +508,7 @@
 .table-card,
 .form-card,
 .detail-section {
-    padding: 18px;
+    padding: 12px 14px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -544,9 +544,9 @@
 .filter-form label,
 .form-card label {
     display: grid;
-    gap: 6px;
+    gap: 4px;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: var(--font-size-sm);
 }
 
 .filter-form input,
@@ -751,7 +751,7 @@ tr[data-row-url]:hover { background: var(--color-hover); }
 }
 
 .detail-section h2 {
-    font-size: 16px;
+    font-size: var(--font-size-title);
 }
 
 .detail-section dl {
@@ -818,8 +818,8 @@ tr[data-row-url]:hover { background: var(--color-hover); }
 
 .app-modal__form {
     display: grid;
-    gap: 14px;
-    padding: 24px;
+    gap: 12px;
+    padding: 18px 20px;
 }
 
 .app-modal__form h2,
@@ -828,7 +828,7 @@ tr[data-row-url]:hover { background: var(--color-hover); }
 }
 
 .app-modal__form h2 {
-    font-size: 18px;
+    font-size: 16px;
 }
 
 .app-modal__form > p {

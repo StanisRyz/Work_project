@@ -186,10 +186,13 @@ tasks never live inside `acts`.
   states; a modifier (`--secondary`, `--warning`, `--danger`, `--success`,
   `--compact`) changes only colour or density.
 - **One density, sized for the plant's 23–24" 1920×1080 screens.** The numbers
-  live once, as tokens in `static/css/base.css`: `--font-size-base` (14px, the
-  `body` size), `--control-height` (34px), `--control-padding` (7px 10px),
-  `--control-font-size` (14px) and `--cell-padding` (8px 12px for
-  `.data-table`). `components.css` makes every single-line `input` and every
+  live once, as tokens in `static/css/base.css`: `--font-size-base` (13px, the
+  `body` size), `--font-size-sm` (12px, captions), `--control-height` (30px),
+  `--control-padding` (5px 8px), `--control-font-size` (13px) and
+  `--cell-padding` (6px 10px for `.data-table`), plus three field caps —
+  `--field-text` (1080px, a multi-line field), `--field-line` (340px, a
+  one-line field), `--field-short` (160px, a date or a number) — because a
+  field stretched across 1920px is unreadable, not roomy. `components.css` makes every single-line `input` and every
   `select` exactly `--control-height` tall and every `select` white — a
   `height`, because a text input takes the inherited 1.5 line height and a
   select does not, so a `min-height` left them 3px apart in one row. A

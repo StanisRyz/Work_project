@@ -59,13 +59,25 @@
     --font-family: 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
 
     /* Density. One set of numbers every module's controls, buttons and table
-       cells read, sized for the plant's 23–24" 1920×1080 screens: 14px text,
-       34px controls. A module never restates them — it names the token. */
-    --font-size-base: 14px;
-    --control-height: 34px;
-    --control-padding: 7px 10px;
-    --control-font-size: 14px;
-    --cell-padding: 8px 12px;
+       cells read, sized for the plant's 23–24" 1920×1080 screens: 13px text,
+       30px controls — a working tool read all day, not a brochure. A module
+       never restates them — it names the token. */
+    --font-size-base: 13px;
+    --font-size-sm: 12px;
+    --font-size-title: 15px;
+    --font-size-page: 18px;
+    --control-height: 30px;
+    --control-padding: 5px 8px;
+    --control-font-size: 13px;
+    --cell-padding: 6px 10px;
+
+    /* How wide a field may grow. Text is read, not scanned: a line of
+       1800 px is not read at all, so a multi-line field stops at
+       `--field-text`; one-line fields stop at `--field-line`, a date or a
+       number at `--field-short`. The spare width stays spare. */
+    --field-text: 1080px;
+    --field-line: 340px;
+    --field-short: 160px;
 }
 
 * {
