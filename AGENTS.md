@@ -211,6 +211,9 @@ tasks never live inside `acts`.
   return, a removal or an addition is outlined. An act status is a neutral
   `act-badge--status`/`act-stage-badge` plus `--<status code>`, whose dot
   reads `--stage-*`; a КО decision is `act-badge--decision-<code>`, tinted.
+  Any other state with a modifier — `status-badge--in_progress|completed|
+  archived|created` (tasks, СМК, boards) — is the same neutral label with a
+  dot; a decision of a person (`approval-status--*`) stays tinted.
 - **Registry conveniences are one set of tools, and none of them is a rule.**
   Every registry (акты, задачи, протоколы, СМК) shows the unfiltered — or, for
   СМК, the filtered — size of each tab beside its name, applies its filters by
@@ -952,9 +955,12 @@ tasks never live inside `acts`.
   the «Мои задачи» tab and opens its first row other than the task just done
   — the registry's own order, so never a task the user could not open — or
   that tab itself when nothing is left, with a message naming what was done.
-  The task page puts the wording first on the full width (facts above it,
-  status once, in the heading), «Выполнение» left and «Вложения» +
-  «Исполнители» right; the file input is the act/protocol `.attachment-picker`.
+  The task page is laid out as the act page (`.task-page`): the heading card
+  (number, the status once, «Вернуть в работу») and the work — the wording,
+  then «Выполнение» — in the wide column, and a sticky side column of
+  «Сведения о задаче» (type, source, подразделение, срок, created, who set it),
+  «Вложения» and «Исполнители»; the file input is the act/protocol
+  `.attachment-picker`.
 - **A `TaskAttachment` is optional, and never a precondition of finishing.**
   Uploading is its own endpoint (`tasks:add_attachment`) and its own form, so
   the completion form carries no file field and a task is still completed with

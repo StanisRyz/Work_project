@@ -1176,19 +1176,51 @@
     grid-template-columns: repeat(2, minmax(180px, 300px)) repeat(2, minmax(150px, 240px)) repeat(3, auto);
 }
 
-.task-detail-heading {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-height: 36px;
-    margin-bottom: 4px;
+/* The task page (`tasks/detail.html`) is laid out as the act page: the
+   heading card and the work on the left, a properties column on the right —
+   «Сведения о задаче», «Вложения», «Исполнители» — sticky beside the work. */
+.task-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-areas:
+        'head side'
+        'main side';
+    grid-template-rows: auto 1fr;
+    align-items: start;
+    gap: 10px 16px;
 }
 
-.task-detail-heading__title {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
+.task-page__head { grid-area: head; min-width: 0; }
+
+.task-page__main {
+    grid-area: main;
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+}
+
+.task-page__side {
+    grid-area: side;
+    position: sticky;
+    top: 58px;
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+    max-height: calc(100vh - 72px);
+    overflow-y: auto;
+}
+
+/* The side cards share the properties card's padding, so their text lines up. */
+.task-page__side .task-detail-attachments-card,
+.task-page__side .task-detail-assignee-card { gap: 8px; padding: 10px 14px 12px; }
+
+@media (max-width: 1280px) {
+    .task-page {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: 'head' 'main' 'side';
+    }
+
+    .task-page__side { position: static; max-height: none; overflow: visible; }
 }
 
 /* «Вернуть в работу», pushed to the far end of the heading row — the same
@@ -1203,77 +1235,20 @@
     .task-detail-heading__actions { margin-left: 0; }
 }
 
-.task-detail-heading__title h1 {
-    margin: 0;
-    color: var(--color-primary-dark);
-    font-size: 20px;
-    line-height: 1.2;
-}
-
-/* The task page (`tasks/detail.html`): the statement on the full width, then
-   «Выполнение» on the left and a side column — «Вложения» above «Исполнители»
-   — on the right. The side column is a stack of its own, so a one-person
-   исполнители card is exactly as tall as its content, not as its neighbour. */
-.task-detail-execution-columns {
-    display: grid;
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-    gap: 10px;
-    align-items: start;
-    margin-bottom: 10px;
-}
-
-.task-detail-side {
-    display: grid;
-    gap: 10px;
-    min-width: 0;
-}
-
 .task-detail-statement {
     display: grid;
-    gap: 10px;
-    margin-bottom: 10px;
-    padding: 16px 20px;
+    gap: 8px;
+    padding: 12px 16px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
 }
 
-/* The facts a person checks before starting, laid out as the act's «Данные
-   акта» are: a small muted label above its value, on one row. */
-.task-detail-facts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 36px;
-    margin: 0 0 4px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--color-border);
-}
-
-.task-detail-facts > div {
-    display: grid;
-    gap: 3px;
-    min-width: 0;
-}
-
-.task-detail-facts dt {
-    color: var(--color-muted);
-    font-size: 12px;
-}
-
-.task-detail-facts dd {
-    margin: 0;
-    font-weight: 700;
-}
-
 /* The wording itself: the one thing on the page set larger than the rest. */
 .task-detail-statement__text {
-    font-size: 16px;
+    max-width: var(--field-text);
+    font-size: 15px;
     line-height: 1.55;
-}
-
-/* The task page's tabs sit under the heading, as on the act and СМК pages. */
-.task-detail-tabs {
-    margin-bottom: 10px;
 }
 
 /* «Задача возвращена в работу»: the latest reason, above «Выполнение», in the
@@ -1281,8 +1256,7 @@
 .task-detail-reopened {
     display: grid;
     gap: 8px;
-    margin-bottom: 10px;
-    padding: 14px 20px;
+    padding: 12px 16px;
     background: var(--color-warning-soft);
     border: 1px solid var(--color-warning-border);
     border-radius: var(--radius);
@@ -1317,7 +1291,7 @@
 .task-detail-assignee-card,
 .task-detail-execution-card,
 .task-detail-attachments-card {
-    padding: 16px 20px;
+    padding: 12px 16px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -1331,13 +1305,23 @@
     align-content: start;
 }
 
-.task-detail-assignee-card h2,
-.task-detail-execution-card h2,
-.task-detail-attachments-card h2 {
+.task-detail-execution-card h2 {
     margin: 0;
     color: var(--color-text);
-    font-size: 16px;
+    font-size: var(--font-size-title);
     line-height: 1.5;
+}
+
+/* In the side column the two cards are headed like «Сведения о задаче». */
+.task-detail-assignee-card h2,
+.task-detail-attachments-card h2 {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    letter-spacing: .02em;
+    line-height: 1.5;
+    text-transform: uppercase;
 }
 
 .task-detail-assignee-primary {
@@ -1374,6 +1358,9 @@
 .task-detail-assignee-toggle-spacer {
     margin-left: 6px;
 }
+
+/* One исполнитель: nothing to unfold, so no empty row under the name. */
+.task-detail-assignee-toggle-row:has(> .task-detail-assignee-toggle-spacer:only-child) { display: none; }
 
 .task-detail-assignee-toggle-button,
 .task-detail-assignee-toggle-spacer {
@@ -1528,6 +1515,7 @@
 .task-detail-execution-card textarea {
     box-sizing: border-box;
     width: 100%;
+    max-width: var(--field-text);
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -1536,12 +1524,10 @@
     resize: vertical;
 }
 
+/* The one action under the field it sends, not a screen's width away. */
 .task-detail-actions {
     display: flex;
-    justify-content: flex-end;
     gap: 10px;
-    padding-top: 4px;
-    border-top: 1px solid var(--color-border);
 }
 
 .task-completion-meta { margin: 0; color: var(--color-muted); }
@@ -1632,12 +1618,6 @@
     background: var(--color-warning-soft);
     color: var(--color-warning);
     font-size: 13px;
-}
-
-@media (max-width: 900px) {
-    .task-detail-execution-columns {
-        grid-template-columns: 1fr;
-    }
 }
 
 .act-work-sequence {
@@ -3016,11 +2996,11 @@
    cell is one line, like the act, protocol and СМК registries. */
 .task-registry-table { table-layout: fixed; min-width: 1100px; }
 .task-registry-table__number { width: 84px; }
-.task-registry-table__people { width: 230px; }
-.task-registry-table__type { width: 210px; }
+.task-registry-table__people { width: 210px; }
+.task-registry-table__type { width: 290px; }
 .task-registry-table__source { width: 170px; }
-.task-registry-table__status { width: 140px; }
-.task-registry-table__due { width: 230px; }
+.task-registry-table__status { width: 130px; }
+.task-registry-table__due { width: 200px; }
 .task-registry-table th,
 .task-registry-table td { white-space: nowrap; }
 .task-registry-table__line { display: block; }

@@ -18,10 +18,15 @@ permission, and so does the СМК form behind it.
         <a class="act-registry-tabs__link{% if tab == 'archive' %} act-registry-tabs__link--active{% endif %}" href="{{ tab_urls.archive }}">Архив <span class="tab-count">{{ tab_counts.archive }}</span></a>
     </nav>
     {% if can_create_task %}
-        <a class="link-button" href="{% url 'tasks:create' %}">Создать задачу</a>
+        <a class="link-button" href="{% url 'tasks:create' %}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Создать задачу</a>
     {% endif %}
 </div>
 
+{% comment %}
+The filters and the list are one panel, as in the act registry: both stand in
+one `.fill-region`, so no page gap opens between them.
+{% endcomment %}
+<div class="fill-region">
 <form class="filter-form act-filter-panel task-filter-panel" method="get" data-registry-filter>
     <input type="hidden" name="tab" value="{{ tab }}">
     {% comment %}
@@ -39,7 +44,7 @@ permission, and so does the СМК form behind it.
     <label><span>Тип задачи</span><select name="source_type"><option value="">Все</option>{% for value, label in source_type_options %}<option value="{{ value }}"{% if selected.source_type == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
     <label><span>Срок</span><select name="due"><option value="">Все</option><option value="overdue"{% if selected.due == 'overdue' %} selected{% endif %}>Просроченные</option><option value="not_overdue"{% if selected.due == 'not_overdue' %} selected{% endif %}>Не просроченные</option></select></label>
     <input type="hidden" name="sort" value="{{ selected.sort }}">
-    <button class="link-button" type="submit">Применить</button>
+    <button class="link-button link-button--secondary" type="submit">Применить</button>
     <a class="link-button link-button--secondary" href="{{ reset_url }}">Сбросить</a>
     {% comment %}The list exactly as shown — tab, filters, search and order — as a spreadsheet.{% endcomment %}
     <a class="link-button link-button--secondary" href="{% query_with export='xlsx' %}" title="Выгрузить список в Excel" download>Excel</a>
@@ -52,5 +57,6 @@ survive.
 {% endcomment %}
 <div class="fill-region" data-live-task-list data-fragment-url="{% url 'tasks:list_fragment' %}">
     {% include 'tasks/includes/list_results.html' %}
+</div>
 </div>
 {% endblock %}

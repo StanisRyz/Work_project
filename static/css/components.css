@@ -700,10 +700,38 @@ tr[data-row-url]:hover { background: var(--color-hover); }
    «shelved», green for «done», blue for «running» — rather than four new
    colours. Used by the СМК registry and record page, whose four states are
    derived from the tasks and never stored. */
-.status-badge--created { background: var(--color-warning-soft); color: var(--color-warning); }
-.status-badge--in_progress { background: var(--color-primary-soft); color: var(--color-primary-dark); }
-.status-badge--completed { background: var(--color-success-soft); color: var(--color-success); }
-.status-badge--archived { background: var(--color-bg); color: var(--color-muted); }
+/* A state with a modifier is drawn the way an act status is: a neutral
+   label with a coloured dot, so a column of states reads by colour without a
+   page of tinted pills. Grey shelved, green done, blue running, amber new. */
+.status-badge--created,
+.status-badge--in_progress,
+.status-badge--completed,
+.status-badge--archived {
+    align-items: center;
+    gap: 6px;
+    padding: 1px 8px 1px 7px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-weight: 500;
+}
+
+.status-badge--created::before,
+.status-badge--in_progress::before,
+.status-badge--completed::before,
+.status-badge--archived::before {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--stage-color, var(--color-subtle));
+    content: '';
+}
+
+.status-badge--created { --stage-color: var(--color-warning); }
+.status-badge--in_progress { --stage-color: var(--stage-review); }
+.status-badge--completed { --stage-color: var(--stage-done); }
+.status-badge--archived { --stage-color: var(--stage-closed); color: var(--color-muted); }
 
 /* One approval decision, as a pill. Shared: the protocol page renders it per
    approver, and the task registry uses it for the real outcome of an approval

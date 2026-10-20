@@ -13,16 +13,24 @@ decision control nor an execution form for a stage lives here.
 People are always written through `|person_name`: `{{ user }}` alone renders
 the Django login, never the employee's name.
 {% endcomment %}
-<section class="task-detail-heading">
-    <a class="act-back-link" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}" aria-label="К списку задач">←</a>
-    <div class="task-detail-heading__title">
+{% comment %}
+Laid out as the act page is: the heading in a card above the work, the work in
+the wide column, and a properties column on the right — «Сведения о задаче»,
+«Вложения», «Исполнители» — that stays beside the work instead of a third of
+the screen standing empty.
+{% endcomment %}
+<div class="task-page">
+<section class="act-head task-page__head">
+<div class="act-detail-heading task-detail-heading">
+    <a class="act-back-link" href="{% url 'tasks:list' %}{% if list_query %}?{{ list_query }}{% endif %}" aria-label="К списку задач" title="К списку задач"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></a>
+    <div class="act-detail-heading__title task-detail-heading__title">
         <h1>Задача №{{ task.pk }}</h1>
         {% comment %}
         The task's one «Статус»: `describe_task_state()`, not the raw queue
         status — an approval task whose round was cancelled is closed as
         «Выполнено» in the queue and must never read as approved.
         {% endcomment %}
-        <span class="act-badge act-badge--status{% if task_state.variant %} approval-status approval-status--{{ task_state.variant }}{% endif %}" title="Статус задачи">Статус: {{ task_state.label }}</span>
+        {% if task_state.variant %}<span class="approval-status approval-status--{{ task_state.variant }}" title="Статус задачи">{{ task_state.label }}</span>{% else %}<span class="status-badge status-badge--{{ task_state.badge }}" title="Статус задачи">{{ task_state.label }}</span>{% endif %}
     </div>
     {% comment %}
     «Вернуть в работу» — the one action on a closed task, shown only when
@@ -49,8 +57,10 @@ the Django login, never the employee's name.
                     data-confirm-url="{% url 'tasks:reopen' task.pk %}{% if list_query %}?{{ list_query }}{% endif %}">Вернуть в работу</button>
         </div>
     {% endif %}
+</div>
 </section>
 
+<div class="task-page__main">
 {% comment %}
 The page's tabs, drawn as the act and СМК pages draw theirs: links, chosen by
 the server (`?section=`, since `tab` already carries the registry state «←»
@@ -67,29 +77,12 @@ reason; its count is the number of returns.
 {% else %}
 
 {% comment %}
-What the task asks, first and on the full width: the statement card opens with
-the facts a person checks before starting (where it came from, which
-подразделение, until when) and then the wording itself. The status is not
-repeated here — the pill in the heading is the one answer.
+What the task asks, first: the wording itself, under what it is. The facts a
+person checks before starting — where it came from, which подразделение,
+until when — stand in «Сведения о задаче» on the right; the status is the
+pill in the heading.
 {% endcomment %}
 <section class="task-detail-statement">
-    <dl class="task-detail-facts">
-        <div><dt>Тип задачи</dt><dd>{{ task_type_label }}</dd></div>
-        {% comment %}
-        One source row for every origin: `describe_task_source()` already
-        resolved the label and the `reverse()`d link, so the template does not
-        branch on which relation happens to be filled.
-        {% endcomment %}
-        {% if task_source.url %}<div><dt>Источник</dt><dd class="user-text"><a class="table-link" href="{{ task_source.url }}">{{ task_source.label }}</a></dd></div>{% endif %}
-        {% comment %}
-        Every real work item names a department except a bug report, whose
-        assignees are chosen by the «Ответственный за ошибки» flag and may sit
-        in any number of them. The fact is omitted rather than filled with a
-        dash.
-        {% endcomment %}
-        {% if task.department %}<div><dt>Подразделение</dt><dd class="user-text">{{ task.department }}</dd></div>{% endif %}
-        <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=task.due_date done=task.status.is_final %}</dd></div>
-    </dl>
     {% comment %}
     What the text below *is*, per source type. Every branch is named: an
     unnamed source falling through to «Решение протокола» would label an СМК
@@ -124,11 +117,10 @@ whole trail is «История возвратов».
 {% endif %}
 
 {% comment %}
-«Выполнение» on the left, «Вложения» on the right. The two are separate forms
-posting to separate endpoints on purpose: a file is optional, and a task is
-still completed with the execution comment and nothing attached.
+«Выполнение» in the work column, «Вложения» in the side column. The two are
+separate forms posting to separate endpoints on purpose: a file is optional,
+and a task is still completed with the execution comment and nothing attached.
 {% endcomment %}
-<div class="task-detail-execution-columns">
     {% if can_complete %}
         <form method="post" action="{% url 'tasks:complete' task.pk %}" class="task-detail-execution-card" data-hotkey-submit data-unsaved-guard{% if execution_error %}="dirty"{% endif %}>
             {% csrf_token %}
@@ -179,8 +171,32 @@ still completed with the execution comment and nothing attached.
             <p class="task-completion-meta">Результат ещё не внесён.</p>
         </section>
     {% endif %}
+{% endif %}
+</div>
 
-    <div class="task-detail-side">
+<aside class="task-page__side" aria-label="Сведения о задаче">
+    <section class="act-side__card">
+        <h2 class="act-side__title">Сведения о задаче</h2>
+        <dl class="act-side__facts">
+            <div><dt>Тип задачи</dt><dd>{{ task_type_label }}</dd></div>
+            {% comment %}
+            One source row for every origin: `describe_task_source()` already
+            resolved the label and the `reverse()`d link, so the template does
+            not branch on which relation happens to be filled.
+            {% endcomment %}
+            {% if task_source.url %}<div><dt>Источник</dt><dd class="user-text"><a class="table-link" href="{{ task_source.url }}">{{ task_source.label }}</a></dd></div>{% endif %}
+            {% comment %}
+            Every real work item names a department except a bug report, whose
+            assignees are chosen by the «Ответственный за ошибки» flag and may
+            sit in any number of them. The fact is omitted rather than filled
+            with a dash.
+            {% endcomment %}
+            {% if task.department %}<div><dt>Подразделение</dt><dd class="user-text">{{ task.department }}</dd></div>{% endif %}
+            <div><dt>Срок</dt><dd>{% include 'includes/due_date.html' with date=task.due_date done=task.status.is_final %}</dd></div>
+            <div><dt>Создана</dt><dd>{{ task.created_at|date:'d.m.Y H:i' }}</dd></div>
+            {% if task.created_by_id %}<div><dt>Поставил</dt><dd>{{ task.created_by|person_name }}</dd></div>{% endif %}
+        </dl>
+    </section>
     {% comment %}
     The attachments card is one include, shared with the board's card panel:
     the same list (`tasks.presentation.task_attachment_cards()`), the same
@@ -238,8 +254,7 @@ still completed with the execution comment and nothing attached.
             {% endif %}
         {% endwith %}
     </section>
-    </div>
+</aside>
 </div>
-{% endif %}
 
 {% endblock %}
