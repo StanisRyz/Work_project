@@ -3,7 +3,7 @@
 
 {% block title %}Главная · Экосистема качества{% endblock %}
 
-{% block extra_head %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20261020-1">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20261020-2">{% endblock %}
 
 {% block content %}
 {% comment %}
@@ -182,13 +182,26 @@ signature is waiting) only when it is not zero: colour carries meaning only.
             <ul class="dashboard-sections">
                 {% for section in quick_access_sections %}
                     <li>
-                        <a class="dashboard-card" href="{{ section.url }}">
-                            <span class="dashboard-card__icon" aria-hidden="true"><svg class="ui-icon"><use href="#dash-icon-{{ section.icon }}"></use></svg></span>
-                            <span class="dashboard-card__copy">
-                                <strong class="dashboard-card__title">{{ section.label }}</strong>
-                                <span class="dashboard-card__description">{{ section.description }}</span>
-                            </span>
-                        </a>
+                        {% if section.links %}
+                            {# A category: the row names it, each of its pages is a link. #}
+                            <div class="dashboard-card dashboard-card--group">
+                                <span class="dashboard-card__icon" aria-hidden="true"><svg class="ui-icon"><use href="#dash-icon-{{ section.icon }}"></use></svg></span>
+                                <span class="dashboard-card__copy">
+                                    <strong class="dashboard-card__title">{{ section.label }}</strong>
+                                    <span class="dashboard-card__links">
+                                        {% for link in section.links %}<a href="{{ link.url }}">{{ link.label }}</a>{% endfor %}
+                                    </span>
+                                </span>
+                            </div>
+                        {% else %}
+                            <a class="dashboard-card" href="{{ section.url }}">
+                                <span class="dashboard-card__icon" aria-hidden="true"><svg class="ui-icon"><use href="#dash-icon-{{ section.icon }}"></use></svg></span>
+                                <span class="dashboard-card__copy">
+                                    <strong class="dashboard-card__title">{{ section.label }}</strong>
+                                    <span class="dashboard-card__description">{{ section.description }}</span>
+                                </span>
+                            </a>
+                        {% endif %}
                     </li>
                 {% endfor %}
             </ul>

@@ -48,7 +48,6 @@ class DashboardPageTests(TestCase):
             'Протоколы проверок и совещаний',
             'Процессы и документы системы качества',
             'Мои задачи и поручения',
-            'Расчетные инструменты и шаблоны',
         )
         documentation = 'Нормативные и справочные документы'
 
@@ -63,6 +62,22 @@ class DashboardPageTests(TestCase):
 
         self.client.logout()
         self.assertNotEqual(self.client.get(reverse('dashboard:home')).status_code, 200)
+
+    def test_the_calculators_row_offers_both_calculators_and_is_no_link_itself(self):
+        # «Калькуляторы» is a category, as in the navigation: the row must not
+        # open one calculator as if it were the section.
+        self.client.force_login(_create_user('otk_calculators', UserProfile.Role.OTK))
+        body = self.client.get(reverse('dashboard:home')).content.decode()
+
+        row = body[body.index('dashboard-card--group'):]
+        row = row[:row.index('</li>')]
+        self.assertIn(f'href="{reverse("calculator:page")}"', row)
+        self.assertIn(f'href="{reverse("plate_cutting:page")}"', row)
+        self.assertIn('Время навивки', row)
+        self.assertIn('Рубка пластин', row)
+        self.assertNotIn(
+            f'<a class="dashboard-card" href="{reverse("calculator:page")}"', body
+        )
 
 
 class DashboardTaskBlockTests(TestCase):

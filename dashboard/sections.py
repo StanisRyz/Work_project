@@ -1,6 +1,8 @@
-"""Which sections the «Быстрый доступ» grid offers, and to whom.
+"""Which sections the «Разделы» list offers, and to whom.
 
-One list, read once by the view. Every entry names a route by its URL name and
+One list, read once by the view. Every entry names a route by its URL name —
+or, for a category with no page of its own («Калькуляторы»), `links` to each
+of its pages, so the row offers the choice the navigation's submenu does — and
 carries the *existing* permission rule of the section behind it — this module
 invents no rights of its own. A card is drawn only when its rule says yes, and
 hiding it is a convenience: the view behind it re-checks the same rule and
@@ -60,13 +62,16 @@ QUICK_ACCESS_SECTIONS = (
         'is_visible': _always,
     },
     {
-        # One card for the whole «Калькуляторы» category, opening the winding
-        # calculator; the second calculator stays one click away in the
-        # navigation submenu rather than doubling the grid.
+        # «Калькуляторы» is a category, as in the navigation: no page of its
+        # own, so its row names the calculators and each is its own link.
         'code': 'calculator',
         'label': 'Калькуляторы',
-        'description': 'Расчетные инструменты и шаблоны',
-        'url_name': 'calculator:page',
+        'description': 'Расчетные инструменты',
+        'url_name': None,
+        'links': (
+            ('Время навивки', 'calculator:page'),
+            ('Рубка пластин', 'plate_cutting:page'),
+        ),
         'icon': 'calculator',
         'is_visible': _always,
     },
@@ -107,7 +112,11 @@ def get_quick_access_sections(user):
             'label': section['label'],
             'description': section['description'],
             'icon': section['icon'],
-            'url': reverse(section['url_name']),
+            'url': reverse(section['url_name']) if section['url_name'] else '',
+            'links': [
+                {'label': label, 'url': reverse(url_name)}
+                for label, url_name in section.get('links', ())
+            ],
         }
         for section in QUICK_ACCESS_SECTIONS
         if section['is_visible'](user)
