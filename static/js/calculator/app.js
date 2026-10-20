@@ -65,7 +65,7 @@
     if (!canManage) return '';
     var primary = entry.productionConfirmed
       ? '<button class="link-button link-button--compact link-button--secondary calc-edit" type="button" data-id="' + entry.id + '" title="Редактировать" aria-label="Редактировать производственные данные">✎</button>'
-      : '<button class="link-button link-button--compact calc-confirm" type="button" data-id="' + entry.id + '" title="Подтвердить" aria-label="Подтвердить производственные данные">✓</button>';
+      : '<button class="link-button link-button--compact link-button--success calc-confirm" type="button" data-id="' + entry.id + '" title="Подтвердить" aria-label="Подтвердить производственные данные">✓</button>';
     var remove = '<button class="link-button link-button--compact link-button--danger calc-delete" type="button" data-id="' + entry.id + '" title="Удалить строку" aria-label="Удалить строку магнитопровода ' + escapeHtml(entry.name) + ' из проработки">' + TRASH_ICON + '</button>';
     return '<td><div class="calc-row-actions">' + primary + remove + '</div></td>';
   }

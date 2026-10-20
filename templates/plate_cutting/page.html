@@ -30,17 +30,17 @@ Every class is namespaced under `.plate-cutting-module`.
                 <p class="pcut-hint">Время рубки одного пакета: коэффициент диапазона × количество пластин + {% localize on %}{{ hole_seconds }}{% endlocalize %} с × количество отверстий.</p>
             </div>
             {% comment %}
-            The three agreed colours are existing `.link-button` variants, the
-            way «Удалить пакет» already reuses `--danger`: the app's blue for
-            «+ Дополнительный пакет», `--success` for «Сохранить» and
-            `--warning` for «Загрузить». Nothing is restyled here.
+            Three outlined buttons: an addition, a save and a load mean nothing
+            alarming, so none of them is coloured (`docs/ui.md`, «Палитра»).
+            Colour stays where it says something — «Удалить» is `--danger`, the
+            package's ✓ is `--success` while it still asks to be confirmed.
             {% endcomment %}
             <div class="pcut-actions">
-                <button class="link-button link-button--compact" type="button" data-add-package>+ Дополнительный пакет</button>
+                <button class="link-button link-button--secondary link-button--compact" type="button" data-add-package>+ Дополнительный пакет</button>
                 {% if can_manage_presets %}
-                <button class="link-button link-button--compact link-button--success" type="button" data-open-save>Сохранить</button>
+                <button class="link-button link-button--secondary link-button--compact" type="button" data-open-save>Сохранить</button>
                 {% endif %}
-                <button class="link-button link-button--compact link-button--warning" type="button" data-open-load>Загрузить</button>
+                <button class="link-button link-button--secondary link-button--compact" type="button" data-open-load>Загрузить</button>
             </div>
         </div>
 
@@ -220,7 +220,7 @@ Every class is namespaced under `.plate-cutting-module`.
 {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/plate_cutting.css' %}?v=20260925-3">
+<link rel="stylesheet" href="{% static 'css/plate_cutting.css' %}?v=20261020-1">
 {% endblock %}
 
 {% block scripts %}

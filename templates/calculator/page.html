@@ -68,7 +68,7 @@ re-checks `calculator.permissions.can_manage_workup()` on its own.
                 </div>
                 <div class="calc-journal-actions">
                     <button id="calc-reload" class="link-button link-button--secondary link-button--compact" type="button">Обновить журнал</button>
-                    <button id="calc-export" class="link-button link-button--compact" type="button">Выгрузить в Excel</button>
+                    <button id="calc-export" class="link-button link-button--secondary link-button--compact" type="button">Выгрузить в Excel</button>
                 </div>
             </div>
 
@@ -87,7 +87,7 @@ re-checks `calculator.permissions.can_manage_workup()` on its own.
                 <label><span>b, мм</span><input name="b" type="number" min="0" step="any" inputmode="decimal"></label>
                 <label><span>δ, мм</span><input name="tapeThicknessMm" type="number" min="0" step="any" inputmode="decimal"></label>
                 <label><span>Калибровка, мм</span><input name="calibrationDiameterMm" type="number" min="0" step="any" inputmode="decimal" placeholder="0 — нет"></label>
-                <button id="calc-manual-add" class="link-button link-button--compact" type="submit" title="Добавить строку" aria-label="Добавить строку в проработку">+</button>
+                <button id="calc-manual-add" class="link-button link-button--secondary link-button--compact" type="submit" title="Добавить строку" aria-label="Добавить строку в проработку">+</button>
             </form>
             <p id="calc-manual-errors" class="calc-errors" aria-live="polite"></p>
             {% endif %}
@@ -144,7 +144,7 @@ re-checks `calculator.permissions.can_manage_workup()` on its own.
 {% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/calculator.css' %}?v=20260925-2">
+<link rel="stylesheet" href="{% static 'css/calculator.css' %}?v=20261020-1">
 {% endblock %}
 
 {% block scripts %}
@@ -159,7 +159,7 @@ persistence layer, and the controller last.
 <script src="{% static 'js/calculator/oneC.js' %}?v=20260817-1"></script>
 <script src="{% static 'js/calculator/journal.js' %}?v=20260817-1"></script>
 <script src="{% static 'js/calculator/api.js' %}?v=20260817-2"></script>
-<script src="{% static 'js/calculator/app.js' %}?v=20260818-1"></script>
+<script src="{% static 'js/calculator/app.js' %}?v=20261020-1"></script>
 {# The calculation inputs come back as they were left: per user, in this browser only. #}
 <script src="{% static 'js/field_memory.js' %}?v=20260925-1"></script>
 {% endblock %}

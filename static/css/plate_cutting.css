@@ -3,30 +3,27 @@
  *
  * Loaded only by its own page. Every selector is nested under
  * `.plate-cutting-module`, so nothing here can reach Акты, Задачи or the
- * winding calculator. Colours, radius and spacing come from the project's
- * tokens in `base.css`; buttons reuse `.link-button` and are never restyled.
+ * winding calculator. Colours, radius, type and control sizes are the tokens
+ * of `base.css`; buttons reuse `.link-button` and are never restyled.
  */
 
 .plate-cutting-module {
-    /* The shared height of every main package-row control. Declared once so
-       the inputs, the range select, the «Время пакета» value box and the
-       confirm/edit button beside it cannot drift apart. */
-    --pcut-control-height: var(--control-height);
-
     display: grid;
-    gap: 16px;
+    gap: 10px;
 }
 
 .plate-cutting-module .pcut-card {
-    padding: 20px;
-    background: var(--color-surface);
+    padding: 12px 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
+    background: var(--color-surface);
 }
 
 .plate-cutting-module .pcut-card h2 {
-    margin: 0 0 4px;
-    font-size: 19px;
+    margin: 0 0 2px;
+    color: var(--color-text);
+    font-size: var(--font-size-title);
+    font-weight: 600;
 }
 
 .plate-cutting-module .pcut-card__heading {
@@ -39,72 +36,66 @@
 .plate-cutting-module .pcut-hint {
     margin: 0;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: var(--font-size-sm);
 }
 
 /* ------------------------------------------------------------- packages -- */
 
 .plate-cutting-module .pcut-packages {
     display: grid;
-    gap: 12px;
-    margin-top: 16px;
+    margin-top: 10px;
 }
 
+/* A package is a line, not a box: «Пакет N», its four fields and its two
+   buttons on one row, a hairline above. The rail on the left says what the
+   package is — confirmed (green) or holding an error (red). */
 .plate-cutting-module .pcut-package {
-    padding: 14px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-bg);
+    display: grid;
+    grid-template-columns: 64px max-content auto auto minmax(0, 1fr);
+    align-items: end;
+    column-gap: 12px;
+    padding: 8px 0 8px 10px;
+    border-top: 1px solid var(--color-border);
+    border-left: 3px solid transparent;
 }
 
-.plate-cutting-module .pcut-package--invalid {
-    border-color: #f0b4ad;
-}
+.plate-cutting-module .pcut-package--confirmed { border-left-color: var(--color-success-border); }
+.plate-cutting-module .pcut-package--invalid { border-left-color: var(--color-danger-border); }
 
-.plate-cutting-module .pcut-package--confirmed {
-    border-color: #9bd5ad;
-}
-
-.plate-cutting-module .pcut-package__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 12px;
-}
+/* The head's three children take their places in the package's own row. */
+.plate-cutting-module .pcut-package__head { display: contents; }
 
 .plate-cutting-module .pcut-package__head h3 {
+    grid-row: 1;
+    grid-column: 1;
     margin: 0;
-    font-size: 15px;
+    color: var(--color-text);
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    line-height: var(--control-height);
+    white-space: nowrap;
 }
 
-.plate-cutting-module .pcut-package__copy {
-    margin-top: 0;
-    margin-left: auto;
-    min-width: 34px;
-    padding-right: 8px;
-    padding-left: 8px;
-}
+.plate-cutting-module .pcut-fields { grid-row: 1; grid-column: 2; }
+.plate-cutting-module .pcut-package__copy { grid-row: 1; grid-column: 3; }
+.plate-cutting-module .pcut-package__remove { grid-row: 1; grid-column: 4; }
 
-.plate-cutting-module .pcut-package__copy svg {
-    display: block;
-}
-
+.plate-cutting-module .pcut-package__copy,
 .plate-cutting-module .pcut-package__remove {
-    margin-top: 0;
-    min-width: 34px;
-    padding-right: 8px;
-    padding-left: 8px;
+    min-width: var(--control-height);
+    padding-right: 7px;
+    padding-left: 7px;
 }
 
+.plate-cutting-module .pcut-package__copy svg,
 .plate-cutting-module .pcut-package__remove svg {
     display: block;
 }
 
-/* Four columns on a desktop: range, plates, holes, result. */
+/* Range, plates, holes, result — each as wide as what it holds. */
 .plate-cutting-module .pcut-fields {
     display: grid;
-    grid-template-columns: minmax(150px, 1.1fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(150px, 1fr);
+    grid-template-columns: var(--field-short) var(--field-short) 180px 200px;
     gap: 12px;
     align-items: end;
 }
@@ -112,19 +103,18 @@
 .plate-cutting-module label,
 .plate-cutting-module .pcut-package__result {
     display: grid;
-    gap: 6px;
+    gap: 3px;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: var(--font-size-sm);
 }
 
-/* One height for every main control on a package row — the three inputs, the
-   range select and the «Время пакета» value box — so the row reads as one line
-   however the value box is built inside. */
+/* One height for every control of the row — the three inputs, the range
+   select and the «Время пакета» value box. */
 .plate-cutting-module input,
 .plate-cutting-module select,
 .plate-cutting-module .pcut-package__time {
     width: 100%;
-    min-height: var(--pcut-control-height);
+    height: var(--control-height);
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -134,83 +124,80 @@
     font-size: var(--control-font-size);
 }
 
-/* The same neutral grey on every numeric field of the row. */
 .plate-cutting-module input::placeholder {
-    color: var(--color-muted);
+    color: var(--color-subtle);
     opacity: 1;
 }
 
 .plate-cutting-module input:disabled,
 .plate-cutting-module select:disabled {
-    background: var(--color-bg);
+    background: var(--color-surface-muted);
     color: var(--color-muted);
     cursor: not-allowed;
     opacity: 1;
 }
 
-/* The action group: the value box and the confirm/edit button beside it. It
-   carries no border of its own — the box inside it is the field — and stays
-   `relative` because the details popup is anchored to the whole group. */
+/* The value box and the confirm/edit button beside it. `relative` because the
+   details popup is anchored to the whole group. */
 .plate-cutting-module .pcut-package__result-row {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
-/* The value box itself: what the label «Время пакета» names, styled exactly
-   like an input above. Only the value and the details chevron live in it. */
+/* What the label «Время пакета» names: read-only, so the muted inset. */
 .plate-cutting-module .pcut-package__time {
     display: flex;
     flex: 1;
     min-width: 0;
     align-items: center;
     gap: 6px;
+    background: var(--color-surface-muted);
 }
 
 .plate-cutting-module .pcut-package__time output {
     flex: 1;
     min-width: 0;
     color: var(--color-text);
-    font-weight: 700;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
 }
 
-/* Outside the value box, and squared off to the same height as it. */
 .plate-cutting-module .pcut-package__confirm {
     flex: none;
-    min-width: var(--pcut-control-height);
-    min-height: var(--pcut-control-height);
-    padding-right: 8px;
-    padding-left: 8px;
+    min-width: var(--control-height);
+    padding-right: 7px;
+    padding-left: 7px;
 }
 
-.plate-cutting-module .pcut-package__confirm svg {
-    display: block;
-}
+.plate-cutting-module .pcut-package__confirm svg { display: block; }
 
 .plate-cutting-module .pcut-errors {
-    margin: 10px 0 0;
-    color: #b42318;
-    font-size: 13px;
+    grid-row: 2;
+    grid-column: 1 / -1;
+    margin: 6px 0 0;
+    color: var(--color-danger);
+    font-size: var(--font-size-sm);
 }
 
-.plate-cutting-module .pcut-errors:empty {
-    margin: 0;
-}
+.plate-cutting-module .pcut-errors:empty { margin: 0; }
 
 /* --------------------------------------------------- calculation details -- */
 
-/* The profile menu's chevron button: click only, and the same rotation. */
 .plate-cutting-module .pcut-details-toggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 2px;
     border: 0;
+    border-radius: var(--radius-sm);
     background: none;
-    color: #3c5488;
+    color: var(--color-muted);
     cursor: pointer;
 }
+
+.plate-cutting-module .pcut-details-toggle:hover { color: var(--color-text); }
 
 .plate-cutting-module .pcut-details-toggle__chevron {
     width: 16px;
@@ -223,31 +210,28 @@
 }
 
 .plate-cutting-module .pcut-details-toggle:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-    border-radius: 4px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 .plate-cutting-module .pcut-details-popup {
     position: absolute;
     z-index: 20;
-    top: calc(100% + 6px);
+    top: calc(100% + 4px);
     right: 0;
     width: max(240px, 100%);
     max-width: min(320px, 90vw);
-    padding: 10px 12px;
+    padding: 6px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: 0 12px 28px rgb(15 23 42 / 14%);
+    box-shadow: var(--shadow-overlay);
     color: var(--color-text);
-    font-size: 13px;
+    font-size: var(--font-size-base);
     font-weight: 400;
 }
 
-.plate-cutting-module .pcut-details-popup[hidden] {
-    display: none;
-}
+.plate-cutting-module .pcut-details-popup[hidden] { display: none; }
 
 .plate-cutting-module .pcut-details-popup__empty {
     margin: 0;
@@ -260,110 +244,103 @@
 }
 
 .plate-cutting-module .pcut-details-popup__list div {
-    padding: 6px 0;
+    padding: 4px 0;
     border-bottom: 1px solid var(--color-border);
 }
 
-.plate-cutting-module .pcut-details-popup__list div:last-child {
-    border-bottom: 0;
-}
+.plate-cutting-module .pcut-details-popup__list div:last-child { border-bottom: 0; }
 
 .plate-cutting-module .pcut-details-popup__list dt {
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: var(--font-size-sm);
 }
 
 .plate-cutting-module .pcut-details-popup__list dd {
-    margin: 2px 0 0;
-    font-weight: 700;
+    margin: 1px 0 0;
+    font-weight: 600;
 }
 
 /* ---------------------------------------------------------------- total -- */
 
+/* One row: a set, how many sets, the total — each as wide as it needs. */
 .plate-cutting-module .pcut-total__grid {
     display: grid;
-    grid-template-columns: minmax(140px, 1fr) minmax(180px, 1fr) minmax(180px, 1.2fr);
-    gap: 20px;
+    grid-template-columns: repeat(3, max-content);
+    gap: 12px 40px;
     align-items: end;
-    margin-top: 16px;
+    margin-top: 8px;
 }
 
 .plate-cutting-module .pcut-total__label,
 .plate-cutting-module .pcut-set-quantity {
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: var(--font-size-sm);
 }
 
 .plate-cutting-module .pcut-set-quantity {
     display: grid;
-    gap: 6px;
+    gap: 3px;
+    width: var(--field-short);
+}
+
+.plate-cutting-module .pcut-total__single,
+.plate-cutting-module .pcut-total__value {
+    margin: 2px 0 0;
+    color: var(--color-text);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--control-height);
 }
 
 .plate-cutting-module .pcut-total__single {
-    margin: 6px 0 0;
-    color: var(--color-text);
-    font-size: 22px;
-    font-weight: 700;
+    font-size: var(--font-size-title);
+    font-weight: 600;
 }
 
 .plate-cutting-module .pcut-total__value {
-    margin: 6px 0 0;
-    color: var(--color-primary-dark);
-    font-size: 30px;
-    font-weight: 700;
-    line-height: 1.1;
+    font-size: 22px;
+    font-weight: 600;
 }
 
 .plate-cutting-module .pcut-total__value small {
-    font-size: 15px;
-    font-weight: 400;
+    line-height: 1;
     color: var(--color-muted);
+    font-size: var(--font-size-base);
+    font-weight: 400;
 }
 
 .plate-cutting-module .pcut-total__seconds,
 .plate-cutting-module .pcut-total__skipped {
-    margin: 8px 0 0;
+    margin: 6px 0 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
-.plate-cutting-module .pcut-total__skipped {
-    color: #b42318;
-}
+.plate-cutting-module .pcut-total__skipped { color: var(--color-danger); }
 
 /* ------------------------------------------------- saved package sets -- */
 
-/* «+ Дополнительный пакет», «Сохранить» and «Загрузить» on one line; on a
-   narrow screen they wrap instead of shrinking. */
 .plate-cutting-module .pcut-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
 }
 
 .plate-cutting-module .pcut-feedback {
-    margin: 12px 0 0;
+    margin: 8px 0 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
-.plate-cutting-module .pcut-feedback--error {
-    color: #b42318;
-}
+.plate-cutting-module .pcut-feedback--error { color: var(--color-danger); }
 
-.plate-cutting-module .pcut-feedback[hidden] {
-    display: none;
-}
+.plate-cutting-module .pcut-feedback[hidden] { display: none; }
 
-/* Both dialogs reuse `.app-modal` from `components.css`; only the width and
+/* The dialogs reuse `.app-modal` from `components.css`; only the width and
    the list's own scrolling are set here. */
-.plate-cutting-module .pcut-modal {
-    width: min(560px, calc(100% - 32px));
-}
+.plate-cutting-module .pcut-modal { width: min(560px, calc(100% - 32px)); }
 
 .plate-cutting-module .pcut-preset-list {
     display: grid;
-    gap: 8px;
     /* The library grows: the list scrolls inside the dialog instead of
        pushing it off the screen. */
     max-height: min(46vh, 320px);
@@ -373,44 +350,39 @@
 
 .plate-cutting-module .pcut-preset-list__empty {
     margin: 0;
-    padding: 12px 0;
+    padding: 10px 0;
     color: var(--color-muted);
-    font-size: 14px;
 }
 
+/* A saved set is a line on a hairline: name and meta, then its actions. */
 .plate-cutting-module .pcut-preset {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 12px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-bg);
+    padding: 6px 0;
+    border-top: 1px solid var(--color-border);
 }
 
-.plate-cutting-module .pcut-preset__info {
-    min-width: 0;
-}
+.plate-cutting-module .pcut-preset:first-child { border-top: 0; }
+
+.plate-cutting-module .pcut-preset__info { min-width: 0; }
 
 /* Colour and weight only: a saved set's name is user text and carries
    `.user-text` from `text.css`, which is where its wrapping comes from. */
 .plate-cutting-module .pcut-preset__name {
     margin: 0;
     color: var(--color-text);
-    font-size: 14px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .plate-cutting-module .pcut-preset__meta {
-    margin: 2px 0 0;
+    margin: 1px 0 0;
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: var(--font-size-sm);
 }
 
-.plate-cutting-module .pcut-preset .link-button {
-    flex: none;
-}
+.plate-cutting-module .pcut-preset .link-button { flex: none; }
 
 .plate-cutting-module .pcut-preset__actions {
     display: flex;
@@ -420,39 +392,40 @@
     gap: 6px;
 }
 
-.plate-cutting-module .pcut-conflict-actions {
-    flex-wrap: wrap;
+.plate-cutting-module .pcut-conflict-actions { flex-wrap: wrap; }
+
+@media (max-width: 1100px) {
+    /* The row no longer fits: «Пакет N» and its buttons above, the fields
+       below them. */
+    .plate-cutting-module .pcut-package {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        row-gap: 6px;
+    }
+
+    .plate-cutting-module .pcut-fields { grid-row: 2; grid-column: 1 / -1; }
+    .plate-cutting-module .pcut-package__copy { grid-column: 2; }
+    .plate-cutting-module .pcut-package__remove { grid-column: 3; }
+    .plate-cutting-module .pcut-errors { grid-row: 3; }
 }
 
 @media (max-width: 900px) {
-    .plate-cutting-module .pcut-fields {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
+    .plate-cutting-module .pcut-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
     .plate-cutting-module .pcut-card__heading {
         flex-direction: column;
         align-items: stretch;
     }
 
-    .plate-cutting-module .pcut-total__grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
+    .plate-cutting-module .pcut-total__grid { grid-template-columns: repeat(2, max-content); }
 }
 
 @media (max-width: 560px) {
-    .plate-cutting-module .pcut-fields {
-        grid-template-columns: 1fr;
-    }
+    .plate-cutting-module .pcut-fields { grid-template-columns: minmax(0, 1fr); }
 
     /* The value box and its button may wrap onto two lines rather than
        squeeze; the button keeps its full square and is never clipped. */
-    .plate-cutting-module .pcut-package__result-row {
-        flex-wrap: wrap;
-    }
-
-    .plate-cutting-module .pcut-package__time {
-        flex-basis: 100%;
-    }
+    .plate-cutting-module .pcut-package__result-row { flex-wrap: wrap; }
+    .plate-cutting-module .pcut-package__time { flex-basis: 100%; }
 
     .plate-cutting-module .pcut-details-popup {
         right: auto;
@@ -466,12 +439,8 @@
         align-items: stretch;
     }
 
+    .plate-cutting-module .pcut-preset__actions { justify-content: flex-start; }
 
-    .plate-cutting-module .pcut-total__grid {
-        grid-template-columns: 1fr;
-    }
-
-    .plate-cutting-module .pcut-preset__actions {
-        justify-content: flex-start;
-    }
+    .plate-cutting-module .pcut-total__grid { grid-template-columns: minmax(0, 1fr); }
+    .plate-cutting-module .pcut-set-quantity { width: auto; }
 }

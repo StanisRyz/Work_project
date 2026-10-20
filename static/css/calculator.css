@@ -1,80 +1,89 @@
 /*
- * Calculator module styles.
+ * Калькулятор времени навивки and its «Проработка» journal.
  *
- * Every selector is nested under `.calculator-module`, so nothing here can
- * reach Акты or Задачи even though the sheet is loaded into the shared
- * layout. Colours, radius, typography and spacing come from the project's
- * own tokens in `base.css`; the source repository's palette is not carried
- * over. Buttons reuse `.link-button` and its modifiers — this file never
- * restyles them.
+ * Every selector is nested under `.calculator-module` (or carries a `calc-`
+ * prefix), so nothing here can reach Акты or Задачи even though the sheet is
+ * loaded into the shared layout. Colours, radius, type and control sizes are
+ * the tokens of `base.css`; buttons are `.link-button` and are never
+ * restyled. The classes `static/js/calculator/app.js` writes into the page —
+ * `calc-user-result`, `calc-time`, `calc-developer-details`, the `dl` rows,
+ * `calc-production-input`, `calc-row-actions`, `calc-delete`,
+ * `calc-status--busy|error` — are styled here and must keep their names.
  */
 
 .calculator-module {
     display: grid;
-    gap: 16px;
+    gap: 10px;
 }
 
-/* Internal Калькулятор / Проработка switch. Same visual idiom as the act
-   registry tabs, but a local one: these are buttons, not navigation. */
+/* Калькулятор / Проработка: the act page's tab strip, as buttons — they
+   switch a panel, they do not navigate. */
 .calculator-module .calc-tabs {
     display: flex;
-    gap: 8px;
+    gap: 4px;
     border-bottom: 1px solid var(--color-border);
 }
 
 .calculator-module .calc-tab {
-    padding: 10px 14px;
+    margin-bottom: -1px;
+    padding: 6px 10px;
     border: 0;
-    border-bottom: 3px solid transparent;
+    border-bottom: 2px solid transparent;
     background: none;
     color: var(--color-muted);
-    font-family: inherit;
-    font-size: 15px;
-    font-weight: 700;
+    font: inherit;
+    font-weight: 600;
     cursor: pointer;
 }
 
-.calculator-module .calc-tab:hover {
-    color: var(--color-primary-dark);
-}
+.calculator-module .calc-tab:hover { color: var(--color-text); }
 
 .calculator-module .calc-tab--active {
     border-bottom-color: var(--color-primary);
-    color: var(--color-primary-dark);
+    color: var(--color-text);
 }
 
-.calculator-module .calc-panel[hidden] {
-    display: none;
-}
+.calculator-module .calc-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
+.calculator-module .calc-panel[hidden] { display: none; }
+
+/* The parameters at their own width, the result taking what is left. */
 .calc-layout {
     display: grid;
-    grid-template-columns: minmax(320px, .9fr) minmax(360px, 1.1fr);
-    gap: 16px;
+    grid-template-columns: 372px minmax(0, 1fr);
+    gap: 10px;
     align-items: start;
 }
 
 .calculator-module .calc-card {
-    padding: 20px;
-    background: var(--color-surface);
+    padding: 12px 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
+    background: var(--color-surface);
 }
 
 .calculator-module .calc-card h2 {
-    margin: 0 0 16px;
-    font-size: 19px;
-}
-
-.calculator-module .calc-card h3 {
     margin: 0 0 10px;
-    font-size: 15px;
+    color: var(--color-text);
+    font-size: var(--font-size-title);
+    font-weight: 600;
 }
 
+/* A section caption inside a card, as the side cards of the act page. */
+.calculator-module .calc-card h3 {
+    margin: 0 0 6px;
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+
+/* Two short number fields a row — a dimension is a number, never a line. */
 .calc-fields {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(2, var(--field-short));
+    gap: 10px 12px;
 }
 
 .calculator-module label,
@@ -83,9 +92,9 @@
     /* The neighbour's hint («(130,00 − 100,00) / 2») makes its grid row
        taller; without this the extra height went into the input beside it. */
     align-content: start;
-    gap: 6px;
+    gap: 3px;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: var(--font-size-sm);
 }
 
 .calculator-module input,
@@ -101,74 +110,87 @@
 }
 
 .calc-readonly-field output {
-    display: block;
-    min-height: var(--control-height);
+    display: flex;
+    align-items: center;
+    height: var(--control-height);
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: var(--color-bg);
+    background: var(--color-surface-muted);
     color: var(--color-text);
+    font-size: var(--control-font-size);
 }
 
 .calc-readonly-field small,
 .calculator-module .calc-placeholder {
     color: var(--color-muted);
+    font-size: var(--font-size-sm);
 }
+
+.calculator-module .calc-placeholder { margin: 0; }
+
+.calculator-module #calc-form > .link-button { margin-top: 12px; }
 
 .calculator-module .calc-errors {
-    color: #b42318;
-    font-size: 14px;
+    color: var(--color-danger);
+    font-size: var(--font-size-sm);
 }
 
-.calculator-module .calc-errors p {
-    margin: 10px 0 0;
-}
+.calculator-module .calc-errors p { margin: 8px 0 0; }
 
+/* The answer: the time in the text colour, its readable form beside it. */
 .calc-time {
-    margin-bottom: 16px;
-    color: var(--color-primary-dark);
-    font-size: 30px;
-    font-weight: 700;
-    line-height: 1.1;
+    margin-bottom: 10px;
+    color: var(--color-text);
+    font-size: 22px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
 }
 
 .calc-time small {
     color: var(--color-muted);
-    font-size: 15px;
+    font-size: var(--font-size-base);
     font-weight: 400;
 }
 
 .calc-developer-details {
-    margin-top: 22px;
-    padding-top: 18px;
+    margin-top: 14px;
+    padding-top: 10px;
     border-top: 1px solid var(--color-border);
 }
 
-.calc-developer-details h3 {
-    color: var(--color-muted);
-}
-
+/* Label and value on one line, in as many columns as the card has room for. */
 .calculator-module dl {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    column-gap: 24px;
     margin: 0;
-    border-top: 1px solid var(--color-border);
 }
 
 .calculator-module dl div {
-    padding: 9px 4px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 0;
     border-bottom: 1px solid var(--color-border);
 }
 
 .calculator-module dt {
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: var(--font-size-sm);
 }
 
 .calculator-module dd {
-    margin: 2px 0 0;
-    font-weight: 700;
+    margin: 0;
+    color: var(--color-text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
 }
+
+/* ------------------------------------------------------------- Проработка */
 
 .calc-journal-heading {
     display: flex;
@@ -177,142 +199,137 @@
     gap: 16px;
 }
 
-.calc-journal-heading h2 {
-    margin-bottom: 4px;
-}
+.calculator-module .calc-journal-heading h2 { margin-bottom: 2px; }
 
-.calc-journal-heading p {
-    margin: 0;
-}
+.calc-journal-heading p { margin: 0; }
 
 .calc-journal-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
 }
 
-/* One quiet line for "loaded / saving / failed". It replaces the source's
-   database bar, which only ever described the JSON file. */
+/* One quiet line for "loaded / saving / failed". */
 .calculator-module .calc-status {
-    min-height: 20px;
-    margin: 14px 0 0;
+    min-height: 18px;
+    margin: 6px 0 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: var(--font-size-sm);
 }
 
-.calculator-module .calc-status--busy {
-    color: var(--color-primary-dark);
-}
+.calculator-module .calc-status--busy { color: var(--color-primary-dark); }
 
 .calculator-module .calc-status--error {
-    color: #b42318;
-    font-weight: 700;
+    color: var(--color-danger);
+    font-weight: 600;
 }
 
-/* Row one: the parameters of a hand-added line, then «+». Narrow, fixed
-   columns so the row stays one line on an ordinary desktop. */
+/* Row one: the parameters of a hand-added line, then «+», on one line. */
 .calc-manual-row {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: 10px;
-    margin: 14px 0 0;
+    gap: 8px;
+    margin: 6px 0 0;
 }
 
 .calc-manual-row label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    width: 132px;
-    font-size: 13px;
+    display: grid;
+    gap: 3px;
+    width: 112px;
 }
 
 .calc-manual-row button[type="submit"] {
-    min-width: 44px;
-    font-size: 18px;
+    min-width: var(--control-height);
+    font-size: 16px;
     line-height: 1;
 }
 
 .calculator-module #calc-manual-errors {
-    margin: 8px 0 0;
     min-height: 0;
+    margin: 6px 0 0;
 }
+
+.calculator-module #calc-manual-errors:empty { margin: 0; }
 
 .calculator-module #calc-manual-errors span {
     display: inline-block;
     margin-right: 10px;
 }
 
-/* Row two: the only filter left — the visible d/D-b name. */
+/* Row two: the only filter — the visible d/D-b name. */
 .calc-journal-filters {
     display: grid;
-    grid-template-columns: minmax(220px, 360px);
-    gap: 12px;
-    margin: 14px 0 18px;
+    grid-template-columns: minmax(0, var(--field-line));
+    margin: 10px 0;
 }
 
 .calc-table-wrap {
     overflow-x: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
 }
 
-/* Fourteen business columns plus the action: wide enough that nothing is
-   squeezed, and the wrapper scrolls horizontally when the screen is not. */
+/* Fourteen business columns plus the action; the wrapper scrolls sideways
+   when the screen is narrower than that. */
 .calculator-module .calc-table {
-    min-width: 1460px;
+    min-width: 1240px;
+    border-style: hidden;
 }
 
 /* Fourteen narrow numeric columns read badly as bare rows, so this one table
-   gets a full grid. `border-collapse: collapse` comes from `.data-table`, so a
-   border on every cell is one line between neighbours — header cells included
-   — in the ordinary application border colour, not a spreadsheet's. */
+   keeps a grid: one hairline between neighbours, header cells included. */
 .calculator-module .calc-table th,
 .calculator-module .calc-table td {
-    padding: 10px 8px;
+    padding: 4px 6px;
     border: 1px solid var(--color-border);
     text-align: center;
     vertical-align: middle;
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.calculator-module .calc-table th {
+    padding-top: 6px;
+    padding-bottom: 6px;
+    font-size: var(--font-size-sm);
 }
 
 .calculator-module .calc-production-input {
-    width: 110px;
+    width: 96px;
     min-width: 0;
-    padding: 7px 9px;
 }
 
-.calculator-module .calc-employee {
-    width: 150px;
-}
+.calculator-module .calc-employee { width: 140px; }
 
 /* The three production-time columns hold short numbers — a batch count, a
    handful of hours — so they get a narrow field. «1С, ч» and «Сотрудник»
    keep their width: an arithmetic expression and a surname need it. */
 .calculator-module .calc-col-compact {
-    padding-right: 5px;
-    padding-left: 5px;
+    padding-right: 4px;
+    padding-left: 4px;
 }
 
 .calculator-module .calc-col-compact .calc-production-input {
-    width: 68px;
-    padding: 7px 6px;
+    width: 64px;
+    padding-right: 6px;
+    padding-left: 6px;
 }
 
 .calculator-module .calc-production-input:disabled {
-    background: var(--color-bg);
+    background: var(--color-surface-muted);
     color: var(--color-muted);
     cursor: not-allowed;
 }
 
-.calculator-module .calc-unit-time {
-    font-weight: 700;
-}
+.calculator-module .calc-unit-time { font-weight: 600; }
 
 .calculator-module .calc-production-error {
     display: block;
     max-width: 180px;
     margin-top: 3px;
     white-space: normal;
-    color: #b42318;
+    color: var(--color-danger);
 }
 
 /* ✓ or ✎, then the trash: one compact pair that never wraps. */
@@ -320,27 +337,24 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 4px;
 }
 
 .calculator-module .calc-delete {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 32px;
-    padding-right: 8px;
-    padding-left: 8px;
+    min-width: 30px;
+    padding-right: 7px;
+    padding-left: 7px;
 }
 
-.calculator-module .calc-delete svg {
-    display: block;
-}
+.calculator-module .calc-delete svg { display: block; }
+
+.calculator-module #calc-journal-empty { margin-top: 8px; }
 
 @media (max-width: 900px) {
-    .calc-layout,
-    .calc-fields {
-        grid-template-columns: 1fr;
-    }
+    .calc-layout { grid-template-columns: minmax(0, 1fr); }
 
     .calc-journal-heading {
         flex-direction: column;
@@ -349,9 +363,11 @@
 }
 
 @media (max-width: 560px) {
+    .calc-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
     .calc-journal-filters,
     .calc-manual-row label {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
         width: 100%;
     }
 }
