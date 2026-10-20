@@ -33,35 +33,24 @@ DOCUMENT_TYPE_LABELS = {
     KIND_SYSTEM: 'Системное вложение',
 }
 
-# File-type icons. Emoji on purpose: no image assets to ship, cache-bust or
-# collect, and they render identically wherever the rest of the module's icons
-# already do (📁 for folders, 🔒 for the system branch).
-ICON_DEFAULT = '📄'
-ICON_SYSTEM = '🔒'
-ICON_FOLDER = '📁'
-EXTENSION_ICONS = {
-    'pdf': '📕',
-    'doc': '📘', 'docx': '📘', 'odt': '📘', 'rtf': '📘',
-    'xls': '📗', 'xlsx': '📗', 'ods': '📗', 'csv': '📗',
-    'ppt': '📙', 'pptx': '📙', 'odp': '📙',
-    'png': '🖼️', 'jpg': '🖼️', 'jpeg': '🖼️', 'webp': '🖼️',
-    'gif': '🖼️', 'bmp': '🖼️', 'tif': '🖼️', 'tiff': '🖼️',
-    'txt': '📃', 'md': '📃',
-}
+# File-type marks: the extension itself in a small neutral badge
+# (`.doc-type`), never a picture. A file is told apart by what it is, and a
+# label reads the same on every machine, where an emoji does not.
+TYPE_LABEL_MAX = 4
+TYPE_LABEL_DEFAULT = 'ФАЙЛ'
 
 
 def file_icon(filename, is_system=False):
-    """The icon for one file. A system attachment is marked before its type.
+    """The type mark of one file: «PDF», «DOCX», «ФАЙЛ» without an extension.
 
-    Read-only is the more important fact about an act photograph than «this is
-    a JPEG», so the lock wins: a user scanning a mixed list sees at a glance
-    which rows they cannot change.
+    A system attachment gets its type like any file; that it is read-only is
+    said by its row (the source tag, `is_readonly`), not by the mark.
     """
-    if is_system:
-        return ICON_SYSTEM
     parts = (filename or '').rsplit('.', 1)
-    extension = parts[1].lower() if len(parts) == 2 else ''
-    return EXTENSION_ICONS.get(extension, ICON_DEFAULT)
+    extension = parts[1].strip().upper() if len(parts) == 2 else ''
+    if not extension or len(extension) > TYPE_LABEL_MAX:
+        return TYPE_LABEL_DEFAULT
+    return extension
 
 
 @dataclass(frozen=True)

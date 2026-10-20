@@ -44,6 +44,8 @@ from protocols.selectors import get_readable_protocols_queryset
 from tasks.models import Task, TaskAttachment
 from tasks.permissions import can_download_task_attachment, get_readable_tasks_queryset
 
+from .cards import file_icon
+
 
 SYSTEM_AREA_LABEL = 'Вложения'
 
@@ -83,6 +85,11 @@ class DocumentReference:
     # Always true, and stated as data rather than inferred in a template: a
     # reference is read-only wherever it is rendered.
     is_system = True
+
+    @property
+    def type_label(self):
+        """The file's written type («PDF»), drawn where no thumbnail is."""
+        return file_icon(self.name)
 
 
 @dataclass(frozen=True)

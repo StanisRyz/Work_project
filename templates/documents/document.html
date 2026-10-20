@@ -16,7 +16,7 @@ that asks the same rule again.
     <div class="doc-head__titles">
         {% include 'documents/includes/breadcrumbs.html' %}
         <h1 class="doc-head__title">
-            <span class="doc-head__icon" aria-hidden="true">{{ icon }}</span>
+            <span class="doc-head__icon doc-type" aria-hidden="true">{{ icon }}</span>
             <span class="user-text">{{ document.title }}</span>
             <span class="doc-status doc-status--{{ document.status|lower }}">{{ document.get_status_display }}</span>
             {% if current_version %}<span class="doc-chip">{{ current_version.full_label }}</span>{% endif %}
@@ -26,7 +26,7 @@ that asks the same rule again.
         {% if current_version and not is_trashed %}
             <a class="link-button link-button--compact" href="{% url 'documents:document_download' document.pk %}">⤓ Скачать</a>
         {% endif %}
-        <button class="link-button link-button--secondary link-button--compact" type="button" data-copy-link="{{ absolute_url }}" title="Скопировать ссылку на документ">🔗 Ссылка</button>
+        <button class="link-button link-button--secondary link-button--compact" type="button" data-copy-link="{{ absolute_url }}" title="Скопировать ссылку на документ">Ссылка</button>
         {% if can_favorite %}
             <form method="post" action="{% url 'documents:favorite_toggle' document.pk %}">
                 {% csrf_token %}
@@ -41,7 +41,7 @@ that asks the same rule again.
                 {% csrf_token %}
                 <button class="link-button link-button--secondary link-button--compact" type="submit"
                         aria-pressed="{% if is_subscribed %}true{% else %}false{% endif %}"
-                        title="{% if is_subscribed %}Отписаться{% else %}Сообщать о новых версиях{% endif %}">{% if is_subscribed %}🔔{% else %}🔕{% endif %}</button>
+                        title="{% if is_subscribed %}Отписаться{% else %}Сообщать о новых версиях{% endif %}">{% if is_subscribed %}Вы подписаны{% else %}Подписаться{% endif %}</button>
             </form>
         {% endif %}
         {% if can_edit or can_delete %}
@@ -67,7 +67,7 @@ that asks the same rule again.
 
 {% if is_trashed %}
 <div class="doc-banner doc-banner--muted" role="status">
-    <span>🗑 Документ в корзине с {{ document.deleted_at|date:'d.m.Y' }}{% if document.deleted_by %} ({{ document.deleted_by|person_name }}){% endif %}.</span>
+    <span>Документ в корзине с {{ document.deleted_at|date:'d.m.Y' }}{% if document.deleted_by %} ({{ document.deleted_by|person_name }}){% endif %}.</span>
     <form method="post" action="{% url 'documents:document_restore' document.pk %}">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ request.path }}">
@@ -82,7 +82,7 @@ that asks the same rule again.
 {% endif %}
 {% if ack_task %}
 <div class="doc-banner doc-banner--action" role="status">
-    <span>👁 Вас просят ознакомиться с этим документом (версия {{ current_version.full_label }}) до {{ ack_task.due_date|date:'d.m.Y' }}.</span>
+    <span>Вас просят ознакомиться с этим документом (версия {{ current_version.full_label }}) до {{ ack_task.due_date|date:'d.m.Y' }}.</span>
     <form method="post" action="{% url 'documents:document_acknowledge' document.pk %}">
         {% csrf_token %}
         <button class="link-button link-button--success link-button--compact" type="submit">Ознакомлен</button>
@@ -91,7 +91,7 @@ that asks the same rule again.
 {% endif %}
 {% if pending_version %}
 <div class="doc-banner{% if can_decide %} doc-banner--action{% endif %}" role="status">
-    <span>✍️ Версия {{ pending_version.full_label }} на согласовании{% if pending_version.comment %}: <span class="user-text">{{ pending_version.comment }}</span>{% endif %}.
+    <span>Версия {{ pending_version.full_label }} на согласовании{% if pending_version.comment %}: <span class="user-text">{{ pending_version.comment }}</span>{% endif %}.
         {% if not selected_version or selected_version.pk != pending_version.pk %}<a href="?version={{ pending_version.pk }}">Открыть её</a>{% endif %}</span>
     {% if can_decide %}
     <div class="doc-banner__actions">
@@ -163,7 +163,7 @@ that asks the same rule again.
             <iframe class="doc-viewer doc-viewer--text" src="{{ preview_url }}" title="{{ document.title }}" sandbox></iframe>
         {% else %}
             <div class="doc-viewer doc-viewer--empty">
-                <span class="doc-viewer__icon" aria-hidden="true">{{ icon }}</span>
+                <span class="doc-viewer__icon doc-type" aria-hidden="true">{{ icon }}</span>
                 <p>{{ preview.message }}</p>
                 {% if selected_version %}<a class="link-button link-button--compact" href="{% url 'documents:document_version_download' document.pk selected_version.pk %}">⤓ Скачать {{ selected_version.original_name }}</a>{% endif %}
             </div>
@@ -272,7 +272,7 @@ that asks the same rule again.
             {% endif %}
             {% if can_request_ack %}
             <details class="doc-subpanel">
-                <summary class="doc-link-button">👁 Разослать на ознакомление</summary>
+                <summary class="doc-link-button">Разослать на ознакомление</summary>
                 <form method="post" action="{% url 'documents:document_ack_request' document.pk %}">
                     {% csrf_token %}
                     {% include 'documents/includes/ack_fields.html' with form=ack_form %}

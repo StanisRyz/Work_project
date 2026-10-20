@@ -275,6 +275,8 @@
 .board-head__title h1 {
     margin: 0;
     min-width: 0;
+    font-size: var(--font-size-page);
+    font-weight: 600;
 }
 
 .board-head__members {

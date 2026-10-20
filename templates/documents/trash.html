@@ -24,7 +24,7 @@ record and is never removed for good — it says so instead of offering it.
             {% for row in rows %}
                 <tr>
                     <td class="doc-table__name">
-                        <a class="doc-entry" href="{% url 'documents:document_detail' row.document.pk %}"><span class="doc-entry__icon" aria-hidden="true">{{ row.icon }}</span><span class="doc-entry__text user-text text-ellipsis">{{ row.document.title }}</span></a>
+                        <a class="doc-entry" href="{% url 'documents:document_detail' row.document.pk %}"><span class="doc-entry__icon doc-type" aria-hidden="true">{{ row.icon }}</span><span class="doc-entry__text user-text text-ellipsis">{{ row.document.title }}</span></a>
                     </td>
                     <td class="doc-muted user-text">{{ row.folder_path }}</td>
                     <td class="doc-muted">{{ row.document.deleted_at|date:'d.m.Y' }}{% if row.document.deleted_by %} · {{ row.document.deleted_by|person_name }}{% endif %}</td>

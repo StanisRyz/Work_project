@@ -13,7 +13,7 @@ posts to an endpoint that asks the same rule again.
         {% include 'documents/includes/breadcrumbs.html' %}
         <h1 class="doc-head__title user-text">
             {{ folder.name }}
-            {% if folder.allowed_roles %}<span class="doc-chip doc-chip--lock" title="Папка видна только ролям: {{ access_labels|join:', ' }}">🔐 {{ access_labels|join:', ' }}</span>{% endif %}
+            {% if folder.allowed_roles %}<span class="doc-chip doc-chip--lock" title="Папка видна только ролям: {{ access_labels|join:', ' }}">{% include 'documents/includes/lock_icon.html' %} {{ access_labels|join:', ' }}</span>{% endif %}
         </h1>
     </div>
     <div class="doc-head__actions">
@@ -36,7 +36,7 @@ posts to an endpoint that asks the same rule again.
             {% csrf_token %}
             <button class="link-button link-button--secondary link-button--compact" type="submit"
                     title="{% if is_subscribed %}Отписаться от уведомлений о новых документах{% else %}Получать уведомления о новых документах и версиях в этой папке{% endif %}"
-                    aria-pressed="{% if is_subscribed %}true{% else %}false{% endif %}">{% if is_subscribed %}🔔 Вы подписаны{% else %}🔕 Подписаться{% endif %}</button>
+                    aria-pressed="{% if is_subscribed %}true{% else %}false{% endif %}">{% if is_subscribed %}Вы подписаны{% else %}Подписаться{% endif %}</button>
         </form>
         {% if can_set_access or can_rename_here or can_delete_here %}
         <details class="doc-menu">
@@ -182,8 +182,8 @@ visible.
                 <tr class="doc-table__folder" data-row-url="{{ row.url }}" data-drop-folder="{{ row.folder.pk }}">
                     {% if can_manage %}<td></td>{% endif %}
                     <td class="doc-table__name">
-                        <a class="doc-entry" href="{{ row.url }}"><span class="doc-entry__icon" aria-hidden="true">📁</span><span class="doc-entry__text user-text">{{ row.folder.name }}</span></a>
-                        {% if row.is_restricted %}<span class="doc-chip doc-chip--lock" title="Доступ ограничен">🔐</span>{% endif %}
+                        <a class="doc-entry" href="{{ row.url }}"><span class="doc-entry__icon">{% include 'documents/includes/folder_icon.html' %}</span><span class="doc-entry__text user-text">{{ row.folder.name }}</span></a>
+                        {% if row.is_restricted %}<span class="doc-chip doc-chip--lock" title="Доступ ограничен">{% include 'documents/includes/lock_icon.html' %}</span>{% endif %}
                     </td>
                     <td class="doc-muted" colspan="4">{{ row.count }} {% if row.count == 1 %}документ{% else %}док.{% endif %}</td>
                     <td></td>
@@ -220,7 +220,7 @@ visible.
                     {% if can_manage %}<td class="doc-table__check"><input type="checkbox" name="ids" value="{{ row.document.pk }}" form="doc-bulk-form" aria-label="Отметить «{{ row.document.title }}»" data-doc-check></td>{% endif %}
                     <td class="doc-table__name">
                         <a class="doc-entry" href="{{ row.url }}" title="{{ row.document.name }}">
-                            <span class="doc-entry__icon" aria-hidden="true">{{ row.icon }}</span>
+                            <span class="doc-entry__icon doc-type" aria-hidden="true">{{ row.icon }}</span>
                             <span class="doc-entry__text user-text text-ellipsis">{{ row.document.name }}</span>
                         </a>
                         {% if row.is_favorite %}<span class="doc-star" title="В избранном">★</span>{% endif %}

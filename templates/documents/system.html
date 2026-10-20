@@ -12,7 +12,7 @@ record's files remain as deeper levels for links that point at them.
 <header class="doc-head">
     <div class="doc-head__titles">
         {% include 'documents/includes/breadcrumbs.html' %}
-        <h1 class="doc-head__title">{{ page_title }} <span class="doc-chip" title="Файлы принадлежат исходным документам и изменяются там, где были загружены">🔒 только чтение</span></h1>
+        <h1 class="doc-head__title">{{ page_title }} <span class="doc-chip" title="Файлы принадлежат исходным документам и изменяются там, где были загружены">только чтение</span></h1>
     </div>
     {% if record_url %}
     <div class="doc-head__actions">
@@ -48,7 +48,7 @@ record's files remain as deeper levels for links that point at them.
             <tbody>
             {% for group in groups %}
                 <tr data-row-url="{{ group.url }}">
-                    <td class="doc-table__name"><a class="doc-entry" href="{{ group.url }}"><span class="doc-entry__icon" aria-hidden="true">🔒</span><span class="doc-entry__text">{{ group.object_label }}</span></a></td>
+                    <td class="doc-table__name"><a class="doc-entry" href="{{ group.url }}"><span class="doc-entry__icon">{% include 'documents/includes/folder_icon.html' %}</span><span class="doc-entry__text">{{ group.object_label }}</span></a></td>
                     <td class="doc-muted">{{ group.count }}</td>
                     <td class="doc-muted">{{ group.updated_at|date:'d.m.Y H:i' }}</td>
                 </tr>
@@ -63,7 +63,7 @@ record's files remain as deeper levels for links that point at them.
             <tbody>
             {% for reference in references %}
                 <tr>
-                    <td class="doc-attachments__thumb">{% if reference.preview_url %}<a href="{{ reference.preview_url }}" target="_blank" rel="noopener"><img src="{{ reference.preview_url }}" alt="" loading="lazy"></a>{% else %}<span aria-hidden="true">📎</span>{% endif %}</td>
+                    <td class="doc-attachments__thumb">{% if reference.preview_url %}<a href="{{ reference.preview_url }}" target="_blank" rel="noopener"><img src="{{ reference.preview_url }}" alt="" loading="lazy"></a>{% else %}<span class="doc-type" aria-hidden="true">{{ reference.type_label }}</span>{% endif %}</td>
                     <td class="doc-table__name"><a class="doc-entry" href="{{ reference.download_url }}" title="{{ reference.name }}"><span class="doc-entry__text user-text text-ellipsis">{{ reference.name }}</span></a></td>
                     <td class="doc-muted"><span class="doc-attachments__source">{{ reference.source_label }}</span> <a href="{{ reference.object_url }}">{{ reference.object_label }}</a></td>
                     <td class="doc-muted">{{ reference.size|filesizeformat }}</td>

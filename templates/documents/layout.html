@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} · Документация{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20260925-10">
+<link rel="stylesheet" href="{% static 'css/documents.css' %}?v=20261020-1">
 {% endblock %}
 
 {% block content_class %}page-container--fill{% endblock %}
@@ -24,7 +24,7 @@ folder table (`static/js/documents.js`).
                    aria-label="Поиск по документации" autocomplete="off">
         </form>
         <a class="doc-nav__item{% if active_section == 'home' %} is-active{% endif %}" href="{% url 'documents:browse' %}">
-            <span class="doc-nav__icon" aria-hidden="true">🏠</span>Главная
+            Главная
         </a>
         <div class="doc-tree" role="tree" aria-label="Папки">
             {% for node in folder_tree %}{% include 'documents/includes/tree_node.html' %}{% endfor %}
@@ -32,12 +32,12 @@ folder table (`static/js/documents.js`).
         {% if can_view_system %}
         <a class="doc-nav__item{% if active_section == 'system' %} is-active{% endif %}" href="{% url 'documents:system_root' %}"
            title="Файлы актов, протоколов и задач — только для чтения">
-            <span class="doc-nav__icon" aria-hidden="true">🔒</span>Вложения
+            Вложения
         </a>
         {% endif %}
         {% if can_manage %}
         <a class="doc-nav__item{% if active_section == 'trash' %} is-active{% endif %}" href="{% url 'documents:trash' %}">
-            <span class="doc-nav__icon" aria-hidden="true">🗑</span>Корзина
+            Корзина
             {% if trash_count %}<span class="doc-nav__count">{{ trash_count }}</span>{% endif %}
         </a>
         {% endif %}

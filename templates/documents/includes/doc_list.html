@@ -6,7 +6,7 @@ search), where it lives, when it changed. `card.is_readonly` is the only branch.
 <ul class="doc-list">
     {% for card in cards %}
     <li class="doc-list__row">
-        <span class="doc-list__icon" aria-hidden="true">{{ card.icon }}</span>
+        <span class="doc-list__icon doc-type" aria-hidden="true">{{ card.icon }}</span>
         <div class="doc-list__main">
             <a class="doc-list__title user-text" href="{{ card.open_url }}" title="{{ card.title }}">{{ card.title }}</a>
             {% if card.status_code and card.status_code != 'ACTIVE' %}<span class="doc-status doc-status--{{ card.status_code|lower }}">{{ card.status_label }}</span>{% endif %}

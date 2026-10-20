@@ -58,14 +58,9 @@
 
 .doc-nav__item.is-active,
 .doc-tree__row.is-current {
-    background: #eef4ff;
+    background: var(--color-primary-soft);
     color: var(--color-primary-dark);
     font-weight: 700;
-}
-
-.doc-nav__icon {
-    width: 18px;
-    text-align: center;
 }
 
 .doc-nav__count,
@@ -130,15 +125,52 @@
 }
 
 .doc-tree__lock {
-    margin-right: 3px;
-    font-size: 11px;
+    margin-right: 4px;
+    color: var(--color-warning);
+}
+
+/* The two drawn glyphs of the module — a folder and a lock — in the text's
+   own colour, never a picture. */
+.doc-glyph {
+    display: inline-block;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--color-muted);
+    vertical-align: -3px;
+}
+
+.doc-glyph--small {
+    width: 12px;
+    height: 12px;
+    color: inherit;
+    vertical-align: -1px;
+}
+
+/* A file's type, written: «PDF», «DOCX». Neutral — the type is a fact, not
+   a meaning — and fixed in width so a column of them lines up. */
+.doc-type {
+    display: inline-grid;
+    flex: none;
+    width: 40px;
+    height: 18px;
+    padding: 0 2px;
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-muted);
+    color: var(--color-muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    line-height: 1;
 }
 
 /* A folder a dragged document hovers over. */
 .is-drop-target {
     outline: 2px dashed var(--color-primary);
     outline-offset: -2px;
-    background: #eef4ff !important;
+    background: var(--color-primary-soft) !important;
 }
 
 /* ------------------------------------------------------------ main column */
@@ -175,12 +207,13 @@
     align-items: center;
     gap: 8px;
     margin: 2px 0 0;
-    font-size: 20px;
+    font-size: var(--font-size-page);
+    font-weight: 600;
     line-height: 1.3;
 }
 
 .doc-head__icon {
-    font-size: 20px;
+    align-self: center;
 }
 
 .doc-head__sub {
@@ -230,7 +263,7 @@
     gap: 4px;
     padding: 1px 8px;
     border: 1px solid var(--color-border);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: var(--color-surface);
     color: var(--color-muted);
     font-size: 12px;
@@ -239,44 +272,73 @@
 }
 
 .doc-chip--lock {
-    border-color: #f5d7a3;
-    background: #fff7ed;
-    color: #92400e;
+    border-color: var(--color-warning-border);
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
 }
 
+/* A label the system shows about a state. The base is the neutral pill; a
+   decision a person took (an approval, an acknowledgement) keeps its tint,
+   as `approval-status` does elsewhere. */
 .doc-status {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 1px 8px;
-    border-radius: 999px;
-    background: var(--color-bg);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-muted);
     color: var(--color-muted);
-    font-size: 12px;
-    font-weight: 700;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
     white-space: nowrap;
 }
 
+/* The document's own state — and a version's «текущая», «на согласовании»,
+   «возвращена» — read like an act status: a neutral label, a coloured dot. */
 .doc-status--active,
-.doc-status--approval-approved,
-.doc-status--ack-completed { background: #ecfdf5; color: #15803d; }
 .doc-status--draft,
+.doc-status--cancelled {
+    padding-left: 7px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-weight: 500;
+}
+
+.doc-status--active::before,
+.doc-status--draft::before,
+.doc-status--cancelled::before {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--stage-color, var(--color-subtle));
+    content: '';
+}
+
+.doc-status--active { --stage-color: var(--stage-done); }
+.doc-status--draft { --stage-color: var(--stage-review); }
+.doc-status--cancelled { --stage-color: var(--stage-cancelled); }
+
+.doc-status--approval-approved,
+.doc-status--ack-completed { background: var(--color-success-soft); color: var(--color-success); }
 .doc-status--approval-pending,
-.doc-status--ack-in_progress { background: #eef4ff; color: var(--color-primary-dark); }
-.doc-status--cancelled,
-.doc-status--approval-returned { background: #fef2f2; color: #b91c1c; }
+.doc-status--ack-in_progress { background: var(--color-primary-soft); color: var(--color-primary-dark); }
+.doc-status--approval-returned,
+.doc-status--overdue { background: var(--color-danger-soft); color: var(--color-danger); }
 .doc-status--approval-cancelled,
-.doc-status--ack-archived { background: var(--color-bg); color: var(--color-muted); }
-.doc-status--overdue { background: #fef2f2; color: #b91c1c; }
+.doc-status--ack-archived { background: var(--color-surface-muted); color: var(--color-muted); }
 
 .doc-muted {
     color: var(--color-muted);
 }
 
-.doc-due--overdue { color: #b91c1c; font-weight: 700; }
-.doc-due--soon { color: #b45309; font-weight: 700; }
+.doc-due--overdue { color: var(--color-danger); font-weight: 600; }
+.doc-due--soon { color: var(--color-warning); font-weight: 600; }
 
 .doc-star {
     margin-left: 4px;
-    color: #eab308;
+    color: var(--color-warning);
 }
 
 /* --------------------------------------------------------------- buttons */
@@ -288,7 +350,7 @@
     height: 28px;
     padding: 0;
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--color-muted);
     font: inherit;
@@ -356,7 +418,7 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: 0 10px 28px rgb(15 23 42 / 14%);
+    box-shadow: var(--shadow-overlay);
 }
 
 .doc-menu__popup--right {
@@ -385,7 +447,7 @@
 }
 
 .doc-menu__item--danger {
-    color: #b91c1c;
+    color: var(--color-danger);
 }
 
 /* ------------------------------------------------------ panels and forms */
@@ -454,9 +516,9 @@
 
 .doc-dropzone.has-files {
     border-style: solid;
-    border-color: #86efac;
-    background: #f0fdf4;
-    color: #15803d;
+    border-color: var(--color-success-border);
+    background: var(--color-success-soft);
+    color: var(--color-success);
 }
 
 .doc-ack-picker {
@@ -506,7 +568,7 @@
 .doc-checks label {
     padding: 2px 9px;
     border: 1px solid var(--color-border);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: var(--color-surface);
     font-size: 12px;
     cursor: pointer;
@@ -515,7 +577,7 @@
 
 .doc-checks input:checked + label {
     border-color: var(--color-primary);
-    background: #eef4ff;
+    background: var(--color-primary-soft);
     color: var(--color-primary-dark);
     font-weight: 700;
 }
@@ -621,7 +683,7 @@
 .doc-chips__chip {
     padding: 3px 10px;
     border: 1px solid var(--color-border);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: var(--color-surface);
     color: var(--color-text);
     font-size: 13px;
@@ -630,7 +692,7 @@
 
 .doc-chips__chip.is-active {
     border-color: var(--color-primary);
-    background: #eef4ff;
+    background: var(--color-primary-soft);
     color: var(--color-primary-dark);
     font-weight: 700;
 }
@@ -653,9 +715,9 @@
     align-items: center;
     gap: 6px;
     padding: 6px 10px;
-    border: 1px solid #bfd3fb;
+    border: 1px solid var(--color-primary-border);
     border-radius: var(--radius);
-    background: #f5f8ff;
+    background: var(--color-hover);
 }
 
 .doc-bulk[hidden] {
@@ -699,7 +761,7 @@
 
 .doc-table__check-col { width: 36px; }
 .doc-table__designation-col { width: 160px; }
-.doc-table__status-col { width: 116px; }
+.doc-table__status-col { width: 132px; }
 .doc-table__version-col { width: 92px; }
 .doc-table__date-col { width: 96px; }
 .doc-table__owner-col { width: 170px; }
@@ -764,8 +826,8 @@
 }
 
 .doc-entry__icon {
+    display: inline-flex;
     flex: 0 0 auto;
-    font-size: 16px;
 }
 
 .doc-entry__text {
@@ -807,7 +869,7 @@
 
 .doc-attachments__source {
     padding: 0 6px;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: var(--color-bg);
     font-size: 11px;
     font-weight: 700;
@@ -843,12 +905,13 @@
     align-items: center;
     gap: 6px;
     margin: 0 0 6px;
-    font-size: 15px;
+    font-size: var(--font-size-title);
+    font-weight: 600;
 }
 
 .doc-block__count {
     padding: 0 7px;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: var(--color-bg);
     color: var(--color-muted);
     font-size: 12px;
@@ -882,9 +945,6 @@
 
 .doc-list__icon {
     flex: 0 0 auto;
-    width: 22px;
-    font-size: 16px;
-    text-align: center;
 }
 
 .doc-list__main {
@@ -909,7 +969,7 @@
 
 .doc-list__tag {
     padding: 0 6px;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: var(--color-bg);
     color: var(--color-muted);
     font-size: 11px;
@@ -932,7 +992,7 @@
 .doc-list__snippet mark {
     padding: 0 1px;
     border-radius: 2px;
-    background: #fef08a;
+    background: var(--color-warning-soft);
 }
 
 .doc-list__meta {
@@ -951,9 +1011,9 @@
     justify-content: space-between;
     gap: 8px 12px;
     padding: 7px 12px;
-    border: 1px solid #bfd3fb;
+    border: 1px solid var(--color-primary-border);
     border-radius: var(--radius);
-    background: #f5f8ff;
+    background: var(--color-hover);
     font-size: 13px;
 }
 
@@ -962,8 +1022,8 @@
 }
 
 .doc-banner--action {
-    border-color: #86efac;
-    background: #f0fdf4;
+    border-color: var(--color-success-border);
+    background: var(--color-success-soft);
 }
 
 .doc-banner--muted {
@@ -1026,7 +1086,9 @@
 }
 
 .doc-viewer__icon {
-    font-size: 44px;
+    width: 56px;
+    height: 28px;
+    font-size: var(--font-size-sm);
 }
 
 .doc-view__side {
@@ -1048,8 +1110,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 14px;
-    font-weight: 700;
+    font-size: var(--font-size-title);
+    font-weight: 600;
     cursor: pointer;
 }
 
@@ -1102,7 +1164,7 @@
 }
 
 .doc-versions__row.is-selected {
-    background: #f5f8ff;
+    background: var(--color-hover);
 }
 
 .doc-versions__head {
@@ -1128,7 +1190,7 @@
 }
 
 .doc-versions__comment--returned {
-    color: #b91c1c;
+    color: var(--color-danger);
 }
 
 .doc-versions__by {
@@ -1217,9 +1279,9 @@
     padding: 8px 14px;
     border-radius: var(--radius);
     background: var(--color-text);
-    color: #ffffff;
+    color: var(--color-surface);
     font-size: 13px;
-    box-shadow: 0 10px 28px rgb(15 23 42 / 20%);
+    box-shadow: var(--shadow-overlay);
 }
 
 /* ------------------------------------------------------------ narrower */

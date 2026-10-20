@@ -212,8 +212,13 @@ tasks never live inside `acts`.
   `act-badge--status`/`act-stage-badge` plus `--<status code>`, whose dot
   reads `--stage-*`; a КО decision is `act-badge--decision-<code>`, tinted.
   Any other state with a modifier — `status-badge--in_progress|completed|
-  archived|created` (tasks, СМК, boards) — is the same neutral label with a
-  dot; a decision of a person (`approval-status--*`) stays tinted.
+  archived|created` (tasks, СМК, boards) and a document's
+  `doc-status--active|draft|cancelled` — is the same neutral label with a
+  dot; a decision of a person (`approval-status--*`, a document's
+  `doc-status--approval-*|ack-*`) stays tinted. Icons are drawn, never
+  emoji: the documentation library marks a file by its written type
+  (`.doc-type`, «PDF», `documents.cards.file_icon()`) and a folder or a lock
+  by an inline SVG (`documents/includes/folder_icon.html`, `lock_icon.html`).
 - **Registry conveniences are one set of tools, and none of them is a rule.**
   Every registry (акты, задачи, протоколы, СМК) shows the unfiltered — or, for
   СМК, the filtered — size of each tab beside its name, applies its filters by

@@ -4,7 +4,7 @@
     <details class="doc-tree__branch"{% if node.is_open %} open{% endif %}>
         <summary class="doc-tree__row{% if node.is_current %} is-current{% endif %}" data-drop-folder="{{ node.pk }}">
             <span class="doc-tree__chevron" aria-hidden="true"></span>
-            <a class="doc-tree__link user-text" href="{{ node.url }}"{% if node.is_current %} aria-current="page"{% endif %}>{% if node.is_restricted %}<span class="doc-tree__lock" title="Доступ ограничен">🔐</span>{% endif %}{{ node.name }}</a>
+            <a class="doc-tree__link user-text" href="{{ node.url }}"{% if node.is_current %} aria-current="page"{% endif %}>{% if node.is_restricted %}<span class="doc-tree__lock" title="Доступ ограничен">{% include 'documents/includes/lock_icon.html' %}</span>{% endif %}{{ node.name }}</a>
             {% if node.count %}<span class="doc-tree__count">{{ node.count }}</span>{% endif %}
         </summary>
         <div class="doc-tree__children" role="group">
@@ -13,7 +13,7 @@
     </details>
     {% else %}
     <div class="doc-tree__row doc-tree__row--leaf{% if node.is_current %} is-current{% endif %}" data-drop-folder="{{ node.pk }}">
-        <a class="doc-tree__link user-text" href="{{ node.url }}"{% if node.is_current %} aria-current="page"{% endif %}>{% if node.is_restricted %}<span class="doc-tree__lock" title="Доступ ограничен">🔐</span>{% endif %}{{ node.name }}</a>
+        <a class="doc-tree__link user-text" href="{{ node.url }}"{% if node.is_current %} aria-current="page"{% endif %}>{% if node.is_restricted %}<span class="doc-tree__lock" title="Доступ ограничен">{% include 'documents/includes/lock_icon.html' %}</span>{% endif %}{{ node.name }}</a>
         {% if node.count %}<span class="doc-tree__count">{{ node.count }}</span>{% endif %}
     </div>
     {% endif %}
