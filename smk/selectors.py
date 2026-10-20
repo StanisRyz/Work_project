@@ -322,6 +322,12 @@ def get_cancelled_smk_tasks(source):
     )
 
 
+def _task_progress(tasks):
+    done = sum(1 for task in tasks if task.status.code == 'COMPLETED')
+    total = sum(1 for task in tasks if task.status.code != 'CANCELLED')
+    return {'done': done, 'total': total}
+
+
 def get_source_detail(source):
     """One СМК record: its findings, its measures and the real tasks.
 
@@ -354,6 +360,10 @@ def get_source_detail(source):
         ],
         'actions': rows,
         'task_count': sum(len(row['tasks']) for row in rows),
+        # «1 из 3 выполнено», the registry's «Выполнено» column for this one
+        # record: completed against completed-or-open, so a withdrawn task
+        # counts as neither — the same two numbers the state is decided by.
+        'progress': _task_progress([task for row in rows for task in row['tasks']]),
         # The same three states the registry shows, from the same function and
         # the same rule, so a record cannot read one way in the list and
         # another on its own page. The tasks are already loaded above, so

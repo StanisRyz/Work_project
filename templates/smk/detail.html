@@ -5,88 +5,83 @@
 {% block title %}{{ source.label }} · СМК{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260925-4">
+<link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20261020-1">
 {% endblock %}
 
 {% block content %}
 {% comment %}
-The record behind an СМК task, read-only and in three tabs.
-
-The heading carries the identifier, its state and the two actions on the
-record as a whole — «Редактировать» and «Архивировать»: тип аудита, дата, автор
-and the task count live in the information card below it and are never
-repeated — one fact, one place on the page.
+The record behind an СМК task, read-only and in three tabs, laid out as the act
+page (`.act-page`): the heading card — identifier, state and the two actions on
+the record as a whole, «Редактировать» and «Архивировать» — and the tabs on the
+left, and on the right «Сведения о записи»: what the audit was, when, what it
+looked at, who wrote the record up and when, and how far its tasks got. One
+fact, one place on the page.
 
 All three tabs come from one `get_source_detail()` read, so they cannot
 describe different work.
 {% endcomment %}
-<section class="act-detail-heading">
-    <a class="act-back-link" href="{% url 'smk:list' %}" aria-label="К списку записей СМК">←</a>
-    <div class="act-detail-heading__title">
-        <h1>{{ source.label }}</h1>
-        {# «В работе», «Выполнено» or «Архивировано» — the same pill the registry renders. #}
-        <span class="status-badge status-badge--{{ state.code }}">{{ state.label }}</span>
-    </div>
-    {% comment %}
-    «Редактировать» and «Архивировать» are shown only to the roles that may do
-    them and only while the record is live — `can_edit`/`can_archive` are the
-    answers the view computed, and both services re-check them under a lock.
-    Archiving goes through the one application confirmation modal, never a
-    browser `confirm()`; editing opens the form, where the correction has its
-    own confirmation step because it cancels and reissues the record's tasks.
-    {% endcomment %}
-    {% if can_edit or can_archive %}
-        <div class="smk-detail-heading__actions">
-            {% if can_edit %}
-                <a class="link-button link-button--secondary" href="{% url 'smk:edit' source.pk %}">Редактировать</a>
-            {% endif %}
-            {% if can_archive %}
-                <button class="link-button link-button--warning" type="button"
-                        data-confirm
-                        data-confirm-title="Архивировать {{ source.label }}?"
-                        data-confirm-text="Запись перейдёт во вкладку «Архив». Задачи и связи останутся без изменений."
-                        data-confirm-label="Архивировать"
-                        data-confirm-variant="warning"
-                        data-confirm-url="{% url 'smk:archive' source.pk %}">Архивировать</button>
-            {% endif %}
+<div class="act-page smk-page">
+<section class="act-head">
+    <div class="act-detail-heading">
+        <a class="act-back-link" href="{% url 'smk:list' %}" aria-label="К списку записей СМК" title="К списку записей СМК"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></a>
+        <div class="act-detail-heading__title">
+            <h1>{{ source.label }}</h1>
+            {# «В работе», «Выполнено» or «Архивировано» — the same pill the registry renders. #}
+            <span class="status-badge status-badge--{{ state.code }}">{{ state.label }}</span>
         </div>
-    {% endif %}
-</section>
-
-{% comment %}
-The information card: six facts, each read once. «Дата аудита» is the audit's
-own date, stored separately from «Дата создания» — a record is often written up
-days after the audit it describes — and «Количество задач» counts the real
-tasks the measures produced, not the measures that should have produced them.
-{% endcomment %}
-<section class="smk-info-card" aria-label="Сведения об аудите">
-    {% comment %}
-    Three facts, and only three: what the audit was, what it looked at and when
-    it happened. The rest used to sit here and no longer does — «Статус» is the
-    pill beside the heading, «Количество задач» is the «Связанные мероприятия»
-    tab, and «Создал»/«Дата создания» are the first line of «История». A fact
-    the page already states elsewhere is not worth a second, competing tile.
-    {% endcomment %}
-    <div class="smk-info-card__item">
-        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M9 4h6v3H9zM8 5H6v15h12V5h-2M9 12h6M9 16h4"/></svg></span>
-        <div><span>Тип аудита</span><strong>{{ source.get_origin_display }}</strong></div>
-    </div>
-    <div class="smk-info-card__item">
-        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M9 3v4M15 3v4"/></svg></span>
-        <div><span>Дата аудита</span><strong>{{ source.audit_date|date:'d.m.Y'|default:'—' }}</strong></div>
-    </div>
-    <div class="smk-info-card__item">
         {% comment %}
-        The подразделение the audit looked at — the record's own field, not the
-        department of anybody's мероприятие. Older records carry none until the
-        отдел СМК fills it in through «Редактировать», so «—» is a real answer
-        here rather than a placeholder.
+        «Редактировать» and «Архивировать» are shown only to the roles that may
+        do them and only while the record is live — `can_edit`/`can_archive`
+        are the answers the view computed, and both services re-check them
+        under a lock. Archiving goes through the one application confirmation
+        modal, never a browser `confirm()`; editing opens the form, where the
+        correction has its own confirmation step because it cancels and
+        reissues the record's tasks.
         {% endcomment %}
-        <span class="smk-info-card__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/></svg></span>
-        <div><span>Отделение</span><strong class="user-text">{{ source.department|default:'—' }}</strong></div>
+        {% if can_edit or can_archive %}
+            <div class="smk-detail-heading__actions">
+                {% if can_edit %}
+                    <a class="link-button link-button--secondary link-button--compact" href="{% url 'smk:edit' source.pk %}">Редактировать</a>
+                {% endif %}
+                {% if can_archive %}
+                    <button class="link-button link-button--warning link-button--compact" type="button"
+                            data-confirm
+                            data-confirm-title="Архивировать {{ source.label }}?"
+                            data-confirm-text="Запись перейдёт во вкладку «Архив». Задачи и связи останутся без изменений."
+                            data-confirm-label="Архивировать"
+                            data-confirm-variant="warning"
+                            data-confirm-url="{% url 'smk:archive' source.pk %}">Архивировать</button>
+                {% endif %}
+            </div>
+        {% endif %}
     </div>
 </section>
 
+<aside class="act-side-column smk-side" aria-label="Сведения о записи">
+    {% comment %}
+    «Дата аудита» is the audit's own date, stored separately from «Внесена» —
+    a record is often written up days after the audit it describes.
+    «Отделение» is what the audit looked at, the record's own field; older
+    records carry none until the отдел СМК fills it in, so «—» is a real
+    answer. «Задачи» counts the real tasks the measures produced, done against
+    done-or-open: a withdrawn task counts as neither.
+    {% endcomment %}
+    <section class="act-side__card">
+        <h2 class="act-side__title">Сведения о записи</h2>
+        <dl class="act-side__facts">
+            <div><dt>Тип аудита</dt><dd>{{ source.get_origin_display }}</dd></div>
+            <div><dt>Дата аудита</dt><dd>{{ source.audit_date|date:'d.m.Y'|default:'—' }}</dd></div>
+            <div><dt>Отделение</dt><dd class="user-text">{{ source.department|default:'—' }}</dd></div>
+        </dl>
+        <dl class="act-side__facts">
+            <div><dt>Автор</dt><dd>{{ source.created_by|person_name }}</dd></div>
+            <div><dt>Внесена</dt><dd>{{ source.created_at|date:'d.m.Y H:i' }}</dd></div>
+            <div><dt>Задачи</dt><dd>{% if progress.total %}<span class="smk-progress"><span class="smk-progress__label">{{ progress.done }} из {{ progress.total }} выполнено</span><span class="smk-progress__bar" aria-hidden="true"><span style="width: {% widthratio progress.done progress.total 100 %}%"></span></span></span>{% else %}—{% endif %}</dd></div>
+        </dl>
+    </section>
+</aside>
+
+<div class="act-page__main">
 <nav class="act-detail-tabs" aria-label="Разделы записи СМК">
     <a class="act-detail-tabs__link{% if detail_tab == 'act' %} act-detail-tabs__link--active{% endif %}" href="?tab=act"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Акт аудита</a>
     <a class="act-detail-tabs__link{% if detail_tab == 'activities' %} act-detail-tabs__link--active{% endif %}" href="?tab=activities"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 13 4-4M7 17l-1 1a3 3 0 1 1-4-4l4-4a3 3 0 0 1 4 0M17 7l1-1a3 3 0 1 1 4 4l-4 4a3 3 0 0 1-4 0"/></svg>Связанные мероприятия</a>
@@ -100,4 +95,6 @@ tasks the measures produced, not the measures that should have produced them.
 {% else %}
     {% include 'smk/includes/audit_content.html' %}
 {% endif %}
+</div>
+</div>
 {% endblock %}

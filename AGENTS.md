@@ -684,9 +684,10 @@ tasks never live inside `acts`.
   it against the findings it has just created. A link therefore cannot survive
   the row it pointed at being emptied.
 - **A finding carries no status of its own.** It is shown as it was recorded —
-  text, «Выявлено» (the audit date) and «Источник» — and nothing else: what is
-  being done about it is the state of the measures naming it, and a second
-  answer on the finding could only disagree with them.
+  its number and its text — and nothing else: the audit's date and type are
+  «Сведения о записи», the same for every finding, and what is being done
+  about it is the state of the measures naming it; a second answer on the
+  finding could only disagree with them.
 - **Correcting an СМК record reissues only the work that changed.**
   `smk.services.update_smk_source()` is the whole rule, in one `atomic()` block
   over a `select_for_update()`d record. Every мероприятие carries its own
@@ -782,29 +783,29 @@ tasks never live inside `acts`.
   `tasks.services` and nothing to migrate. «Архивировано» still wins over both.
   Displayed through `.status-badge--<code>`
   (`in_progress`/`completed`/`archived`) in `components.css`.
-- **The record page is three tabs.** «Акт аудита» (findings as a
-  timeline, measures as one-row cards whose подразделение/исполнитель/срок/
-  задача are grid items of the card itself, not a nested grid — that is what
-  keeps them on one line, with the finding and measure text shown *in full* —
-  `.user-text`, not a clamp: on that tab the text is the content, and a
-  two-line limit with the rest only on a `title` hides it from touch),
-  «Связанные мероприятия» (the tasks, in the protocol table's own five columns)
-  and «История», all built from one
-  `get_source_detail()` read so they cannot disagree. Neither the task status
-  nor a link to a task appears on «Акт аудита»: that tab is what was *decided*,
-  the live state of the work belongs to «Связанные мероприятия» alone, and two
-  answers on two tabs could only drift apart. The heading carries the identifier, the
-  state pill, «Редактировать» and «Архивировать» — those act on the record as a
-  whole. The
-  six facts (тип аудита, дата аудита, автор, дата создания, статус, количество
-  задач) live in the information card below it and are not repeated anywhere
-  else on the page; статус appears in both places on purpose, as the pill and
-  as a field, and both read the same `state`. Styling reuses
-  `acts.css`/`components.css`
-  (`act-detail-heading`, `act-detail-tabs`, `detail-section`, `status-badge`,
+- **The record page is the act's object page, in three tabs.** `.act-page`:
+  the heading card (`.act-head` — the identifier, the state pill,
+  «Редактировать» and «Архивировать», which act on the record as a whole) and
+  the tabs on the left; on the right «Сведения о записи» — тип аудита, дата
+  аудита, отделение, then автор, «Внесена» (`created_at`) and «Задачи: N из M
+  выполнено» (`get_source_detail()['progress']`, done against done-or-open,
+  the registry's own two numbers) — not repeated anywhere else; the state is
+  the pill alone. The tabs: «Акт аудита» — the findings as numbered lines and
+  the measures as lines under a muted header «Мероприятие | Исполнители |
+  Срок» (the finding it answers, when named, under its text; «задача каждому»
+  under the срок for a split measure), both texts *in full* — `.user-text`,
+  not a clamp: on that tab the text is the content, and a two-line limit with
+  the rest only on a `title` hides it from touch —, «Связанные мероприятия»
+  (the tasks, in the protocol table's own five columns) and «История», all
+  built from one `get_source_detail()` read so they cannot disagree. Neither
+  the task status nor a link to a task appears on «Акт аудита»: that tab is
+  what was *decided*, the live state of the work belongs to «Связанные
+  мероприятия» alone, and two answers on two tabs could only drift apart.
+  Styling reuses `acts.css`/`components.css` (`act-page`, `act-head`,
+  `act-side__*`, `act-detail-tabs`, `detail-section`, `status-badge`,
   `related-activities`, and the whole `history-feed` timeline verbatim);
-  `static/css/smk.css` adds only the information card, the findings timeline,
-  the measure card and the registry table.
+  `static/css/smk.css` adds only the two lists, the registry table and its
+  progress bar.
 - **«Связанные мероприятия» reports the task and never restates it.** The same
   five columns the protocol table has — №, мероприятие, исполнители, срок,
   статус — and the same markup, so the two read alike; the статус is the
