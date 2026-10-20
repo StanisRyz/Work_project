@@ -1358,11 +1358,23 @@ tasks never live inside `acts`.
   one `ProtocolAction`, one card on the protocol page and one row in the
   printable form and the PDF, however many tasks it produced; only the sections
   that deliberately list *real generated tasks* show them separately.
-- **The protocol page is an accordion of `<details>` sections.** A document
-  card that never collapses (identity, status, three-step workflow indicator
-  from `describe_protocol_workflow()`), then Участники, Повестка, Слушали,
-  Задачи and Согласование, each a section whose header carries a count —
-  «4/5» for approval. Native `<details>` on purpose: collapsing needs no
+- **The protocol page is the act's object page, and its document an
+  accordion of `<details>` sections.** `.act-page`: the heading card
+  (`.act-head` — identity, status dot, date, author, revision, «Печать»,
+  «PDF», «На основе», «Удалить», and under a hairline the three steps of
+  `describe_protocol_workflow()` as the act's horizontal `.act-route`), the
+  work on the left, and a right-hand column one window high — the current
+  approval round as a card (`approval_panel.html`, «Согласовано: N из M», the
+  two decisions, one line per согласующий) and «Обсуждение» (the act's
+  `.act-chat`; the form posts its `tab` and `protocols:add_comment` comes
+  back to it), beside every tab; the third tab is «Вложения», the files only.
+  The sections are Участники, Повестка, Слушали and Задачи, each with a
+  count in its header, and inside them lines on hairlines (`.protocol-line`),
+  never a box in a box: a person is name · подразделение · flags, a question
+  and a decision are numbered by CSS, a speech is the speaker beside the
+  text, the editor's rows are «подразделение | сотрудник | ☐ | ×», and a
+  decision is laid out as a corrective action of «Анализ ТО» — the СМК form
+  uses the same rows. Native `<details>` on purpose: collapsing needs no
   JavaScript, survives a live fragment replacement and stays keyboard
   accessible. Sections open by default, because a `required` field the browser
   cannot focus blocks submission silently; `protocol_editor.js` re-opens a
@@ -3704,7 +3716,7 @@ tasks never live inside `acts`.
   selection is re-read and filtered by `can_view_document()`; move and trash
   are management.
 - **«Где используется» is `DocumentLink`, owned by Documentation.** The act's
-  «Вложения» tab and the protocol's «Вложения и комментарии» tab render
+  «Вложения» tab and the protocol's «Вложения» tab render
   `templates/documents/includes/linked_documents.html` («Нормативные
   документы») from `documents.selectors.build_document_links_for()`; adding
   and removing go through `documents:link_create`/`link_delete` →

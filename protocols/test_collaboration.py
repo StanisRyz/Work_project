@@ -55,9 +55,11 @@ class ProtocolCollaborationTests(TestCase):
         self.client.force_login(self.author)
         collaboration = reverse('protocols:detail', args=[protocol.pk]) + '?tab=collaboration'
 
+        # The form posts the tab it was written on, and the answer goes back
+        # there: «Обсуждение» stands beside every tab.
         added = self.client.post(
             reverse('protocols:add_comment', args=[protocol.pk]),
-            {'text': 'Уточните формулировку второго решения.'},
+            {'text': 'Уточните формулировку второго решения.', 'tab': 'collaboration'},
         )
 
         self.assertRedirects(added, collaboration)

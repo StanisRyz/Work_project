@@ -5,14 +5,14 @@ in parallel and paired positionally on the server.
 {% endcomment %}
 <div class="protocol-assignee-row" data-assignee-row data-employee-pair>
     <label>
-        <span>Подразделение</span>
+        <span class="visually-hidden-label">Подразделение</span>
         <select name="actions-{{ action_index }}-assignee_departments" data-department-select required>
             <option value="">Выберите подразделение</option>
             {% include 'includes/department_options.html' with selected=assignee.department %}
         </select>
     </label>
     <label>
-        <span>Исполнитель</span>
+        <span class="visually-hidden-label">Исполнитель</span>
         <select name="actions-{{ action_index }}-assignees" data-employee-select required>
             <option value="">Выберите исполнителя</option>
             {% include 'includes/employee_options.html' with selected=assignee.user %}

@@ -30,23 +30,19 @@ on the server.
         <div class="protocol-section__body">
             <input type="hidden" name="participants-TOTAL_FORMS" value="{{ form.participant_rows|length }}" data-total>
 
-            <div class="protocol-card-grid">
+            <div class="protocol-lines">
                 {% comment %}
                 The author is fixed: no department or employee selector, no
                 approval checkbox and no delete. `Protocol.author` stays the
                 only authority.
                 {% endcomment %}
-                <div class="protocol-participant-card protocol-participant-card--author">
-                    <div class="protocol-participant-card__who">
-                        <strong>{{ author_participant.display_name|default:protocol.author }}</strong>
-                        <span>{{ author_participant.department_name|default:'—' }}</span>
-                    </div>
-                    <div class="protocol-participant-card__flags">
-                        <span class="protocol-author-mark">Автор</span>
-                    </div>
+                <div class="protocol-line protocol-person protocol-person--author">
+                    <span class="protocol-person__name user-text">{{ author_participant.display_name|default:protocol.author }}</span>
+                    <span class="protocol-person__where user-text">{{ author_participant.department_name|default:'—' }}</span>
+                    <span class="protocol-person__flags"><span class="protocol-author-mark">Автор</span></span>
                 </div>
 
-                <div class="protocol-card-grid" data-row-list>
+                <div class="protocol-lines" data-row-list>
                     {% for row in form.participant_rows %}
                         {% include 'protocols/includes/participant_row.html' %}
                     {% endfor %}
@@ -68,7 +64,7 @@ on the server.
         </summary>
         <div class="protocol-section__body">
             <input type="hidden" name="agenda-TOTAL_FORMS" value="{{ form.agenda_rows|length }}" data-total>
-            <div class="protocol-card-grid" data-row-list>
+            <div class="protocol-lines protocol-lines--numbered" data-row-list>
                 {% for row in form.agenda_rows %}
                     {% include 'protocols/includes/agenda_row.html' %}
                 {% endfor %}
@@ -89,7 +85,7 @@ on the server.
         </summary>
         <div class="protocol-section__body">
             <input type="hidden" name="speeches-TOTAL_FORMS" value="{{ form.speech_rows|length }}" data-total>
-            <div class="protocol-card-grid" data-row-list>
+            <div class="protocol-lines protocol-lines--numbered" data-row-list>
                 {% for row in form.speech_rows %}
                     {% include 'protocols/includes/speech_row.html' %}
                 {% endfor %}
@@ -100,7 +96,7 @@ on the server.
         </div>
     </details>
 
-    <details class="protocol-section protocol-section--accent" data-block="actions" open>
+    <details class="protocol-section" data-block="actions" open>
         <summary class="protocol-section__summary">
             <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
             <span class="protocol-section__title">Задачи</span>
@@ -109,15 +105,14 @@ on the server.
             <span class="protocol-section__chevron" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></span>
         </summary>
         <div class="protocol-section__body">
-            <p class="protocol-section__hint">Протокол может не содержать задач. Заполненная задача требует формулировки, подразделения, срока и хотя бы одного исполнителя.</p>
             {% comment %}
             Presentation only. `collect_required_approvers()` on the server
             stays the authority on who must sign; this sentence and the
             per-participant hint merely say out loud what it will decide.
             {% endcomment %}
-            <p class="protocol-section__hint">Исполнители задач протокола автоматически становятся согласующими — кроме автора протокола.</p>
+            <p class="protocol-section__hint">Задач может не быть. У задачи — формулировка, срок и хотя бы один исполнитель; исполнители (кроме автора) согласуют протокол.</p>
             <input type="hidden" name="actions-TOTAL_FORMS" value="{{ form.action_rows|length }}" data-total>
-            <div class="protocol-card-grid" data-row-list>
+            <div class="protocol-lines protocol-lines--numbered" data-row-list>
                 {% for row in form.action_rows %}
                     {% include 'protocols/includes/action_row.html' %}
                 {% endfor %}

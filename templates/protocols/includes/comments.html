@@ -1,0 +1,31 @@
+{% comment %}
+«Обсуждение»: the protocol's comments as a chat beside every tab — the act
+page's `.act-chat`, markup and styles alike. Three parts, and only the middle
+one is live: the heading, the list (`[data-live-protocol-comments]`, replaced
+by `protocols:comments_fragment`), and the form below it, which no refresh
+ever touches, so a message being typed survives every update. The form posts
+the tab it was written on, and the view comes back to it.
+{% endcomment %}
+<section class="act-chat" aria-labelledby="protocol-chat-title">
+    <h2 class="act-side__title act-chat__title" id="protocol-chat-title">Обсуждение</h2>
+    <div class="act-chat__feed" data-live-protocol-comments>
+        {% include 'protocols/includes/comments_list.html' %}
+    </div>
+    {% if can_contribute %}
+    <form class="comment-form act-chat__form" method="post" action="{% url 'protocols:add_comment' protocol.pk %}" data-hotkey-submit>
+        {% csrf_token %}
+        <input type="hidden" name="tab" value="{{ detail_tab }}">
+        {{ comment_form.non_field_errors }}
+        <div class="comment-form__field">
+            {{ comment_form.text }}
+            {{ comment_form.text.errors }}
+        </div>
+        <div class="act-chat__send">
+            <span class="act-chat__hint">Ctrl+Enter — отправить</span>
+            <button class="link-button link-button--compact" type="submit"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14-7-4 14-3-6-7-1Z"/></svg>Отправить</button>
+        </div>
+    </form>
+    {% else %}
+    <p class="act-chat__readonly">Протокол в архиве: обсуждение доступно только для чтения.</p>
+    {% endif %}
+</section>

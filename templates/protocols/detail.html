@@ -4,7 +4,7 @@
 {% block title %}{{ protocol.protocol_type.name }} №{{ protocol.number }} · Протоколы{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260925-4">
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20261020-2">
 {% endblock %}
 
 {% block content %}
@@ -23,10 +23,27 @@
      data-content-revision="{{ content_revision|default:'' }}"
      data-content-bound="{% if form_is_bound %}true{% else %}false{% endif %}"></div>
 
-<div data-live-protocol-heading>
+{% comment %}
+The act page's object-page layout, reused as it is (`.act-page` in
+`acts.css`): the heading card with the route across the top of the work, the
+work on the left, and on the right a column one window high — the approval
+round, then «Обсуждение», beside every tab. The heading container is
+`display: contents` (`.act-summary`), so its live replacement changes nothing
+in the grid.
+{% endcomment %}
+<div class="act-page protocol-page">
+<div class="act-summary" data-live-protocol-heading>
     {% include 'protocols/includes/detail_heading.html' %}
 </div>
 
+<aside class="act-side-column" aria-label="Согласование и обсуждение">
+    <div class="act-side-live protocol-approval-side" data-live-protocol-approval>
+        {% include 'protocols/includes/detail_approval.html' %}
+    </div>
+    {% include 'protocols/includes/comments.html' %}
+</aside>
+
+<div class="act-page__main">
 {% comment %}
 Shown instead of replacing the editor when the protocol moved on while the
 author has unsaved input. Nothing typed is ever discarded — the user reloads
@@ -51,7 +68,7 @@ when they are ready.
 <nav class="act-detail-tabs" aria-label="Разделы протокола">
     <a class="act-detail-tabs__link{% if detail_tab == 'protocol' %} act-detail-tabs__link--active{% endif %}" href="?tab=protocol"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Протокол</a>
     <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.7M4 5v4h4"/></svg>История</a>
-    <a class="act-detail-tabs__link{% if detail_tab == 'collaboration' %} act-detail-tabs__link--active{% endif %}" href="?tab=collaboration"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>Вложения и комментарии</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'collaboration' %} act-detail-tabs__link--active{% endif %}" href="?tab=collaboration"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>Вложения</a>
     <a class="act-detail-tabs__link{% if detail_tab == 'activities' %} act-detail-tabs__link--active{% endif %}" href="?tab=activities"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 13 4-4M7 17l-1 1a3 3 0 1 1-4-4l4-4a3 3 0 0 1 4 0M17 7l1-1a3 3 0 1 1 4 4l-4 4a3 3 0 0 1-4 0"/></svg>Связанные мероприятия</a>
 </nav>
 
@@ -66,8 +83,8 @@ server render and is therefore already current.
         {% include 'protocols/includes/detail_history.html' %}
     </div>
 {% elif detail_tab == 'collaboration' %}
-    {# The act page's two-column collaboration layout, reused as it is. #}
-    <div class="act-collaboration-layout">
+    {# The files only: the discussion is the right-hand column of every tab. #}
+    <div class="act-collaboration-layout act-collaboration-layout--single">
         {% include 'protocols/includes/detail_collaboration.html' %}
     </div>
     {% include 'documents/includes/linked_documents.html' with link_target_field='protocol' link_target_id=protocol.pk link_target_label='протокол' %}
@@ -77,18 +94,17 @@ server render and is therefore already current.
     </section>
 {% else %}
     {% comment %}
-    Content first, approval last: the accordion reads in document order —
-    участники, повестка, «Слушали», задачи, согласование. The two live
-    fragments stay separate blocks so a decision refreshes the approval
-    section without touching an editor that may hold unsaved input.
+    The document, in document order — участники, повестка, «Слушали», задачи.
+    The approval round is the right-hand column, a live block of its own, so a
+    decision refreshes it without touching an editor that may hold unsaved
+    input.
     {% endcomment %}
     <div class="protocol-sections" data-live-protocol-content>
         {% if content_html %}{{ content_html }}{% else %}{% include 'protocols/includes/detail_content.html' %}{% endif %}
     </div>
-    <div class="protocol-sections" data-live-protocol-approval>
-        {% include 'protocols/includes/detail_approval.html' %}
-    </div>
 {% endif %}
+</div>
+</div>
 {% endblock %}
 
 {% block scripts %}

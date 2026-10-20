@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 {# The editor reuses the protocol editor's row styling; `smk.css` adds only what is СМК's own. #}
-<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20260925-4">
+<link rel="stylesheet" href="{% static 'css/protocols.css' %}?v=20261020-2">
 <link rel="stylesheet" href="{% static 'css/smk.css' %}?v=20260925-4">
 {% endblock %}
 
@@ -94,7 +94,7 @@ re-checked on the server.
             </summary>
             <div class="protocol-section__body">
                 <input type="hidden" name="nonconformities-TOTAL_FORMS" value="{{ form.non_conformity_rows|length }}" data-total>
-                <div class="protocol-card-grid" data-row-list>
+                <div class="protocol-lines protocol-lines--numbered" data-row-list>
                     {% for row in form.non_conformity_rows %}
                         {% include 'smk/includes/nonconformity_row.html' %}
                     {% endfor %}
@@ -105,7 +105,7 @@ re-checked on the server.
             </div>
         </details>
 
-        <details class="protocol-section protocol-section--accent" data-block="actions" open>
+        <details class="protocol-section" data-block="actions" open>
             <summary class="protocol-section__summary">
                 <span class="protocol-section__title">Корректирующие мероприятия</span>
                 <span class="protocol-section__count" data-section-count>{{ form.action_rows|length }}</span>
@@ -115,7 +115,7 @@ re-checked on the server.
             <div class="protocol-section__body">
                 <p class="protocol-section__hint">Каждое мероприятие создаёт задачу в разделе «Задачи»: одну общую на всех исполнителей или, если включить «Разбить задачу по исполнителям», отдельную задачу каждому. Любая задача по СМК закрывается только с вложением — подтверждающий файл обязателен.</p>
                 <input type="hidden" name="actions-TOTAL_FORMS" value="{{ form.action_rows|length }}" data-total>
-                <div class="protocol-card-grid" data-row-list>
+                <div class="protocol-lines protocol-lines--numbered" data-row-list>
                     {% for row in form.action_rows %}
                         {% include 'smk/includes/action_row.html' %}
                     {% endfor %}

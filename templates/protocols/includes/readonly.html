@@ -1,4 +1,4 @@
-{% comment %}
+{% load people %}{% comment %}
 The protocol as every other authenticated user sees it — and as its author sees
 it once it is being signed or archived.
 
@@ -16,20 +16,19 @@ is rendered here.
     </summary>
     <div class="protocol-section__body">
         {% if participants %}
-            <div class="protocol-card-grid">
+            {# One line per person: who, where from, and what their part is. #}
+            <ul class="protocol-lines">
                 {% for participant in participants %}
-                    <div class="protocol-participant-card protocol-participant-card--static{% if participant.user_id == protocol.author_id %} protocol-participant-card--author{% endif %}">
-                        <div class="protocol-participant-card__who user-text">
-                            <strong>{{ participant.display_name }}</strong>
-                            <span>{{ participant.department_name|default:'—' }}{% if participant.position %} · {{ participant.position }}{% endif %}</span>
-                        </div>
-                        <div class="protocol-participant-card__flags">
+                    <li class="protocol-line protocol-person">
+                        <span class="protocol-person__name user-text">{{ participant.display_name }}</span>
+                        <span class="protocol-person__where user-text">{{ participant.department_name|default:'—' }}{% if participant.position %} · {{ participant.position }}{% endif %}</span>
+                        <span class="protocol-person__flags">
                             {% if participant.user_id == protocol.author_id %}<span class="protocol-author-mark">Автор</span>{% endif %}
-                            {% if participant.requires_approval %}<span class="status-badge">Требует согласования</span>{% endif %}
-                        </div>
-                    </div>
+                            {% if participant.requires_approval %}<span class="protocol-flag">Требует согласования</span>{% endif %}
+                        </span>
+                    </li>
                 {% endfor %}
-            </div>
+            </ul>
         {% else %}
             <p class="placeholder-text">Участники не добавлены.</p>
         {% endif %}
@@ -45,14 +44,11 @@ is rendered here.
     </summary>
     <div class="protocol-section__body">
         {% if agenda_items %}
-            <div class="protocol-card-grid">
+            <ol class="protocol-lines protocol-lines--numbered">
                 {% for item in agenda_items %}
-                    <div class="protocol-agenda-card protocol-agenda-card--static">
-                        <span class="protocol-agenda-card__number" aria-hidden="true"></span>
-                        <p class="user-text">{{ item.text|linebreaksbr }}</p>
-                    </div>
+                    <li class="protocol-line"><span class="protocol-line__number" aria-hidden="true"></span><span class="user-text">{{ item.text|linebreaksbr }}</span></li>
                 {% endfor %}
-            </div>
+            </ol>
         {% else %}
             <p class="placeholder-text">Вопросы повестки не добавлены.</p>
         {% endif %}
@@ -68,21 +64,21 @@ is rendered here.
     </summary>
     <div class="protocol-section__body">
         {% if speeches %}
-            <div class="protocol-card-grid">
+            <ul class="protocol-lines">
                 {% for speech in speeches %}
-                    <div class="protocol-speech-card protocol-speech-card--static">
+                    <li class="protocol-line protocol-speech">
                         <strong class="user-text">{{ speech.speaker.display_name }}</strong>
                         <p class="user-text">{{ speech.text|linebreaksbr }}</p>
-                    </div>
+                    </li>
                 {% endfor %}
-            </div>
+            </ul>
         {% else %}
             <p class="placeholder-text">Выступления не добавлены.</p>
         {% endif %}
     </div>
 </details>
 
-<details class="protocol-section protocol-section--accent" open>
+<details class="protocol-section" open>
     <summary class="protocol-section__summary">
         <span class="protocol-section__icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"/></svg></span>
         <span class="protocol-section__title">Задачи</span>
@@ -91,32 +87,30 @@ is rendered here.
     </summary>
     <div class="protocol-section__body">
         {% if actions %}
-            <div class="protocol-card-grid">
+            <ol class="protocol-lines protocol-lines--numbered">
                 {% for action in actions %}
                     {% comment %}
                     `action.tasks` are the real `tasks.Task` rows an archived
                     protocol produced, resolved by the view — one shared task,
                     or one per assignee when the decision was split. Until then
-                    the card shows the decision alone. One decision stays one
-                    card either way: this is the protocol, not the task list.
+                    the row shows the decision alone. One decision stays one row
+                    either way: this is the protocol, not the task list.
                     {% endcomment %}
-                    <div class="protocol-task-card">
-                        <div class="protocol-task-card__head">
-                            <span class="protocol-task-card__number" aria-hidden="true"></span>
-                            <p class="protocol-task-card__text user-text">{{ action.task_text|linebreaksbr }}</p>
-                            {% for task in action.tasks.all %}
-                                <a class="status-badge protocol-task-card__link user-text" href="{% url 'tasks:detail' task.pk %}">Задача {{ task.pk }}{% if task.individual_assignee %} · {{ task.individual_assignee.get_full_name|default:task.individual_assignee.username }}{% endif %} · {{ task.status }}</a>
-                            {% endfor %}
+                    <li class="protocol-line protocol-decision">
+                        <span class="protocol-line__number" aria-hidden="true"></span>
+                        <div class="protocol-decision__body">
+                            <p class="protocol-decision__text user-text">{{ action.task_text|linebreaksbr }}</p>
+                            <p class="protocol-decision__facts">
+                                <span><span class="protocol-decision__label">Исполнители</span> <span class="user-text">{% for assignee in action.assignees.all %}{{ assignee.user|person_name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</span></span>
+                                <span><span class="protocol-decision__label">Подразделение</span> <span class="user-text">{{ action.department.name|default:'—' }}</span></span>
+                                <span><span class="protocol-decision__label">Срок</span> {{ action.due_date|date:'d.m.Y'|default:'—' }}</span>
+                                {% if action.split_for_assignees %}<span>Отдельная задача каждому исполнителю</span>{% endif %}
+                            </p>
+                            {% if action.tasks.all %}<p class="protocol-decision__tasks">{% for task in action.tasks.all %}<a class="table-link" href="{% url 'tasks:detail' task.pk %}">Задача №{{ task.pk }}{% if task.individual_assignee %} · {{ task.individual_assignee|person_name }}{% endif %} · {{ task.status }}</a>{% endfor %}</p>{% endif %}
                         </div>
-                        <dl class="protocol-task-card__facts">
-                            <div><dt>Исполнители</dt><dd class="user-text">{% for assignee in action.assignees.all %}{{ assignee.user.get_full_name|default:assignee.user.username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</dd></div>
-                            {% if action.split_for_assignees %}<div><dt>Исполнение</dt><dd>Отдельная задача каждому исполнителю</dd></div>{% endif %}
-                            <div><dt>Подразделение</dt><dd class="user-text">{{ action.department.name|default:'—' }}</dd></div>
-                            <div><dt>Срок</dt><dd>{{ action.due_date|date:'d.m.Y'|default:'—' }}</dd></div>
-                        </dl>
-                    </div>
+                    </li>
                 {% endfor %}
-            </div>
+            </ol>
         {% else %}
             <p class="placeholder-text">Задачи по протоколу не поставлены.</p>
         {% endif %}

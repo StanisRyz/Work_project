@@ -1,27 +1,28 @@
 {% comment %}
-One editable participant, as a compact card. The author is not rendered from
-here — the author card is fixed and lives directly in the editor.
+One editable participant, as one line: подразделение | сотрудник | «Требует
+согласования» | ×. The captions are kept for screen readers only — the empty
+choices already say «Выберите подразделение»/«Выберите сотрудника». The
+author is not rendered from here: the author line is fixed and lives directly
+in the editor.
 {% endcomment %}
-<div class="protocol-participant-card" data-row data-employee-pair>
-    <div class="protocol-participant-card__fields">
-        <label>
-            <span>Подразделение</span>
-            <select name="participants-{{ row.index }}-department" data-department-select required>
-                <option value="">Выберите подразделение</option>
-                {% include 'includes/department_options.html' with selected=row.department %}
-            </select>
-            {% if row.errors.department %}<span class="field-error">{{ row.errors.department }}</span>{% endif %}
-        </label>
-        <label>
-            <span>Сотрудник</span>
-            <select name="participants-{{ row.index }}-user" data-employee-select data-participant-user required>
-                <option value="">Выберите сотрудника</option>
-                {% include 'includes/employee_options.html' with selected=row.user %}
-            </select>
-            {% if row.errors.user %}<span class="field-error">{{ row.errors.user }}</span>{% endif %}
-        </label>
-    </div>
-    <div class="protocol-participant-card__flags">
+<div class="protocol-line protocol-participant-row" data-row data-employee-pair>
+    <label>
+        <span class="visually-hidden-label">Подразделение</span>
+        <select name="participants-{{ row.index }}-department" data-department-select required>
+            <option value="">Выберите подразделение</option>
+            {% include 'includes/department_options.html' with selected=row.department %}
+        </select>
+        {% if row.errors.department %}<span class="field-error">{{ row.errors.department }}</span>{% endif %}
+    </label>
+    <label>
+        <span class="visually-hidden-label">Сотрудник</span>
+        <select name="participants-{{ row.index }}-user" data-employee-select data-participant-user required>
+            <option value="">Выберите сотрудника</option>
+            {% include 'includes/employee_options.html' with selected=row.user %}
+        </select>
+        {% if row.errors.user %}<span class="field-error">{{ row.errors.user }}</span>{% endif %}
+    </label>
+    <div class="protocol-participant-row__flags">
         <label class="protocol-checkbox">
             <input type="checkbox" name="participants-{{ row.index }}-requires_approval"{% if row.requires_approval %} checked{% endif %}>
             <span>Требует согласования</span>

@@ -3,8 +3,8 @@ One выявленное несоответствие. The visible number comes 
 adding or removing a row never has to renumber anything in the markup — the
 same mechanism `protocols/includes/agenda_row.html` uses.
 {% endcomment %}
-<div class="protocol-agenda-card" data-row>
-    <span class="protocol-agenda-card__number" aria-hidden="true"></span>
+<div class="protocol-line protocol-agenda-row" data-row>
+    <span class="protocol-line__number" aria-hidden="true"></span>
     {% comment %}
     The row's own identity while a record is being corrected: empty for a new
     finding, and only honoured by `SmkSourceForm` when the record really holds
@@ -14,7 +14,7 @@ same mechanism `protocols/includes/agenda_row.html` uses.
     <input type="hidden" name="nonconformities-{{ row.index }}-id" value="{{ row.id }}">
     <label>
         <span class="visually-hidden-label">Выявленное несоответствие</span>
-        <textarea name="nonconformities-{{ row.index }}-text" rows="2" placeholder="Опишите выявленное несоответствие">{{ row.text }}</textarea>
+        <textarea name="nonconformities-{{ row.index }}-text" rows="1" placeholder="Опишите выявленное несоответствие">{{ row.text }}</textarea>
         {% if row.errors.text %}<span class="field-error">{{ row.errors.text }}</span>{% endif %}
     </label>
     <button class="protocol-remove-button" type="button" data-remove-row aria-label="Удалить несоответствие" title="Удалить несоответствие">×</button>

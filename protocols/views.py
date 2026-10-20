@@ -539,11 +539,15 @@ def protocol_return_for_revision(request, pk):
 @login_required
 def protocol_add_comment(request, pk):
     protocol = get_object_or_404(get_readable_protocols_queryset(), pk=pk)
+    # «Обсуждение» stands beside every tab, so the form posts the tab it was
+    # written on and the answer comes back to it.
+    tab = request.POST.get('tab')
+    tab = tab if tab in DETAIL_TABS else 'protocol'
     if request.method != 'POST':
-        return _redirect_to_tab(protocol, 'collaboration')
+        return _redirect_to_tab(protocol, 'protocol')
     if not can_contribute_to_protocol(protocol, request.user):
         messages.error(request, 'Комментировать этот протокол нельзя.')
-        return _redirect_to_tab(protocol, 'collaboration')
+        return _redirect_to_tab(protocol, tab)
 
     form = ProtocolCommentForm(request.POST)
     if not form.is_valid():
@@ -551,7 +555,7 @@ def protocol_add_comment(request, pk):
         return render(
             request,
             'protocols/detail.html',
-            _detail_context(request, protocol, comment_form=form, tab='collaboration'),
+            _detail_context(request, protocol, comment_form=form, tab=tab),
             status=400,
         )
     try:
@@ -560,7 +564,7 @@ def protocol_add_comment(request, pk):
         messages.error(request, str(exc))
     else:
         messages.success(request, 'Комментарий добавлен.')
-    return _redirect_to_tab(protocol, 'collaboration')
+    return _redirect_to_tab(protocol, tab)
 
 
 @login_required
@@ -773,13 +777,14 @@ def _detail_context(request, protocol, form=None, save_error='', include_documen
         return context
     # Collaboration, on the full page only. The heading, approval and history
     # fragments pass `include_document=False` and render none of it, so reading
-    # the feed, the files and the generated tasks for them would be three
-    # queries no partial would use. The three collaboration fragments build
+    # the feed, the files and the generated tasks for them would be queries no
+    # partial would use. The three collaboration fragments build
     # their own context and do not come through here at all.
+    # «Обсуждение» is the right-hand column of every tab.
+    context['comment_form'] = comment_form or ProtocolCommentForm()
+    context['comments'] = get_protocol_comments(protocol)
     if detail_tab == 'collaboration':
-        context['comment_form'] = comment_form or ProtocolCommentForm()
         context['attachment_form'] = attachment_form or ProtocolAttachmentForm()
-        context['comments'] = get_protocol_comments(protocol)
         context['attachments'] = get_protocol_attachments(protocol, request.user)
         # «Нормативные документы»: read from Documentation, which owns the links.
         from documents.permissions import can_link_document_to_protocol

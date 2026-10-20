@@ -7,7 +7,7 @@ There is no task-level «Подразделение» on purpose: the department
 task is the one chosen next to its first исполнитель, exactly as the protocol
 editor settled it.
 {% endcomment %}
-<div class="protocol-action-card" data-row>
+<div class="protocol-line protocol-action-row" data-row>
     {% comment %}
     The measure's own identity while a record is being corrected. It is what
     lets `update_smk_source()` compare this мероприятие with itself and leave
@@ -16,17 +16,54 @@ editor settled it.
     new measure, and only honoured when the record really holds that row.
     {% endcomment %}
     <input type="hidden" name="actions-{{ row.index }}-id" value="{{ row.id }}">
-    <div class="protocol-action-card__head">
-        <span class="protocol-action-card__number" aria-hidden="true"></span>
-        <h3>Мероприятие</h3>
+    <div class="protocol-action-row__head">
+        <span class="protocol-line__number" aria-hidden="true"></span>
+        <span class="protocol-action-row__title">Мероприятие</span>
         <button class="protocol-remove-button" type="button" data-remove-row aria-label="Удалить мероприятие" title="Удалить мероприятие">×</button>
     </div>
-    <div class="protocol-action-card__statement">
+    {# The protocol decision's layout: the wording and «Срок» on one row. #}
+    <div class="protocol-action-row__statement">
         <label>
-            <span>Что необходимо сделать</span>
+            <span class="visually-hidden-label">Что необходимо сделать</span>
             <textarea name="actions-{{ row.index }}-text" rows="2" placeholder="Что необходимо сделать">{{ row.text }}</textarea>
             {% if row.errors.text %}<span class="field-error">{{ row.errors.text }}</span>{% endif %}
         </label>
+        <label class="protocol-action-row__due">
+            <span>Срок</span>
+            <input type="date" name="actions-{{ row.index }}-due_date" value="{{ row.due_date }}" required>
+            {% if row.errors.due_date %}<span class="field-error">{{ row.errors.due_date }}</span>{% endif %}
+        </label>
+    </div>
+    {% comment %}
+    Which finding this measure answers — optional, because one measure often
+    answers several at once. The options are the несоответствия added above,
+    rebuilt by `smk_form.js` as they are typed, added and removed; the value
+    is the row's position, since the findings have no ids until the record
+    is stored. The server resolves it against the rows *this* request kept.
+    {% endcomment %}
+    <div class="protocol-action-row__assignees">
+        <span class="protocol-action-row__caption">Несоответствие</span>
+        <label class="protocol-action-row__link">
+            <span class="visually-hidden-label">Связано с несоответствием</span>
+            <select name="actions-{{ row.index }}-non_conformity" data-non-conformity-select data-selected="{{ row.non_conformity }}">
+                <option value="">Не указано</option>
+            </select>
+            {% if row.errors.non_conformity %}<span class="field-error">{{ row.errors.non_conformity }}</span>{% endif %}
+        </label>
+    </div>
+    <div class="protocol-action-row__assignees">
+        <span class="protocol-action-row__caption">Исполнители</span>
+        <div class="protocol-action-row__assignees-body">
+            <div class="protocol-assignee-list" data-assignee-list>
+                {% for assignee in row.assignees %}
+                    {% include 'smk/includes/assignee_row.html' with assignee=assignee action_index=row.index %}
+                {% empty %}
+                    {% include 'smk/includes/assignee_row.html' with assignee=empty_assignee action_index=row.index %}
+                {% endfor %}
+            </div>
+            {% if row.errors.assignees %}<span class="field-error">{{ row.errors.assignees }}</span>{% endif %}
+            <button class="link-button link-button--secondary link-button--compact" type="button" data-add-assignee>+ Исполнитель</button>
+        </div>
     </div>
     {% comment %}
     Execution mode, and nothing else — the same control, the same wording and
@@ -35,50 +72,14 @@ editor settled it.
     Meaningless below two исполнителя, so it is rendered disabled until the row
     has two and `smk_form.js` keeps that in step as they are added and removed;
     a disabled checkbox is not posted, and `SmkSourceForm` normalizes the flag
-    off for a single исполнитель anyway. Both hints are rendered here so the
-    correct one is on screen before any script runs.
+    off for a single исполнитель anyway. What each position does is its `title`.
     {% endcomment %}
-    <div class="protocol-split-option" data-split-option>
-        <label class="protocol-checkbox">
-            <input type="checkbox" name="actions-{{ row.index }}-split_for_assignees" data-split-checkbox{% if row.split_for_assignees %} checked{% endif %}{% if row.assignees|length < 2 %} disabled{% endif %}>
-            <span>Разбить задачу по исполнителям</span>
-        </label>
-        <p class="protocol-split-hint">
-            <span data-split-hint-off{% if row.split_for_assignees %} hidden{% endif %}>Одна общая задача на всех: выполнение любым исполнителем закрывает её для остальных.</span>
-            <span data-split-hint-on{% if not row.split_for_assignees %} hidden{% endif %}>Каждый исполнитель получит собственную задачу и выполнит её независимо.</span>
-        </p>
-    </div>
-    <div class="smk-source-fields">
-        <label>
-            <span>Срок</span>
-            <input type="date" name="actions-{{ row.index }}-due_date" value="{{ row.due_date }}" required>
-            {% if row.errors.due_date %}<span class="field-error">{{ row.errors.due_date }}</span>{% endif %}
-        </label>
-        {% comment %}
-        Which finding this measure answers — optional, because one measure often
-        answers several at once. The options are the несоответствия added above,
-        rebuilt by `smk_form.js` as they are typed, added and removed; the value
-        is the row's position, since the findings have no ids until the record
-        is stored. The server resolves it against the rows *this* request kept.
-        {% endcomment %}
-        <label>
-            <span>Связано с несоответствием</span>
-            <select name="actions-{{ row.index }}-non_conformity" data-non-conformity-select data-selected="{{ row.non_conformity }}">
-                <option value="">Не указано</option>
-            </select>
-            {% if row.errors.non_conformity %}<span class="field-error">{{ row.errors.non_conformity }}</span>{% endif %}
-        </label>
-    </div>
-    <div class="protocol-action-card__assignees">
-        <span class="protocol-action-card__assignees-label">Исполнители</span>
-        <div class="protocol-assignee-list" data-assignee-list>
-            {% for assignee in row.assignees %}
-                {% include 'smk/includes/assignee_row.html' with assignee=assignee action_index=row.index %}
-            {% empty %}
-                {% include 'smk/includes/assignee_row.html' with assignee=empty_assignee action_index=row.index %}
-            {% endfor %}
+    <div class="protocol-action-row__options">
+        <div class="protocol-split-option" data-split-option>
+            <label class="protocol-checkbox" title="Выключено — одна общая задача: выполнение любым исполнителем закрывает её для остальных. Включено — каждый исполнитель получит собственную задачу.">
+                <input type="checkbox" name="actions-{{ row.index }}-split_for_assignees" data-split-checkbox{% if row.split_for_assignees %} checked{% endif %}{% if row.assignees|length < 2 %} disabled{% endif %}>
+                <span>Разбить задачу по исполнителям</span>
+            </label>
         </div>
-        {% if row.errors.assignees %}<span class="field-error">{{ row.errors.assignees }}</span>{% endif %}
-        <button class="link-button link-button--secondary link-button--compact" type="button" data-add-assignee>+ Исполнитель</button>
     </div>
 </div>

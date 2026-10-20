@@ -1,9 +1,10 @@
 /*
  * Protocols-specific layout only.
  *
- * Cards, buttons, tabs, badges, tables and the confirmation modal all come from
- * the shared design system (`components.css`, `acts.css`); what is here is the
- * editor's row grids and the few read-only blocks that have no equivalent yet.
+ * The page is the act's object page (`.act-page`, `.act-head`, `.act-route`,
+ * `.act-side-column`, `.act-chat` in `acts.css`); cards, buttons, tabs, badges
+ * and the confirmation modal come from the shared system. What is here is the
+ * accordion sections, the lines inside them and the approval card. Tokens only.
  */
 
 /* Registry -------------------------------------------------------------- */
@@ -14,27 +15,27 @@
 
 /* Type selection --------------------------------------------------------- */
 
-.protocol-create-page { display: grid; gap: 18px; }
+.protocol-create-page { display: grid; gap: 14px; }
 
 .protocol-page-header {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
 }
 
-.protocol-page-header h1 { margin: 0; font-size: 22px; }
-.protocol-page-header p { margin: 4px 0 0; color: var(--color-muted); }
+.protocol-page-header h1 { margin: 0; font-size: var(--font-size-page); }
+.protocol-page-header p { margin: 2px 0 0; color: var(--color-muted); }
 
 .protocol-type-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 14px;
+    gap: 10px;
 }
 
 .protocol-type-card {
     display: grid;
-    gap: 6px;
-    padding: 18px;
+    gap: 4px;
+    padding: 12px 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -45,144 +46,48 @@
 
 .protocol-type-card:hover,
 .protocol-type-card:focus-visible {
-    border-color: var(--color-primary-dark);
-    box-shadow: 0 2px 10px rgba(22, 40, 82, 0.08);
+    border-color: var(--color-primary-border);
+    background: var(--color-hover);
 }
 
-.protocol-type-card strong { color: var(--color-primary-dark); font-size: 16px; }
-.protocol-type-card span { color: var(--color-muted); font-size: 13px; }
+.protocol-type-card strong { color: var(--color-text); font-size: var(--font-size-title); }
+.protocol-type-card span { color: var(--color-muted); font-size: var(--font-size-sm); }
 
-/* Document card ---------------------------------------------------------
-   The one block that never collapses: identity, status and workflow step. */
+/* Heading card -----------------------------------------------------------
+   `.act-head` with the protocol's own row: title, status, meta, and the
+   document actions at the far end. */
 
-.protocol-document-card {
-    display: grid;
-    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: 10px 18px;
-    padding: 16px 18px;
-    margin-bottom: 14px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-}
+.protocol-head__row { flex-wrap: wrap; }
 
-.protocol-document-card__back { margin: 0; }
-
-.protocol-document-card__mark {
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    background: #eef4ff;
-    color: var(--color-primary-dark);
-}
-
-.protocol-document-card__mark .ui-icon { width: 22px; height: 22px; }
-
-.protocol-document-card__identity { display: grid; gap: 4px; min-width: 0; }
-
-.protocol-document-card__title {
-    display: flex;
+.protocol-head__meta {
+    display: inline-flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-}
-
-.protocol-document-card__title h1 { margin: 0; font-size: 21px; }
-
-.protocol-document-card__meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 16px;
+    gap: 2px 12px;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: var(--font-size-sm);
 }
 
-.protocol-document-card__actions {
+.protocol-head__actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-}
-
-/* Workflow progress ------------------------------------------------------ */
-
-.protocol-workflow {
-    display: flex;
-    align-items: flex-start;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.protocol-workflow__step {
-    display: grid;
-    justify-items: center;
     gap: 6px;
-    position: relative;
-    min-width: 96px;
-    font-size: 13px;
+    margin-left: auto;
 }
 
-/* The connector is drawn by the step itself, so no extra markup is needed. */
-.protocol-workflow__step + .protocol-workflow__step::before {
-    content: '';
-    position: absolute;
-    top: 13px;
-    right: 50%;
-    left: -50%;
-    height: 2px;
-    background: var(--color-border);
-}
-
-.protocol-workflow__step--done + .protocol-workflow__step::before,
-.protocol-workflow__step--current + .protocol-workflow__step::before {
-    background: var(--color-primary);
-}
-
-.protocol-workflow__dot {
-    position: relative;
-    z-index: 1;
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background: var(--color-bg);
-    border: 2px solid var(--color-border);
-    color: var(--color-muted);
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.protocol-workflow__label { color: var(--color-muted); text-align: center; }
-
-.protocol-workflow__step--done .protocol-workflow__dot,
-.protocol-workflow__step--current .protocol-workflow__dot {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-    color: #ffffff;
-}
-
-.protocol-workflow__step--done .protocol-workflow__dot {
-    background: var(--color-primary-dark);
-    border-color: var(--color-primary-dark);
-}
-
-.protocol-workflow__step--current .protocol-workflow__label {
-    color: var(--color-primary-dark);
-    font-weight: 700;
-}
+/* The status dot, as an act's: grey draft, amber on approval, red returned,
+   green archived. */
+.protocol-status--draft { --stage-color: var(--stage-otk); }
+.protocol-status--approval { --stage-color: var(--stage-to); }
+.protocol-status--revision { --stage-color: var(--stage-cancelled); }
+.protocol-status--archived { --stage-color: var(--stage-done); }
 
 /* Accordion sections -----------------------------------------------------
    Native `<details>`: collapsing needs no JavaScript, survives a live fragment
    replacement and stays keyboard-accessible. */
 
 .protocol-sections,
-.protocol-editor { display: grid; gap: 12px; }
-.protocol-sections + .protocol-sections { margin-top: 12px; }
-.protocol-editor__error { margin: 0 0 12px; }
+.protocol-editor { display: grid; gap: 10px; }
+.protocol-editor__error { margin: 0; }
 
 .protocol-section {
     background: var(--color-surface);
@@ -190,14 +95,12 @@
     border-radius: var(--radius);
 }
 
-.protocol-section--accent { border-left: 3px solid var(--color-primary); }
-.protocol-section--approval { border-left: 3px solid #16a34a; }
-
 .protocol-section__summary {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 14px 18px;
+    gap: 8px;
+    min-height: 40px;
+    padding: 6px 12px;
     cursor: pointer;
     list-style: none;
     user-select: none;
@@ -205,78 +108,104 @@
 
 /* Safari renders its own disclosure triangle without this. */
 .protocol-section__summary::-webkit-details-marker { display: none; }
-.protocol-section__summary:hover { background: #f7f9ff; border-radius: var(--radius); }
-
-.protocol-section__summary:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: -2px;
-}
+.protocol-section__summary:hover { background: var(--color-hover); border-radius: var(--radius); }
+.protocol-section__summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 .protocol-section__icon {
     display: grid;
     place-items: center;
     flex: none;
-    width: 32px;
-    height: 32px;
-    border-radius: 9px;
-    background: #eef4ff;
-    color: var(--color-primary-dark);
+    color: var(--color-muted);
 }
 
-.protocol-section__icon .ui-icon { width: 18px; height: 18px; }
+.protocol-section__icon .ui-icon { width: 16px; height: 16px; }
 
-.protocol-section__title { font-size: 17px; font-weight: 700; }
+.protocol-section__title { font-size: var(--font-size-title); font-weight: 600; }
 
 .protocol-section__count {
     display: inline-grid;
     place-items: center;
-    min-width: 24px;
-    height: 22px;
-    padding: 0 8px;
-    border-radius: 999px;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
     background: var(--color-bg);
     color: var(--color-muted);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
 }
 
-.protocol-section__state { color: var(--color-muted); font-size: 13px; }
+.protocol-section__state { color: var(--color-muted); font-size: var(--font-size-sm); }
 
 /* Whichever of these comes first takes the free space, so the controls sit at
    the right edge whether or not the section has an add button. */
 .protocol-section__add { margin-left: auto; }
 .protocol-section__chevron { margin-left: auto; display: grid; place-items: center; color: var(--color-muted); }
 .protocol-section__add + .protocol-section__chevron { margin-left: 0; }
-.protocol-section__chevron .ui-icon { width: 18px; height: 18px; transition: transform 0.15s ease; }
+.protocol-section__chevron .ui-icon { width: 16px; height: 16px; transition: transform 0.15s ease; }
 .protocol-section[open] .protocol-section__chevron .ui-icon { transform: rotate(180deg); }
 
 .protocol-section__body {
     display: grid;
-    gap: 12px;
-    padding: 14px 18px 16px;
+    gap: 8px;
+    padding: 8px 12px 10px;
     border-top: 1px solid var(--color-border);
 }
 
-.protocol-section__hint { margin: 0; color: var(--color-muted); font-size: 13px; }
+.protocol-section__hint { margin: 0; color: var(--color-muted); font-size: var(--font-size-sm); }
 
-/* One vertical rhythm for every list of cards, so a section grows downwards
-   and never sideways however many rows it holds. */
-.protocol-card-grid { display: grid; gap: 10px; counter-reset: protocol-item; }
+/* Lines ------------------------------------------------------------------
+   Every list in a section — people, questions, speeches, decisions — is a
+   stack of lines separated by hairlines on the white section, never a box
+   inside the box. Numbered lists count with CSS, so adding or removing a row
+   never renumbers markup. */
 
-/* Shared card chrome ----------------------------------------------------- */
-
-.protocol-participant-card,
-.protocol-agenda-card,
-.protocol-speech-card,
-.protocol-action-card,
-.protocol-task-card {
-    padding: 12px 14px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
+.protocol-lines {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
 }
 
-.protocol-section label { display: grid; gap: 6px; color: var(--color-muted); font-size: 14px; }
+.protocol-lines--numbered { counter-reset: protocol-item; }
+
+.protocol-line {
+    min-width: 0;
+    padding: 6px 0;
+    border-top: 1px solid var(--color-border);
+    font-size: 13px;
+}
+
+.protocol-lines > .protocol-line:first-child,
+.protocol-lines > .protocol-lines:first-child > .protocol-line:first-child { border-top: 0; }
+
+/* A nested row list continues the parent's hairlines. */
+.protocol-lines > .protocol-lines > .protocol-line:first-child { border-top: 1px solid var(--color-border); }
+
+.protocol-lines--numbered > .protocol-line {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    align-items: baseline;
+    gap: 8px;
+}
+
+.protocol-line__number {
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.protocol-line__number::before {
+    counter-increment: protocol-item;
+    content: counter(protocol-item) '.';
+}
+
+.protocol-line p { margin: 0; }
+
+/* Shared field chrome ---------------------------------------------------- */
+
+.protocol-section label { display: grid; gap: 4px; min-width: 0; color: var(--color-muted); font-size: var(--font-size-sm); }
 
 .protocol-section select,
 .protocol-section input[type='date'],
@@ -290,13 +219,14 @@
     font-size: var(--control-font-size);
 }
 
-.protocol-section textarea { resize: vertical; }
+.protocol-section textarea { min-height: 0; resize: vertical; }
 
 .protocol-remove-button {
-    align-self: center;
+    display: inline-grid;
+    place-items: center;
     flex: none;
-    width: 30px;
-    height: 30px;
+    width: var(--control-height);
+    height: var(--control-height);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -307,124 +237,15 @@
 }
 
 .protocol-remove-button:hover,
-.protocol-remove-button:focus-visible { border-color: #c0392b; color: #c0392b; }
-
-/* Participants ----------------------------------------------------------- */
-
-.protocol-participant-card {
-    display: grid;
-    /* The two selects hold a department and a name, so they stop at 760 px
-       instead of stretching across a 1920 px screen; the approval flag follows
-       them, and the spare column keeps «×» at the card's right edge where
-       every other card in the editor has it. */
-    grid-template-columns: minmax(0, 760px) auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 10px 14px;
+.protocol-remove-button:focus-visible {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+    outline: none;
 }
 
-.protocol-participant-card > .protocol-remove-button { grid-column: 4; }
-
-.protocol-participant-card--author { background: #f7f9ff; }
-
-.protocol-participant-card__fields {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 10px;
-}
-
-.protocol-participant-card__who { display: grid; gap: 2px; min-width: 0; }
-.protocol-participant-card__who span { color: var(--color-muted); font-size: 13px; }
-
-.protocol-participant-card__flags {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
-}
-
-/* `.protocol-section label` lays every label out as a grid, which stacked the
-   box above its own caption; the section prefix is what outranks it. */
-.protocol-checkbox,
-.protocol-section .protocol-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    white-space: nowrap;
-}
-
-.protocol-checkbox input { width: auto; }
-
-.protocol-author-mark {
-    padding: 3px 10px;
-    border-radius: 999px;
-    background: #eef4ff;
-    color: var(--color-primary-dark);
-    font-size: 12px;
-    font-weight: 700;
-    white-space: nowrap;
-}
-
-.protocol-auto-approval-hint {
-    color: var(--color-muted);
-    font-size: 12px;
-    font-style: italic;
-}
-
-.protocol-auto-approval-hint[hidden] { display: none; }
-
-/* A saved employee who no longer matches the chosen department. Spans the
-   whole row of either pair block, under the selectors it is about. */
-.protocol-pair-warning {
-    grid-column: 1 / -1;
-    margin: 0;
-    color: #b45309;
-    font-size: 13px;
-    line-height: 1.35;
-}
-
-.protocol-pair-warning[hidden] { display: none; }
-
-/* Agenda ----------------------------------------------------------------- */
-
-.protocol-agenda-card {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: start;
-    gap: 12px;
-}
-
-.protocol-agenda-card--static { align-items: center; }
-.protocol-agenda-card p { margin: 0; }
-
-/* Numbered by CSS, so adding or removing a row never renumbers markup. */
-.protocol-agenda-card__number,
-.protocol-action-card__number,
-.protocol-task-card__number {
-    display: grid;
-    place-items: center;
-    flex: none;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background: #eef4ff;
-    color: var(--color-primary-dark);
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.protocol-agenda-card__number::before,
-.protocol-action-card__number::before,
-.protocol-task-card__number::before {
-    counter-increment: protocol-item;
-    content: counter(protocol-item);
-}
-
-.protocol-agenda-card__number { margin-top: 4px; }
-.protocol-agenda-card--static .protocol-agenda-card__number { margin-top: 0; }
-
-/* Kept for screen readers where the card number and shape already say what
-   the field is. */
+/* Kept for screen readers where the line's shape already says what the field
+   is. */
 .visually-hidden-label {
     position: absolute;
     width: 1px;
@@ -436,148 +257,243 @@
     white-space: nowrap;
 }
 
-/* Speeches --------------------------------------------------------------- */
-
-.protocol-speech-card { display: grid; gap: 10px; }
-
-.protocol-speech-card__head {
-    display: grid;
-    grid-template-columns: minmax(0, 280px) auto;
-    align-items: end;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-.protocol-speech-card--static { gap: 4px; }
-.protocol-speech-card--static p { margin: 0; }
-
-/* Tasks ------------------------------------------------------------------ */
-
-.protocol-action-card { display: grid; gap: 12px; }
-
-.protocol-action-card__head {
+/* `.protocol-section label` lays every label out as a grid, which stacked the
+   box above its own caption; the section prefix is what outranks it. */
+.protocol-checkbox,
+.protocol-section .protocol-checkbox {
     display: flex;
     align-items: center;
-    gap: 10px;
-}
-
-.protocol-action-card__head h3 { margin: 0; font-size: 15px; }
-.protocol-action-card__head .protocol-remove-button { margin-left: auto; }
-
-/* The wording and «Обязательно вложение» share one row: the requirement is a
-   property of what has to be done, so it reads next to it rather than among
-   the fields below. Collapses to one column with the rest of the card at 900px. */
-.protocol-action-card__statement {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
-    align-items: start;
-    gap: 12px;
-}
-
-/* Aligned with the textarea beside it rather than with its own label row,
-   which the checkbox does not have. */
-.protocol-action-card__requirement { padding-top: 26px; }
-
-/* The deadline is the only field on this row — «Подразделение» comes from the
-   first assignee, so it is not asked for again. */
-.protocol-action-card__fields {
-    display: grid;
-    grid-template-columns: minmax(0, 220px);
-    gap: 12px;
-}
-
-.protocol-action-card__assignees {
-    display: grid;
-    justify-items: start;
-    gap: 10px;
-    padding: 12px;
-    border-radius: var(--radius);
-    background: var(--color-bg);
-}
-
-.protocol-action-card__assignees-label {
-    color: var(--color-muted);
+    gap: 6px;
+    color: var(--color-text);
     font-size: 13px;
-    font-weight: 700;
+    white-space: nowrap;
 }
 
-.protocol-assignee-list { display: grid; gap: 10px; width: 100%; }
+.protocol-checkbox input { width: auto; margin: 0; }
 
-/* «Разбить задачу для участников»: an execution option, deliberately quieter
-   than the fields above it. Greys out whole when the row has fewer than two
-   исполнителя, so the disabled state reads as «not applicable yet». */
-.protocol-split-option {
+/* People ----------------------------------------------------------------- */
+
+/* Read-only: name, where from, and their part — one line each. */
+.protocol-person {
     display: grid;
-    gap: 4px;
-    justify-items: start;
+    grid-template-columns: minmax(160px, 260px) minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 2px 16px;
 }
 
-.protocol-split-option:has(input:disabled) { opacity: 0.55; }
+.protocol-person__name { color: var(--color-text); font-weight: 500; }
+.protocol-person__where { color: var(--color-muted); font-size: var(--font-size-sm); }
 
-.protocol-split-hint {
-    margin: 0;
+.protocol-person__flags {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.protocol-author-mark,
+.protocol-flag {
+    padding: 0 6px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
     color: var(--color-muted);
-    font-size: 12px;
-    font-style: italic;
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+}
+
+.protocol-author-mark { border-color: var(--color-primary-border); color: var(--color-primary-dark); }
+
+/* Editable: подразделение | сотрудник | the approval flag | ×. The selects
+   hold a department and a name, so they stop at a name's width instead of
+   stretching across the screen. */
+.protocol-participant-row {
+    display: grid;
+    grid-template-columns: minmax(0, 240px) minmax(0, 280px) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px 10px;
+}
+
+.protocol-participant-row__flags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+}
+
+.protocol-auto-approval-hint {
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+}
+
+.protocol-auto-approval-hint[hidden] { display: none; }
+
+/* A saved employee who no longer matches the chosen department. Spans the
+   whole row of either pair block, under the selectors it is about. */
+.protocol-pair-warning {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--color-warning);
+    font-size: var(--font-size-sm);
     line-height: 1.35;
 }
 
-.protocol-split-hint [hidden] { display: none; }
+.protocol-pair-warning[hidden] { display: none; }
 
-.protocol-assignee-row {
+/* Agenda and speeches ---------------------------------------------------- */
+
+.protocol-lines--numbered > .protocol-agenda-row {
+    grid-template-columns: 22px minmax(0, var(--field-text)) auto;
+    align-items: center;
+}
+
+/* Who spoke, beside what they said. */
+.protocol-speech-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-    align-items: end;
+    grid-template-columns: minmax(0, 240px) minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px 10px;
+    max-width: calc(var(--field-text) + 240px + 50px);
+}
+
+.protocol-lines--numbered > .protocol-speech-row { grid-template-columns: minmax(0, 240px) minmax(0, 1fr) auto; }
+
+.protocol-speech { display: grid; gap: 1px; }
+.protocol-speech strong { color: var(--color-text); font-weight: 600; }
+.protocol-speech p { max-width: var(--field-text); line-height: 1.5; }
+
+/* Decisions -------------------------------------------------------------- */
+
+.protocol-decision__body { display: grid; gap: 2px; min-width: 0; }
+.protocol-decision__text { max-width: var(--field-text); color: var(--color-text); font-weight: 500; line-height: 1.45; }
+
+.protocol-decision__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 18px;
+    color: var(--color-text);
+    font-size: var(--font-size-sm);
+}
+
+.protocol-decision__label { margin-right: 4px; color: var(--color-muted); }
+
+.protocol-decision__tasks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    font-size: var(--font-size-sm);
+}
+
+/* The editable decision: three rows, as a corrective action of «Анализ ТО». */
+.protocol-lines--numbered > .protocol-action-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 8px 0;
+}
+
+.protocol-action-row__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.protocol-action-row__title { color: var(--color-text); font-weight: 600; }
+.protocol-action-row__head .protocol-remove-button { margin-left: auto; }
+
+.protocol-action-row__statement {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    align-items: start;
+    gap: 12px;
+    max-width: var(--field-text);
+}
+
+.protocol-section .protocol-action-row__due {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: var(--control-height);
+}
+
+.protocol-section .protocol-action-row__due input { width: var(--field-short); }
+
+.protocol-action-row__assignees {
+    display: flex;
+    align-items: flex-start;
     gap: 12px;
 }
 
-/* The read-only task card: the decision plus the real task it became. */
-.protocol-task-card { display: grid; gap: 10px; }
-
-.protocol-task-card__head {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
+.protocol-action-row__caption {
+    flex: none;
+    width: 100px;
+    padding-top: 7px;
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
 }
 
-.protocol-task-card__text { margin: 0; flex: 1 1 auto; font-weight: 700; }
-.protocol-task-card__link { flex: none; white-space: nowrap; }
-
-.protocol-task-card__facts {
+.protocol-action-row__assignees-body {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 8px 16px;
-    margin: 0;
+    justify-items: start;
+    gap: 6px;
+    min-width: 0;
 }
 
-.protocol-task-card__facts dt { color: var(--color-muted); font-size: 12px; }
-.protocol-task-card__facts dd { margin: 0; font-size: 14px; }
+.protocol-assignee-list { display: grid; gap: 6px; width: 100%; }
+
+/* СМК: «Связано с несоответствием», a select as wide as an employee's. */
+.protocol-action-row__link { width: min(100%, 528px); }
+
+.protocol-assignee-row {
+    display: grid;
+    grid-template-columns: minmax(0, 240px) minmax(0, 280px) auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.protocol-action-row__options {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 24px;
+    padding-left: 112px;
+}
+
+/* «Разбить задачу для участников» greys out whole while the row has fewer
+   than two исполнителя, so the disabled state reads as «not applicable yet». */
+.protocol-split-option:has(input:disabled) { opacity: 0.55; }
 
 .protocol-editor__actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 10px;
-    padding-top: 2px;
+    gap: 8px;
 }
 
 /* Approval ---------------------------------------------------------------
-   Per-approver rows and the by-revision history. The card, badge and button
-   styles themselves stay in the shared system; only the grids and the four
-   decision colours are here. */
+   The round as the first card of the right-hand column, and the same rows in
+   the by-revision history. A decision is a tinted `approval-status`; the row
+   itself is a plain line. */
 
-.protocol-approval-history { display: grid; gap: 12px; }
+.protocol-approval-side:not(:has(*)) { display: none; }
 
 .protocol-approval-progress {
-    margin: 0;
-    color: var(--color-primary-dark);
-    font-size: 14px;
-    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 600;
 }
+
+.protocol-approval-panel__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.protocol-approval-panel__own { margin: 0 0 8px; color: var(--color-muted); font-size: var(--font-size-sm); }
 
 .protocol-approval-list {
     display: grid;
-    gap: 10px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -585,62 +501,41 @@
 
 .protocol-approval-item {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 240px);
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
-    gap: 10px 16px;
-    padding: 12px 14px;
-    border: 1px solid var(--color-border);
-    border-left-width: 3px;
-    border-radius: var(--radius);
+    gap: 2px 10px;
+    padding: 6px 0;
+    border-top: 1px solid var(--color-border);
 }
 
-.protocol-approval-item--pending { border-left-color: #f59e0b; }
-.protocol-approval-item--approved { border-left-color: #16a34a; }
-.protocol-approval-item--returned { border-left-color: #c0392b; }
-.protocol-approval-item--cancelled { border-left-color: var(--color-muted); }
-
 .protocol-approval-item__who,
-.protocol-approval-item__state { display: grid; gap: 4px; }
-.protocol-approval-item__state { justify-items: start; align-content: start; }
+.protocol-approval-item__state { display: grid; gap: 1px; min-width: 0; }
+.protocol-approval-item__state { justify-items: end; }
+
+.protocol-approval-item__who strong { color: var(--color-text); font-size: 13px; font-weight: 500; }
 
 .protocol-approval-item__who span,
-.protocol-approval-item__state time,
-.protocol-approval-item__waiting { color: var(--color-muted); font-size: 14px; }
+.protocol-approval-item__state time { color: var(--color-muted); font-size: var(--font-size-sm); }
 
-.protocol-approval-item__reason { font-size: 13px; font-style: italic; }
+.protocol-approval-item__reason {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
 .protocol-approval-item__comment {
     grid-column: 1 / -1;
     margin: 0;
-    font-size: 14px;
+    color: var(--color-text);
+    font-size: var(--font-size-sm);
 }
 
-/* Progress on the left, the decision on the right, one row. It wraps on a
-   narrow screen, and the actions keep their own right alignment when it does.
-   The buttons are here, above the list, on purpose: with many согласующие the
-   old footer position put «Согласовать» behind a long scroll. */
-.protocol-approval-panel__head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px 16px;
-}
+.protocol-approval-history { display: grid; gap: 10px; }
 
-.protocol-approval-panel__actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    margin-left: auto;
-    gap: 10px;
-}
-
-.protocol-approval-panel__own { margin: 0; color: var(--color-muted); font-size: 14px; }
-
-.protocol-approval-revision { display: grid; gap: 10px; }
+.protocol-approval-revision { display: grid; gap: 6px; }
 
 .protocol-approval-revision + .protocol-approval-revision {
-    padding-top: 14px;
+    padding-top: 10px;
     border-top: 1px solid var(--color-border);
 }
 
@@ -648,47 +543,31 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
 }
 
-.protocol-approval-revision__head h3 { margin: 0; font-size: 15px; }
+.protocol-approval-revision__head h3 { margin: 0; font-size: var(--font-size-title); }
 
 /* A previous round stays readable but must never look like the live one. */
-.protocol-approval-revision:not(.protocol-approval-revision--current) .protocol-approval-item {
-    background: var(--color-bg);
-    border-left-color: var(--color-border);
-}
+.protocol-approval-revision:not(.protocol-approval-revision--current) .protocol-approval-item { color: var(--color-muted); }
 
 /* Narrow screens --------------------------------------------------------- */
 
-@media (max-width: 1100px) {
-    .protocol-document-card { grid-template-columns: auto auto minmax(0, 1fr); }
-
-    /* Progress and actions drop to their own full-width rows rather than
-       squeezing the title. */
-    .protocol-workflow,
-    .protocol-document-card__actions { grid-column: 1 / -1; }
-    .protocol-document-card__actions { justify-content: flex-start; }
-}
-
 @media (max-width: 900px) {
-    .protocol-participant-card,
-    .protocol-participant-card__fields,
-    .protocol-speech-card__head,
-    .protocol-action-card__fields,
-    .protocol-action-card__statement,
+    .protocol-person,
+    .protocol-participant-row,
+    .protocol-speech-row,
+    .protocol-lines--numbered > .protocol-speech-row,
+    .protocol-action-row__statement,
     .protocol-assignee-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
 
-    .protocol-action-card__requirement { padding-top: 0; }
-
-    .protocol-approval-item { grid-template-columns: minmax(0, 1fr); }
-
-    .protocol-participant-card__flags { justify-content: flex-start; }
+    .protocol-person__flags { justify-content: flex-start; }
     .protocol-remove-button { justify-self: end; }
-    .protocol-participant-card > .protocol-remove-button { grid-column: auto; }
+    .protocol-action-row__assignees { flex-direction: column; gap: 4px; }
+    .protocol-action-row__caption { padding-top: 0; }
+    .protocol-action-row__options { padding-left: 0; }
     .protocol-section__summary { flex-wrap: wrap; }
     .protocol-section__add { order: 1; margin-left: 0; }
-    .protocol-workflow__step { min-width: 78px; }
 }
 
 /* The СМК confirmation summary (`templates/smk/form.html`). Its dialog reuses
@@ -719,13 +598,13 @@
 .smk-confirm-warning {
     margin: 0 0 4px;
     padding: 10px 12px 10px 28px;
-    border: 1px solid #fcd9a4;
+    border: 1px solid var(--color-warning-border);
     border-left-width: 3px;
     border-radius: var(--radius);
     /* The same warning tint `.link-button--warning` already uses, so the
        dialog and the button that leads to it read as one warning. */
-    background: #fff7ed;
-    color: #92400e;
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
     font-size: 13px;
     line-height: 1.5;
 }

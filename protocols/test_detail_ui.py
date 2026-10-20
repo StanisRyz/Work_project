@@ -73,9 +73,9 @@ class ProtocolDetailUiTests(TestCase):
         self.assertEqual(page.status_code, 200)
         body = page.content.decode()
 
-        # The document card and its workflow indicator.
-        self.assertIn('protocol-document-card', body)
-        self.assertIn('protocol-workflow__step--current', body)
+        # The heading card and its route, as the act page draws them.
+        self.assertIn('act-head protocol-head', body)
+        self.assertIn('act-route__step--current', body)
 
         # Every block is still a `[data-block]` with the row plumbing
         # `protocol_editor.js` drives and the formset names the server parses.
@@ -139,15 +139,17 @@ class ProtocolDetailUiTests(TestCase):
         self.assertEqual(page.status_code, 200)
         body = page.content.decode()
 
-        # Read-only cards, no editor anywhere.
-        self.assertIn('protocol-participant-card--static', body)
-        self.assertIn('protocol-task-card', body)
+        # Read-only lines, no editor anywhere.
+        self.assertIn('protocol-person', body)
+        self.assertIn('protocol-decision', body)
         self.assertNotIn('data-protocol-editor', body)
 
-        # The approval section is the last one and carries the round.
-        self.assertIn('protocol-section--approval', body)
+        # The round is the first card of the right-hand column, which comes
+        # before the work in the markup, as on the act page.
+        self.assertIn('protocol-approval-card', body)
+        self.assertIn('Согласовано: 0 из 1', body)
         self.assertLess(
-            body.index('data-live-protocol-content'), body.index('data-live-protocol-approval')
+            body.index('data-live-protocol-approval'), body.index('data-live-protocol-content')
         )
 
         # The realtime client replaces exactly these wrappers, and each

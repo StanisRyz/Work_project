@@ -23,7 +23,7 @@ while the protocol is in one.
                 <td class="protocol-table__subject">{% if row.subject %}<span class="user-text text-clamp-2" title="{{ row.subject }}">{{ row.subject }}</span>{% else %}—{% endif %}</td>
                 <td class="user-text">{{ protocol.author.get_full_name|default:protocol.author.username }}</td>
                 <td>{{ protocol.created_at|date:'d.m.Y' }}</td>
-                <td><span class="status-badge">{{ protocol.get_status_display }}</span></td>
+                <td><span class="act-badge act-badge--status protocol-status--{{ protocol.status|lower }}">{{ protocol.get_status_display }}</span></td>
                 <td>
                     {% if row.approval %}
                         <span class="protocol-table__progress">{{ row.approval.approved }} из {{ row.approval.total }}</span>
