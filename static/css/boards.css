@@ -3643,11 +3643,8 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-request-decide h2,
 .board-request-decide h3 {
     margin: 0 0 10px;
-    font-size: 16px;
-}
-
-.board-requests__title {
-    padding: 12px 12px 0;
+    font-size: var(--font-size-title);
+    font-weight: 600;
 }
 
 .board-requests__board-list {
@@ -3671,17 +3668,15 @@ form[data-chat-files-ready] .board-chat__file-input {
     font-size: 13px;
 }
 
-.board-requests__empty {
-    padding: 0 12px 12px;
-}
-
 .board-requests__actions {
     text-align: right;
 }
 
+/* The card already carries the padding of `.table-card`; its title and empty
+   line add none of their own, so both cards' headings start at one inset. */
 .board-requests__mine,
 .board-inbox .table-card {
-    margin-top: 16px;
+    margin-top: 10px;
 }
 
 .board-request-form {
