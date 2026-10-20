@@ -245,14 +245,11 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                                         <span>Обязательно вложение</span>
                                     </label>
                                     <div class="to-split-option" data-split-option>
-                                        <label class="to-checkbox">
+                                        {# Что значит каждое положение — во всплывающей подсказке: строка галочек не длиннее самих галочек. #}
+                                        <label class="to-checkbox" title="Выключено — одна общая задача: выполнение любым исполнителем закрывает её для остальных. Включено — каждый исполнитель получит собственную задачу.">
                                             <input type="checkbox" name="root-{{ root.index }}-actions-{{ action.index }}-split_for_assignees" data-split-checkbox{% if action.split_for_assignees %} checked{% endif %}{% if action.assignee_rows|length < 2 %} disabled{% endif %}>
                                             <span>Разбить задачу для исполнителей</span>
                                         </label>
-                                        <p class="to-split-hint">
-                                            <span data-split-hint-off{% if action.split_for_assignees %} hidden{% endif %}>одна общая задача: выполнение любым исполнителем закрывает её для остальных</span>
-                                            <span data-split-hint-on{% if not action.split_for_assignees %} hidden{% endif %}>каждый исполнитель получит собственную задачу</span>
-                                        </p>
                                     </div>
                                 </div>
                             </details>

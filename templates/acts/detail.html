@@ -427,8 +427,8 @@ window.qualityFragments.register('toAnalysisForm', (root) => {
     });
     form.addEventListener('change', (event) => {
         if (event.target.matches('[data-split-checkbox]')) {
-            // Only the hint under it changes; nothing else depends on how a
-            // corrective action will be executed.
+            // Nothing else depends on how a corrective action will be
+            // executed; the act form draws no hint under it any more.
             syncSplitOption(event.target.closest('[data-corrective-action]'));
             return;
         }

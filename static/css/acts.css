@@ -933,8 +933,8 @@
 
 /* Описание и строки решения в режиме чтения — та же «подпись значение».
    Длинный текст не растягивается на всю ширину монитора. */
-.act-defect-card__description,
-.act-defect-card__line {
+.act-defect-card .act-defect-card__description,
+.act-defect-card .act-defect-card__line {
     max-width: var(--field-text);
     margin: 0;
     color: var(--color-text);
@@ -2667,23 +2667,7 @@
     padding-left: 88px;
 }
 
-.to-split-option {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 2px 8px;
-}
-
 .to-split-option:has(input:disabled) { opacity: 0.55; }
-
-.to-split-hint {
-    margin: 0;
-    color: var(--color-muted);
-    font-size: var(--font-size-sm);
-    line-height: 1.35;
-}
-
-.to-split-hint [hidden] { display: none; }
 
 .to-analysis-form .act-inline-actions .link-button { margin-top: 0; }
 .root-analysis-card [data-root-analysis-actions] { padding-top: 2px; }
