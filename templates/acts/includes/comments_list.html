@@ -1,16 +1,20 @@
-{% comment %}
+{% load people %}{% comment %}
 The comment list only. The new-comment form deliberately stays out of this
 partial, so a live refresh can never discard text the user is typing.
+
+Newest first in the markup, as the query returns them; `.act-chat__feed`
+reverses the column, so the newest stands at the bottom beside the form and
+the feed opens scrolled to it — a chat, with no script.
 {% endcomment %}
     {% if comments %}
         <div class="comment-list">
             {% for comment in comments %}
-                <article class="comment-card">
-                    <span class="comment-card__avatar" aria-hidden="true">{{ comment.author.first_name|first|default:comment.author.username|first|upper }}{{ comment.author.last_name|first|upper }}</span>
-                    <div><div class="comment-card__meta"><strong>{{ comment.author.get_full_name|default:comment.author.username|default:'Без автора' }}</strong><time datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:'d.m.Y H:i' }}</time></div><p class="user-text">{{ comment.text|linebreaksbr }}</p></div>
+                <article class="comment-card{% if comment.author_id == request.user.pk %} comment-card--own{% endif %}">
+                    <span class="comment-card__avatar" aria-hidden="true">{% if comment.author %}{{ comment.author|person_initials }}{% else %}—{% endif %}</span>
+                    <div><div class="comment-card__meta"><strong>{% if comment.author %}{{ comment.author|person_name }}{% else %}Без автора{% endif %}</strong><time datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:'d.m.Y H:i' }}</time></div><p class="user-text">{{ comment.text|linebreaksbr }}</p></div>
                 </article>
             {% endfor %}
         </div>
     {% else %}
-        <p class="act-collaboration-empty">Комментариев пока нет.</p>
+        <p class="act-collaboration-empty">Сообщений пока нет. Вопрос по акту можно задать здесь — его увидят все участники.</p>
     {% endif %}

@@ -51,6 +51,12 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                         <span class="act-defect-card__meta">{{ row.defect.get_workshop_display }}{% if row.defect.workshop and row.defect.znp_number %} · {% endif %}{% if row.defect.znp_number %}ЗНП {{ row.defect.znp_number }}{% endif %}</span>
                     {% endif %}
                     {% comment %}
+                    Проверено / с отклонением и доля — главная цифра дефекта,
+                    видная и у свёрнутой карточки. Доля округляется до целого
+                    процента и только показывается: нигде не хранится.
+                    {% endcomment %}
+                    {% if row.defect.checked_quantity and row.defect.nonconforming_quantity is not None %}<span class="act-defect-card__qty" title="Проверено / с отклонением">{{ row.defect.checked_quantity }} / {{ row.defect.nonconforming_quantity }} <span class="act-defect-card__share">({% widthratio row.defect.nonconforming_quantity row.defect.checked_quantity 100 %} %)</span></span>{% endif %}
+                    {% comment %}
                     Решение в заголовке — только в режиме чтения: пока его
                     вносят, авторитет у `select` в теле карточки, и бейдж рядом
                     с ним показывал бы устаревшее значение.

@@ -915,7 +915,7 @@ class ActViewTests(TestCase):
 
         response = self.client.get(reverse('acts:detail', args=[act.pk]))
 
-        for label in ('Проработка', 'История акта', 'Вложения и комментарии', 'Связанные мероприятия'):
+        for label in ('Проработка', 'История акта', 'Вложения', 'Связанные мероприятия', 'Обсуждение'):
             self.assertContains(response, label)
         self.assertContains(self.client.get(reverse('acts:detail', args=[act.pk]) + '?tab=attachments'), 'Вложения')
 

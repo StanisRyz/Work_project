@@ -3687,7 +3687,7 @@ tasks never live inside `acts`.
   selection is re-read and filtered by `can_view_document()`; move and trash
   are management.
 - **«Где используется» is `DocumentLink`, owned by Documentation.** The act's
-  and the protocol's «Вложения и комментарии» tab renders
+  «Вложения» tab and the protocol's «Вложения и комментарии» tab render
   `templates/documents/includes/linked_documents.html` («Нормативные
   документы») from `documents.selectors.build_document_links_for()`; adding
   and removing go through `documents:link_create`/`link_delete` →

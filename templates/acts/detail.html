@@ -8,6 +8,7 @@
 <div hidden data-live-act-config
      data-live-act-id="{{ act.pk }}"
      data-summary-url="{% url 'acts:live_summary_fragment' act.pk %}"
+     data-side-url="{% url 'acts:live_summary_fragment' act.pk %}?part=side"
      data-work-url="{% url 'acts:work_fragment' act.pk %}"
      data-history-url="{% url 'acts:history_fragment' act.pk %}"
      data-comments-url="{% url 'acts:comments_fragment' act.pk %}"
@@ -18,8 +19,10 @@
 
 {% comment %}
 The page is a grid (`.act-page` in `acts.css`): the heading across the top,
-the work on the left — banners, tabs and the tab — and the side panel with
-the act's facts and route on the right, sticky. The live summary container
+the work on the left — banners, tabs and the tab — and on the right the side
+panel with the act's facts and route, and under it «Обсуждение», the act's
+comments as a chat that sticks to the top of the window while the work is
+scrolled. The live summary container
 holds both the heading and the panel and is `display: contents`, so a live
 replacement keeps the grid as it is. Below 1280px it is one column.
 {% endcomment %}
@@ -31,6 +34,18 @@ act.updated and act.status_changed.
 <div class="act-summary" data-live-act-summary>
     {% include 'acts/includes/live_summary.html' %}
 </div>
+
+{% comment %}
+The right-hand column: one window-high, sticky column. On top the act's facts
+and route (live, its own container); «Обсуждение» takes the rest of the
+height, its feed scrolling inside it and its form always at the foot.
+{% endcomment %}
+<aside class="act-side-column" aria-label="Сведения и обсуждение">
+    <div class="act-side-live" data-live-act-side>
+        {% include 'acts/includes/live_side.html' %}
+    </div>
+    {% include 'acts/includes/comments.html' %}
+</aside>
 
 <div class="act-page__main">
 <div class="act-conflict-banner" data-act-conflict-banner hidden role="alert">
@@ -52,7 +67,7 @@ act.updated and act.status_changed.
 <nav class="act-detail-tabs" aria-label="Разделы акта">
     <a class="act-detail-tabs__link{% if detail_tab == 'work' %} act-detail-tabs__link--active{% endif %}" href="?tab=work"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM15 3v5h4M8 13h8M8 17h6"/></svg>Проработка</a>
     <a class="act-detail-tabs__link{% if detail_tab == 'history' %} act-detail-tabs__link--active{% endif %}" href="?tab=history"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.7M4 5v4h4"/></svg>История акта</a>
-    <a class="act-detail-tabs__link{% if detail_tab == 'attachments' %} act-detail-tabs__link--active{% endif %}" href="?tab=attachments"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>Вложения и комментарии</a>
+    <a class="act-detail-tabs__link{% if detail_tab == 'attachments' %} act-detail-tabs__link--active{% endif %}" href="?tab=attachments"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 5-5a3 3 0 1 1 4 4l-7 7a5 5 0 0 1-7-7l7-7"/></svg>Вложения</a>
     <a class="act-detail-tabs__link{% if detail_tab == 'activities' %} act-detail-tabs__link--active{% endif %}" href="?tab=activities"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 13 4-4M7 17l-1 1a3 3 0 1 1-4-4l4-4a3 3 0 0 1 4 0M17 7l1-1a3 3 0 1 1 4 4l-4 4a3 3 0 0 1-4 0"/></svg>Связанные мероприятия</a>
 </nav>
 
@@ -65,9 +80,8 @@ act.updated and act.status_changed.
         {% include 'acts/includes/history_timeline.html' %}
     </div>
 {% elif detail_tab == 'attachments' %}
-    <div class="act-collaboration-layout">
+    <div class="act-collaboration-layout act-collaboration-layout--single">
         {% include 'acts/includes/attachments.html' %}
-        {% include 'acts/includes/comments.html' %}
     </div>
     {% include 'documents/includes/linked_documents.html' with link_target_field='act' link_target_id=act.pk link_target_label='акт' %}
 {% else %}

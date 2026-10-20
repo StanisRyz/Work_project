@@ -93,9 +93,16 @@ class ActCreateForm(forms.ModelForm):
         # stays optional and an untouched form keeps that number as it is.
         self.existing_number = self.instance.number if self.instance.pk else ''
         suffix = act_number_suffix(self.existing_number)
+        # The fixed half of the number, drawn inside the field so the user
+        # sees the whole number they are writing: today's year for a new act,
+        # the act's own prefix for an existing one, nothing for a legacy
+        # number. Presentation only — `format_act_number()` still builds it.
+        self.number_prefix = format_act_number('')[:-ACT_NUMBER_SUFFIX_LENGTH]
         if suffix is not None:
             self.fields['number_suffix'].initial = suffix
+            self.number_prefix = self.existing_number[:-len(suffix)] if suffix else self.existing_number
         elif self.existing_number:
+            self.number_prefix = ''
             self.fields['number_suffix'].required = False
             self.fields['number_suffix'].help_text = (
                 f'Текущий номер: {self.existing_number}. Оставьте поле пустым, чтобы сохранить его.'

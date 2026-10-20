@@ -1,0 +1,35 @@
+{% load people %}
+{% comment %}
+The side panel's live part: the act's own facts and the approval route, each
+step with who took it and when, so the route is also the act's «Участники».
+Read-only, replaced on act.updated and act.status_changed through
+`acts:live_summary_fragment?part=side`. It stands at the top of the
+right-hand column (`.act-side-column`), above «Обсуждение», which is not part
+of it — so a message being typed is never redrawn.
+{% endcomment %}
+<div class="act-side">
+    <section class="act-side__card">
+        <h2 class="act-side__title">Сведения об акте</h2>
+        <dl class="act-side__facts">
+            <div><dt>Срок</dt><dd>{% if act.due_date %}{% include 'includes/due_date.html' with date=act.due_date done=act.status.is_final %}{% else %}—{% endif %}</dd></div>
+            <div><dt>Создан</dt><dd>{{ act.created_at|date:'d.m.Y H:i' }}</dd></div>
+            <div><dt>Автор</dt><dd>{% if act.created_by %}{{ act.created_by|person_name }}{% else %}—{% endif %}</dd></div>
+            <div><dt>Тип</dt><dd>{{ act.get_act_type_display }}</dd></div>
+        </dl>
+        <dl class="act-side__facts act-side__facts--document">
+            <div><dt>Заказчик</dt><dd class="user-text">{{ act.customer|default:'—' }}</dd></div>
+            <div><dt>Заказ покупателя</dt><dd class="user-text">{{ act.order_number|default:'—' }}</dd></div>
+            <div><dt>Наименование продукции</dt><dd class="user-text">{{ act.nomenclature|default:'—' }}</dd></div>
+            <div><dt>Обозначение по КД</dt><dd class="user-text">{{ act.kd_designation|default:'—' }}</dd></div>
+        </dl>
+    </section>
+
+    <section class="act-side__card">
+        <h2 class="act-side__title">Маршрут и участники</h2>
+        <ol class="act-route" aria-label="Маршрут согласования">
+            {% for step in route_steps %}
+                <li class="act-route__step act-route__step--{{ step.state }}"><span class="act-route__marker">{% if step.state == 'completed' %}✓{% else %}{{ forloop.counter }}{% endif %}</span><span class="act-route__copy"><strong>{{ step.name }}</strong>{% if step.state == 'current' %}<small>Текущий этап</small>{% elif step.state == 'future' %}<small>Ожидает</small>{% else %}<small>{% if step.person %}<span class="act-route__person">{{ step.person|person_name }}</span>{% if step.date %} · {% endif %}{% endif %}{% if step.date %}{{ step.date|date:'d.m H:i' }}{% endif %}</small>{% endif %}</span></li>
+            {% endfor %}
+        </ol>
+    </section>
+</div>

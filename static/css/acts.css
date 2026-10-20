@@ -395,8 +395,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) 340px;
     grid-template-areas:
-        'head head'
+        'head side'
         'main side';
+    grid-template-rows: auto 1fr;
     align-items: start;
     gap: 10px 16px;
 }
@@ -405,7 +406,7 @@
 
 .act-page > .act-summary > .act-detail-heading,
 .act-page .act-detail-heading { grid-area: head; }
-.act-page .act-side { grid-area: side; }
+.act-page .act-side-column { grid-area: side; }
 .act-page__main {
     grid-area: main;
     display: grid;
@@ -436,16 +437,27 @@
 .act-detail-heading__title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: var(--control-height); }
 .act-stage-badge { display: inline-flex; align-items: center; padding: 2px 9px 2px 8px; font-size: var(--font-size-sm); }
 
-/* The properties panel. Sticky under the topbar, so the facts stay beside
-   whatever defect or analysis is being worked on; a panel taller than the
-   window scrolls inside itself rather than being cut off. */
-.act-side {
+/* The right-hand column: exactly one window high and sticky under the
+   topbar, so it is always in view beside the work. The act's facts and route
+   take what they need; «Обсуждение» takes the rest, its feed scrolling inside
+   it and its form always at the foot. On a short window the column scrolls
+   as a whole rather than squeezing the discussion to nothing. */
+.act-side-column {
     position: sticky;
-    top: 10px;
+    top: 58px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: calc(100vh - 72px);
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.act-side-live { flex: none; }
+
+.act-side {
     display: grid;
     gap: 10px;
-    max-height: calc(100vh - 68px);
-    overflow-y: auto;
 }
 
 .act-side__card {
@@ -467,7 +479,7 @@
 /* Label left, value right: a properties list reads down one column. */
 .act-side__facts {
     display: grid;
-    gap: 6px;
+    gap: 4px;
     margin: 0;
 }
 
@@ -512,7 +524,7 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    padding-bottom: 12px;
+    padding-bottom: 8px;
     color: var(--color-subtle);
     font-size: var(--font-size-sm);
 }
@@ -554,6 +566,118 @@
 .act-route__step--current .act-route__marker { border-color: var(--color-primary); background: var(--color-primary); color: #fff; box-shadow: 0 0 0 3px var(--color-primary-soft); }
 .act-route__step--current .act-route__copy small { color: var(--color-primary); }
 
+/* Who took the step: the route doubles as the act's «Участники». */
+.act-route__person { color: var(--color-text); }
+
+/* «Обсуждение»: the act's comments as a chat in the right-hand column. It
+   sticks under the topbar while the work is scrolled and is never taller
+   than the window: the feed scrolls inside it, the form stays at its foot.
+   The feed is a reversed column — newest message at the bottom, beside the
+   form, and the feed opens scrolled to it — with no script. Only the feed
+   is live; the form is in no live block, so typing survives every refresh. */
+.act-chat {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 240px;
+    padding: 10px 14px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+}
+
+.act-chat__title { margin-bottom: 6px; }
+
+.act-chat__feed {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column-reverse;
+    min-height: 60px;
+    overflow-y: auto;
+    margin: 0 -14px;
+    padding: 0 14px;
+}
+
+.act-chat .comment-list {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 0;
+}
+
+.act-chat .comment-card {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px 0;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    border-radius: 0;
+    background: transparent;
+}
+
+.act-chat .comment-list > .comment-card:last-child { border-top: 0; }
+
+.act-chat .comment-card__avatar {
+    width: 26px;
+    height: 26px;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.act-chat .comment-card--own .comment-card__avatar {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-dark);
+}
+
+.act-chat .comment-card__meta strong { font-size: var(--font-size-sm); font-weight: 600; }
+.act-chat .comment-card p { font-size: 13px; line-height: 1.45; }
+
+.act-chat .act-collaboration-empty {
+    margin: auto 0;
+    padding: 12px 0;
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+}
+
+.act-chat .comment-form {
+    display: grid;
+    gap: 6px;
+    margin: 8px 0 0;
+    padding: 10px 0 0;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    background: transparent;
+}
+
+.act-chat .comment-form textarea {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 52px;
+    padding: var(--control-padding);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font: inherit;
+    font-size: var(--control-font-size);
+    resize: vertical;
+}
+
+.act-chat__send {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.act-chat__hint,
+.act-chat__readonly {
+    color: var(--color-subtle);
+    font-size: 11px;
+}
+
+.act-chat__readonly { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--color-border); }
+
 /* Narrower than 1280 px the panel moves under the heading and lays its facts
    out across the width instead of down a column. */
 @media (max-width: 1280px) {
@@ -565,11 +689,11 @@
             'main';
     }
 
+    .act-side-column { position: static; height: auto; overflow: visible; }
+    .act-chat { max-height: 70vh; }
+
     .act-side {
-        position: static;
         grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-        max-height: none;
-        overflow: visible;
     }
 
     .act-side__facts {
@@ -720,6 +844,17 @@
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
+
+/* «80 / 5 (6 %)» — checked, nonconforming and the share, visible on a
+   collapsed card too. */
+.act-defect-card__qty {
+    flex: none;
+    color: var(--color-text);
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+.act-defect-card__share { color: var(--color-muted); }
 
 /* Решение в шапке — это то, что видно у свёрнутой карточки. У раскрытой оно
    уже стоит в теле, под своей подписью, и второй раз в заголовке было бы
@@ -1731,11 +1866,46 @@
 /* Данные акта: five fields, with a compact номер акта ahead of the text ones,
    each as wide as what is typed into it. */
 .act-form-row--act {
-    grid-template-columns: minmax(0, 120px) repeat(4, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 190px) repeat(4, minmax(0, 1fr));
 }
 
-.act-form-field--number input {
-    text-align: center;
+/* «АОК-2026-» drawn inside the field, the suffix typed after it. */
+.act-number-field {
+    display: flex;
+    align-items: stretch;
+    height: var(--control-height);
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    pointer-events: auto;
+}
+
+.act-number-field:focus-within {
+    border-color: var(--color-primary);
+    box-shadow: var(--focus-ring);
+}
+
+.act-number-field__prefix {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 8px;
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface-muted);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.act-form--editor .act-number-field input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    font-variant-numeric: tabular-nums;
 }
 
 .act-defect-section {
@@ -1924,6 +2094,11 @@
     display: grid;
     gap: 8px;
     min-width: 0;
+}
+
+.act-form-side {
+    position: sticky;
+    top: 58px;
 }
 
 .act-side__hint {
@@ -2146,6 +2321,7 @@
 }
 
 .act-collaboration-layout { display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; overflow-x: clip; }
+.act-collaboration-layout--single { grid-template-columns: minmax(0, 1fr); }
 .act-collaboration-layout .detail-section { min-width: 0; max-width: 100%; padding: 16px; overflow-x: clip; }
 .act-collaboration-section__header { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 10px; }
 .act-collaboration-section__header h2 { margin: 0; color: var(--color-text); font-size: 18px; }
@@ -2537,21 +2713,20 @@
 }
 
 .to-analysis-readonly-list { display: grid; gap: 10px; }
+/* A tree: the root cause, and under it — on a rail — its corrective
+   actions. The actions stay a table, one row per action. */
 .to-analysis-readonly {
     display: grid;
-    grid-template-columns: 40px minmax(200px, 0.8fr) minmax(0, 2.5fr);
-    overflow: hidden;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 4px 12px;
 }
 
-.to-analysis-readonly + .to-analysis-readonly { margin-top: 10px; }
-.to-analysis-readonly__rail { display: grid; grid-row: 1; align-content: start; justify-items: center; padding: 12px 0; border-right: 1px solid var(--color-border); background: var(--color-surface-muted); color: var(--color-muted); font-size: 15px; font-weight: 600; }
-.to-analysis-readonly__cause { display: grid; align-content: start; gap: 6px; padding: 12px 14px; border-right: 1px solid var(--color-border); background: var(--color-surface); }
-.to-analysis-readonly__cause > span { color: var(--color-muted); font-size: 12px; font-weight: 600; }
-.to-analysis-readonly__cause p { margin: 0; color: var(--color-text); font-size: 14px; line-height: 1.45; }
-.to-analysis-readonly__actions { min-width: 0; }
+.to-analysis-readonly + .to-analysis-readonly { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-border); }
+.to-analysis-readonly__rail { display: inline-grid; grid-row: 1; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: var(--color-text); color: var(--color-surface); font-size: 11px; font-weight: 600; }
+.to-analysis-readonly__cause { display: grid; grid-column: 2; align-content: start; gap: 1px; }
+.to-analysis-readonly__cause > span { color: var(--color-muted); font-size: var(--font-size-sm); }
+.to-analysis-readonly__cause p { margin: 0; color: var(--color-text); font-size: 13px; font-weight: 500; line-height: 1.45; }
+.to-analysis-readonly__actions { grid-column: 2; min-width: 0; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--color-border); }
 .to-analysis-readonly .act-defects-table-wrap { width: 100%; margin: 0; overflow: visible; border-radius: 0; }
 .to-analysis-readonly .to-analysis-table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
 .to-analysis-readonly .to-analysis-table th,
@@ -2792,10 +2967,7 @@
 
     .to-analysis-readonly .act-defects-table-wrap { overflow-x: auto; }
     .to-analysis-readonly .to-analysis-table { min-width: 680px; }
-    .to-analysis-readonly { grid-template-columns: 42px minmax(0, 1fr); }
-    .to-analysis-readonly__rail { grid-row: 1 / span 2; }
-    .to-analysis-readonly__cause { grid-column: 2; border-right: 0; border-bottom: 1px solid var(--color-border); }
-    .to-analysis-readonly__actions { grid-column: 2; }
+    .to-analysis-readonly__actions { grid-column: 1 / -1; }
 }
 
 /* Task registry: fixed column widths — see `tasks/includes/list_results.html`.

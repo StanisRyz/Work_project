@@ -1,18 +1,31 @@
-<section class="detail-section act-comments-section">
-    <div class="act-collaboration-section__header"><h2>Комментарии</h2><span class="act-collaboration-section__hint">Обсуждение акта</span></div>
+{% comment %}
+«Обсуждение»: the act's comments as a chat beside every tab, in the right-hand
+column under the side panel (`.act-chat` in `acts.css`). Three parts, and only
+the middle one is live: the heading, the list (`[data-live-act-comments]`,
+replaced by `acts:comments_fragment`), and the form below it, which no refresh
+ever touches, so a message being typed survives every update. The form posts
+the tab it was written on, and the view comes back to it.
+{% endcomment %}
+<section class="act-chat" aria-labelledby="act-chat-title">
+    <h2 class="act-side__title act-chat__title" id="act-chat-title">Обсуждение</h2>
+    <div class="act-chat__feed" data-live-act-comments>
+        {% include 'acts/includes/comments_list.html' %}
+    </div>
     {% if can_contribute %}
-    <form class="comment-form" method="post" action="{% url 'acts:add_comment' act.pk %}" data-hotkey-submit>
+    <form class="comment-form act-chat__form" method="post" action="{% url 'acts:add_comment' act.pk %}" data-hotkey-submit>
         {% csrf_token %}
+        <input type="hidden" name="tab" value="{{ detail_tab }}">
         {{ comment_form.non_field_errors }}
         <div class="comment-form__field">
             {{ comment_form.text }}
             {{ comment_form.text.errors }}
         </div>
-        <button class="link-button link-button--compact" type="submit"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14-7-4 14-3-6-7-1Z"/></svg>Добавить комментарий</button>
+        <div class="act-chat__send">
+            <span class="act-chat__hint">Ctrl+Enter — отправить</span>
+            <button class="link-button link-button--compact" type="submit"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14-7-4 14-3-6-7-1Z"/></svg>Отправить</button>
+        </div>
     </form>
+    {% else %}
+    <p class="act-chat__readonly">Писать в обсуждение могут участники работы над актом.</p>
     {% endif %}
-
-    <div data-live-act-comments>
-        {% include 'acts/includes/comments_list.html' %}
-    </div>
 </section>

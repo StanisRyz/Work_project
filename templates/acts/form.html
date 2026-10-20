@@ -31,7 +31,7 @@
         <section class="form-section act-form-section">
             <h2>Данные акта</h2>
             <div class="act-form-row act-form-row--act">
-                <label class="act-form-field--number"><span>{{ form.number_suffix.label }}</span>{{ form.number_suffix }}{% if form.number_suffix.help_text %}<span class="field-hint">{{ form.number_suffix.help_text }}</span>{% endif %}{{ form.number_suffix.errors }}</label>
+                <label class="act-form-field--number"><span>{{ form.number_suffix.label }}</span><span class="act-number-field">{% if form.number_prefix %}<span class="act-number-field__prefix" aria-hidden="true">{{ form.number_prefix }}</span>{% endif %}{{ form.number_suffix }}</span>{% if form.number_suffix.help_text %}<span class="field-hint">{{ form.number_suffix.help_text }}</span>{% endif %}{{ form.number_suffix.errors }}</label>
                 <label><span>{{ form.customer.label }}</span>{{ form.customer }}{{ form.customer.errors }}</label>
                 <label><span>{{ form.order_number.label }}</span>{{ form.order_number }}{{ form.order_number.errors }}</label>
                 <label><span>{{ form.nomenclature.label }}</span>{{ form.nomenclature }}{{ form.nomenclature.errors }}</label>

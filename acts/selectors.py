@@ -198,6 +198,15 @@ def build_route_steps(act):
         'OTK_REVIEW': act.approved_at,
         'ARCHIVED': act.approved_at,
     }
+    # Who took each step — the route doubles as the act's «Участники». Read
+    # off the act's own fields, written by the services when the step was
+    # taken; a step not taken yet names nobody.
+    people = {
+        'CREATED_OTK': act.created_by,
+        'KO_REVIEW': act.ko_decision_by,
+        'TO_ANALYSIS': act.to_analysis_by,
+        'OTK_REVIEW': act.approved_by,
+    }
     status_code = getattr(act.status, 'code', '')
     current_index = ROUTE_INDEX.get(status_code, 0)
     steps = []
@@ -208,7 +217,12 @@ def build_route_steps(act):
             state = 'current'
         else:
             state = 'future'
-        steps.append({'name': name, 'date': dates.get(code), 'state': state})
+        steps.append({
+            'name': name,
+            'date': dates.get(code),
+            'person': people.get(code) if state == 'completed' else None,
+            'state': state,
+        })
     return steps
 
 

@@ -154,10 +154,19 @@ def _get_live_act(request, pk):
 @require_GET
 def act_live_summary_fragment(request, pk):
     act = _get_live_act(request, pk)
+    # One read, two containers: the heading (number and status) and, with
+    # `?part=side`, the side panel's facts and route. They are separate
+    # containers because «Обсуждение» shares the panel's column and must not
+    # sit inside anything a refresh replaces.
+    template = (
+        'acts/includes/live_side.html'
+        if request.GET.get('part') == 'side'
+        else 'acts/includes/live_summary.html'
+    )
     return _fragment_response(
         {
             'html': render_to_string(
-                'acts/includes/live_summary.html',
+                template,
                 {'act': act, 'route_steps': build_route_steps(act)},
                 request=request,
             ),
@@ -412,16 +421,19 @@ def act_add_comment(request, pk):
         raise Http404('No Act matches the given query.')
     if request.method != 'POST':
         messages.error(request, 'Комментарий можно добавить только из формы на странице акта.')
-        return _redirect_to_detail_tab(act, 'attachments')
+        return _redirect_to_detail_tab(act, 'work')
 
+    # «Обсуждение» stands beside every tab, so the reader comes back to the
+    # tab the comment was written on; an unknown value is «Проработка».
+    tab = _get_detail_tab(request.POST.get('tab'))
     form = ActCommentForm(request.POST)
     if form.is_valid():
         add_act_comment(act, request.user, form.cleaned_data['text'])
         messages.success(request, 'Комментарий добавлен.')
-        return _redirect_to_detail_tab(act, 'attachments')
+        return _redirect_to_detail_tab(act, tab)
 
     messages.error(request, 'Проверьте текст комментария.')
-    context = _get_act_detail_context(act, request.user, comment_form=form, detail_tab='attachments')
+    context = _get_act_detail_context(act, request.user, comment_form=form, detail_tab=tab)
     return _render_act_detail(request, act, context)
 
 
@@ -830,6 +842,7 @@ def _get_act_for_detail(pk):
             'status',
             'ko_decision_by',
             'to_analysis_by',
+            'approved_by',
             'closed_by',
         ).prefetch_related('defects__defect_type', 'defects__operation'),
         pk=pk,

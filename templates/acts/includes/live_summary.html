@@ -1,43 +1,10 @@
 {% load people %}
 {% comment %}
-Read-only act summary: the heading (number and status) and the side panel —
-the act's own facts and the approval route. Safe to replace live — it holds
-no form and no user input.
-
-The container is `display: contents` (`.act-summary` in `acts.css`), so its
-two children are placed by the page grid: the heading across the top, the
-panel in the right-hand column beside the tabs, sticky while the work below
-is scrolled. The facts are therefore on every tab, not only «Проработка», and
-an edit of the act refreshes them with the rest of this block.
+Read-only act heading: number and status. Safe to replace live — it holds no
+form and no user input. The side panel (`live_side.html`) is the second
+container the same fragment view fills, with `?part=side`.
 {% endcomment %}
 <section class="act-detail-heading">
     <a class="act-back-link" href="{% url 'acts:list' %}" aria-label="К списку актов" title="К списку актов"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></a>
     <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge act-stage-badge--{{ act.status.code|lower }}" data-act-status-badge>{{ act.status }}</span></div>
 </section>
-
-<aside class="act-side" aria-label="Сведения об акте">
-    <section class="act-side__card">
-        <h2 class="act-side__title">Сведения об акте</h2>
-        <dl class="act-side__facts">
-            <div><dt>Срок</dt><dd>{% if act.due_date %}{% include 'includes/due_date.html' with date=act.due_date done=act.status.is_final %}{% else %}—{% endif %}</dd></div>
-            <div><dt>Создан</dt><dd>{{ act.created_at|date:'d.m.Y H:i' }}</dd></div>
-            <div><dt>Автор</dt><dd>{% if act.created_by %}{{ act.created_by|person_name }}{% else %}—{% endif %}</dd></div>
-            <div><dt>Тип</dt><dd>{{ act.get_act_type_display }}</dd></div>
-        </dl>
-        <dl class="act-side__facts act-side__facts--document">
-            <div><dt>Заказчик</dt><dd class="user-text">{{ act.customer|default:'—' }}</dd></div>
-            <div><dt>Заказ покупателя</dt><dd class="user-text">{{ act.order_number|default:'—' }}</dd></div>
-            <div><dt>Наименование продукции</dt><dd class="user-text">{{ act.nomenclature|default:'—' }}</dd></div>
-            <div><dt>Обозначение по КД</dt><dd class="user-text">{{ act.kd_designation|default:'—' }}</dd></div>
-        </dl>
-    </section>
-
-    <section class="act-side__card">
-        <h2 class="act-side__title">Маршрут согласования</h2>
-        <ol class="act-route" aria-label="Маршрут согласования">
-            {% for step in route_steps %}
-                <li class="act-route__step act-route__step--{{ step.state }}"><span class="act-route__marker">{% if step.state == 'completed' %}✓{% else %}{{ forloop.counter }}{% endif %}</span><span class="act-route__copy"><strong>{{ step.name }}</strong>{% if step.state == 'current' %}<small>Текущий этап</small>{% elif step.state == 'future' %}<small>Ожидает</small>{% elif step.date %}<small>{{ step.date|date:'d.m.Y H:i' }}</small>{% endif %}</span></li>
-            {% endfor %}
-        </ol>
-    </section>
-</aside>

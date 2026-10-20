@@ -269,9 +269,12 @@ class ActDetailFragmentTests(ActLiveMixin, TestCase):
 
         self.assertIn(self.act.number, payload['html'])
         self.assertIn('data-act-status-badge', payload['html'])
-        self.assertIn('Создан ОТК', payload['html'])
         self.assertEqual(payload['status_code'], 'CREATED_OTK')
-        self.assertIn('act-route__step--current', payload['html'])
+        # The route is the side panel's: the same view, `?part=side`.
+        side = self.client.get(self.urls['summary'], {'part': 'side'}).json()
+        self.assertIn('Создан ОТК', side['html'])
+        self.assertIn('act-route__step--current', side['html'])
+        self.assertNotIn('data-act-status-badge', side['html'])
 
     def test_the_summary_follows_a_status_change(self):
         self.client.force_login(self.manager)
@@ -460,7 +463,7 @@ class ActWorkFragmentTests(ActLiveMixin, TestCase):
         # stand in the side panel of the summary fragment, on every tab.
         self.assertIn('Дефекты и решение КО', payload['html'])
         summary = self.client.get(
-            reverse('acts:live_summary_fragment', args=[self.act.pk])
+            reverse('acts:live_summary_fragment', args=[self.act.pk]), {'part': 'side'}
         ).json()
         self.assertIn('Сведения об акте', summary['html'])
         self.assertIn(self.act.nomenclature, summary['html'])

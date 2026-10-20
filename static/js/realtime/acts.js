@@ -228,6 +228,7 @@
     // ordinary server render and is therefore already current.
     Object.assign(blocks, {
         summary: makeBlock('[data-live-act-summary]', 'summaryUrl'),
+        side: makeBlock('[data-live-act-side]', 'sideUrl'),
         work: makeBlock('[data-live-act-work]', 'workUrl', { guardDirty: true }),
         history: makeBlock('[data-live-act-history]', 'historyUrl'),
         comments: makeBlock('[data-live-act-comments]', 'commentsUrl'),
@@ -247,11 +248,11 @@
     core.registerAdapter({
         name: 'actDetail',
         revisions: ['acts', 'comments', 'activities'],
-        refresh: () => refresh(['summary', 'work', 'history', 'comments', 'activities']),
+        refresh: () => refresh(['summary', 'side', 'work', 'history', 'comments', 'activities']),
         stop: () => Object.keys(blocks).forEach((name) => blocks[name] && blocks[name].coordinator.stop()),
     });
 
-    core.onOpen(() => refresh(['summary', 'work', 'history', 'comments', 'activities']));
+    core.onOpen(() => refresh(['summary', 'side', 'work', 'history', 'comments', 'activities']));
 
     core.subscribe(core.EVENT_TYPES.ACT_UPDATED, (payload) => {
         if (payload.resource_id !== actId) {
@@ -260,7 +261,7 @@
         // An edit of the act changes what the work tab shows. Whether a dirty
         // form is warned is decided by the work block's fingerprint, not by
         // the event alone.
-        refresh(['summary', 'work', 'history']);
+        refresh(['summary', 'side', 'work', 'history']);
     });
 
     core.subscribe(core.EVENT_TYPES.ACT_STATUS_CHANGED, (payload) => {
@@ -269,7 +270,7 @@
         }
         // A clean work tab is replaced with current server markup, including
         // the actions the new status allows. A dirty one is left alone.
-        refresh(['summary', 'work', 'history']);
+        refresh(['summary', 'side', 'work', 'history']);
         if (dirty) {
             showConflictBanner();
             disableStaleWorkflowActions();
