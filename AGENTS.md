@@ -186,13 +186,23 @@ tasks never live inside `acts`.
   states; a modifier (`--secondary`, `--warning`, `--danger`, `--success`,
   `--compact`) changes only colour or density.
 - **One density, sized for the plant's 23–24" 1920×1080 screens.** The numbers
-  live once, as tokens in `static/css/base.css`: `--font-size-base` (13px, the
-  `body` size), `--font-size-sm` (12px, captions), `--control-height` (30px),
-  `--control-padding` (5px 8px), `--control-font-size` (13px) and
-  `--cell-padding` (6px 10px for `.data-table`), plus three field caps —
-  `--field-text` (1080px, a multi-line field), `--field-line` (340px, a
-  one-line field), `--field-short` (160px, a date or a number) — because a
-  field stretched across 1920px is unreadable, not roomy. `components.css` makes every single-line `input` and every
+  live once, as tokens in `static/css/base.css`: `--font-size-base` (16.25px, the
+  `body` size), `--font-size-sm` (15px, captions), `--control-height` (37.5px),
+  `--control-padding` (6.25px 10px), `--control-font-size` (16.25px) and
+  `--cell-padding` (7.5px 12.5px for `.data-table`), plus three field caps —
+  `--field-text` (1350px, a multi-line field), `--field-line` (425px, a
+  one-line field), `--field-short` (200px, a date or a number) — because a
+  field stretched across 1920px is unreadable, not roomy.
+  **Scale ×1.25 (2026-10-21).** At 100 % the first density read too small on
+  those screens, and the browser's 125 % zoom looked right with nothing cut
+  off, so every screen length in the stylesheets — tokens, paddings, widths,
+  shadows and the media-query breakpoints alike (760→950, 1240→1550,
+  1280→1600px; `board_nav.js` follows) — was multiplied by 1.25: the page at
+  100 % now draws what 125 % drew. 1px hairlines stay 1px; the paper
+  (`print.css`, `act_form.css`, `.disposal-form`, every `@media print`) keeps
+  its size, and a printed act or protocol comes out unchanged. Pixel values
+  quoted elsewhere in this file by earlier stages are the pre-scale numbers;
+  a new length is written at the new scale. `components.css` makes every single-line `input` and every
   `select` exactly `--control-height` tall and every `select` white — a
   `height`, because a text input takes the inherited 1.5 line height and a
   select does not, so a `min-height` left them 3px apart in one row. A

@@ -23,17 +23,17 @@
    classes, so the СМК floor is stated with two of its own rather than one that
    would silently lose to it. */
 .act-table-card .smk-table {
-    min-width: 900px;
+    min-width: 1125px;
     table-layout: fixed;
 }
 
-.smk-table__number { width: 120px; }
+.smk-table__number { width: 150px; }
 .smk-table__origin { width: auto; }
-.smk-table__date { width: 130px; }
+.smk-table__date { width: 162.5px; }
 .smk-table__department { width: 20%; }
-.smk-table__count { width: 130px; }
-.smk-table__due { width: 280px; }
-.smk-table__status { width: 145px; }
+.smk-table__count { width: 162.5px; }
+.smk-table__due { width: 350px; }
+.smk-table__status { width: 181.25px; }
 
 /* A fixed layout clips rather than widens, so anything that can genuinely be
    long says so on its `title` and ends in «…» instead of running under its
@@ -50,12 +50,12 @@
    from `acts.css`). Only the two lists of «Акт аудита» are drawn here: lines
    on hairlines on the white `.detail-section`, never a box in a box. */
 
-.smk-block { display: grid; gap: 6px; }
+.smk-block { display: grid; gap: 7.5px; }
 
 .smk-block__header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
 }
 
 .smk-block__header h2 {
@@ -68,9 +68,9 @@
 .smk-block__count {
     display: inline-grid;
     place-items: center;
-    min-width: 20px;
-    height: 18px;
-    padding: 0 6px;
+    min-width: 25px;
+    height: 22.5px;
+    padding: 0 7.5px;
     border-radius: var(--radius-sm);
     background: var(--color-bg);
     color: var(--color-muted);
@@ -90,10 +90,10 @@
 
 .smk-findings li {
     display: grid;
-    grid-template-columns: 24px minmax(0, var(--field-text));
+    grid-template-columns: 30px minmax(0, var(--field-text));
     align-items: baseline;
-    gap: 8px;
-    padding: 6px 0;
+    gap: 10px;
+    padding: 7.5px 0;
     border-top: 1px solid var(--color-border);
     color: var(--color-text);
     line-height: 1.45;
@@ -120,10 +120,10 @@
 .smk-measures__head,
 .smk-measure {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(160px, 260px) 150px;
+    grid-template-columns: minmax(0, 1fr) minmax(200px, 325px) 187.5px;
     align-items: baseline;
-    gap: 4px 20px;
-    padding: 6px 0;
+    gap: 5px 25px;
+    padding: 7.5px 0;
 }
 
 .smk-measures__head {
@@ -152,13 +152,13 @@
    each value says what it is instead. */
 .smk-measure__label { display: none; }
 
-@media (max-width: 760px) {
+@media (max-width: 950px) {
     .smk-measures__head { display: none; }
     .smk-measure { grid-template-columns: minmax(0, 1fr); }
 
     .smk-measure__label {
         display: inline;
-        margin-right: 6px;
+        margin-right: 7.5px;
         color: var(--color-muted);
         font-size: var(--font-size-sm);
     }
@@ -175,24 +175,24 @@
    line up instead of sizing themselves independently. */
 .smk-source-fields {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 240px));
-    gap: 12px 16px;
+    grid-template-columns: repeat(3, minmax(0, 300px));
+    gap: 15px 20px;
 }
 
-@media (max-width: 900px) {
-    .smk-source-fields { grid-template-columns: repeat(2, minmax(0, 240px)); }
+@media (max-width: 1125px) {
+    .smk-source-fields { grid-template-columns: repeat(2, minmax(0, 300px)); }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 750px) {
     .smk-source-fields { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* The record heading's right-hand side. The heading itself is `acts.css`'s
    `.act-detail-heading`; this only pushes the action away from the title, so
    the two never sit next to each other on a wide screen. */
-.smk-detail-heading__actions { margin-left: auto; display: flex; gap: 6px; }
+.smk-detail-heading__actions { margin-left: auto; display: flex; gap: 7.5px; }
 
-@media (max-width: 640px) {
+@media (max-width: 800px) {
     .smk-detail-heading__actions { margin-left: 0; }
 }
 
@@ -205,18 +205,18 @@
     display: flex;
     width: max-content;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .smk-deadline__none { color: var(--color-text-muted); }
 
 .smk-deadline__toggle {
     display: inline-grid;
-    width: 22px;
-    height: 22px;
+    width: 27.5px;
+    height: 27.5px;
     padding: 0;
     border: 0;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-sm, 7.5px);
     background: none;
     color: var(--color-text-muted);
     cursor: pointer;
@@ -229,13 +229,13 @@
 }
 
 .smk-deadline__toggle:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2.5px solid var(--color-accent);
     outline-offset: 1px;
 }
 
 .smk-deadline__chevron {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
     transition: transform 120ms ease;
 }
 
@@ -254,10 +254,10 @@
 
 .smk-tasks {
     display: grid;
-    max-height: min(260px, 40vh);
+    max-height: min(325px, 40vh);
     gap: 0;
     margin: 0;
-    padding: 4px 12px 6px;
+    padding: 5px 15px 7.5px;
     overflow-x: hidden;
     overflow-y: auto;
     list-style: none;
@@ -268,11 +268,11 @@
 .smk-tasks li {
     display: grid;
     align-items: center;
-    gap: 12px;
+    gap: 15px;
     grid-template-columns: minmax(0, 1fr) auto auto;
-    padding: 5px 0;
+    padding: 6.25px 0;
     border-top: 1px solid var(--color-border);
-    font-size: 13px;
+    font-size: 16.25px;
     color: var(--color-text);
 }
 
@@ -297,9 +297,9 @@
    rather than wrapping, so the wording beside it never pushes it out. */
 .smk-tasks__status {
     display: inline-block;
-    max-width: 160px;
+    max-width: 200px;
     overflow: hidden;
-    padding: 1px 8px;
+    padding: 1px 10px;
     text-overflow: ellipsis;
     white-space: nowrap;
     border: 1px solid var(--color-border);
@@ -311,9 +311,9 @@
 }
 
 /* Registry «Выполнено»: «3 из 5» above a thin bar of the same ratio. */
-.smk-progress { display: grid; gap: 4px; max-width: 160px; }
+.smk-progress { display: grid; gap: 5px; max-width: 200px; }
 .smk-progress__label { font-weight: 500; white-space: nowrap; }
-.smk-progress__bar { display: block; height: 4px; overflow: hidden; border-radius: var(--radius-sm); background: var(--color-bg); }
+.smk-progress__bar { display: block; height: 5px; overflow: hidden; border-radius: var(--radius-sm); background: var(--color-bg); }
 .smk-progress__bar > span { display: block; height: 100%; background: var(--color-success); }
 
-.smk-filter-panel { grid-template-columns: repeat(3, minmax(160px, 240px)) repeat(3, auto); }
+.smk-filter-panel { grid-template-columns: repeat(3, minmax(200px, 300px)) repeat(3, auto); }

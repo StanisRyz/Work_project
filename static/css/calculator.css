@@ -13,22 +13,22 @@
 
 .calculator-module {
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
 }
 
 /* Калькулятор / Проработка: the act page's tab strip, as buttons — they
    switch a panel, they do not navigate. */
 .calculator-module .calc-tabs {
     display: flex;
-    gap: 4px;
+    gap: 5px;
     border-bottom: 1px solid var(--color-border);
 }
 
 .calculator-module .calc-tab {
     margin-bottom: -1px;
-    padding: 6px 10px;
+    padding: 7.5px 12.5px;
     border: 0;
-    border-bottom: 2px solid transparent;
+    border-bottom: 2.5px solid transparent;
     background: none;
     color: var(--color-muted);
     font: inherit;
@@ -50,20 +50,20 @@
 /* The parameters at their own width, the result taking what is left. */
 .calc-layout {
     display: grid;
-    grid-template-columns: 372px minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: 465px minmax(0, 1fr);
+    gap: 12.5px;
     align-items: start;
 }
 
 .calculator-module .calc-card {
-    padding: 12px 14px;
+    padding: 15px 17.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
 }
 
 .calculator-module .calc-card h2 {
-    margin: 0 0 10px;
+    margin: 0 0 12.5px;
     color: var(--color-text);
     font-size: var(--font-size-title);
     font-weight: 600;
@@ -71,7 +71,7 @@
 
 /* A section caption inside a card, as the side cards of the act page. */
 .calculator-module .calc-card h3 {
-    margin: 0 0 6px;
+    margin: 0 0 7.5px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
     font-weight: 600;
@@ -83,7 +83,7 @@
 .calc-fields {
     display: grid;
     grid-template-columns: repeat(2, var(--field-short));
-    gap: 10px 12px;
+    gap: 12.5px 15px;
 }
 
 .calculator-module label,
@@ -92,7 +92,7 @@
     /* The neighbour's hint («(130,00 − 100,00) / 2») makes its grid row
        taller; without this the extra height went into the input beside it. */
     align-content: start;
-    gap: 3px;
+    gap: 3.75px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
@@ -129,20 +129,20 @@
 
 .calculator-module .calc-placeholder { margin: 0; }
 
-.calculator-module #calc-form > .link-button { margin-top: 12px; }
+.calculator-module #calc-form > .link-button { margin-top: 15px; }
 
 .calculator-module .calc-errors {
     color: var(--color-danger);
     font-size: var(--font-size-sm);
 }
 
-.calculator-module .calc-errors p { margin: 8px 0 0; }
+.calculator-module .calc-errors p { margin: 10px 0 0; }
 
 /* The answer: the time in the text colour, its readable form beside it. */
 .calc-time {
-    margin-bottom: 10px;
+    margin-bottom: 12.5px;
     color: var(--color-text);
-    font-size: 22px;
+    font-size: 27.5px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     line-height: 1.2;
@@ -155,16 +155,16 @@
 }
 
 .calc-developer-details {
-    margin-top: 14px;
-    padding-top: 10px;
+    margin-top: 17.5px;
+    padding-top: 12.5px;
     border-top: 1px solid var(--color-border);
 }
 
 /* Label and value on one line, in as many columns as the card has room for. */
 .calculator-module dl {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-    column-gap: 24px;
+    grid-template-columns: repeat(auto-fill, minmax(475px, 1fr));
+    column-gap: 30px;
     margin: 0;
 }
 
@@ -172,8 +172,8 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
-    padding: 4px 0;
+    gap: 15px;
+    padding: 5px 0;
     border-bottom: 1px solid var(--color-border);
 }
 
@@ -196,23 +196,23 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 16px;
+    gap: 20px;
 }
 
-.calculator-module .calc-journal-heading h2 { margin-bottom: 2px; }
+.calculator-module .calc-journal-heading h2 { margin-bottom: 2.5px; }
 
 .calc-journal-heading p { margin: 0; }
 
 .calc-journal-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 /* One quiet line for "loaded / saving / failed". */
 .calculator-module .calc-status {
-    min-height: 18px;
-    margin: 6px 0 0;
+    min-height: 22.5px;
+    margin: 7.5px 0 0;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
@@ -229,39 +229,39 @@
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: 8px;
-    margin: 6px 0 0;
+    gap: 10px;
+    margin: 7.5px 0 0;
 }
 
 .calc-manual-row label {
     display: grid;
-    gap: 3px;
-    width: 112px;
+    gap: 3.75px;
+    width: 140px;
 }
 
 .calc-manual-row button[type="submit"] {
     min-width: var(--control-height);
-    font-size: 16px;
+    font-size: 20px;
     line-height: 1;
 }
 
 .calculator-module #calc-manual-errors {
     min-height: 0;
-    margin: 6px 0 0;
+    margin: 7.5px 0 0;
 }
 
 .calculator-module #calc-manual-errors:empty { margin: 0; }
 
 .calculator-module #calc-manual-errors span {
     display: inline-block;
-    margin-right: 10px;
+    margin-right: 12.5px;
 }
 
 /* Row two: the only filter — the visible d/D-b name. */
 .calc-journal-filters {
     display: grid;
     grid-template-columns: minmax(0, var(--field-line));
-    margin: 10px 0;
+    margin: 12.5px 0;
 }
 
 .calc-table-wrap {
@@ -273,7 +273,7 @@
 /* Fourteen business columns plus the action; the wrapper scrolls sideways
    when the screen is narrower than that. */
 .calculator-module .calc-table {
-    min-width: 1240px;
+    min-width: 1550px;
     border-style: hidden;
 }
 
@@ -281,7 +281,7 @@
    keeps a grid: one hairline between neighbours, header cells included. */
 .calculator-module .calc-table th,
 .calculator-module .calc-table td {
-    padding: 4px 6px;
+    padding: 5px 7.5px;
     border: 1px solid var(--color-border);
     text-align: center;
     vertical-align: middle;
@@ -290,30 +290,30 @@
 }
 
 .calculator-module .calc-table th {
-    padding-top: 6px;
-    padding-bottom: 6px;
+    padding-top: 7.5px;
+    padding-bottom: 7.5px;
     font-size: var(--font-size-sm);
 }
 
 .calculator-module .calc-production-input {
-    width: 96px;
+    width: 120px;
     min-width: 0;
 }
 
-.calculator-module .calc-employee { width: 140px; }
+.calculator-module .calc-employee { width: 175px; }
 
 /* The three production-time columns hold short numbers — a batch count, a
    handful of hours — so they get a narrow field. «1С, ч» and «Сотрудник»
    keep their width: an arithmetic expression and a surname need it. */
 .calculator-module .calc-col-compact {
-    padding-right: 4px;
-    padding-left: 4px;
+    padding-right: 5px;
+    padding-left: 5px;
 }
 
 .calculator-module .calc-col-compact .calc-production-input {
-    width: 64px;
-    padding-right: 6px;
-    padding-left: 6px;
+    width: 80px;
+    padding-right: 7.5px;
+    padding-left: 7.5px;
 }
 
 .calculator-module .calc-production-input:disabled {
@@ -326,8 +326,8 @@
 
 .calculator-module .calc-production-error {
     display: block;
-    max-width: 180px;
-    margin-top: 3px;
+    max-width: 225px;
+    margin-top: 3.75px;
     white-space: normal;
     color: var(--color-danger);
 }
@@ -337,23 +337,23 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 5px;
 }
 
 .calculator-module .calc-delete {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 30px;
-    padding-right: 7px;
-    padding-left: 7px;
+    min-width: 37.5px;
+    padding-right: 8.75px;
+    padding-left: 8.75px;
 }
 
 .calculator-module .calc-delete svg { display: block; }
 
-.calculator-module #calc-journal-empty { margin-top: 8px; }
+.calculator-module #calc-journal-empty { margin-top: 10px; }
 
-@media (max-width: 900px) {
+@media (max-width: 1125px) {
     .calc-layout { grid-template-columns: minmax(0, 1fr); }
 
     .calc-journal-heading {
@@ -362,7 +362,7 @@
     }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 700px) {
     .calc-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
     .calc-journal-filters,

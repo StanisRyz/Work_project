@@ -46,11 +46,11 @@
 .board-chip {
     display: inline-block;
     max-width: 100%;
-    padding: 1px 8px;
+    padding: 1px 10px;
     border-radius: var(--radius);
     background: var(--board-color-gray-bg);
     color: var(--board-color-gray-text);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 600;
     line-height: 1.5;
     vertical-align: middle;
@@ -86,18 +86,18 @@
 .board-shell {
     display: grid;
     flex: 1 1 0;
-    grid-template-columns: 240px minmax(0, 1fr);
-    gap: 14px;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 17.5px;
     min-height: 0;
 }
 
 .board-nav {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
     min-height: 0;
-    padding: 10px 8px;
+    padding: 12.5px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -106,8 +106,8 @@
 .board-nav__head {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 0 4px;
+    gap: 5px;
+    padding: 0 5px;
 }
 
 .board-nav__title {
@@ -150,8 +150,8 @@
 }
 
 .board-nav__toggle .ui-icon {
-    width: 18px;
-    height: 18px;
+    width: 22.5px;
+    height: 22.5px;
     transition: transform 0.12s ease;
 }
 
@@ -159,14 +159,14 @@
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
-    gap: 6px;
+    gap: 7.5px;
     min-height: 0;
     overflow-y: auto;
 }
 
 .board-nav__list {
     display: grid;
-    gap: 2px;
+    gap: 2.5px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -174,7 +174,7 @@
 
 .board-nav__link {
     display: block;
-    padding: 6px 10px;
+    padding: 7.5px 12.5px;
     border-radius: var(--radius);
     color: var(--color-text);
     text-decoration: none;
@@ -187,32 +187,32 @@
 
 .board-nav__link.is-active {
     background: var(--color-bg);
-    box-shadow: inset 3px 0 0 var(--color-primary);
+    box-shadow: inset 3.75px 0 0 var(--color-primary);
     color: var(--color-primary-dark);
     font-weight: 600;
 }
 
 .board-nav__empty {
     margin: 0;
-    padding: 6px 10px;
+    padding: 7.5px 12.5px;
     color: var(--color-muted);
 }
 
 .board-nav__archive {
     margin-top: auto;
-    padding-top: 6px;
+    padding-top: 7.5px;
     border-top: 1px solid var(--color-border);
 }
 
 .board-nav__archive > summary {
-    padding: 6px 10px;
+    padding: 7.5px 12.5px;
     color: var(--color-muted);
     cursor: pointer;
 }
 
 /* Collapsed: a strip with the toggle only. */
 .board-shell.board-shell--collapsed {
-    grid-template-columns: calc(var(--control-height) + 18px) minmax(0, 1fr);
+    grid-template-columns: calc(var(--control-height) + 22.5px) minmax(0, 1fr);
 }
 
 .board-shell--collapsed .board-nav__title,
@@ -234,7 +234,7 @@
 .board-main {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12.5px;
     min-width: 0;
     min-height: 0;
 }
@@ -244,7 +244,7 @@
     display: grid;
     flex: 1 1 0;
     align-content: start;
-    gap: 14px;
+    gap: 17.5px;
     min-height: 0;
     overflow-y: auto;
 }
@@ -252,7 +252,7 @@
 .board-empty {
     display: grid;
     justify-items: start;
-    gap: 12px;
+    gap: 15px;
 }
 
 /* ---- The board heading ---- */
@@ -262,13 +262,13 @@
     flex: 0 0 auto;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 16px;
+    gap: 10px 20px;
 }
 
 .board-head__title {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12.5px;
     min-width: 0;
 }
 
@@ -281,7 +281,7 @@
 
 .board-head__members {
     display: inline-flex;
-    gap: 2px;
+    gap: 2.5px;
     text-decoration: none;
 }
 
@@ -297,7 +297,7 @@
 .board-head__actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     margin-left: auto;
 }
 
@@ -322,7 +322,7 @@
     display: flex;
     flex: 1 1 0;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
     min-height: 0;
 }
@@ -341,13 +341,13 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 14px;
+    gap: 7.5px 17.5px;
 }
 
 .board-filters__check {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     color: var(--color-text);
 }
 
@@ -359,9 +359,9 @@
     /* A basis below its width: the row breaks by the basis, so the search
        gives up width before «Применить» goes to a second line, and grows
        back to 280px where there is room. */
-    flex: 1 1 180px;
+    flex: 1 1 225px;
     width: auto;
-    max-width: 280px;
+    max-width: 350px;
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -398,7 +398,7 @@
 
 .board-filters__fields > .board-filters__fields-toggle::after,
 .board-filters__show > .board-filters__show-toggle::after {
-    margin-left: 6px;
+    margin-left: 7.5px;
     color: var(--color-muted);
     content: '▾';
 }
@@ -415,9 +415,9 @@
     right: auto;
     left: 0;
     display: grid;
-    gap: 8px;
+    gap: 10px;
     width: max-content;
-    min-width: 220px;
+    min-width: 275px;
 }
 
 .board-filters__show-body > .link-button {
@@ -427,16 +427,16 @@
 .board-filters__fields .board-field-filters {
     right: auto;
     left: 0;
-    width: 360px;
-    max-width: calc(100vw - 32px);
-    max-height: min(70vh, 560px);
+    width: 450px;
+    max-width: calc(100vw - 40px);
+    max-height: min(70vh, 700px);
     overflow-y: auto;
 }
 
 .board-field-filter {
     display: grid;
     min-width: 0;
-    gap: 6px;
+    gap: 7.5px;
     margin: 0;
     padding: 0;
     border: 0;
@@ -444,19 +444,19 @@
 
 .board-field-filter > legend {
     padding: 0;
-    margin-bottom: 6px;
+    margin-bottom: 7.5px;
 }
 
 .board-field-filter__options {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px 12px;
+    gap: 7.5px 15px;
 }
 
 .board-field-filter__option {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
     color: var(--color-text);
 }
@@ -473,13 +473,13 @@
 .board-field-filter__range {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px 12px;
+    gap: 7.5px 15px;
 }
 
 .board-field-filter__range label {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
     color: var(--color-muted);
 }
@@ -506,7 +506,7 @@
 }
 
 /* A phone: the panel is the ordinary flow under its button, full width. */
-@media (max-width: 760px) {
+@media (max-width: 950px) {
     .board-filters__fields {
         flex-basis: 100%;
     }
@@ -516,7 +516,7 @@
         width: auto;
         max-width: none;
         max-height: none;
-        margin-top: 6px;
+        margin-top: 7.5px;
         box-shadow: none;
     }
 }
@@ -525,7 +525,7 @@
 .board-filter-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 7.5px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -534,20 +534,20 @@
 .board-filter-chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     max-width: 100%;
-    padding: 1px 4px 1px 10px;
+    padding: 1px 5px 1px 12.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-bg);
     color: var(--color-text);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-filter-chip__remove {
     display: inline-grid;
-    width: 20px;
-    height: 20px;
+    width: 25px;
+    height: 25px;
     place-items: center;
     border-radius: var(--radius);
     color: var(--color-muted);
@@ -601,11 +601,11 @@
 .board-columns {
     display: flex;
     flex: 1 1 auto;
-    gap: 12px;
+    gap: 15px;
     min-width: 0;
     min-height: 0;
     overflow-x: auto;
-    padding-bottom: 4px;
+    padding-bottom: 5px;
 }
 
 /* ---- Sub-board tabs ---- */
@@ -614,7 +614,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
-    gap: 4px;
+    gap: 5px;
     margin: 0;
     padding: 0;
     border-bottom: 1px solid var(--color-border);
@@ -625,9 +625,9 @@
     display: flex;
     position: relative;
     align-items: center;
-    gap: 2px;
+    gap: 2.5px;
     margin-bottom: -1px;
-    border-bottom: 2px solid transparent;
+    border-bottom: 2.5px solid transparent;
 }
 
 .board-tabs__item--active {
@@ -635,7 +635,7 @@
 }
 
 .board-tabs__link {
-    padding: 6px 10px;
+    padding: 7.5px 12.5px;
     color: var(--color-muted);
     font-weight: 600;
     text-decoration: none;
@@ -688,15 +688,15 @@
     display: grid;
     position: absolute;
     z-index: 20;
-    top: calc(100% + 4px);
+    top: calc(100% + 5px);
     right: 0;
-    gap: 10px;
-    width: 260px;
-    padding: 12px;
+    gap: 12.5px;
+    width: 325px;
+    padding: 15px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: 0 8px 24px rgb(23 32 51 / 14%);
+    box-shadow: 0 10px 30px rgb(23 32 51 / 14%);
 }
 
 /* A tab's menu opens to the right of the tab, under it. */
@@ -707,12 +707,12 @@
 
 .board-menu__form {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-menu__label {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
 }
 
@@ -730,7 +730,7 @@
 
 .board-menu__moves {
     display: flex;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 /* «+ Колонка»: after the last column, its menu inside the row. */
@@ -752,17 +752,17 @@
 }
 
 .board-column-new__limit {
-    max-width: 200px;
-    margin: 6px 0 0;
+    max-width: 250px;
+    margin: 7.5px 0 0;
     color: var(--color-muted);
 }
 
 .board-column {
     display: flex;
-    flex: 1 0 260px;
+    flex: 1 0 325px;
     flex-direction: column;
     min-height: 0;
-    max-width: 420px;
+    max-width: 525px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-bg);
@@ -771,9 +771,9 @@
 .board-column__header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     /* One height whether or not the column has «+»: the closing one has none. */
-    min-height: calc(var(--control-height) + 16px);
+    min-height: calc(var(--control-height) + 20px);
     box-sizing: border-box;
     padding: var(--cell-padding);
     border-bottom: 1px solid var(--color-border);
@@ -790,7 +790,7 @@
     display: inline-flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     margin-left: auto;
 }
 
@@ -817,10 +817,10 @@
     display: grid;
     flex: 1 1 auto;
     align-content: start;
-    gap: 8px;
+    gap: 10px;
     min-height: 0;
     margin: 0;
-    padding: 10px;
+    padding: 12.5px;
     overflow-y: auto;
     list-style: none;
 }
@@ -832,15 +832,15 @@
 }
 
 .board-column__more {
-    padding: 0 10px 10px;
+    padding: 0 12.5px 12.5px;
 }
 
 /* ---- Tile ---- */
 
 .board-tile {
     display: grid;
-    gap: 8px;
-    padding: 10px 12px;
+    gap: 10px;
+    padding: 12.5px 15px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -855,7 +855,7 @@
 
 .board-tile--open {
     border-color: var(--color-primary);
-    box-shadow: inset 3px 0 0 var(--color-primary);
+    box-shadow: inset 3.75px 0 0 var(--color-primary);
 }
 
 .board-tile__title {
@@ -866,7 +866,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 10px;
+    gap: 7.5px 12.5px;
 }
 
 .board-tile__number {
@@ -875,20 +875,20 @@
 
 .board-tile__assignees {
     display: inline-flex;
-    gap: 2px;
+    gap: 2.5px;
     margin-right: auto;
 }
 
 .board-avatar {
     display: inline-grid;
-    width: 26px;
-    height: 26px;
+    width: 32.5px;
+    height: 32.5px;
     place-items: center;
     border-radius: 50%;
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     color: var(--color-primary-dark);
-    font-size: 11px;
+    font-size: 13.75px;
     font-weight: 700;
 }
 
@@ -905,12 +905,12 @@
     right: 0;
     bottom: 0;
     flex-direction: column;
-    width: min(640px, 50%);
+    width: min(800px, 50%);
     min-height: 0;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: -12px 0 32px rgb(23 32 51 / 18%);
+    box-shadow: -15px 0 40px rgb(23 32 51 / 18%);
 }
 
 /* Empty and closed: the author `display: flex` above would otherwise beat
@@ -928,7 +928,7 @@
 @keyframes board-drawer-in {
     from {
         opacity: 0;
-        transform: translateX(32px);
+        transform: translateX(40px);
     }
 
     to {
@@ -948,20 +948,20 @@
 .board-drawer__head {
     display: grid;
     flex: 0 0 auto;
-    gap: 8px;
-    padding: 14px 16px 10px;
+    gap: 10px;
+    padding: 17.5px 20px 12.5px;
 }
 
 .board-drawer__titlebar {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: 15px;
 }
 
 .board-drawer__heading {
     display: grid;
     flex: 1 1 auto;
-    gap: 4px;
+    gap: 5px;
     min-width: 0;
 }
 
@@ -969,7 +969,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 8px;
+    gap: 5px 10px;
     margin: 0;
     color: var(--color-muted);
 }
@@ -987,7 +987,7 @@
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-drawer__close {
@@ -1018,13 +1018,13 @@
 }
 
 .board-complete__body {
-    width: 360px;
-    max-width: calc(100vw - 32px);
+    width: 450px;
+    max-width: calc(100vw - 40px);
 }
 
 .board-complete__form {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-complete__form .link-button {
@@ -1047,8 +1047,8 @@
 .board-drawer__tabs {
     display: flex;
     flex: 0 0 auto;
-    gap: 4px;
-    padding: 0 12px;
+    gap: 5px;
+    padding: 0 15px;
     border-bottom: 1px solid var(--color-border);
     overflow-x: auto;
 }
@@ -1056,10 +1056,10 @@
 .board-drawer__tab {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     margin-bottom: -1px;
-    padding: 8px 10px;
-    border-bottom: 2px solid transparent;
+    padding: 10px 12.5px;
+    border-bottom: 2.5px solid transparent;
     color: var(--color-muted);
     text-decoration: none;
     white-space: nowrap;
@@ -1087,9 +1087,9 @@
     display: none;
     flex: 1 1 0;
     align-content: start;
-    gap: 12px;
+    gap: 15px;
     min-height: 0;
-    padding: 14px 16px 16px;
+    padding: 17.5px 20px 20px;
     overflow-y: auto;
 }
 
@@ -1116,14 +1116,14 @@
 
 .board-drawer__facts {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     margin: 0;
 }
 
 .board-drawer__facts > div {
     display: grid;
-    grid-template-columns: 120px minmax(0, 1fr);
-    gap: 8px;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 10px;
 }
 
 .board-drawer__facts dt {
@@ -1137,20 +1137,20 @@
 .board-drawer__people {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px 14px;
+    gap: 7.5px 17.5px;
 }
 
 .board-drawer__person {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
 }
 
 .board-drawer__section {
     display: grid;
-    gap: 8px;
-    padding-top: 12px;
+    gap: 10px;
+    padding-top: 15px;
     border-top: 1px solid var(--color-border);
 }
 
@@ -1166,8 +1166,8 @@
     align-items: center;
     /* 8px: at 1536×864 the drawer is ≈590px wide, and the four controls fit
        on one line with this gap and not with 10px. */
-    gap: 8px;
-    padding-top: 12px;
+    gap: 10px;
+    padding-top: 15px;
     border-top: 1px solid var(--color-border);
 }
 
@@ -1180,7 +1180,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
 }
 
@@ -1189,7 +1189,7 @@
 }
 
 .board-drawer__move select {
-    max-width: 260px;
+    max-width: 325px;
     min-width: 0;
     height: var(--control-height);
     padding: var(--control-padding);
@@ -1204,7 +1204,7 @@
 
 .board-card-form {
     display: grid;
-    gap: 12px;
+    gap: 15px;
     padding: 0;
     border: 0;
 }
@@ -1213,7 +1213,7 @@
    above — what `.form-card` gave the form before it moved into the drawer. */
 .board-card-form > label {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
     color: var(--color-muted);
 }
 
@@ -1230,9 +1230,9 @@
 
 .board-card-form__assignees {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
     margin: 0;
-    padding: 10px 12px;
+    padding: 12.5px 15px;
     border: 0;
     border-radius: var(--radius);
     background: var(--color-bg);
@@ -1240,7 +1240,7 @@
 
 .board-card-form__assignees legend {
     float: left;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
     padding: 0;
     color: var(--color-muted);
     font-weight: 700;
@@ -1249,13 +1249,13 @@
 .board-card-form__assignees > div {
     clear: both;
     display: grid;
-    gap: 4px;
+    gap: 5px;
 }
 
 .board-card-form__assignees label {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     color: var(--color-text);
 }
 
@@ -1271,15 +1271,15 @@
 .board-chat__list {
     flex: 1 1 0;
     min-height: 0;
-    padding: 14px 16px;
+    padding: 17.5px 20px;
     overflow-y: auto;
 }
 
 .board-chat__form {
     display: grid;
     flex: 0 0 auto;
-    gap: 8px;
-    padding: 10px 16px 14px;
+    gap: 10px;
+    padding: 12.5px 20px 17.5px;
     border-top: 1px solid var(--color-border);
 }
 
@@ -1289,7 +1289,7 @@
 
 .board-discussion__messages {
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -1298,13 +1298,13 @@
 .board-discussion__message {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 8px;
+    gap: 10px;
     align-items: start;
 }
 
 .board-discussion__body {
     display: grid;
-    gap: 2px;
+    gap: 2.5px;
 }
 
 .board-discussion__meta,
@@ -1314,7 +1314,7 @@
 }
 
 .board-discussion__earlier {
-    margin: 0 0 8px;
+    margin: 0 0 10px;
 }
 
 .board-discussion__earlier a {
@@ -1334,7 +1334,7 @@
 
 .board-log {
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -1343,13 +1343,13 @@
 .board-log__entry {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 8px;
+    gap: 10px;
     align-items: start;
 }
 
 .board-log__body {
     display: grid;
-    gap: 2px;
+    gap: 2.5px;
 }
 
 .board-log__text,
@@ -1359,19 +1359,19 @@
 
 .board-log__meta {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-tile__comments {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
+    gap: 3.75px;
     color: var(--color-muted);
 }
 
 .board-tile__comments .ui-icon {
-    width: 14px;
-    height: 14px;
+    width: 17.5px;
+    height: 17.5px;
 }
 
 /* ---- Other pages ---- */
@@ -1380,12 +1380,12 @@
    `max-width: 100%`, and a name and a pair of person selects do not need a
    1920 px line. */
 .form-card.board-form {
-    max-width: 760px;
+    max-width: 950px;
 }
 
 .board-form__members {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     margin: 0;
     padding: 0;
     border: 0;
@@ -1393,7 +1393,7 @@
 }
 
 .board-form__members legend {
-    margin-bottom: 4px;
+    margin-bottom: 5px;
     padding: 0;
     color: var(--color-muted);
 }
@@ -1402,13 +1402,13 @@
    with this page's tokens. */
 .board-member-picker {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     justify-items: start;
 }
 
 .board-member-picker__list {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
 }
 
@@ -1416,12 +1416,12 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
     align-items: end;
-    gap: 6px 12px;
+    gap: 7.5px 15px;
 }
 
 .board-member-row label {
     display: grid;
-    gap: 4px;
+    gap: 5px;
     color: var(--color-muted);
 }
 
@@ -1465,7 +1465,7 @@
     display: none;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 700px) {
     .board-member-row {
         grid-template-columns: minmax(0, 1fr) auto;
     }
@@ -1490,7 +1490,7 @@
 /* ---- Dragging (`board_dnd.js`) ---- */
 
 .board-message {
-    padding: 10px 12px;
+    padding: 12.5px 15px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -1534,7 +1534,7 @@
     left: 0;
     list-style: none;
     pointer-events: none;
-    box-shadow: 0 8px 24px var(--color-border);
+    box-shadow: 0 10px 30px var(--color-border);
     border-radius: var(--radius);
     transform-origin: top left;
 }
@@ -1544,7 +1544,7 @@
 }
 
 .board-placeholder {
-    border: 2px dashed var(--color-primary);
+    border: 2.5px dashed var(--color-primary);
     border-radius: var(--radius);
     background: var(--color-surface);
     list-style: none;
@@ -1566,19 +1566,19 @@
 }
 
 /* A narrower screen: the drawer takes almost the whole board area. */
-@media (max-width: 1240px) {
+@media (max-width: 1550px) {
     .board-shell {
-        grid-template-columns: 200px minmax(0, 1fr);
+        grid-template-columns: 250px minmax(0, 1fr);
     }
 
     .board-drawer {
-        width: calc(100% - 48px);
+        width: calc(100% - 60px);
     }
 }
 
 /* A phone: the ordinary flow, like every registry. The columns keep their
    own sideways scroll; each column is as tall as its cards. */
-@media (max-width: 760px) {
+@media (max-width: 950px) {
     .board-shell,
     .board-shell--collapsed {
         display: grid;
@@ -1586,7 +1586,7 @@
     }
 
     .board-nav__body {
-        max-height: 220px;
+        max-height: 275px;
     }
 
     .board-layout {
@@ -1616,12 +1616,12 @@
 
 .board-head__code {
     flex: 0 0 auto;
-    padding: 1px 8px;
+    padding: 1px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-bg);
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
     letter-spacing: 0.04em;
 }
@@ -1661,24 +1661,24 @@
 .board-column__pins {
     display: inline-flex;
     flex: 0 0 auto;
-    gap: 2px;
+    gap: 2.5px;
 }
 
 .board-avatar--small {
-    width: 22px;
-    height: 22px;
-    font-size: 10px;
+    width: 27.5px;
+    height: 27.5px;
+    font-size: 12.5px;
 }
 
 .board-pins__hint {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-pins__list {
     display: grid;
-    gap: 4px;
-    max-height: 200px;
+    gap: 5px;
+    max-height: 250px;
     overflow-y: auto;
 }
 
@@ -1686,26 +1686,26 @@
 .board-pins__mode label {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-pins__mode {
     display: grid;
-    gap: 4px;
-    padding-top: 6px;
+    gap: 5px;
+    padding-top: 7.5px;
     border-top: 1px solid var(--color-border);
 }
 
 /* The column menu holds the pins form too: a little wider than a rename. */
 .board-column__actions .board-menu__body {
-    width: 280px;
+    width: 350px;
 }
 
 /* «Новая доска»: the name and the code on one line, the hint under them. */
 .board-form__identity {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 140px;
-    gap: 4px 12px;
+    grid-template-columns: minmax(0, 1fr) 175px;
+    gap: 5px 15px;
 }
 
 .board-form__identity .board-form__hint {
@@ -1717,7 +1717,7 @@
     text-transform: uppercase;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 700px) {
     .board-form__identity {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -1731,7 +1731,7 @@
 .board-tile__fields {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 6px;
+    gap: 5px 7.5px;
     min-width: 0;
 }
 
@@ -1739,16 +1739,16 @@
     flex: 1 1 100%;
     min-width: 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-tile__fields .board-chip {
-    font-size: 12px;
+    font-size: 15px;
 }
 
 .board-drawer__archived {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-drawer__field--archived dt,
@@ -1759,10 +1759,10 @@
 .board-card-form__fields {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px 12px;
+    gap: 12.5px 15px;
     min-width: 0;
     margin: 0;
-    padding: 10px 12px;
+    padding: 12.5px 15px;
     border: 0;
     border-radius: var(--radius);
     background: var(--color-bg);
@@ -1771,7 +1771,7 @@
 .board-card-form__fields legend {
     float: left;
     grid-column: 1 / -1;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
     padding: 0;
     color: var(--color-muted);
     font-weight: 700;
@@ -1779,7 +1779,7 @@
 
 .board-card-form__fields label {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
     color: var(--color-muted);
 }
@@ -1795,7 +1795,7 @@
     font-size: var(--control-font-size);
 }
 
-@media (max-width: 560px) {
+@media (max-width: 700px) {
     .board-card-form__fields {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -1804,14 +1804,14 @@
 /* ---- «Поля карточек» ---- */
 
 .board-fields__intro {
-    max-width: 900px;
+    max-width: 1125px;
     margin: 0;
 }
 
 .board-fields {
     display: grid;
-    gap: 10px;
-    max-width: 1100px;
+    gap: 12.5px;
+    max-width: 1375px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -1819,8 +1819,8 @@
 
 .board-field {
     display: grid;
-    gap: 8px;
-    padding: 12px 14px;
+    gap: 10px;
+    padding: 15px 17.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -1838,7 +1838,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 16px;
+    gap: 10px 20px;
     min-width: 0;
 }
 
@@ -1851,13 +1851,13 @@
 .board-field__facts {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 16px;
+    gap: 5px 20px;
     margin: 0;
 }
 
 .board-field__facts > div {
     display: flex;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-field__facts dt {
@@ -1872,14 +1872,14 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     margin-left: auto;
 }
 
 .board-field__options {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-field__edit > summary {
@@ -1892,9 +1892,9 @@
 
 .board-field__edit-body {
     display: grid;
-    gap: 14px;
-    margin-top: 10px;
-    padding: 12px;
+    gap: 17.5px;
+    margin-top: 12.5px;
+    padding: 15px;
     border-radius: var(--radius);
     background: var(--color-bg);
 }
@@ -1903,24 +1903,24 @@
     display: flex;
     flex-wrap: wrap;
     align-items: end;
-    gap: 10px 14px;
+    gap: 12.5px 17.5px;
 }
 
 .board-field__form label {
     display: grid;
-    gap: 4px;
+    gap: 5px;
 }
 
 .board-field__form label span {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
 }
 
 .board-field__form input[type="text"],
 .board-field__option-list input[type="text"],
 .board-field-new input[type="text"] {
-    width: min(320px, 100%);
+    width: min(400px, 100%);
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -1939,26 +1939,26 @@
 .board-field__form .board-field__check {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     height: var(--control-height);
 }
 
 .board-field__option-list {
     display: grid;
-    gap: 8px;
+    gap: 10px;
 }
 
 .board-field__option-list h3 {
     margin: 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-option-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-option-row--archived .board-option-row__form input[type="text"] {
@@ -1972,19 +1972,19 @@
     flex: 0 1 auto;
     flex-wrap: nowrap;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
 }
 
 .board-option-row__form input[type="text"] {
-    flex: 0 1 220px;
-    width: 220px;
-    min-width: 100px;
+    flex: 0 1 275px;
+    width: 275px;
+    min-width: 125px;
 }
 
 .board-field-new {
     display: grid;
-    gap: 12px;
+    gap: 15px;
 }
 
 .board-field-new h2 {
@@ -1995,17 +1995,17 @@
 .board-field-new__identity {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px 14px;
+    gap: 12.5px 17.5px;
 }
 
 .board-field-new__identity label {
     display: grid;
-    gap: 4px;
+    gap: 5px;
 }
 
 .board-field-new__options {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
     margin: 0;
     padding: 0;
@@ -2017,7 +2017,7 @@
 }
 
 .board-field-new__options legend {
-    margin-bottom: 4px;
+    margin-bottom: 5px;
     padding: 0;
     color: var(--color-muted);
     font-weight: 700;
@@ -2029,14 +2029,14 @@
 
 .board-field-new__rows {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-field-new__row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-field-new__row .link-button[hidden] {
@@ -2053,14 +2053,14 @@
     justify-self: start;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
     line-height: 1.4;
 }
 
 .board-tile__age--late {
-    padding: 1px 6px;
+    padding: 1px 7.5px;
     border-radius: var(--radius);
     background: var(--board-color-red-bg);
     color: var(--board-color-red-text);
@@ -2069,11 +2069,11 @@
 
 .board-tile.board-tile--late {
     border-color: var(--board-color-red-text);
-    box-shadow: inset 3px 0 0 var(--board-color-red-text);
+    box-shadow: inset 3.75px 0 0 var(--board-color-red-text);
 }
 
 .board-tile.board-tile--late.board-tile--open {
-    box-shadow: inset 3px 0 0 var(--color-primary);
+    box-shadow: inset 3.75px 0 0 var(--color-primary);
 }
 
 /* The light itself: a dot in the text colour of the green, yellow or red
@@ -2081,8 +2081,8 @@
 .board-light {
     display: inline-block;
     flex: 0 0 auto;
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
 }
 
@@ -2093,7 +2093,7 @@
 .board-column__norm {
     flex: 0 0 auto;
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 600;
     white-space: nowrap;
 }
@@ -2101,11 +2101,11 @@
 .board-norm__row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-norm__days {
-    width: 96px;
+    width: 120px;
 }
 
 /* ---- «Доска | Таблица» and «Excel» of the filter row ---- */
@@ -2121,8 +2121,8 @@
 .board-view-switch__link {
     display: inline-flex;
     align-items: center;
-    height: calc(var(--control-height) - 2px);
-    padding: 0 12px;
+    height: calc(var(--control-height) - 2.5px);
+    padding: 0 15px;
     background: var(--color-surface);
     color: var(--color-text);
     text-decoration: none;
@@ -2160,10 +2160,10 @@
 .board-table-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 14px;
+    gap: 5px 17.5px;
     margin: 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-table-meta a {
@@ -2185,18 +2185,18 @@
 
 .board-table td .user-text {
     display: block;
-    min-width: 120px;
-    max-width: 280px;
+    min-width: 150px;
+    max-width: 350px;
 }
 
 .board-table td .board-table__title-text {
-    min-width: 200px;
-    max-width: 360px;
+    min-width: 250px;
+    max-width: 450px;
 }
 
 .board-table__people-list {
     display: grid;
-    gap: 2px;
+    gap: 2.5px;
 }
 
 .board-table__number {
@@ -2205,7 +2205,7 @@
 }
 
 .board-table__days--late {
-    padding: 1px 6px;
+    padding: 1px 7.5px;
     border-radius: var(--radius);
     background: var(--board-color-red-bg);
     color: var(--board-color-red-text);
@@ -2220,7 +2220,7 @@
     white-space: nowrap;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 950px) {
     .board-page--table > .board-table-region {
         display: block;
     }
@@ -2242,9 +2242,9 @@
     display: grid;
     flex: 1 1 0;
     align-content: start;
-    gap: 12px;
+    gap: 15px;
     min-height: 0;
-    padding: 14px 16px 16px;
+    padding: 17.5px 20px 20px;
     overflow-y: auto;
 }
 
@@ -2254,7 +2254,7 @@
 
 .board-checklist {
     display: none;
-    gap: 8px;
+    gap: 10px;
 }
 
 /* «Подписчики»: below the facts and the tools, only on «Описание», and
@@ -2268,13 +2268,13 @@
 }
 
 .board-drawer__followers {
-    padding-top: 12px;
+    padding-top: 15px;
     border-top: 1px solid var(--color-border);
 }
 
 .board-checklist__block {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-checklist__block:empty {
@@ -2288,7 +2288,7 @@
 }
 
 .board-checklist__count {
-    margin-left: 4px;
+    margin-left: 5px;
     color: var(--color-muted);
     font-variant-numeric: tabular-nums;
 }
@@ -2299,7 +2299,7 @@
 
 .board-checklist__items {
     display: grid;
-    gap: 2px;
+    gap: 2.5px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -2308,9 +2308,9 @@
 .board-checklist__item {
     display: flex;
     align-items: flex-start;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
-    padding: 4px 6px;
+    padding: 5px 7.5px;
     border-radius: var(--radius);
 }
 
@@ -2327,13 +2327,13 @@
 .board-checklist__check {
     display: inline-grid;
     flex: 0 0 auto;
-    width: 18px;
-    height: 18px;
-    margin-top: 2px;
+    width: 22.5px;
+    height: 22.5px;
+    margin-top: 2.5px;
     padding: 0;
     place-items: center;
     border: 1px solid var(--color-border);
-    border-radius: 4px;
+    border-radius: 5px;
     background: var(--color-surface);
     cursor: pointer;
 }
@@ -2350,13 +2350,13 @@
 .board-checklist__item.is-done .board-checklist__check > span::before {
     content: '✓';
     color: var(--color-surface);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
     line-height: 1;
 }
 
 .board-checklist__check:focus-visible {
-    outline: 2px solid var(--color-primary);
+    outline: 2.5px solid var(--color-primary);
     outline-offset: 1px;
 }
 
@@ -2374,7 +2374,7 @@
     display: inline-flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: 2px;
+    gap: 2.5px;
     visibility: hidden;
 }
 
@@ -2391,14 +2391,14 @@
 }
 
 .board-checklist__tool {
-    padding: 0 6px;
+    padding: 0 7.5px;
     border: 0;
     border-radius: var(--radius);
     background: none;
     color: var(--color-muted);
     font: inherit;
-    font-size: 12px;
-    line-height: 20px;
+    font-size: 15px;
+    line-height: 25px;
     text-decoration: none;
     cursor: pointer;
 }
@@ -2420,13 +2420,13 @@
     flex: 1 1 auto;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
 }
 
 .board-checklist__edit input,
 .board-checklist__add input {
-    flex: 1 1 200px;
+    flex: 1 1 250px;
     min-width: 0;
     height: var(--control-height);
     padding: var(--control-padding);
@@ -2455,7 +2455,7 @@
 }
 
 .board-tile__checklist--complete {
-    padding: 0 5px;
+    padding: 0 6.25px;
     border-radius: var(--radius);
     background: var(--board-color-green-bg);
     color: var(--board-color-green-text);
@@ -2480,7 +2480,7 @@
 .board-drawer__more {
     align-self: center;
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
 }
 
 /* ---- «@» in «Чат» ---- */
@@ -2490,7 +2490,7 @@
     flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 8px;
+    gap: 10px;
 }
 
 .board-chat__actions .link-button {
@@ -2504,23 +2504,23 @@
 .board-mentions {
     position: absolute;
     z-index: 5;
-    bottom: calc(100% + 4px);
+    bottom: calc(100% + 5px);
     left: 0;
-    min-width: 220px;
+    min-width: 275px;
     max-width: 100%;
-    max-height: 240px;
+    max-height: 300px;
     margin: 0;
-    padding: 4px;
+    padding: 5px;
     overflow-y: auto;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: 0 8px 24px rgb(23 32 51 / 16%);
+    box-shadow: 0 10px 30px rgb(23 32 51 / 16%);
     list-style: none;
 }
 
 .board-mentions__option {
-    padding: 6px 8px;
+    padding: 7.5px 10px;
     border-radius: var(--radius);
     cursor: pointer;
 }
@@ -2538,21 +2538,21 @@
 
 .board-mentions__choices {
     display: grid;
-    gap: 4px;
-    max-height: 160px;
-    margin-top: 6px;
+    gap: 5px;
+    max-height: 200px;
+    margin-top: 7.5px;
     overflow-y: auto;
 }
 
 .board-mentions__choices label {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 /* «@Имя Фамилия» of somebody the message really mentions. */
 .board-mention {
-    padding: 0 3px;
+    padding: 0 3.75px;
     border-radius: var(--radius);
     background: var(--board-color-blue-bg);
     color: var(--board-color-blue-text);
@@ -2565,16 +2565,16 @@
 .board-chat__modes {
     display: flex;
     flex: 0 0 auto;
-    gap: 4px;
-    padding: 8px 16px 0;
+    gap: 5px;
+    padding: 10px 20px 0;
 }
 
 .board-chat__mode {
-    padding: 3px 10px;
+    padding: 3.75px 12.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     text-decoration: none;
 }
 
@@ -2596,8 +2596,8 @@
 
 /* Files dragged over «Чат». */
 .board-chat.is-dropping {
-    outline: 2px dashed var(--color-primary);
-    outline-offset: -4px;
+    outline: 2.5px dashed var(--color-primary);
+    outline-offset: -5px;
 }
 
 .board-discussion__message.is-highlighted {
@@ -2610,23 +2610,23 @@
 .board-chat__images {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin: 6px 0 0;
+    gap: 10px;
+    margin: 7.5px 0 0;
     padding: 0;
     list-style: none;
 }
 
 .board-chat__image {
     display: grid;
-    gap: 4px;
-    max-width: 240px;
+    gap: 5px;
+    max-width: 300px;
     min-width: 0;
 }
 
 .board-chat__image img {
     display: block;
-    max-width: 240px;
-    max-height: 160px;
+    max-width: 300px;
+    max-height: 200px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-bg);
@@ -2640,9 +2640,9 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 2px 6px;
+    gap: 2.5px 7.5px;
     min-width: 0;
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-chat__image-meta .board-file__name {
@@ -2654,8 +2654,8 @@
 .board-chat__files,
 .board-chat__all-files {
     display: grid;
-    gap: 4px;
-    margin: 6px 0 0;
+    gap: 5px;
+    margin: 7.5px 0 0;
     padding: 0;
     list-style: none;
 }
@@ -2663,13 +2663,13 @@
 .board-file {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
-    padding: 4px 8px;
+    padding: 5px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-file--deleted {
@@ -2680,17 +2680,17 @@
 }
 
 .board-file--listed {
-    padding: 6px 8px;
+    padding: 7.5px 10px;
 }
 
 .board-file__badge {
     flex: 0 0 auto;
-    min-width: 34px;
-    padding: 1px 4px;
+    min-width: 42.5px;
+    padding: 1px 5px;
     border-radius: var(--radius);
     background: var(--board-color-gray-bg);
     color: var(--board-color-gray-text);
-    font-size: 11px;
+    font-size: 13.75px;
     font-weight: 700;
     text-align: center;
 }
@@ -2719,7 +2719,7 @@
 }
 
 .board-file__meta {
-    font-size: 12px;
+    font-size: 15px;
 }
 
 .board-file__download,
@@ -2741,12 +2741,12 @@
 
 .board-file__delete {
     flex: 0 0 auto;
-    padding: 0 4px;
+    padding: 0 5px;
     border: 0;
     background: none;
     color: var(--color-muted);
     font: inherit;
-    font-size: 16px;
+    font-size: 20px;
     line-height: 1;
     cursor: pointer;
 }
@@ -2763,20 +2763,20 @@
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
     color: var(--color-muted);
     cursor: pointer;
 }
 
 .board-chat__attach-icon {
-    font-size: 16px;
+    font-size: 20px;
 }
 
 form[data-chat-files-ready] .board-chat__attach {
     position: relative;
     height: var(--control-height);
-    padding: 0 10px;
+    padding: 0 12.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -2801,7 +2801,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-chat__chosen {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 7.5px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -2814,18 +2814,18 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-chat__chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     max-width: 100%;
     min-width: 0;
-    padding: 2px 4px 2px 8px;
+    padding: 2.5px 5px 2.5px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-bg);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-chat__chip-name {
-    max-width: 260px;
+    max-width: 325px;
     min-width: 0;
 }
 
@@ -2835,12 +2835,12 @@ form[data-chat-files-ready] .board-chat__file-input {
 }
 
 .board-chat__chip-remove {
-    padding: 0 4px;
+    padding: 0 5px;
     border: 0;
     background: none;
     color: var(--color-muted);
     font: inherit;
-    font-size: 15px;
+    font-size: 18.75px;
     line-height: 1;
     cursor: pointer;
 }
@@ -2854,7 +2854,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-tile__files {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: 2.5px;
     color: var(--color-muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -2870,7 +2870,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 }
 
 .board-tile__subtasks--complete {
-    padding: 0 5px;
+    padding: 0 6.25px;
     border-radius: var(--radius);
     background: var(--board-color-green-bg);
     color: var(--board-color-green-text);
@@ -2884,9 +2884,9 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 /* A subtask's drawer names the card it lives in, above its title. */
 .board-drawer__parent {
-    margin: 0 0 2px;
+    margin: 0 0 2.5px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-drawer__parent a {
@@ -2901,7 +2901,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-subtasks__block {
     display: grid;
-    gap: 8px;
+    gap: 10px;
 }
 
 .board-subtasks__head {
@@ -2909,7 +2909,7 @@ form[data-chat-files-ready] .board-chat__file-input {
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: 4px 12px;
+    gap: 5px 15px;
 }
 
 .board-subtasks__progress-label {
@@ -2919,14 +2919,14 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-subtasks__toggle {
     color: var(--color-primary-dark);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 /* «1 из 3 выполнено» as a bar, in the tokens' own colours. */
 .board-subtasks__bar {
     display: block;
     width: 100%;
-    height: 6px;
+    height: 7.5px;
     border: 0;
     border-radius: var(--radius);
     background: var(--color-bg);
@@ -2969,9 +2969,9 @@ form[data-chat-files-ready] .board-chat__file-input {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto auto auto;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
-    padding: 6px 0;
+    padding: 7.5px 0;
     border-top: 1px solid var(--color-border);
 }
 
@@ -2991,20 +2991,20 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-subtask__people {
     display: inline-flex;
-    gap: 2px;
+    gap: 2.5px;
 }
 
 .board-subtask__due {
-    font-size: 13px;
+    font-size: 16.25px;
     white-space: nowrap;
 }
 
 .board-subtask-late {
-    padding: 0 5px;
+    padding: 0 6.25px;
     border-radius: var(--radius);
     background: var(--board-color-orange-bg);
     color: var(--board-color-orange-text);
-    font-size: 12px;
+    font-size: 15px;
     white-space: nowrap;
 }
 
@@ -3012,19 +3012,19 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-subtasks__add,
 .board-subtasks__list-form {
     display: grid;
-    gap: 6px;
-    padding-top: 12px;
+    gap: 7.5px;
+    padding-top: 15px;
     border-top: 1px solid var(--color-border);
 }
 
 .board-subtasks__row {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-subtasks__row .board-subtasks__title-input {
-    flex: 1 1 220px;
+    flex: 1 1 275px;
     min-width: 0;
 }
 
@@ -3035,7 +3035,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-subtasks__people summary,
 .board-subtasks__list summary {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     cursor: pointer;
 }
 
@@ -3046,8 +3046,8 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-subtasks__choices ul,
 .board-subtasks__choices div {
     display: grid;
-    gap: 2px;
-    margin: 6px 0 0;
+    gap: 2.5px;
+    margin: 7.5px 0 0;
     padding: 0;
     list-style: none;
 }
@@ -3071,11 +3071,11 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-subtask-warning,
 .board-subtask-due-warning {
     margin: 0;
-    padding: 6px 8px;
+    padding: 7.5px 10px;
     border-radius: var(--radius);
     background: var(--board-color-orange-bg);
     color: var(--board-color-orange-text);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-subtask-warning a {
@@ -3107,7 +3107,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 /* «Таблица» with «Подзадачи»: a subtask right under its card, indented. */
 .board-table__row--subtask .board-table__title-cell {
-    padding-left: 28px;
+    padding-left: 35px;
 }
 
 /* «↳» before the title, inside its own line clamp. */
@@ -3118,7 +3118,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-table__subtask-label {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 /* ---- Сроки и отклонения ---- */
@@ -3136,10 +3136,10 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-due-move {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px 12px;
+    gap: 12.5px 15px;
     min-width: 0;
     margin: 0;
-    padding: 10px 12px;
+    padding: 12.5px 15px;
     border: 0;
     border-radius: var(--radius);
     background: var(--color-bg);
@@ -3148,7 +3148,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-due-move label {
     display: grid;
     align-content: start;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
     color: var(--color-muted);
 }
@@ -3173,11 +3173,11 @@ form[data-chat-files-ready] .board-chat__file-input {
     margin: 0;
     padding: 0;
     color: var(--board-color-red-text);
-    font-size: 13px;
+    font-size: 16.25px;
     list-style: none;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 700px) {
     .board-due-move {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -3190,10 +3190,10 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-due-move legend {
     float: left;
     grid-column: 1 / -1;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
     padding: 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
 }
 
@@ -3207,7 +3207,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-due-original {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     white-space: nowrap;
 }
 
@@ -3218,20 +3218,20 @@ form[data-chat-files-ready] .board-chat__file-input {
 }
 
 .board-due-history__first {
-    margin: 6px 0;
+    margin: 7.5px 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-due-history__table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-due-history__table th,
 .board-due-history__table td {
-    padding: 4px 6px;
+    padding: 5px 7.5px;
     border-top: 1px solid var(--color-border);
     text-align: left;
     vertical-align: top;
@@ -3246,19 +3246,19 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-deviations {
     display: grid;
     align-content: start;
-    gap: 12px;
+    gap: 15px;
 }
 
 .board-deviations__filters label {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-deviations__filters input,
 .board-deviations__filters select {
     width: auto;
-    max-width: 220px;
+    max-width: 275px;
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -3269,7 +3269,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-deviations__shift {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     white-space: nowrap;
 }
 
@@ -3280,11 +3280,11 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-tile__blocked {
     justify-self: start;
     max-width: 100%;
-    padding: 1px 6px;
+    padding: 1px 7.5px;
     border-radius: var(--radius);
     background: var(--board-color-orange-bg);
     color: var(--board-color-orange-text);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3294,43 +3294,43 @@ form[data-chat-files-ready] .board-chat__file-input {
 /* «Связи» on «Описание»: groups of one-line rows, the label on the left. */
 .board-drawer__links {
     display: none;
-    gap: 8px;
+    gap: 10px;
 }
 
 .board-links {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-links__title {
     margin: 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
 }
 
 .board-links__blocked {
-    margin-left: 6px;
+    margin-left: 7.5px;
     color: var(--board-color-orange-text);
     font-weight: 600;
 }
 
 .board-links__group {
     display: grid;
-    grid-template-columns: 90px minmax(0, 1fr);
-    gap: 8px;
+    grid-template-columns: 112.5px minmax(0, 1fr);
+    gap: 10px;
     align-items: start;
 }
 
 .board-links__label {
-    padding-top: 3px;
+    padding-top: 3.75px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-links__list {
     display: grid;
-    gap: 4px;
+    gap: 5px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -3339,7 +3339,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-links__row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
 }
 
@@ -3365,9 +3365,9 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-links__board {
     flex: 0 1 auto;
-    max-width: 160px;
+    max-width: 200px;
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
 }
 
 .board-links__remove {
@@ -3401,19 +3401,19 @@ form[data-chat-files-ready] .board-chat__file-input {
     display: flex;
     flex-wrap: wrap;
     align-items: end;
-    gap: 8px;
-    margin-top: 8px;
+    gap: 10px;
+    margin-top: 10px;
 }
 
 .board-links__field {
     display: grid;
-    gap: 4px;
+    gap: 5px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-links__field input {
-    width: 140px;
+    width: 175px;
 }
 
 .board-links__form .field-error {
@@ -3424,15 +3424,15 @@ form[data-chat-files-ready] .board-chat__file-input {
 /* «🔔» in a column's header: this reader follows the column. */
 .board-column__followed {
     flex: 0 0 auto;
-    font-size: 12px;
+    font-size: 15px;
 }
 
 /* «Σ Кол-во: 1 250 · Сумма: 3 400 000» under a column's header. */
 .board-column__sums {
     margin: 0;
-    padding: 0 10px 6px;
+    padding: 0 12.5px 7.5px;
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
     font-variant-numeric: tabular-nums;
 }
 
@@ -3448,7 +3448,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-table__totals th,
 .board-table__totals td {
-    border-top: 2px solid var(--color-border);
+    border-top: 2.5px solid var(--color-border);
     font-weight: 700;
     background: var(--color-bg);
 }
@@ -3457,7 +3457,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-table__plan {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
     white-space: nowrap;
 }
 
@@ -3469,13 +3469,13 @@ form[data-chat-files-ready] .board-chat__file-input {
 /* «Этапы» on «Описание»: a compact table of the card's stays in columns. */
 .board-stages {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-stages__title {
     margin: 0;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
 }
 
@@ -3486,12 +3486,12 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-stages__table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-stages__table th,
 .board-stages__table td {
-    padding: 4px 6px;
+    padding: 5px 7.5px;
     border-bottom: 1px solid var(--color-border);
     text-align: left;
     white-space: nowrap;
@@ -3519,13 +3519,13 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-stages__plan {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-stages__note {
     margin: 0;
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
 }
 
 /* ---- «Приём заявок»: «Входящие (N)», «Заявки», «Входящие», a request ---- */
@@ -3535,7 +3535,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 }
 
 .board-tabs__inbox {
-    padding: 6px 10px;
+    padding: 7.5px 12.5px;
     border-radius: var(--radius);
     color: var(--color-muted);
     font-weight: 600;
@@ -3555,9 +3555,9 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-request-status {
     display: inline-block;
-    padding: 2px 8px;
+    padding: 2.5px 10px;
     border-radius: var(--radius);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
     white-space: nowrap;
 }
@@ -3579,47 +3579,47 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-request__muted {
     margin: 0;
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-request-heading__actions {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     margin-left: auto;
 }
 
 .board-request {
     display: grid;
-    gap: 12px;
+    gap: 15px;
 }
 
 .board-request__head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: 12.5px;
 }
 
 .board-request__head h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: 22.5px;
 }
 
 .board-request__facts {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 8px 16px;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 10px 20px;
     margin: 0;
 }
 
 .board-request__facts div {
     display: grid;
-    gap: 2px;
+    gap: 2.5px;
 }
 
 .board-request__facts dt {
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
 }
 
@@ -3628,7 +3628,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 }
 
 .board-request__text {
-    padding: 10px 12px;
+    padding: 12.5px 15px;
     border-radius: var(--radius);
     background: var(--color-bg);
 }
@@ -3642,14 +3642,14 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-requests__title,
 .board-request-decide h2,
 .board-request-decide h3 {
-    margin: 0 0 10px;
+    margin: 0 0 12.5px;
     font-size: var(--font-size-title);
     font-weight: 600;
 }
 
 .board-requests__board-list {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -3659,13 +3659,13 @@ form[data-chat-files-ready] .board-chat__file-input {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 12px;
+    gap: 7.5px 15px;
 }
 
 .board-requests__hint {
-    max-width: 720px;
+    max-width: 900px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .board-requests__actions {
@@ -3676,18 +3676,18 @@ form[data-chat-files-ready] .board-chat__file-input {
    line add none of their own, so both cards' headings start at one inset. */
 .board-requests__mine,
 .board-inbox .table-card {
-    margin-top: 10px;
+    margin-top: 12.5px;
 }
 
 .board-request-form {
     display: grid;
-    gap: 12px;
+    gap: 15px;
 }
 
 .board-request-form__hint {
-    margin: 0 0 12px;
-    padding: 10px 12px;
-    border-left: 3px solid var(--color-primary);
+    margin: 0 0 15px;
+    padding: 12.5px 15px;
+    border-left: 3.75px solid var(--color-primary);
     border-radius: var(--radius);
     background: var(--color-bg);
 }
@@ -3695,20 +3695,20 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-request-form__grid,
 .board-intake__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 12px 16px;
-    max-width: 1120px;
+    grid-template-columns: repeat(auto-fill, minmax(325px, 1fr));
+    gap: 15px 20px;
+    max-width: 1400px;
 }
 
 .board-request-form__field {
     display: grid;
     align-content: start;
-    gap: 4px;
+    gap: 5px;
 }
 
 .board-request-form__field > span:first-child {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
 }
 
@@ -3725,75 +3725,75 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-request-form__actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 12px;
+    gap: 10px;
+    margin-top: 15px;
 }
 
 .board-intake {
     display: grid;
-    gap: 12px;
+    gap: 15px;
 }
 
 .board-intake__switch {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
 }
 
 .board-intake__group {
-    margin: 12px 0 0;
+    margin: 15px 0 0;
     padding: 0;
     border: 0;
 }
 
 .board-intake__group legend {
-    margin-bottom: 6px;
+    margin-bottom: 7.5px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
 }
 
 .board-intake__people > div {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 4px 16px;
+    grid-template-columns: repeat(auto-fill, minmax(325px, 1fr));
+    gap: 5px 20px;
 }
 
 .board-intake__people label,
 .board-intake__modes label {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-intake__modes {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 16px;
+    gap: 5px 20px;
 }
 
 .board-intake__fields {
-    max-width: 760px;
+    max-width: 950px;
 }
 
 .board-request-decide {
     display: grid;
-    gap: 16px;
-    margin-top: 16px;
+    gap: 20px;
+    margin-top: 20px;
 }
 
 .board-request-decide__other {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 16px;
-    padding-top: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(375px, 1fr));
+    gap: 20px;
+    padding-top: 20px;
     border-top: 1px solid var(--color-border);
 }
 
 .board-request-decide__reject {
     display: grid;
     align-content: start;
-    gap: 8px;
+    gap: 10px;
     justify-items: start;
 }
 
@@ -3809,29 +3809,29 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-rules {
     display: grid;
-    gap: 10px;
-    max-width: 1120px;
+    gap: 12.5px;
+    max-width: 1400px;
 }
 
 .board-rules h2 {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     margin: 0;
     font-size: var(--font-size-base);
 }
 
 .board-rules__form {
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
     justify-items: start;
 }
 
 .board-rules__people,
 .board-rules__people > div {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 4px 16px;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 5px 20px;
     width: 100%;
 }
 
@@ -3845,35 +3845,35 @@ form[data-chat-files-ready] .board-chat__file-input {
 .board-rules__check {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-rules__modes,
 .board-rules__modes > div {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 16px;
+    gap: 5px 20px;
 }
 
 .board-rules__template {
     display: grid;
-    gap: 4px;
+    gap: 5px;
     margin: 0;
-    padding-left: 20px;
+    padding-left: 25px;
 }
 
 .board-rules__item {
-    padding: 4px 0;
+    padding: 5px 0;
     border-bottom: 1px solid var(--color-border);
 }
 
 .board-rules__item > span:first-child {
-    margin-right: 8px;
+    margin-right: 10px;
 }
 
 .board-rules__tools {
     display: inline-flex;
-    gap: 4px;
+    gap: 5px;
     vertical-align: middle;
 }
 
@@ -3881,11 +3881,11 @@ form[data-chat-files-ready] .board-chat__file-input {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
 }
 
 .board-rules__add input[type="text"] {
-    width: min(480px, 100%);
+    width: min(600px, 100%);
 }
 
 .board-rules__add .field-error {
@@ -3895,33 +3895,33 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-rules__fields {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 10px 16px;
+    grid-template-columns: repeat(auto-fill, minmax(325px, 1fr));
+    gap: 12.5px 20px;
     width: 100%;
 }
 
 .board-rules__field {
     display: grid;
     align-content: start;
-    gap: 4px;
+    gap: 5px;
 }
 
 .board-rules__field > label:first-child {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
 }
 
 .board-rules__summary {
     margin: 0;
-    padding-left: 20px;
+    padding-left: 25px;
 }
 
 /* «⚙» in a column header: the column has entry rules. */
 .board-column__rules {
     flex: 0 0 auto;
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
     text-decoration: none;
 }
 
@@ -3936,11 +3936,11 @@ form[data-chat-files-ready] .board-chat__file-input {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .board-actions__button {
-    max-width: 220px;
+    max-width: 275px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3948,7 +3948,7 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 .board-actions__list {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
     justify-items: stretch;
 }
 
@@ -3958,17 +3958,17 @@ form[data-chat-files-ready] .board-chat__file-input {
 
 /* «📌»: a pinned card stands first in its column. */
 .board-tile__pinned {
-    margin-right: 4px;
+    margin-right: 5px;
 }
 
 .board-column__item--pinned .board-tile {
-    border-left: 3px solid var(--color-muted);
+    border-left: 3.75px solid var(--color-muted);
 }
 
 /* «Списком» in «+ Карточка». */
 .board-list-create {
-    margin-top: 16px;
-    padding-top: 12px;
+    margin-top: 20px;
+    padding-top: 15px;
     border-top: 1px solid var(--color-border);
 }
 

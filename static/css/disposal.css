@@ -3,17 +3,17 @@
    and `acts.css`; tokens only. */
 
 .act-table-card .disposal-table {
-    min-width: 1000px;
+    min-width: 1250px;
 }
 
 .disposal-table__check {
-    width: 56px;
+    width: 70px;
     text-align: center;
 }
 
 .disposal-table__check input {
-    width: 18px;
-    height: 18px;
+    width: 22.5px;
+    height: 22.5px;
 }
 
 /* «Акт о списании брака» (форма ДП-СМК 07.04/1): serif 11pt on A4, as the
@@ -136,9 +136,9 @@
 /* «Подразделение | Сотрудник» rows of the commission, on screen only. */
 .disposal-commission-picker {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     justify-items: start;
-    padding: 10px 12px;
+    padding: 12.5px 15px;
     border: 1px dashed var(--color-border);
     border-radius: var(--radius);
     font-family: inherit;
@@ -146,7 +146,7 @@
 
 .disposal-commission-picker__list {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
 }
 
@@ -154,12 +154,12 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
     align-items: end;
-    gap: 6px 12px;
+    gap: 7.5px 15px;
 }
 
 .disposal-member-row label {
     display: grid;
-    gap: 4px;
+    gap: 5px;
     color: var(--color-muted);
     font-size: 10pt;
 }

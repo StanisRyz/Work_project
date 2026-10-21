@@ -13,7 +13,7 @@
     'use strict';
 
     const STORAGE_KEY = 'quality.boards.navCollapsed';
-    const NARROW = '(max-width: 1240px)';
+    const NARROW = '(max-width: 1550px)';
 
     const shell = document.querySelector('[data-board-shell]');
     const toggle = shell && shell.querySelector('[data-board-nav-toggle]');

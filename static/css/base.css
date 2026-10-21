@@ -48,36 +48,44 @@
     --stage-closed: #98a2b0;
     --stage-cancelled: #b42318;
 
-    --radius: 6px;
-    --radius-sm: 4px;
-    --shadow-overlay: 0 12px 32px rgb(16 24 40 / 14%);
-    --shadow-sticky: 0 -6px 16px rgb(16 24 40 / 6%);
-    --focus-ring: 0 0 0 3px rgb(29 79 145 / 20%);
+    --radius: 7.5px;
+    --radius-sm: 5px;
+    --shadow-overlay: 0 15px 40px rgb(16 24 40 / 14%);
+    --shadow-sticky: 0 -7.5px 20px rgb(16 24 40 / 6%);
+    --focus-ring: 0 0 0 3.75px rgb(29 79 145 / 20%);
 
     /* Segoe UI is what the plant's Windows workstations have; the rest is the
        same family of neutral grotesques elsewhere. */
     --font-family: 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
 
     /* Density. One set of numbers every module's controls, buttons and table
-       cells read, sized for the plant's 23–24" 1920×1080 screens: 13px text,
-       30px controls — a working tool read all day, not a brochure. A module
-       never restates them — it names the token. */
-    --font-size-base: 13px;
-    --font-size-sm: 12px;
-    --font-size-title: 15px;
-    --font-size-page: 18px;
-    --control-height: 30px;
-    --control-padding: 5px 8px;
-    --control-font-size: 13px;
-    --cell-padding: 6px 10px;
+       cells read, sized for the plant's 23–24" 1920×1080 screens: 16.25px
+       text, 37.5px controls — a working tool read all day, not a brochure. A
+       module never restates them — it names the token.
+
+       Scale. Every screen length in these stylesheets — tokens, paddings,
+       widths and the media-query breakpoints alike — is the original design
+       ×1.25, which is what the browser's own 125 % zoom drew: at 100 % the
+       first density read too small on those screens. A new length follows
+       the same scale; 1px hairlines stay 1px. The printed forms (`print.css`,
+       `act_form.css`, `.disposal-form`, `@media print`) are paper, not
+       screen, and keep their size. */
+    --font-size-base: 16.25px;
+    --font-size-sm: 15px;
+    --font-size-title: 18.75px;
+    --font-size-page: 22.5px;
+    --control-height: 37.5px;
+    --control-padding: 6.25px 10px;
+    --control-font-size: 16.25px;
+    --cell-padding: 7.5px 12.5px;
 
     /* How wide a field may grow. Text is read, not scanned: a line of
        1800 px is not read at all, so a multi-line field stops at
        `--field-text`; one-line fields stop at `--field-line`, a date or a
        number at `--field-short`. The spare width stays spare. */
-    --field-text: 1080px;
-    --field-line: 340px;
-    --field-short: 160px;
+    --field-text: 1350px;
+    --field-line: 425px;
+    --field-short: 200px;
 }
 
 * {

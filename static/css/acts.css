@@ -3,7 +3,7 @@
 .act-kpi-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 /* The registry's top row: the scope tabs plus «Создать АКТ», sharing one
@@ -12,15 +12,15 @@
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 16px;
+    gap: 20px;
     border-bottom: 1px solid var(--color-border);
 }
 
 /* A toolbar holding more than one action («Excel» beside «Создать»). */
 .act-registry-toolbar__actions {
     display: flex;
-    gap: 10px;
-    margin-bottom: 6px;
+    gap: 12.5px;
+    margin-bottom: 7.5px;
 }
 
 .act-registry-toolbar__actions .link-button { margin-top: 0; }
@@ -30,7 +30,7 @@
 }
 
 .act-registry-toolbar > .link-button {
-    margin: 0 0 4px;
+    margin: 0 0 5px;
     flex: none;
 }
 
@@ -45,9 +45,9 @@
     flex-direction: row-reverse;
     align-items: center;
     justify-content: flex-end;
-    gap: 6px;
-    min-height: 28px;
-    padding: 0 10px;
+    gap: 7.5px;
+    min-height: 35px;
+    padding: 0 12.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -62,7 +62,7 @@
 .act-kpi-card strong {
     flex: none;
     color: var(--color-text);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     line-height: 1.1;
@@ -99,17 +99,17 @@
    table card its top ones (`.act-table-card` below). */
 .act-filter-panel {
     margin: 0;
-    grid-template-columns: minmax(220px, 420px) repeat(3, minmax(150px, 240px)) repeat(3, auto);
+    grid-template-columns: minmax(275px, 525px) repeat(3, minmax(187.5px, 300px)) repeat(3, auto);
     justify-content: start;
-    gap: 8px;
-    padding: 8px 10px;
+    gap: 10px;
+    padding: 10px 12.5px;
     border-bottom-color: var(--color-border);
     border-radius: var(--radius) var(--radius) 0 0;
 }
 
 .act-filter-panel label {
-    gap: 4px;
-    font-size: 12px;
+    gap: 5px;
+    font-size: 15px;
 }
 
 .act-filter-panel .link-button {
@@ -135,13 +135,13 @@
 .act-table-card {
     flex: 1 1 auto;
     width: 100%;
-    min-height: 240px;
+    min-height: 300px;
     padding: 0;
     overflow: auto;
 }
 
 .act-table-card .data-table {
-    min-width: 680px;
+    min-width: 850px;
     border-collapse: separate;
     border-spacing: 0;
 }
@@ -167,16 +167,16 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 10px;
+    gap: 12.5px;
 }
 
 .act-badge {
     display: inline-flex;
     width: fit-content;
     align-items: center;
-    padding: 4px 8px;
-    border-radius: 999px;
-    font-size: 13px;
+    padding: 5px 10px;
+    border-radius: 1248.75px;
+    font-size: 16.25px;
     font-weight: 700;
     line-height: 1.2;
 }
@@ -187,13 +187,13 @@
    code below; a status without one (tasks, protocols) gets the neutral dot. */
 .act-badge--status,
 .act-stage-badge {
-    gap: 6px;
-    padding: 2px 8px 2px 7px;
+    gap: 7.5px;
+    padding: 2.5px 10px 2.5px 8.75px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     background: var(--color-surface);
     color: var(--color-text);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 500;
     white-space: nowrap;
 }
@@ -201,8 +201,8 @@
 .act-badge--status::before,
 .act-stage-badge::before {
     flex: none;
-    width: 7px;
-    height: 7px;
+    width: 8.75px;
+    height: 8.75px;
     border-radius: 50%;
     background: var(--stage-color, var(--color-subtle));
     content: '';
@@ -229,12 +229,12 @@
    prohibited red, permitted with rework amber, permitted green. A legacy
    value outside these codes stays neutral. */
 .act-badge--decision {
-    padding: 2px 8px;
+    padding: 2.5px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     background: var(--color-surface-muted);
     color: var(--color-text);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 500;
 }
 
@@ -274,19 +274,19 @@
     padding: 1px 0;
     border-radius: var(--radius-sm);
     color: var(--color-text);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 500;
 }
 
 .due-date--overdue {
-    padding: 1px 6px;
+    padding: 1px 7.5px;
     background: var(--color-danger-soft);
     color: var(--color-danger);
     font-weight: 600;
 }
 
 .due-date--soon {
-    padding: 1px 6px;
+    padding: 1px 7.5px;
     background: var(--color-warning-soft);
     color: var(--color-warning);
 }
@@ -296,12 +296,12 @@
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 8px;
+    gap: 5px 10px;
 }
 
 .due-date__hint {
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
     white-space: nowrap;
 }
 
@@ -313,14 +313,14 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 18px;
+    gap: 22.5px;
 }
 
 .act-detail-meta {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     color: var(--color-muted);
 }
 
@@ -328,12 +328,12 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 10px;
 }
 
 .act-detail-tabs {
     display: flex;
-    gap: 4px;
+    gap: 5px;
     border-bottom: 1px solid var(--color-border);
     overflow-x: auto;
 }
@@ -341,18 +341,18 @@
 .act-detail-tabs__link {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
+    gap: 8.75px;
     margin-bottom: -1px;
-    padding: 6px 10px;
-    border-bottom: 2px solid transparent;
+    padding: 7.5px 12.5px;
+    border-bottom: 2.5px solid transparent;
     color: var(--color-muted);
     font-weight: 600;
     white-space: nowrap;
 }
 
 .act-detail-tabs__link .ui-icon {
-    width: 15px;
-    height: 15px;
+    width: 18.75px;
+    height: 18.75px;
 }
 
 .act-detail-tabs__link:hover {
@@ -369,8 +369,8 @@
 }
 
 .ui-icon {
-    width: 18px;
-    height: 18px;
+    width: 22.5px;
+    height: 22.5px;
     fill: none;
     stroke: currentColor;
     stroke-linecap: round;
@@ -393,13 +393,13 @@
    replacement of its contents changes nothing in the layout. */
 .act-page {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr) 425px;
     grid-template-areas:
         'head side'
         'main side';
     grid-template-rows: auto 1fr;
     align-items: start;
-    gap: 10px 16px;
+    gap: 12.5px 20px;
 }
 
 .act-summary { display: contents; }
@@ -414,12 +414,12 @@
     background: var(--color-surface);
 }
 
-.act-head .act-detail-heading { padding: 8px 12px; }
+.act-head .act-detail-heading { padding: 10px 15px; }
 .act-page .act-side-column { grid-area: side; }
 .act-page__main {
     grid-area: main;
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
     min-width: 0;
 }
 
@@ -428,7 +428,7 @@
 .act-detail-heading {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12.5px;
     min-height: var(--control-height);
 }
 
@@ -443,8 +443,8 @@
 
 .act-back-link { display: inline-grid; flex: none; width: var(--control-height); height: var(--control-height); place-items: center; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); color: var(--color-muted); }
 .act-back-link:hover { border-color: var(--color-border-strong); background: var(--color-hover); color: var(--color-text); }
-.act-detail-heading__title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: var(--control-height); }
-.act-stage-badge { display: inline-flex; align-items: center; padding: 2px 9px 2px 8px; font-size: var(--font-size-sm); }
+.act-detail-heading__title { display: flex; align-items: center; flex-wrap: wrap; gap: 7.5px 15px; min-height: var(--control-height); }
+.act-stage-badge { display: inline-flex; align-items: center; padding: 2.5px 11.25px 2.5px 10px; font-size: var(--font-size-sm); }
 
 /* The right-hand column: exactly one window high and sticky under the
    topbar, so it is always in view beside the work. The act's facts and route
@@ -453,11 +453,11 @@
    as a whole rather than squeezing the discussion to nothing. */
 .act-side-column {
     position: sticky;
-    top: 58px;
+    top: 72.5px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    height: calc(100vh - 72px);
+    gap: 12.5px;
+    height: calc(100vh - 90px);
     min-height: 0;
     overflow-y: auto;
 }
@@ -466,18 +466,18 @@
 
 .act-side {
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
 }
 
 .act-side__card {
-    padding: 10px 14px 12px;
+    padding: 12.5px 17.5px 15px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
 }
 
 .act-side__title {
-    margin: 0 0 8px;
+    margin: 0 0 10px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
     font-weight: 600;
@@ -488,15 +488,15 @@
 /* Label left, value right: a properties list reads down one column. */
 .act-side__facts {
     display: grid;
-    gap: 4px;
+    gap: 5px;
     margin: 0;
 }
 
 .act-side__facts > div {
     display: grid;
-    grid-template-columns: 132px minmax(0, 1fr);
+    grid-template-columns: 165px minmax(0, 1fr);
     align-items: baseline;
-    gap: 10px;
+    gap: 12.5px;
 }
 
 .act-side__facts dt {
@@ -510,11 +510,11 @@
     font-weight: 500;
 }
 
-.act-side__facts dd .due-date-cell { gap: 2px 6px; }
+.act-side__facts dd .due-date-cell { gap: 2.5px 7.5px; }
 
 .act-side__facts + .act-side__facts {
-    margin-top: 10px;
-    padding-top: 10px;
+    margin-top: 12.5px;
+    padding-top: 12.5px;
     border-top: 1px solid var(--color-border);
 }
 
@@ -532,8 +532,8 @@
     position: relative;
     display: flex;
     align-items: flex-start;
-    gap: 10px;
-    padding-bottom: 8px;
+    gap: 12.5px;
+    padding-bottom: 10px;
     color: var(--color-subtle);
     font-size: var(--font-size-sm);
 }
@@ -542,10 +542,10 @@
 
 .act-route__step:not(:last-child)::after {
     position: absolute;
-    top: 22px;
-    bottom: 2px;
-    left: 9px;
-    width: 2px;
+    top: 27.5px;
+    bottom: 2.5px;
+    left: 11.25px;
+    width: 2.5px;
     border-radius: 1px;
     background: var(--color-border);
     content: '';
@@ -553,26 +553,26 @@
 
 .act-route__marker {
     display: inline-grid;
-    width: 20px;
-    height: 20px;
-    flex: 0 0 20px;
+    width: 25px;
+    height: 25px;
+    flex: 0 0 25px;
     place-items: center;
     border: 1px solid var(--color-border-strong);
     border-radius: 50%;
     background: var(--color-surface);
-    font-size: 11px;
+    font-size: 13.75px;
     font-weight: 600;
 }
 
 .act-route__copy { display: grid; gap: 0; min-width: 0; padding-top: 1px; line-height: 1.35; }
-.act-route__copy strong { font-size: 13px; font-weight: 600; }
-.act-route__copy small { color: var(--color-subtle); font-size: 11px; font-weight: 400; }
+.act-route__copy strong { font-size: 16.25px; font-weight: 600; }
+.act-route__copy small { color: var(--color-subtle); font-size: 13.75px; font-weight: 400; }
 
 .act-route__step--completed { color: var(--color-text); }
 .act-route__step--completed::after { background: var(--color-success-border) !important; }
 .act-route__step--completed .act-route__marker { border-color: var(--color-success); background: var(--color-success); color: #fff; }
 .act-route__step--current { color: var(--color-primary); }
-.act-route__step--current .act-route__marker { border-color: var(--color-primary); background: var(--color-primary); color: #fff; box-shadow: 0 0 0 3px var(--color-primary-soft); }
+.act-route__step--current .act-route__marker { border-color: var(--color-primary); background: var(--color-primary); color: #fff; box-shadow: 0 0 0 3.75px var(--color-primary-soft); }
 .act-route__step--current .act-route__copy small { color: var(--color-primary); }
 
 /* The route across the heading card: five steps in a row joined by a
@@ -581,8 +581,8 @@
 .act-route--flow {
     grid-auto-columns: minmax(max-content, 1fr);
     grid-auto-flow: column;
-    gap: 10px;
-    padding: 8px 12px 10px;
+    gap: 12.5px;
+    padding: 10px 15px 12.5px;
     overflow-x: auto;
     border-top: 1px solid var(--color-border);
 }
@@ -596,9 +596,9 @@
     position: static;
     flex: 1 1 auto;
     width: auto;
-    min-width: 12px;
-    height: 2px;
-    margin-left: 2px;
+    min-width: 15px;
+    height: 2.5px;
+    margin-left: 2.5px;
 }
 
 .act-route--flow .act-route__copy { min-width: max-content; }
@@ -616,23 +616,23 @@
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
-    min-height: 240px;
-    padding: 10px 14px 12px;
+    min-height: 300px;
+    padding: 12.5px 17.5px 15px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
 }
 
-.act-chat__title { margin-bottom: 6px; }
+.act-chat__title { margin-bottom: 7.5px; }
 
 .act-chat__feed {
     display: flex;
     flex: 1 1 auto;
     flex-direction: column-reverse;
-    min-height: 60px;
+    min-height: 75px;
     overflow-y: auto;
-    margin: 0 -14px;
-    padding: 0 14px;
+    margin: 0 -17.5px;
+    padding: 0 17.5px;
 }
 
 .act-chat .comment-list {
@@ -643,9 +643,9 @@
 
 .act-chat .comment-card {
     display: grid;
-    grid-template-columns: 26px minmax(0, 1fr);
-    gap: 8px;
-    padding: 8px 0;
+    grid-template-columns: 32.5px minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px 0;
     border: 0;
     border-top: 1px solid var(--color-border);
     border-radius: 0;
@@ -655,11 +655,11 @@
 .act-chat .comment-list > .comment-card:last-child { border-top: 0; }
 
 .act-chat .comment-card__avatar {
-    width: 26px;
-    height: 26px;
+    width: 32.5px;
+    height: 32.5px;
     background: var(--color-bg);
     color: var(--color-text);
-    font-size: 10px;
+    font-size: 12.5px;
     font-weight: 600;
 }
 
@@ -669,20 +669,20 @@
 }
 
 .act-chat .comment-card__meta strong { font-size: var(--font-size-sm); font-weight: 600; }
-.act-chat .comment-card p { font-size: 13px; line-height: 1.45; }
+.act-chat .comment-card p { font-size: 16.25px; line-height: 1.45; }
 
 .act-chat .act-collaboration-empty {
     margin: auto 0;
-    padding: 12px 0;
+    padding: 15px 0;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
 
 .act-chat .comment-form {
     display: grid;
-    gap: 6px;
-    margin: 8px 0 0;
-    padding: 10px 0 0;
+    gap: 7.5px;
+    margin: 10px 0 0;
+    padding: 12.5px 0 0;
     border: 0;
     border-top: 1px solid var(--color-border);
     background: transparent;
@@ -691,7 +691,7 @@
 .act-chat .comment-form textarea {
     box-sizing: border-box;
     width: 100%;
-    min-height: 52px;
+    min-height: 65px;
     padding: var(--control-padding);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -704,20 +704,20 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 10px;
 }
 
 .act-chat__hint,
 .act-chat__readonly {
     color: var(--color-subtle);
-    font-size: 11px;
+    font-size: 13.75px;
 }
 
-.act-chat__readonly { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--color-border); }
+.act-chat__readonly { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--color-border); }
 
 /* Narrower than 1280 px the column follows the work — facts, then the
    discussion — and the facts are laid out across the width. */
-@media (max-width: 1280px) {
+@media (max-width: 1600px) {
     .act-page {
         grid-template-columns: minmax(0, 1fr);
         grid-template-areas:
@@ -734,14 +734,14 @@
     }
 
     .act-side__facts {
-        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-        gap: 6px 20px;
+        grid-template-columns: repeat(auto-fill, minmax(275px, 1fr));
+        gap: 7.5px 25px;
     }
 
     .act-side__facts > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 950px) {
     .act-side { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -749,22 +749,22 @@
     width: 100%;
     overflow-x: auto;
     background: var(--color-surface);
-    border-radius: 5px;
+    border-radius: 6.25px;
 }
 
 .act-defects-table {
     width: 100%;
-    min-width: 1350px;
+    min-width: 1687.5px;
     border-collapse: collapse;
     table-layout: fixed;
 }
 
 .act-defects-table th,
 .act-defects-table td {
-    padding: 8px 10px;
+    padding: 10px 12.5px;
     border: 1px solid var(--color-border);
     vertical-align: middle;
-    font-size: 12px;
+    font-size: 15px;
 }
 
 .act-defects-table th { background: var(--color-surface-muted); color: var(--color-text); text-align: center; white-space: normal; }
@@ -784,17 +784,17 @@
 .act-defects-table select, .act-defects-table textarea {
     width: 100%;
     min-width: 0;
-    padding: 7px 8px;
+    padding: 8.75px 10px;
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: 7.5px;
     font: inherit;
     text-align: center;
 }
 
 .act-defects-table select { text-align-last: center; }
-.act-defects-table textarea { min-height: 58px; resize: vertical; }
+.act-defects-table textarea { min-height: 72.5px; resize: vertical; }
 .act-defects-table td:has(select), .act-defects-table td:has(textarea) { vertical-align: middle; }
-.act-defects-table .errorlist { margin: 4px 0 0; font-size: 11px; text-align: center; }
+.act-defects-table .errorlist { margin: 5px 0 0; font-size: 13.75px; text-align: center; }
 .act-defects-table td:nth-child(9),
 .act-defects-table td:nth-child(10),
 .act-defects-table td:nth-child(9) select,
@@ -802,7 +802,7 @@
     text-align: left;
 }
 .act-defects-table td:nth-child(9) select { text-align-last: left; }
-.act-defects-table td:nth-child(10) textarea { min-height: 44px; }
+.act-defects-table td:nth-child(10) textarea { min-height: 55px; }
 .act-defects-table td:nth-child(9) .errorlist,
 .act-defects-table td:nth-child(10) .errorlist { text-align: left; }
 /* Карточка дефекта в «Проработке» — то, чем стала строка таблицы.
@@ -832,8 +832,8 @@
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
-    gap: 4px 10px;
-    padding: 6px 0;
+    gap: 5px 12.5px;
+    padding: 7.5px 0;
     cursor: pointer;
     list-style: none;
 }
@@ -847,8 +847,8 @@
 .act-defect-card__chevron {
     flex: none;
     align-self: center;
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
     color: var(--color-muted);
     transition: transform 0.15s ease;
 }
@@ -858,7 +858,7 @@
 /* Тот же размер и вес, что у заголовка корректирующего мероприятия. */
 .act-defect-card__number {
     color: var(--color-text);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 600;
 }
 
@@ -871,7 +871,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 /* Цех и ЗНП — обычным приглушённым текстом. Пилюль в проекте нет нигде, и
@@ -904,8 +904,8 @@
 .act-defect-card__body {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 0 0 12px 26px;
+    gap: 7.5px;
+    padding: 0 0 15px 32.5px;
 }
 
 /* Факты дефекта — одна строка «подпись значение», переносится целыми
@@ -914,14 +914,14 @@
 .act-defect-card__facts {
     display: flex;
     flex-wrap: wrap;
-    gap: 2px 20px;
-    font-size: 13px;
+    gap: 2.5px 25px;
+    font-size: 16.25px;
 }
 
 .act-defect-card__fact { min-width: 0; }
 
 .act-defect-card__fact-label {
-    margin-right: 4px;
+    margin-right: 5px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
@@ -939,14 +939,14 @@
     max-width: var(--field-text);
     margin: 0;
     color: var(--color-text);
-    font-size: 13px;
+    font-size: 16.25px;
     line-height: 1.6;
 }
 
 
 .act-defect-card__label {
     display: block;
-    margin-bottom: 2px;
+    margin-bottom: 2.5px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
@@ -956,18 +956,18 @@
 .act-defect-card__work {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 8px 24px;
+    gap: 10px 30px;
     align-items: start;
-    margin-top: 4px;
+    margin-top: 5px;
 }
 
-@media (min-width: 1240px) {
+@media (min-width: 1550px) {
     /* Левая колонка — под поле решения, остальное чек-листу: он длиннее и
        выигрывает от ширины, а решение от неё ничего не приобретает.
        448px — это самая длинная формулировка решения (396px текста плюс
        отступы и стрелка `select`): доли 4fr на такой ширине не хватает, и
        выбранное решение обрезалось бы на «…с дор…». */
-    .act-defect-card__work { grid-template-columns: minmax(448px, 560px) minmax(0, 1fr); }
+    .act-defect-card__work { grid-template-columns: minmax(560px, 700px) minmax(0, 1fr); }
     /* Анализа нет — запрещающее решение или акт до изм.2: решение занимает всю
        ширину, а не половину с пустотой рядом. */
     .act-defect-card__work:not(:has(.act-defect-card__impact:not([hidden]))) {
@@ -980,18 +980,18 @@
    говорит КО, что он выбрал; шире — становятся рядом. */
 .act-defect-card__decision {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(448px, 560px));
+    grid-template-columns: repeat(auto-fit, minmax(560px, 700px));
     justify-content: start;
-    gap: 6px 16px;
+    gap: 7.5px 20px;
     min-width: 0;
 }
 
-.act-defect-card__decision--readonly { gap: 4px 16px; grid-template-columns: minmax(0, 1fr); }
+.act-defect-card__decision--readonly { gap: 5px 20px; grid-template-columns: minmax(0, 1fr); }
 
 /* Поле не растёт бесконечно. Когда анализа нет, решение занимает всю ширину
    карточки, и без этого предела `select` с одной фразой растянулся бы на
    восемьсот пикселей — ровно та беда, от которой уходили из таблицы. */
-.act-defect-card__field { display: block; min-width: 0; max-width: 560px; }
+.act-defect-card__field { display: block; min-width: 0; max-width: 700px; }
 .act-defect-card__field p { margin: 0; }
 
 /* Тот же вид, что у полей формы «Анализа ТО» под этим блоком.
@@ -1020,16 +1020,16 @@
 .act-defect-card__impact {
     min-width: 0;
     margin: 0;
-    padding: 6px 0 0;
+    padding: 7.5px 0 0;
     border: 0;
     border-top: 1px solid var(--color-border);
     border-radius: 0;
     background: transparent;
 }
 
-@media (min-width: 1240px) {
+@media (min-width: 1550px) {
     .act-defect-card__impact {
-        padding: 0 0 0 16px;
+        padding: 0 0 0 20px;
         border-top: 0;
         border-left: 1px solid var(--color-border);
     }
@@ -1041,7 +1041,7 @@
     float: left;
     width: 100%;
     padding: 0;
-    margin-bottom: 2px;
+    margin-bottom: 2.5px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
     font-weight: 600;
@@ -1053,17 +1053,17 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 2px 10px;
-    min-height: 24px;
+    gap: 2.5px 12.5px;
+    min-height: 30px;
     padding: 1px 0;
 }
 
 .act-defect-card__impact-check {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     color: var(--color-text);
-    font-size: 13px;
+    font-size: 16.25px;
     cursor: pointer;
 }
 
@@ -1073,14 +1073,14 @@
    «1,2 мГн» и «±5%» не нуждаются в трёхстах пикселях. */
 .act-defect-card__impact-value { flex: 0 1 var(--field-short); min-width: 0; }
 
-.act-defect-card__impact-value input { height: calc(var(--control-height) - 4px); }
+.act-defect-card__impact-value input { height: calc(var(--control-height) - 5px); }
 .act-defect-card__impact-value input,
-.act-defect-card__impact-value textarea { padding: 3px 8px; }
+.act-defect-card__impact-value textarea { padding: 3.75px 10px; }
 
 /* «Другое» — единственный пункт со свободным текстом: ему нужна вся ширина
    строки, поэтому ограничение снимается. */
 .act-defect-card__impact-row:last-child .act-defect-card__impact-value {
-    flex: 1 1 240px;
+    flex: 1 1 300px;
     max-width: calc(var(--field-line) * 1.5);
 }
 
@@ -1090,8 +1090,8 @@
 
 .act-defect-card__impact-list {
     margin: 0;
-    padding-left: 18px;
-    font-size: 13px;
+    padding-left: 22.5px;
+    font-size: 16.25px;
     line-height: 1.45;
 }
 
@@ -1101,22 +1101,22 @@
     font-size: var(--font-size-sm);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 800px) {
     .act-defect-card__verdict { margin-left: 0; }
 }
 
-.related-activities { padding: 16px; }
-.related-activities__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
-.related-activities__header h2 { margin: 0 0 3px; color: var(--color-text); font-size: 16px; }
-.related-activities__header p { margin: 0; color: var(--color-muted); font-size: 13px; }
-.related-activities__count { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 24px; padding: 2px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-muted); font-size: 12px; font-weight: 600; }
-.related-activities__table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--color-border); border-radius: 6px; }
+.related-activities { padding: 20px; }
+.related-activities__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 17.5px; margin-bottom: 17.5px; }
+.related-activities__header h2 { margin: 0 0 3.75px; color: var(--color-text); font-size: 20px; }
+.related-activities__header p { margin: 0; color: var(--color-muted); font-size: 16.25px; }
+.related-activities__count { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 30px; padding: 2.5px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-muted); font-size: 15px; font-weight: 600; }
+.related-activities__table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--color-border); border-radius: 7.5px; }
 .related-activities__table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
 .related-activities__table th,
 .related-activities__table td {
     /* Wrapping is `text.css`; this is spacing and colour only. */
-    padding: 10px 12px; border-bottom: 1px solid var(--color-border); color: var(--color-text); font-size: 14px; text-align: left; vertical-align: middle; }
-.related-activities__table th { padding: 9px 12px; border-bottom: 1px solid var(--color-border); background: var(--color-surface-muted); color: var(--color-muted); font-size: 12px; font-weight: 600; text-align: left; vertical-align: middle; }
+    padding: 12.5px 15px; border-bottom: 1px solid var(--color-border); color: var(--color-text); font-size: 17.5px; text-align: left; vertical-align: middle; }
+.related-activities__table th { padding: 11.25px 15px; border-bottom: 1px solid var(--color-border); background: var(--color-surface-muted); color: var(--color-muted); font-size: 15px; font-weight: 600; text-align: left; vertical-align: middle; }
 .related-activities__table tbody tr:last-child td { border-bottom: 0; }
 .related-activities__number { width: 9%; }
 .related-activities__action { width: 25%; }
@@ -1132,13 +1132,13 @@
    full regardless. Shared by the акт, протокол and СМК tables. */
 .related-activities__assignee { display: block; }
 
-.related-activities__task-link { color: var(--color-primary); font-size: 14px; font-weight: 600; }
-.related-activities__table td strong { color: var(--color-text); font-size: 14px; font-weight: 600; }
-.related-activities__empty { margin: 2px 0 0; color: var(--color-muted); font-size: 13px; }
-.to-analysis-table { min-width: 680px; }
+.related-activities__task-link { color: var(--color-primary); font-size: 17.5px; font-weight: 600; }
+.related-activities__table td strong { color: var(--color-text); font-size: 17.5px; font-weight: 600; }
+.related-activities__empty { margin: 2.5px 0 0; color: var(--color-muted); font-size: 16.25px; }
+.to-analysis-table { min-width: 850px; }
 .to-analysis-table { border-collapse: collapse; }
-.to-analysis-table th, .to-analysis-table td { padding: 8px 12px; border: 1px solid var(--color-border); font-size: 13px; }
-.to-analysis-table th { font-size: 12px; }
+.to-analysis-table th, .to-analysis-table td { padding: 10px 15px; border: 1px solid var(--color-border); font-size: 16.25px; }
+.to-analysis-table th { font-size: 15px; }
 .to-analysis-table__action { width: 52%; }
 .to-analysis-table__assignee { width: 26%; }
 .to-analysis-table__due { width: 12%; }
@@ -1146,14 +1146,14 @@
 
 .act-registry-tabs {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     border-bottom: 1px solid var(--color-border);
 }
 
 .act-registry-tabs__link {
     margin-bottom: -1px;
-    padding: 6px 10px;
-    border-bottom: 2px solid transparent;
+    padding: 7.5px 12.5px;
+    border-bottom: 2.5px solid transparent;
     color: var(--color-muted);
     font-weight: 600;
     white-space: nowrap;
@@ -1174,7 +1174,7 @@
 }
 
 .task-filter-panel {
-    grid-template-columns: repeat(2, minmax(180px, 300px)) repeat(2, minmax(150px, 240px)) repeat(3, auto);
+    grid-template-columns: repeat(2, minmax(225px, 375px)) repeat(2, minmax(187.5px, 300px)) repeat(3, auto);
 }
 
 /* The task page (`tasks/detail.html`) is laid out as the act page: the
@@ -1182,13 +1182,13 @@
    «Сведения о задаче», «Вложения», «Исполнители» — sticky beside the work. */
 .task-page {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-columns: minmax(0, 1fr) 450px;
     grid-template-areas:
         'head side'
         'main side';
     grid-template-rows: auto 1fr;
     align-items: start;
-    gap: 10px 16px;
+    gap: 12.5px 20px;
 }
 
 .task-page__head { grid-area: head; min-width: 0; }
@@ -1196,26 +1196,26 @@
 .task-page__main {
     grid-area: main;
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
     min-width: 0;
 }
 
 .task-page__side {
     grid-area: side;
     position: sticky;
-    top: 58px;
+    top: 72.5px;
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
     min-width: 0;
-    max-height: calc(100vh - 72px);
+    max-height: calc(100vh - 90px);
     overflow-y: auto;
 }
 
 /* The side cards share the properties card's padding, so their text lines up. */
 .task-page__side .task-detail-attachments-card,
-.task-page__side .task-detail-assignee-card { gap: 8px; padding: 10px 14px 12px; }
+.task-page__side .task-detail-assignee-card { gap: 10px; padding: 12.5px 17.5px 15px; }
 
-@media (max-width: 1280px) {
+@media (max-width: 1600px) {
     .task-page {
         grid-template-columns: minmax(0, 1fr);
         grid-template-areas: 'head' 'main' 'side';
@@ -1229,17 +1229,17 @@
 .task-detail-heading__actions {
     margin-left: auto;
     display: flex;
-    gap: 10px;
+    gap: 12.5px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 800px) {
     .task-detail-heading__actions { margin-left: 0; }
 }
 
 .task-detail-statement {
     display: grid;
-    gap: 8px;
-    padding: 12px 16px;
+    gap: 10px;
+    padding: 15px 20px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -1248,7 +1248,7 @@
 /* The wording itself: the one thing on the page set larger than the rest. */
 .task-detail-statement__text {
     max-width: var(--field-text);
-    font-size: 15px;
+    font-size: 18.75px;
     line-height: 1.55;
 }
 
@@ -1256,8 +1256,8 @@
    warning colours of «Вернуть в работу» itself. */
 .task-detail-reopened {
     display: grid;
-    gap: 8px;
-    padding: 12px 16px;
+    gap: 10px;
+    padding: 15px 20px;
     background: var(--color-warning-soft);
     border: 1px solid var(--color-warning-border);
     border-radius: var(--radius);
@@ -1266,7 +1266,7 @@
 .task-detail-reopened h2 {
     margin: 0;
     color: var(--color-warning);
-    font-size: 15px;
+    font-size: 18.75px;
 }
 
 .task-detail-reopened .task-comment-block {
@@ -1275,24 +1275,24 @@
 
 .task-detail-context {
     border-top: 1px solid var(--color-border);
-    padding-top: 8px;
+    padding-top: 10px;
 }
 
 .task-detail-context > summary {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 700;
     cursor: pointer;
 }
 
 .task-detail-context[open] > summary {
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
 
 .task-detail-assignee-card,
 .task-detail-execution-card,
 .task-detail-attachments-card {
-    padding: 12px 16px;
+    padding: 15px 20px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
@@ -1302,7 +1302,7 @@
 .task-detail-execution-card,
 .task-detail-attachments-card {
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
     align-content: start;
 }
 
@@ -1328,19 +1328,19 @@
 .task-detail-assignee-primary {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
+    gap: 15px;
+    padding: 10px 15px;
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--color-surface-muted);
-    font-size: 15px;
+    font-size: 18.75px;
     color: var(--color-text);
 }
 
 .task-detail-assignee-empty {
     margin: 0;
     color: var(--color-muted);
-    font-size: 15px;
+    font-size: 18.75px;
 }
 
 /* The chevron's row, and the box the expanded list is measured against.
@@ -1357,7 +1357,7 @@
 
 .task-detail-assignee-toggle,
 .task-detail-assignee-toggle-spacer {
-    margin-left: 6px;
+    margin-left: 7.5px;
 }
 
 /* One исполнитель: nothing to unfold, so no empty row under the name. */
@@ -1365,8 +1365,8 @@
 
 .task-detail-assignee-toggle-button,
 .task-detail-assignee-toggle-spacer {
-    width: 28px;
-    height: 28px;
+    width: 35px;
+    height: 35px;
 }
 
 .task-detail-assignee-toggle-button {
@@ -1390,8 +1390,8 @@
 }
 
 .task-detail-assignee-toggle-button:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
+    outline: 2.5px solid var(--color-primary);
+    outline-offset: 2.5px;
 }
 
 .task-detail-assignee-toggle[open] .task-detail-assignee-toggle-button {
@@ -1401,8 +1401,8 @@
 }
 
 .task-detail-assignee-chevron {
-    width: 14px;
-    height: 14px;
+    width: 17.5px;
+    height: 17.5px;
     transition: transform .15s ease;
 }
 
@@ -1419,29 +1419,29 @@
 .task-detail-assignee-popup {
     position: absolute;
     z-index: 5;
-    top: calc(100% + 4px);
+    top: calc(100% + 5px);
     right: 0;
     left: 0;
     display: grid;
-    max-height: min(260px, 40vh);
-    gap: 6px;
+    max-height: min(325px, 40vh);
+    gap: 7.5px;
     margin: 0;
-    padding: 8px;
+    padding: 10px;
     overflow-x: hidden;
     overflow-y: auto;
     list-style: none;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    box-shadow: 0 12px 28px rgb(15 23 42 / 14%);
+    box-shadow: 0 15px 35px rgb(15 23 42 / 14%);
 }
 
 .task-detail-assignee-popup li {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12.5px;
     min-width: 0;
-    font-size: 14px;
+    font-size: 17.5px;
     color: var(--color-text);
 }
 
@@ -1459,14 +1459,14 @@
 
 .task-detail-assignee-avatar {
     display: inline-grid;
-    width: 30px;
-    height: 30px;
-    flex: 0 0 30px;
+    width: 37.5px;
+    height: 37.5px;
+    flex: 0 0 37.5px;
     place-items: center;
     border-radius: 50%;
     background: var(--color-primary-soft);
     color: var(--color-primary);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
 }
 
@@ -1483,19 +1483,19 @@
     max-width: 45%;
     margin-left: auto;
     overflow: hidden;
-    padding: 3px 9px;
+    padding: 3.75px 11.25px;
     text-overflow: ellipsis;
     white-space: nowrap;
-    border-radius: 999px;
+    border-radius: 1248.75px;
     background: var(--color-primary-soft);
     color: var(--color-primary-dark);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
 }
 
 .task-detail-eyebrow {
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
     letter-spacing: .03em;
     text-transform: uppercase;
@@ -1506,10 +1506,10 @@
    read alike. Surface only: each of them also carries `.user-text`, which is
    where the wrapping comes from (`text.css`). */
 .task-comment-block {
-    padding: 12px 14px;
-    border-radius: 6px;
+    padding: 15px 17.5px;
+    border-radius: 7.5px;
     background: var(--color-bg);
-    font-size: 16px;
+    font-size: 20px;
     line-height: 1.5;
 }
 
@@ -1528,7 +1528,7 @@
 /* The one action under the field it sends, not a screen's width away. */
 .task-detail-actions {
     display: flex;
-    gap: 10px;
+    gap: 12.5px;
 }
 
 .task-completion-meta { margin: 0; color: var(--color-muted); }
@@ -1537,12 +1537,12 @@
 .task-attachment-form {
     display: grid;
     justify-items: start;
-    gap: 8px;
+    gap: 10px;
 }
 
 .task-attachment-list {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -1551,10 +1551,10 @@
 .task-attachment-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
+    gap: 12.5px;
+    padding: 10px 15px;
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--color-surface-muted);
 }
 
@@ -1564,12 +1564,12 @@
     display: grid;
     flex: 1 1 auto;
     min-width: 0;
-    gap: 2px;
+    gap: 2.5px;
 }
 
 .task-attachment-meta {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 /* «Удалить вложение»: a red cross, shown only on rows the server would really
@@ -1582,11 +1582,11 @@
 
 .task-attachment-delete {
     display: grid;
-    width: 28px;
-    height: 28px;
+    width: 35px;
+    height: 35px;
     padding: 0;
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: 7.5px;
     background: transparent;
     color: var(--color-danger);
     place-items: center;
@@ -1599,13 +1599,13 @@
 }
 
 .task-attachment-delete:focus-visible {
-    outline: 2px solid var(--color-danger);
+    outline: 2.5px solid var(--color-danger);
     outline-offset: 1px;
 }
 
 .task-attachment-delete .ui-icon {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
 }
 
 /* Stated once, above the upload form: this task cannot be completed with
@@ -1613,41 +1613,41 @@
    `complete_task()`, and its refusal is shown in the «Выполнение» card. */
 .task-attachment-required {
     margin: 0;
-    padding: 8px 12px;
+    padding: 10px 15px;
     border: 1px solid var(--color-warning-border);
     border-radius: var(--radius);
     background: var(--color-warning-soft);
     color: var(--color-warning);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .act-work-sequence {
     display: grid;
-    gap: 8px;
+    gap: 10px;
 }
 
 /* `#ko-decision-form` holds only hidden fields — its visible controls live in
    the defects table and are linked by their `form` attribute — so it must not
    claim a grid row of its own. */
 .act-work-sequence > #ko-decision-form { display: none; }
-.act-work-sequence > .detail-section { padding: 10px 14px 12px; }
-.act-work-sequence > .detail-section > h2 { margin-bottom: 8px; color: var(--color-text); font-size: var(--font-size-title); }
+.act-work-sequence > .detail-section { padding: 12.5px 17.5px 15px; }
+.act-work-sequence > .detail-section > h2 { margin-bottom: 10px; color: var(--color-text); font-size: var(--font-size-title); }
 
 .act-work-decision-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
+    gap: 20px;
 }
 
 .act-defect-decision-list {
     display: grid;
-    gap: 16px;
+    gap: 20px;
 }
 
 .act-defect-decision-pair {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
+    gap: 20px;
     align-items: stretch;
 }
 
@@ -1657,17 +1657,17 @@
 
 .act-ko-decision-fields {
     display: grid;
-    gap: 14px;
+    gap: 17.5px;
 }
 
 .act-ko-decision-fields label {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
 }
 
 .act-ko-decision-fields label > span {
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .act-ko-decision-fields select,
@@ -1687,12 +1687,12 @@
    tab, and nothing else on the page moves. */
 .act-primary-actions {
     position: sticky;
-    bottom: 8px;
+    bottom: 10px;
     z-index: 5;
     display: flex;
     justify-content: space-between;
-    gap: 10px;
-    padding: 6px 10px;
+    gap: 12.5px;
+    padding: 7.5px 12.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -1711,11 +1711,11 @@
    Two rows filled column by column — each label over its value — so no pair
    has to be placed by hand. */
 .act-party-data {
-    grid-template-columns: minmax(0, 160px) repeat(4, minmax(0, 300px)) !important;
+    grid-template-columns: minmax(0, 200px) repeat(4, minmax(0, 375px)) !important;
     grid-template-rows: auto auto;
     grid-auto-flow: column;
     justify-content: start;
-    gap: 1px 28px !important;
+    gap: 1px 35px !important;
     margin: 0 !important;
 }
 
@@ -1735,7 +1735,7 @@
 }
 
 .empty-state {
-    padding: 32px 28px;
+    padding: 40px 35px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -1743,8 +1743,8 @@
 }
 
 .empty-state h2 {
-    margin: 0 0 6px;
-    font-size: 16px;
+    margin: 0 0 7.5px;
+    font-size: 20px;
 }
 
 .empty-state p {
@@ -1753,12 +1753,12 @@
 }
 
 .act-form {
-    gap: 18px;
+    gap: 22.5px;
 }
 
 .act-form-page {
     display: grid;
-    gap: 10px;
+    gap: 12.5px;
 }
 
 /* The same heading as the act page: a bordered back button, the title, the
@@ -1766,7 +1766,7 @@
 .act-form-page__header {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 17.5px;
 }
 
 .act-form-page__header h1 {
@@ -1803,13 +1803,13 @@
 
 .act-form--editor {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     counter-reset: act-form-section;
 }
 
 .act-form--editor label {
     display: grid;
-    gap: 4px;
+    gap: 5px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
@@ -1837,8 +1837,8 @@
 
 .act-form-section {
     display: grid;
-    gap: 10px;
-    padding: 10px 14px 14px;
+    gap: 12.5px;
+    padding: 12.5px 17.5px 17.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -1849,7 +1849,7 @@
 .act-form-section h2 {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     margin: 0;
     color: var(--color-text);
     font-size: var(--font-size-title);
@@ -1858,29 +1858,29 @@
 
 .act-form-section h2::before {
     display: inline-grid;
-    width: 20px;
-    height: 20px;
+    width: 25px;
+    height: 25px;
     flex: none;
     place-items: center;
     border-radius: 50%;
     background: var(--color-primary-soft);
     color: var(--color-primary-dark);
     content: counter(act-form-section);
-    font-size: 11px;
+    font-size: 13.75px;
     font-weight: 600;
 }
 
 .act-form-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px 12px;
+    gap: 12.5px 15px;
     align-items: start;
 }
 
 /* Данные акта: five fields, with a compact номер акта ahead of the text ones,
    each as wide as what is typed into it. */
 .act-form-row--act {
-    grid-template-columns: minmax(0, 190px) repeat(4, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 237.5px) repeat(4, minmax(0, 1fr));
 }
 
 /* «АОК-2026-» drawn inside the field, the suffix typed after it. */
@@ -1903,7 +1903,7 @@
 .act-number-field__prefix {
     display: inline-flex;
     align-items: center;
-    padding: 0 8px;
+    padding: 0 10px;
     border-right: 1px solid var(--color-border);
     background: var(--color-surface-muted);
     color: var(--color-muted);
@@ -1930,42 +1930,42 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: 15px;
 }
 
 .act-defect-section__title-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
 }
 
 .act-defect-section__heading p {
-    margin: 2px 0 0 28px;
+    margin: 2.5px 0 0 35px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .act-defect-count {
     margin: 0;
-    padding: 3px 8px;
-    border-radius: 999px;
+    padding: 3.75px 10px;
+    border-radius: 1248.75px;
     background: var(--color-primary-soft);
     color: var(--color-primary);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
 }
 
 .defect-form-list {
     display: grid;
-    gap: 8px;
+    gap: 10px;
 }
 
 /* One defect, one block: a quiet inset with its own heading, so two defects
    of different workshops never read as one long form. */
 .defect-form-block {
     display: grid;
-    gap: 8px;
-    padding: 8px 12px 12px;
+    gap: 10px;
+    padding: 10px 15px 15px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface-muted);
@@ -1975,14 +1975,14 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    min-height: 26px;
+    gap: 15px;
+    min-height: 32.5px;
 }
 
 .defect-form-block__heading h3 {
     margin: 0;
     color: var(--color-text);
-    font-size: 13px;
+    font-size: 16.25px;
     font-weight: 600;
 }
 
@@ -2006,23 +2006,23 @@
 .defect-form-block__groups {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 24px;
+    gap: 30px;
 }
 
 .defect-field-group {
     display: grid;
     align-content: start;
     min-width: 0;
-    gap: 6px;
+    gap: 7.5px;
     margin: 0;
     padding: 0;
     border: 0;
 }
 
 .defect-field-group label {
-    grid-template-columns: minmax(116px, 0.8fr) minmax(0, 1.35fr);
+    grid-template-columns: minmax(145px, 0.8fr) minmax(0, 1.35fr);
     align-items: center;
-    gap: 10px;
+    gap: 12.5px;
     pointer-events: none;
 }
 
@@ -2061,8 +2061,8 @@
 
 .defect-field-group legend {
     width: 100%;
-    margin: 0 0 2px;
-    padding: 0 0 4px;
+    margin: 0 0 2.5px;
+    padding: 0 0 5px;
     border-bottom: 1px solid var(--color-border);
     color: var(--color-text);
     font-size: var(--font-size-sm);
@@ -2070,12 +2070,12 @@
 }
 
 .defect-form-block__description textarea {
-    min-height: 46px;
+    min-height: 57.5px;
     resize: vertical;
 }
 
 .defect-form-block__description {
-    gap: 4px !important;
+    gap: 5px !important;
 }
 
 /* `.act-form--editor label` sets `display: grid`, and an author declaration
@@ -2090,8 +2090,8 @@
 }
 
 .add-defect-button .ui-icon {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
 }
 
 /* The act form as an object page: sections on the left, the «Сводка» panel
@@ -2099,25 +2099,25 @@
    so «Создать акт» is in view however long the list of defects grows. The
    panel reuses the act page's `.act-side`. */
 .act-form--split {
-    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr) 425px;
     align-items: start;
-    gap: 10px 16px;
+    gap: 12.5px 20px;
 }
 
 .act-form-main {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
 }
 
 .act-form-side {
     position: sticky;
-    top: 58px;
+    top: 72.5px;
 }
 
 .act-side__hint {
     color: var(--color-muted);
-    font-size: 11px;
+    font-size: 13.75px;
     font-weight: 400;
 }
 
@@ -2127,8 +2127,8 @@
     position: static;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    margin-top: 12px;
-    padding: 12px 0 0;
+    margin-top: 15px;
+    padding: 15px 0 0;
     border: 0;
     border-top: 1px solid var(--color-border);
     border-radius: 0;
@@ -2141,7 +2141,7 @@
     width: 100%;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1600px) {
     .act-form--split { grid-template-columns: minmax(0, 1fr); }
     .act-form-side {
         position: static;
@@ -2155,7 +2155,7 @@
 .act-defect-section .add-defect-button {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     border: 1px dashed var(--color-border-strong);
     background: var(--color-surface);
     color: var(--color-primary);
@@ -2172,14 +2172,14 @@
    end just to press «Создать акт». */
 .act-form-actions {
     position: sticky;
-    bottom: 8px;
+    bottom: 10px;
     z-index: 5;
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     margin: 0;
-    padding: 6px 10px;
+    padding: 7.5px 12.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -2191,24 +2191,24 @@
 }
 
 .act-form-actions .link-button:not(.link-button--secondary) {
-    min-width: 150px;
+    min-width: 187.5px;
     justify-content: center;
 }
 
 .act-form-actions .link-button--secondary {
-    min-width: 110px;
+    min-width: 137.5px;
     justify-content: center;
 }
 
 .act-form .errorlist {
     margin: 0;
-    padding: 8px 10px;
+    padding: 10px 12.5px;
     border: 1px solid var(--color-danger-border);
     border-radius: var(--radius);
     background: var(--color-danger-soft);
     color: var(--color-danger);
     list-style-position: inside;
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .act-form .field--invalid input,
@@ -2220,25 +2220,25 @@
 
 .client-field-error {
     display: block;
-    min-height: 20px;
+    min-height: 25px;
     color: var(--color-danger);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .field-hint {
     display: block;
     color: var(--color-subtle);
-    font-size: 12px;
+    font-size: 15px;
 }
 
 .act-defect-count {
     display: inline-flex;
-    margin-left: 6px;
-    padding: 2px 6px;
-    border-radius: 999px;
+    margin-left: 7.5px;
+    padding: 2.5px 7.5px;
+    border-radius: 1248.75px;
     background: var(--color-bg);
     color: var(--color-muted);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
 }
 
@@ -2248,39 +2248,39 @@
 }
 
 .act-send-to-ko p {
-    max-width: 420px;
-    margin: 14px 0 0;
+    max-width: 525px;
+    margin: 17.5px 0 0;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: 17.5px;
 }
 
 .act-send-to-ko .link-button {
-    padding: 10px 16px;
-    font-size: 15px;
+    padding: 12.5px 20px;
+    font-size: 18.75px;
 }
 
 .act-inline-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
     align-items: center;
 }
 
 .act-inline-actions .link-button {
-    margin-top: 8px;
+    margin-top: 10px;
 }
 
 .act-decision-form {
     display: grid;
-    gap: 12px;
-    margin-top: 14px;
+    gap: 15px;
+    margin-top: 17.5px;
 }
 
 .act-decision-form label {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: 17.5px;
 }
 
 .act-decision-form select,
@@ -2295,14 +2295,14 @@
 }
 
 .act-ko-decision-hint {
-    font-size: 14px;
+    font-size: 17.5px;
 }
 
 .act-context dl {
     display: grid;
-    grid-template-columns: 150px minmax(0, 1fr);
-    gap: 8px 12px;
-    margin: 0 0 14px;
+    grid-template-columns: 187.5px minmax(0, 1fr);
+    gap: 10px 15px;
+    margin: 0 0 17.5px;
 }
 
 .act-context dt {
@@ -2317,79 +2317,79 @@
 .act-comments-section,
 .act-attachments-section {
     display: grid;
-    gap: 16px;
+    gap: 20px;
 }
 
 .comment-list,
 .attachment-list {
     display: grid;
-    gap: 12px;
+    gap: 15px;
 }
 
 .comment-card,
 .attachment-card {
-    padding: 14px;
+    padding: 17.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface-muted);
 }
 
-.act-collaboration-layout { display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; overflow-x: clip; }
+.act-collaboration-layout { display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17.5px; align-items: start; overflow-x: clip; }
 .act-collaboration-layout--single { grid-template-columns: minmax(0, 1fr); }
-.act-collaboration-layout .detail-section { min-width: 0; max-width: 100%; padding: 16px; overflow-x: clip; }
-.act-collaboration-section__header { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 10px; }
-.act-collaboration-section__header h2 { margin: 0; color: var(--color-text); font-size: 18px; }
-.act-collaboration-section__hint { min-width: 0; color: var(--color-muted); font-size: 12px; text-align: right; }
+.act-collaboration-layout .detail-section { min-width: 0; max-width: 100%; padding: 20px; overflow-x: clip; }
+.act-collaboration-section__header { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 12.5px; }
+.act-collaboration-section__header h2 { margin: 0; color: var(--color-text); font-size: 22.5px; }
+.act-collaboration-section__hint { min-width: 0; color: var(--color-muted); font-size: 15px; text-align: right; }
 .attachment-form,
-.comment-form { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
-.attachment-picker { position: relative; display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 48px; padding: 7px 8px 7px 12px; border: 1px dashed var(--color-primary-border); border-radius: 7px; background: var(--color-surface-muted); color: var(--color-muted); font-size: 13px; }
+.comment-form { display: grid; gap: 12.5px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.attachment-picker { position: relative; display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: 25px minmax(0, 1fr) auto; align-items: center; gap: 11.25px; min-height: 60px; padding: 8.75px 10px 8.75px 15px; border: 1px dashed var(--color-primary-border); border-radius: 8.75px; background: var(--color-surface-muted); color: var(--color-muted); font-size: 16.25px; }
 .attachment-picker > input[type='file'] { position: absolute; top: 0; left: 0; width: 1px; min-width: 0; height: 1px; padding: 0; overflow: hidden; border: 0; clip-path: inset(50%); opacity: 0; pointer-events: none; }
-.attachment-picker > .ui-icon { width: 18px; height: 18px; color: var(--color-primary); }
+.attachment-picker > .ui-icon { width: 22.5px; height: 22.5px; color: var(--color-primary); }
 .attachment-picker [data-attachment-file-name] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-picker--selected { border-style: solid; border-color: var(--color-success-border); background: var(--color-success-soft); color: var(--color-success); }
-.attachment-description { display: grid; gap: 5px; color: var(--color-muted); font-size: 13px; }
+.attachment-description { display: grid; gap: 6.25px; color: var(--color-muted); font-size: 16.25px; }
 .attachment-description textarea,
-.comment-form textarea { box-sizing: border-box; width: 100%; min-height: 58px; padding: var(--control-padding); border: 1px solid var(--color-border); border-radius: 6px; font: inherit; font-size: var(--control-font-size); resize: vertical; }
+.comment-form textarea { box-sizing: border-box; width: 100%; min-height: 72.5px; padding: var(--control-padding); border: 1px solid var(--color-border); border-radius: 7.5px; font: inherit; font-size: var(--control-font-size); resize: vertical; }
 .attachment-list,
 .comment-list { gap: 0; }
-.attachment-card { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
-.attachment-card__icon { display: inline-grid; width: 30px; height: 34px; place-items: center; border-radius: 6px; background: var(--color-surface-muted); color: var(--color-primary); }
-.attachment-card__icon .ui-icon { width: 18px; height: 18px; }
-.attachment-card__main { display: grid; gap: 3px; min-width: 0; }
-.attachment-card__main strong { overflow: hidden; color: var(--color-text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.attachment-card__main p { margin: 0; color: var(--color-muted); font-size: 12px; }
-.attachment-card__meta { display: grid; gap: 2px; color: var(--color-muted); font-size: 11px; }
-.attachment-card__actions { display: flex; grid-column: 3; grid-row: 1 / span 2; gap: 6px; }
+.attachment-card { display: grid; grid-template-columns: 42.5px minmax(0, 1fr) auto; align-items: center; gap: 11.25px; padding: 12.5px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
+.attachment-card__icon { display: inline-grid; width: 37.5px; height: 42.5px; place-items: center; border-radius: 7.5px; background: var(--color-surface-muted); color: var(--color-primary); }
+.attachment-card__icon .ui-icon { width: 22.5px; height: 22.5px; }
+.attachment-card__main { display: grid; gap: 3.75px; min-width: 0; }
+.attachment-card__main strong { overflow: hidden; color: var(--color-text); font-size: 16.25px; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-card__main p { margin: 0; color: var(--color-muted); font-size: 15px; }
+.attachment-card__meta { display: grid; gap: 2.5px; color: var(--color-muted); font-size: 13.75px; }
+.attachment-card__actions { display: flex; grid-column: 3; grid-row: 1 / span 2; gap: 7.5px; }
 .attachment-card__actions form { margin: 0; }
-.attachment-action { display: inline-grid; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-primary); }
-.attachment-action .ui-icon { width: 16px; height: 16px; }
+.attachment-action { display: inline-grid; width: 37.5px; height: 37.5px; place-items: center; padding: 0; border: 1px solid var(--color-border); border-radius: 7.5px; background: var(--color-surface); color: var(--color-primary); }
+.attachment-action .ui-icon { width: 20px; height: 20px; }
 .attachment-action--danger { cursor: pointer; color: var(--color-danger); }
 .attachment-action:hover { border-color: var(--color-primary-border); background: var(--color-surface-muted); }
-.act-collaboration-empty { margin: 2px 0 0; color: var(--color-muted); font-size: 13px; }
-.comment-card { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
-.comment-card__avatar { display: inline-grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--color-primary-soft); color: var(--color-primary); font-size: 11px; font-weight: 700; }
-.comment-card__meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 3px; color: var(--color-muted); font-size: 11px; }
-.comment-card__meta strong { color: var(--color-text); font-size: 13px; }
-.comment-card p { margin: 0; color: var(--color-text); font-size: 13px; line-height: 1.4; }
+.act-collaboration-empty { margin: 2.5px 0 0; color: var(--color-muted); font-size: 16.25px; }
+.comment-card { display: grid; grid-template-columns: 37.5px minmax(0, 1fr); gap: 11.25px; padding: 12.5px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
+.comment-card__avatar { display: inline-grid; width: 35px; height: 35px; place-items: center; border-radius: 50%; background: var(--color-primary-soft); color: var(--color-primary); font-size: 13.75px; font-weight: 700; }
+.comment-card__meta { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 3.75px; color: var(--color-muted); font-size: 13.75px; }
+.comment-card__meta strong { color: var(--color-text); font-size: 16.25px; }
+.comment-card p { margin: 0; color: var(--color-text); font-size: 16.25px; line-height: 1.4; }
 
-.history-feed { display: grid; gap: 18px; }
-.history-feed__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.history-feed { display: grid; gap: 22.5px; }
+.history-feed__header { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .history-feed__header h2 { margin: 0; }
-.history-feed__filter { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-muted); font-size: 13px; }
-.history-feed__filter .ui-icon { width: 15px; height: 15px; }
-.history-day { display: grid; gap: 8px; }
-.history-day h3 { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--color-muted); font-size: 13px; font-weight: 700; }
+.history-feed__filter { display: inline-flex; align-items: center; gap: 7.5px; padding: 8.75px 12.5px; border: 1px solid var(--color-border); border-radius: 7.5px; color: var(--color-muted); font-size: 16.25px; }
+.history-feed__filter .ui-icon { width: 18.75px; height: 18.75px; }
+.history-day { display: grid; gap: 10px; }
+.history-day h3 { display: flex; align-items: center; gap: 12.5px; margin: 0; color: var(--color-muted); font-size: 16.25px; font-weight: 700; }
 .history-day h3::after { height: 1px; flex: 1; background: var(--color-border); content: ''; }
 .history-day__events { border-top: 1px solid var(--color-border); }
-.history-event { display: grid; grid-template-columns: 38px minmax(0, 1fr) minmax(180px, auto); align-items: center; gap: 12px; min-height: 68px; padding: 10px 4px; border-bottom: 1px solid var(--color-border); }
+.history-event { display: grid; grid-template-columns: 47.5px minmax(0, 1fr) minmax(225px, auto); align-items: center; gap: 15px; min-height: 85px; padding: 12.5px 5px; border-bottom: 1px solid var(--color-border); }
 .history-event:last-child { border-bottom: 0; }
-.history-event__icon { display: inline-grid; width: 34px; height: 34px; place-items: center; border-radius: 7px; background: var(--color-surface-muted); color: var(--color-muted); }
-.history-event__icon .ui-icon { width: 18px; height: 18px; }
-.history-event__content { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 5px 8px; }
-.history-event__content strong { color: var(--color-text); font-size: 14px; }
-.history-event__content p { width: 100%; margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.35; }
-.history-event__meta { display: grid; justify-items: end; gap: 3px; color: var(--color-muted); font-size: 12px; white-space: nowrap; }
-.history-event__transition { width: fit-content; padding: 1px 7px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-muted); font-size: 11px; font-weight: 600; }
+.history-event__icon { display: inline-grid; width: 42.5px; height: 42.5px; place-items: center; border-radius: 8.75px; background: var(--color-surface-muted); color: var(--color-muted); }
+.history-event__icon .ui-icon { width: 22.5px; height: 22.5px; }
+.history-event__content { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6.25px 10px; }
+.history-event__content strong { color: var(--color-text); font-size: 17.5px; }
+.history-event__content p { width: 100%; margin: 0; color: var(--color-muted); font-size: 16.25px; line-height: 1.35; }
+.history-event__meta { display: grid; justify-items: end; gap: 3.75px; color: var(--color-muted); font-size: 15px; white-space: nowrap; }
+.history-event__transition { width: fit-content; padding: 1px 8.75px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-muted); font-size: 13.75px; font-weight: 600; }
 .history-event--approved .history-event__icon { background: var(--color-success-soft); color: var(--color-success); }
 .history-event--ko_decision_applied .history-event__icon { background: var(--color-warning-soft); color: var(--color-warning); }
 .history-event--returned_to_otk .history-event__icon,
@@ -2403,8 +2403,8 @@
 
 .comment-form {
     display: grid;
-    gap: 12px;
-    padding: 14px;
+    gap: 15px;
+    padding: 17.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface-muted);
@@ -2412,9 +2412,9 @@
 
 .comment-form label {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: 17.5px;
 }
 
 .comment-form textarea {
@@ -2433,13 +2433,13 @@
 .corrective-action-card,
 .root-analysis-readonly {
     display: grid;
-    gap: 14px;
+    gap: 17.5px;
 }
 
 .root-analysis-card,
 .corrective-action-card,
 .root-analysis-readonly {
-    padding: 14px;
+    padding: 17.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface-muted);
@@ -2449,27 +2449,27 @@
    утверждённого анализа ниже, держит её мероприятия вместе. Коробка с
    коробками внутри давала три уровня отступов на одну мысль. */
 .root-analysis-card {
-    gap: 6px;
-    padding: 0 0 0 12px;
+    gap: 7.5px;
+    padding: 0 0 0 15px;
     border: 0;
-    border-left: 2px solid var(--color-border);
+    border-left: 2.5px solid var(--color-border);
     border-radius: 0;
     background: transparent;
 }
 
 .root-analysis-card[open] { border-left-color: var(--color-primary-border); }
-.root-analysis-card + .root-analysis-card { margin-top: 12px; }
+.root-analysis-card + .root-analysis-card { margin-top: 15px; }
 
 .root-analysis-card__title {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     color: var(--color-text);
-    font-size: 14px;
+    font-size: 17.5px;
     font-weight: 600;
 }
 
-.root-analysis-card__cause { display: grid; gap: 4px; max-width: var(--field-text); }
+.root-analysis-card__cause { display: grid; gap: 5px; max-width: var(--field-text); }
 .root-analysis-card__cause textarea { min-height: 0; resize: vertical; }
 
 /* Подпись поля, которую заголовок карточки уже произносит: остаётся для
@@ -2486,8 +2486,8 @@
 .corrective-action-list { gap: 0; }
 
 .corrective-action-card {
-    gap: 6px;
-    padding: 6px 0 0;
+    gap: 7.5px;
+    padding: 7.5px 0 0;
     border: 0;
     border-top: 1px solid var(--color-border);
     border-radius: 0;
@@ -2496,17 +2496,17 @@
 
 .corrective-action-row {
     display: grid;
-    grid-template-columns: minmax(280px, 2fr) minmax(420px, 3fr);
-    gap: 16px;
+    grid-template-columns: minmax(350px, 2fr) minmax(525px, 3fr);
+    gap: 20px;
     align-items: end;
 }
 
 .corrective-action-card .analysis-card-header { align-self: stretch; }
-.corrective-action-card .analysis-card-header textarea { min-height: 54px; resize: vertical; }
+.corrective-action-card .analysis-card-header textarea { min-height: 67.5px; resize: vertical; }
 
 .to-analysis-form label {
     display: grid;
-    gap: 4px;
+    gap: 5px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
@@ -2527,7 +2527,7 @@
 
 .corrective-action-card__title {
     color: var(--color-text);
-    font-size: 14px;
+    font-size: 17.5px;
     font-weight: 600;
 }
 
@@ -2537,7 +2537,7 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) max-content;
     align-items: start;
-    gap: 12px;
+    gap: 15px;
     max-width: var(--field-text);
 }
 
@@ -2546,7 +2546,7 @@
 .to-analysis-form .corrective-action-card__due {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     height: var(--control-height);
 }
 
@@ -2558,14 +2558,14 @@
 .corrective-action-card__assignees {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: 15px;
     max-width: 100%;
 }
 
 .corrective-action-card__assignees-label {
     flex: none;
-    min-width: 76px;
-    padding-top: 7px;
+    min-width: 95px;
+    padding-top: 8.75px;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
 }
@@ -2573,17 +2573,17 @@
 .corrective-action-card__assignees-body {
     display: grid;
     justify-items: start;
-    gap: 6px;
+    gap: 7.5px;
     min-width: 0;
 }
 
-.to-assignee-list { display: grid; gap: 6px; width: 100%; }
+.to-assignee-list { display: grid; gap: 7.5px; width: 100%; }
 
 /* Every row identical, first one included: department, employee, compact ×. */
 .to-assignee-row {
     display: grid;
-    grid-template-columns: minmax(0, 240px) minmax(0, 280px) auto;
-    gap: 8px;
+    grid-template-columns: minmax(0, 300px) minmax(0, 350px) auto;
+    gap: 10px;
     align-items: center;
     width: 100%;
 }
@@ -2606,7 +2606,7 @@
     grid-column: 1 / -1;
     margin: 0;
     color: var(--color-warning);
-    font-size: 13px;
+    font-size: 16.25px;
     line-height: 1.35;
 }
 
@@ -2620,17 +2620,17 @@
 .to-analysis-form .to-checkbox {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     color: var(--color-text);
-    font-size: 13px;
+    font-size: 16.25px;
     white-space: nowrap;
 }
 
 .to-checkbox input,
 .to-analysis-form .to-checkbox input {
     flex: none;
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
     margin: 0;
     padding: 0;
 }
@@ -2644,14 +2644,14 @@
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 4px 24px;
-    padding-left: 88px;
+    gap: 5px 30px;
+    padding-left: 110px;
 }
 
 .to-split-option:has(input:disabled) { opacity: 0.55; }
 
 .to-analysis-form .act-inline-actions .link-button { margin-top: 0; }
-.root-analysis-card [data-root-analysis-actions] { padding-top: 2px; }
+.root-analysis-card [data-root-analysis-actions] { padding-top: 2.5px; }
 
 /* Заголовок карточки анализа. Это `<summary>`: щелчок по нему сворачивает и
    разворачивает карточку, поэтому родная стрелка-маркер убирается в обоих
@@ -2659,7 +2659,7 @@
 .analysis-card-header {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12.5px;
     cursor: pointer;
     list-style: none;
 }
@@ -2669,8 +2669,8 @@
 
 .analysis-card-chevron {
     flex: none;
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
     color: var(--color-muted);
     transition: transform 0.15s ease;
 }
@@ -2686,7 +2686,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 [open] > .analysis-card-header .analysis-card-preview { display: none; }
@@ -2712,7 +2712,7 @@
     background: var(--color-surface);
     color: var(--color-muted);
     cursor: pointer;
-    font-size: 18px;
+    font-size: 22.5px;
     font-weight: 400;
     line-height: 1;
 }
@@ -2732,11 +2732,11 @@
 
 .field-error {
     color: var(--color-danger);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .root-analysis-readonly article {
-    padding-top: 12px;
+    padding-top: 15px;
     border-top: 1px solid var(--color-border);
 }
 
@@ -2746,26 +2746,26 @@
     margin: 0;
 }
 
-.to-analysis-readonly-list { display: grid; gap: 10px; }
+.to-analysis-readonly-list { display: grid; gap: 12.5px; }
 /* A tree: the root cause, and under it — on a rail — its corrective
    actions. The actions stay a table, one row per action. */
 .to-analysis-readonly {
     display: grid;
-    grid-template-columns: 22px minmax(0, 1fr);
-    gap: 4px 12px;
+    grid-template-columns: 27.5px minmax(0, 1fr);
+    gap: 5px 15px;
 }
 
-.to-analysis-readonly + .to-analysis-readonly { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-border); }
-.to-analysis-readonly__rail { display: inline-grid; grid-row: 1; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: var(--color-text); color: var(--color-surface); font-size: 11px; font-weight: 600; }
+.to-analysis-readonly + .to-analysis-readonly { margin-top: 17.5px; padding-top: 15px; border-top: 1px solid var(--color-border); }
+.to-analysis-readonly__rail { display: inline-grid; grid-row: 1; width: 27.5px; height: 27.5px; place-items: center; border-radius: 50%; background: var(--color-text); color: var(--color-surface); font-size: 13.75px; font-weight: 600; }
 .to-analysis-readonly__cause { display: grid; grid-column: 2; align-content: start; gap: 1px; }
 .to-analysis-readonly__cause > span { color: var(--color-muted); font-size: var(--font-size-sm); }
-.to-analysis-readonly__cause p { margin: 0; color: var(--color-text); font-size: 13px; font-weight: 500; line-height: 1.45; }
-.to-analysis-readonly__actions { grid-column: 2; min-width: 0; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--color-border); }
+.to-analysis-readonly__cause p { margin: 0; color: var(--color-text); font-size: 16.25px; font-weight: 500; line-height: 1.45; }
+.to-analysis-readonly__actions { grid-column: 2; min-width: 0; margin-top: 5px; padding-left: 15px; border-left: 2.5px solid var(--color-border); }
 .to-analysis-readonly .act-defects-table-wrap { width: 100%; margin: 0; overflow: visible; border-radius: 0; }
 .to-analysis-readonly .to-analysis-table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
 .to-analysis-readonly .to-analysis-table th,
-.to-analysis-readonly .to-analysis-table td { padding: 9px 10px; border: 0; border-bottom: 1px solid var(--color-border); color: var(--color-text); font-size: 13px; text-align: left; vertical-align: middle; }
-.to-analysis-readonly .to-analysis-table th { padding: 8px 10px; background: var(--color-surface-muted); color: var(--color-muted); font-size: 12px; font-weight: 600; }
+.to-analysis-readonly .to-analysis-table td { padding: 11.25px 12.5px; border: 0; border-bottom: 1px solid var(--color-border); color: var(--color-text); font-size: 16.25px; text-align: left; vertical-align: middle; }
+.to-analysis-readonly .to-analysis-table th { padding: 10px 12.5px; background: var(--color-surface-muted); color: var(--color-muted); font-size: 15px; font-weight: 600; }
 .to-analysis-readonly .to-analysis-table tbody tr:last-child td { border-bottom: 0; }
 .to-analysis-readonly .to-analysis-table td:nth-child(4) { white-space: nowrap; }
 .to-analysis-readonly .to-analysis-table td:nth-child(2),
@@ -2776,13 +2776,13 @@
 .to-analysis-table__due { width: 14%; }
 .to-analysis-table__status { width: 11%; }
 
-.to-analysis-assignee-list { display: grid; margin: 0; padding: 0; gap: 4px; list-style: none; }
+.to-analysis-assignee-list { display: grid; margin: 0; padding: 0; gap: 5px; list-style: none; }
 
 
 .attachment-form {
     display: grid;
-    gap: 12px;
-    padding: 14px;
+    gap: 15px;
+    padding: 17.5px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface-muted);
@@ -2790,9 +2790,9 @@
 
 .attachment-form label {
     display: grid;
-    gap: 6px;
+    gap: 7.5px;
     color: var(--color-muted);
-    font-size: 14px;
+    font-size: 17.5px;
 }
 
 .attachment-form input,
@@ -2808,12 +2808,12 @@
 
 .attachment-card {
     display: grid;
-    gap: 12px;
+    gap: 15px;
 }
 
 .attachment-card__main {
     display: grid;
-    gap: 4px;
+    gap: 5px;
 }
 
 .attachment-card__main p {
@@ -2824,39 +2824,39 @@
 .attachment-card__meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 12.5px;
     color: var(--color-muted);
-    font-size: 13px;
+    font-size: 16.25px;
 }
 
 .attachment-card__actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 12.5px;
 }
 
 /* The collaboration tab intentionally overrides the legacy attachment/comment
    presentation without affecting these components in other contexts. */
 .act-collaboration-layout .attachment-form,
-.act-collaboration-layout .comment-form { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.act-collaboration-layout .comment-form { display: grid; gap: 12.5px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .act-collaboration-layout .attachment-list,
 .act-collaboration-layout .comment-list { display: grid; gap: 0; }
-.act-collaboration-layout .attachment-card { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
-.act-collaboration-layout .attachment-card__main { display: grid; gap: 3px; min-width: 0; }
-.act-collaboration-layout .attachment-card__main strong { overflow: hidden; color: var(--color-text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.act-collaboration-layout .attachment-card__main p { margin: 0; color: var(--color-muted); font-size: 12px; }
-.act-collaboration-layout .attachment-card__meta { display: grid; gap: 2px; color: var(--color-muted); font-size: 11px; }
-.act-collaboration-layout .attachment-card__actions { display: flex; grid-column: 3; grid-row: 1 / span 2; flex-wrap: nowrap; gap: 6px; }
-.act-collaboration-layout .comment-form textarea { box-sizing: border-box; width: 100%; min-height: 58px; padding: var(--control-padding); border: 1px solid var(--color-border); border-radius: 6px; font: inherit; font-size: var(--control-font-size); resize: vertical; }
-.act-collaboration-layout .comment-card { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; padding: 10px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
-.act-collaboration-layout .comment-card p { margin: 0; color: var(--color-text); font-size: 13px; line-height: 1.4; }
+.act-collaboration-layout .attachment-card { display: grid; grid-template-columns: 42.5px minmax(0, 1fr) auto; align-items: center; gap: 11.25px; padding: 12.5px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
+.act-collaboration-layout .attachment-card__main { display: grid; gap: 3.75px; min-width: 0; }
+.act-collaboration-layout .attachment-card__main strong { overflow: hidden; color: var(--color-text); font-size: 16.25px; text-overflow: ellipsis; white-space: nowrap; }
+.act-collaboration-layout .attachment-card__main p { margin: 0; color: var(--color-muted); font-size: 15px; }
+.act-collaboration-layout .attachment-card__meta { display: grid; gap: 2.5px; color: var(--color-muted); font-size: 13.75px; }
+.act-collaboration-layout .attachment-card__actions { display: flex; grid-column: 3; grid-row: 1 / span 2; flex-wrap: nowrap; gap: 7.5px; }
+.act-collaboration-layout .comment-form textarea { box-sizing: border-box; width: 100%; min-height: 72.5px; padding: var(--control-padding); border: 1px solid var(--color-border); border-radius: 7.5px; font: inherit; font-size: var(--control-font-size); resize: vertical; }
+.act-collaboration-layout .comment-card { display: grid; grid-template-columns: 37.5px minmax(0, 1fr); gap: 11.25px; padding: 12.5px 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
+.act-collaboration-layout .comment-card p { margin: 0; color: var(--color-text); font-size: 16.25px; line-height: 1.4; }
 
 .act-close-context dl {
-    grid-template-columns: 180px minmax(0, 1fr);
+    grid-template-columns: 225px minmax(0, 1fr);
 }
 
 .act-close-form {
-    max-width: 760px;
+    max-width: 950px;
 }
 
 /* Outlined, like «--warning»: one filled button per screen is the action
@@ -2882,7 +2882,7 @@
     background: var(--color-success-soft);
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1250px) {
     .act-kpi-grid {
         grid-template-columns: 1fr;
     }
@@ -2920,10 +2920,10 @@
 
     /* Label beside value, one fact per line. */
     .act-party-data {
-        grid-template-columns: minmax(120px, 200px) minmax(0, 1fr) !important;
+        grid-template-columns: minmax(150px, 250px) minmax(0, 1fr) !important;
         grid-template-rows: none;
         grid-auto-flow: row;
-        gap: 6px 16px !important;
+        gap: 7.5px 20px !important;
     }
 
     .act-primary-actions {
@@ -2938,40 +2938,40 @@
     .corrective-action-row { grid-template-columns: 1fr; }
 
     .act-collaboration-layout { grid-template-columns: 1fr; }
-    .related-activities__table { min-width: 880px; }
+    .related-activities__table { min-width: 1100px; }
 }
 
-@media (max-width: 700px) {
-    .act-registry-toolbar { align-items: stretch; flex-direction: column; gap: 8px; }
-    .act-registry-toolbar > .link-button { margin: 0 0 8px; width: 100%; justify-content: center; }
-    .act-detail-heading h1 { font-size: 22px; }
+@media (max-width: 875px) {
+    .act-registry-toolbar { align-items: stretch; flex-direction: column; gap: 10px; }
+    .act-registry-toolbar > .link-button { margin: 0 0 10px; width: 100%; justify-content: center; }
+    .act-detail-heading h1 { font-size: 27.5px; }
 
-    .act-form-page { padding-bottom: 74px; }
+    .act-form-page { padding-bottom: 92.5px; }
     .act-form-page__header { align-items: flex-start; }
-    .act-form-page__header h1 { font-size: 22px; }
+    .act-form-page__header h1 { font-size: 27.5px; }
     .act-form-row--act,
     .defect-form-block__groups,
     .defect-field-group:last-child { grid-template-columns: 1fr; }
     .defect-field-group:last-child { grid-column: auto; }
-    .defect-field-group label { grid-template-columns: 1fr; gap: 6px; }
+    .defect-field-group label { grid-template-columns: 1fr; gap: 7.5px; }
     .defect-form-block__heading { align-items: flex-start; flex-direction: column; }
-    .act-form-actions { bottom: 8px; padding: 8px; }
+    .act-form-actions { bottom: 10px; padding: 10px; }
     .act-form-actions .link-button { flex: 1 1 auto; justify-content: center; }
     .history-feed__header { align-items: flex-start; flex-direction: column; }
-    .history-event { grid-template-columns: 34px minmax(0, 1fr); align-items: start; }
-    .history-event__meta { grid-column: 2; justify-items: start; grid-template-columns: repeat(2, max-content); gap: 8px; }
-    .act-collaboration-layout .attachment-picker { grid-template-columns: 18px minmax(0, 1fr); }
+    .history-event { grid-template-columns: 42.5px minmax(0, 1fr); align-items: start; }
+    .history-event__meta { grid-column: 2; justify-items: start; grid-template-columns: repeat(2, max-content); gap: 10px; }
+    .act-collaboration-layout .attachment-picker { grid-template-columns: 22.5px minmax(0, 1fr); }
     .act-collaboration-layout .attachment-picker .link-button { grid-column: 1 / -1; width: 100%; justify-content: center; }
-    .act-collaboration-layout .attachment-card { grid-template-columns: 32px minmax(0, 1fr); }
+    .act-collaboration-layout .attachment-card { grid-template-columns: 40px minmax(0, 1fr); }
     .act-collaboration-layout .attachment-card__actions { grid-column: 2; grid-row: auto; }
-    .act-collaboration-layout .comment-card__meta { align-items: flex-start; flex-direction: column; gap: 2px; }
+    .act-collaboration-layout .comment-card__meta { align-items: flex-start; flex-direction: column; gap: 2.5px; }
     .act-party-data {
         grid-template-columns: 1fr !important;
     }
 
-    .act-party-data { gap: 2px !important; }
+    .act-party-data { gap: 2.5px !important; }
     .act-defect-card__body { padding-left: 0; }
-    .act-party-data dd + dt { margin-top: 8px; }
+    .act-party-data dd + dt { margin-top: 10px; }
 
     /* A phone has no viewport to spare for a bar that follows the scroll:
        the buttons stand at the end of the form, where they are drawn. */
@@ -2979,7 +2979,7 @@
     .act-form-actions { position: static; box-shadow: none; }
 
     .corrective-action-card__statement { grid-template-columns: 1fr; }
-    .corrective-action-card__assignees { flex-direction: column; gap: 4px; }
+    .corrective-action-card__assignees { flex-direction: column; gap: 5px; }
     .corrective-action-card__assignees-label { padding-top: 0; }
     .corrective-action-card__options { padding-left: 0; }
 
@@ -2987,7 +2987,7 @@
     .to-assignee-row .analysis-remove-button { justify-self: end; margin-bottom: 0; }
 
     .to-analysis-readonly .act-defects-table-wrap { overflow-x: auto; }
-    .to-analysis-readonly .to-analysis-table { min-width: 680px; }
+    .to-analysis-readonly .to-analysis-table { min-width: 850px; }
     .to-analysis-readonly__actions { grid-column: 1 / -1; }
 }
 
@@ -2995,13 +2995,13 @@
    «Что сделать» takes what the fixed columns leave; below the table's
    `min-width` the card scrolls sideways instead of squeezing a column. Every
    cell is one line, like the act, protocol and СМК registries. */
-.task-registry-table { table-layout: fixed; min-width: 1100px; }
-.task-registry-table__number { width: 84px; }
-.task-registry-table__people { width: 210px; }
-.task-registry-table__type { width: 290px; }
-.task-registry-table__source { width: 170px; }
-.task-registry-table__status { width: 130px; }
-.task-registry-table__due { width: 200px; }
+.task-registry-table { table-layout: fixed; min-width: 1375px; }
+.task-registry-table__number { width: 105px; }
+.task-registry-table__people { width: 262.5px; }
+.task-registry-table__type { width: 362.5px; }
+.task-registry-table__source { width: 212.5px; }
+.task-registry-table__status { width: 162.5px; }
+.task-registry-table__due { width: 250px; }
 .task-registry-table th,
 .task-registry-table td { white-space: nowrap; }
 .task-registry-table__line { display: block; }
