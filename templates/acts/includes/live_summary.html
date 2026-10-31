@@ -10,7 +10,7 @@ fragment view fills, with `?part=side`.
 <section class="act-head">
     <div class="act-detail-heading">
         <a class="act-back-link" href="{% url 'acts:list' %}" aria-label="К списку актов" title="К списку актов"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></a>
-        <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge act-stage-badge--{{ act.status.code|lower }}" data-act-status-badge>{{ act.status }}</span></div>
+        <div class="act-detail-heading__title"><h1>Акт {{ act.number }}</h1><span class="act-stage-badge act-stage-badge--{{ act.status.code|lower }}" data-act-status-badge>{{ act.workflow_status_label }}</span></div>
     </div>
     <ol class="act-route act-route--flow" aria-label="Маршрут согласования">
         {% for step in route_steps %}

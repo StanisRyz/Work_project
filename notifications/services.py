@@ -1089,7 +1089,10 @@ def _recipients_for_event(event_type, act):
 
         return active_users_for_roles(ko_roles_for_act(act))
     if event_type in {Notification.EventType.ACT_SENT_TO_TO, Notification.EventType.ACT_RETURNED_TO_TO}:
-        return _active_users_for_role(UserProfile.Role.TO)
+        from acts.permissions import to_roles_for_act
+        from tasks.services import active_users_for_roles
+
+        return active_users_for_roles(to_roles_for_act(act))
     if event_type == Notification.EventType.ACT_SENT_TO_OTK:
         # `OTK_REVIEW` is the department's queue, not the author's: any active
         # ОТК employee may review and approve the act, so all of them are told.
@@ -1160,7 +1163,10 @@ def get_comment_participants(act):
 
         candidates.extend(active_users_for_roles(ko_roles_for_act(act)))
     elif status_code == 'TO_ANALYSIS':
-        candidates.extend(_active_users_for_role(UserProfile.Role.TO))
+        from acts.permissions import to_roles_for_act
+        from tasks.services import active_users_for_roles
+
+        candidates.extend(active_users_for_roles(to_roles_for_act(act)))
     elif status_code in {'CREATED_OTK', 'OTK_REVIEW'}:
         candidates.append(act.created_by)
     return [user for user in candidates if can_contribute_to_act(act, user)]
@@ -1480,7 +1486,24 @@ def _bug_event_text(event_type, report):
 
 
 def _act_event_text(event_type, act):
+    from acts.workshops import uses_combined_to
+
     number = act.number
+    if uses_combined_to(act):
+        combined_texts = {
+            Notification.EventType.ACT_SENT_TO_TO: NotificationText(
+                f'Акт {number} передан на проработку ТО',
+                f'Акт {number} ожидает решений по дефектам и анализа технологического отдела.',
+                'Внесите решения и анализ, назначьте мероприятия.',
+            ),
+            Notification.EventType.ACT_SENT_TO_OTK: NotificationText(
+                f'Акт {number} передан на проверку ОТК',
+                f'Проработка ТО по акту {number} завершена и ожидает проверки ОТК.',
+                'Проверьте решения и анализ, утвердите акт либо верните его в ТО.',
+            ),
+        }
+        if event_type in combined_texts:
+            return combined_texts[event_type]
     texts = {
         Notification.EventType.ACT_SENT_TO_KO: NotificationText(
             f'Акт {number} передан в КО',

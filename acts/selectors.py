@@ -11,6 +11,7 @@ from django.utils import timezone
 from references.models import ActStatus
 
 from .models import Act
+from .workshops import uses_combined_to
 from .permissions import (
     can_clear_all_acts,
     can_create_act,
@@ -72,6 +73,15 @@ ROUTE_INDEX = {
     'ACTIONS_ASSIGNED': 3,
     'ARCHIVED': 4,
 }
+
+
+def route_definition(combined=False):
+    if combined:
+        return tuple(
+            ('Проработка ТО' if code == 'TO_ANALYSIS' else name, code)
+            for name, code in ROUTE_STEPS if code != 'KO_REVIEW'
+        )
+    return ROUTE_STEPS
 
 
 # --------------------------------------------------------------------------
@@ -155,7 +165,7 @@ def build_act_list_state(user, query_params):
     return {
         # `distinct=True`: the ЗНП search joins the defects table, which would
         # otherwise multiply the count.
-        'acts': acts.annotate(defects_total=Count('defects', distinct=True)),
+        'acts': acts.annotate(defects_total=Count('defects', distinct=True)).prefetch_related('defects'),
         'kpis': kpis,
         'kpi_filters': kpi_filters,
         'sort': sort,
@@ -208,9 +218,11 @@ def build_route_steps(act):
         'OTK_REVIEW': act.approved_by,
     }
     status_code = getattr(act.status, 'code', '')
-    current_index = ROUTE_INDEX.get(status_code, 0)
+    route = route_definition(uses_combined_to(act))
+    current_code = 'OTK_REVIEW' if status_code == 'ACTIONS_ASSIGNED' else status_code
+    current_index = next((i for i, (_name, code) in enumerate(route) if code == current_code), 0)
     steps = []
-    for index, (name, code) in enumerate(ROUTE_STEPS):
+    for index, (name, code) in enumerate(route):
         if index < current_index or (status_code == 'ARCHIVED' and index == current_index):
             state = 'completed'
         elif index == current_index:

@@ -18,7 +18,7 @@ from realtime.auth import realtime_login_required
 from realtime.emitters import emit_act_created
 from realtime.fragments import LIVE_REVISION_PLACEHOLDER, content_revision
 
-from . import quality_impact
+from . import quality_impact, workshops
 from .forms import (
     ActAttachmentForm,
     ActCloseForm,
@@ -40,9 +40,9 @@ from .permissions import (
 )
 from .permissions import can_add_attachment, can_clear_all_acts, can_close_act, can_contribute_to_act, can_create_act, can_delete_attachment, can_download_attachment, can_edit_act, can_view_act
 from .selectors import (
-    ROUTE_STEPS,
     build_act_list_state,
     build_route_steps,
+    route_definition,
     get_act_comments,
     get_history_events,
     get_related_tasks,
@@ -95,7 +95,7 @@ def _export_act_registry(state):
             act.get_act_type_display(),
             act.customer,
             act.nomenclature,
-            act.status.name if act.status_id else '',
+            act.workflow_status_label if act.status_id else '',
             act.due_date,
         ]
         for act in state['acts'].select_related('status')
@@ -266,6 +266,21 @@ def act_clear_all(request):
     return redirect('acts:list')
 
 
+def _act_form_route_context(formset):
+    profile = formset.forms[0].workshop_profile if formset.forms else None
+    combined = bool(profile and profile.combined_to and not formset.has_legacy_workshops)
+    return {
+        'route_names': [name for name, _code in route_definition(combined)],
+        'workshop_routes': {
+            '': [name for name, _code in route_definition()],
+            **{
+                code: [name for name, _code in route_definition(profile.combined_to)]
+                for code, profile in workshops.WORKSHOP_PROFILES.items()
+            },
+        },
+    }
+
+
 @login_required
 def act_create(request):
     if not can_create_act(request.user):
@@ -328,7 +343,7 @@ def act_create(request):
             # the one rule, computed here — never restated in the browser.
             'today': timezone.localdate(),
             'planned_due_date': calculate_act_due_date(),
-            'route_names': [name for name, _code in ROUTE_STEPS],
+            **_act_form_route_context(defect_formset),
         },
     )
 
@@ -401,7 +416,7 @@ def act_edit(request, pk):
             'workshop_profiles': workshop_client_config(),
             'act': act,
             'is_edit': True,
-            'route_names': [name for name, _code in ROUTE_STEPS],
+            **_act_form_route_context(defect_formset),
         },
     )
 
@@ -738,18 +753,34 @@ def act_to_analysis(request, pk):
         return _redirect_to_detail_tab(act, 'work')
 
     form = ToAnalysisStructureForm(request.POST)
+    combined = workshops.uses_combined_to(act)
+    decisions_formset = ActDefectKoDecisionFormSet(
+        request.POST, queryset=_decidable_defects_queryset(act, request.user)
+    ) if combined else None
+    analysis_valid = form.is_valid()
+    decisions_valid = decisions_formset.is_valid() if decisions_formset is not None else True
     if request.POST.get('action') != 'send_to_otk':
         form.non_field_errors.append('Выберите действие для анализа ТО.')
-    elif form.is_valid():
+    elif analysis_valid and decisions_valid:
         try:
-            act = apply_structured_to_analysis(act, request.user, form.analysis_data)
+            decisions = [
+                (row.instance, row.cleaned_data['ko_decision'], row.cleaned_data['ko_comment'],
+                 {name: row.cleaned_data.get(name) for name in quality_impact.FIELDS})
+                for row in decisions_formset.forms
+            ] if decisions_formset is not None else None
+            act = apply_structured_to_analysis(
+                act, request.user, form.analysis_data, defect_decisions=decisions,
+            )
         except ActWorkflowError as exc:
             form.non_field_errors.append(str(exc))
         else:
-            messages.success(request, 'Анализ ТО сохранен.')
+            messages.success(request, 'Проработка ТО сохранена.' if combined else 'Анализ ТО сохранен.')
             return _redirect_after_transition(act, request.user)
 
-    context = _get_act_detail_context(act, request.user, detail_tab='work', to_analysis_form=form)
+    context = _get_act_detail_context(
+        act, request.user, detail_tab='work', to_analysis_form=form,
+        ko_decision_formset=decisions_formset,
+    )
     return _render_act_detail(request, act, context, work_is_bound=True)
 
 
@@ -851,7 +882,7 @@ def _get_act_for_detail(pk):
 
 
 def _decidable_defects_queryset(act, user):
-    """The defects `user` decides as КО on this act, as a queryset for the formset."""
+    """The defects `user` decides at this act's current stage, for the formset."""
     ids = [defect.pk for defect in decidable_defects(act, user)]
     return act.defects.filter(pk__in=ids).select_related('defect_type').order_by('created_at', 'pk')
 
@@ -904,7 +935,10 @@ def _defect_decision_rows(defects, ko_forms=(), act=None):
     # Paired by defect, not by position: a workshop КО's formset holds only
     # their own defects, so its forms no longer line up with the act's list.
     forms_by_defect = {form.instance.pk: form for form in ko_forms}
-    in_review = act is not None and getattr(act.status, 'code', '') == 'KO_REVIEW'
+    combined = act is not None and workshops.uses_combined_to(act)
+    in_review = act is not None and (
+        getattr(act.status, 'code', '') == ('TO_ANALYSIS' if combined else 'KO_REVIEW')
+    )
     rows = []
     for defect in defects:
         # While КО is deciding, a decision from an earlier round is not the
@@ -916,7 +950,7 @@ def _defect_decision_rows(defects, ko_forms=(), act=None):
             'facts': _defect_facts(defect, profile),
             'shows_description': profile is None or profile.applies('description'),
             'ko_form': forms_by_defect.get(defect.pk),
-            'ko_pending_label': ko_role_label_for_defect(defect) if pending else '',
+            'ko_pending_label': ('ТО' if combined else ko_role_label_for_defect(defect)) if pending else '',
             'impact': quality_impact.describe(quality_impact.values_of(defect)),
             'impact_applies': bool(defect.ko_decision)
             and not quality_impact.clears(defect.ko_decision),
@@ -959,17 +993,19 @@ def _get_act_detail_context(
     # The defects themselves are the only defect data there is: an act without
     # them renders the neutral empty state, never a reconstructed row.
     defect_rows = list(act.defects.select_related('defect_type', 'operation'))
+    combined = workshops.uses_combined_to(act)
+    decision_form_id = 'to-analysis-form' if combined else 'ko-decision-form'
     if ko_decision_formset is None and defect_rows:
         ko_decision_formset = ActDefectKoDecisionFormSet(
             queryset=_decidable_defects_queryset(act, user)
         )
     if ko_decision_formset is not None:
         for field in ko_decision_formset.management_form.fields.values():
-            field.widget.attrs['form'] = 'ko-decision-form'
+            field.widget.attrs['form'] = decision_form_id
         ko_forms = list(ko_decision_formset)
         for form in ko_forms:
             for field in form.fields.values():
-                field.widget.attrs['form'] = 'ko-decision-form'
+                field.widget.attrs['form'] = decision_form_id
     else:
         ko_forms = []
     if ko_decision_form is None:
@@ -1009,6 +1045,10 @@ def _get_act_detail_context(
         'active_page': 'acts',
         'header_title': '',
         'act': act,
+        'combined_to': combined,
+        'decision_label': 'Решение ТО' if combined else 'Решение КО',
+        'decision_comment_label': 'Комментарий ТО' if combined else 'Комментарий КО',
+        'analysis_label': 'Проработка ТО' if combined else 'Анализ ТО',
         'today': timezone.localdate(),
         'detail_tab': _get_detail_tab(detail_tab),
         'available_actions': get_available_act_actions(act, user),

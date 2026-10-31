@@ -69,7 +69,10 @@ class UserProfile(models.Model):
         KO_MP = 'ko_mp', 'КО МП'
         KO_TR = 'ko_tr', 'КО ТР'
         KO_PIR = 'ko_pir', 'КО ЦПиР'
-        TO = 'to', 'ТО'
+        TO = 'to', 'Начальник ТО'
+        TO_MP = 'to_mp', 'Технолог МП'
+        TO_RL = 'to_rl', 'Технолог РЛ'
+        TO_TR = 'to_tr', 'Технолог ТР'
         # Планово-диспетчерский отдел: owns the calculator's «Проработка»
         # journal. A first-class role like the others — never a department
         # check, never a synonym of any existing role.

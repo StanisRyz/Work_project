@@ -1,5 +1,7 @@
 from django.core.management.base import BaseCommand
 
+from acts.workshops import RL_DEFECT_TYPES
+
 from references.models import (
     DEVIATION_REASONS,
     ActStatus,
@@ -83,6 +85,7 @@ class Command(BaseCommand):
                 code=code,
                 defaults={'name': name, 'sort_order': sort_order, 'is_active': True},
             )
+        defect_types = list(dict(defect_types + list(RL_DEFECT_TYPES)).items())
         for code, name in defect_types:
             DefectType.objects.update_or_create(
                 code=code,

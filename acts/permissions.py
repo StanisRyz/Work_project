@@ -91,7 +91,9 @@ def can_decide_defect(defect, user):
 
 
 def decidable_defects(act, user):
-    """This act's defects the user may decide as КО, in the act's order."""
+    """The user's decisions at the current КО or combined ТО stage, in order."""
+    if workshops.uses_combined_to(act):
+        return list(act.defects.all()) if can_apply_to_analysis(act, user) else []
     if _status_code(act) != 'KO_REVIEW' or not (is_ko(user) or has_full_act_access(user)):
         return []
     return [defect for defect in act.defects.all() if can_decide_defect(defect, user)]
@@ -129,8 +131,38 @@ def ko_roles_for_act(act):
     return frozenset(roles)
 
 
+WORKSHOP_TO_ROLES = {
+    workshops.MP_SHOP: UserProfile.Role.TO_MP,
+    workshops.RL_SHOP: UserProfile.Role.TO_RL,
+    workshops.TR_SHOP: UserProfile.Role.TO_TR,
+}
+TO_ROLES = frozenset({UserProfile.Role.TO, *WORKSHOP_TO_ROLES.values()})
+
+
 def is_to(user):
-    return has_role(user, UserProfile.Role.TO)
+    return has_any_role(user, TO_ROLES)
+
+
+def to_workshops(user):
+    """None for the head/full access; otherwise the user's technological scope."""
+    if has_full_act_access(user) or has_role(user, UserProfile.Role.TO):
+        return None
+    roles = get_user_roles(user)
+    return frozenset(code for code, role in WORKSHOP_TO_ROLES.items() if role in roles)
+
+
+def to_roles_for_act(act):
+    roles = {UserProfile.Role.TO}
+    for defect in act.defects.all():
+        role = WORKSHOP_TO_ROLES.get(defect.workshop)
+        if role:
+            roles.add(role)
+    return frozenset(roles)
+
+
+def _has_to_share(act, user):
+    allowed = to_workshops(user)
+    return allowed is None or any(defect.workshop in allowed for defect in act.defects.all())
 
 
 def is_smk(user):
@@ -249,7 +281,12 @@ def can_clear_all_acts(user):
 
 
 def can_view_act(act, user):
-    return bool(getattr(user, 'is_authenticated', False))
+    condition = get_visible_acts_filter(user)
+    if condition is None:
+        return False
+    if condition == Q():
+        return True
+    return _has_to_share(act, user)
 
 
 def can_contribute_to_act(act, user):
@@ -272,7 +309,7 @@ def can_contribute_to_act(act, user):
             return True
     if is_ko(user) and status == 'KO_REVIEW' and _has_ko_share(act, user):
         return True
-    if is_to(user) and (
+    if is_to(user) and _has_to_share(act, user) and (
         status == 'TO_ANALYSIS'
         or (status == 'ACTIONS_ASSIGNED' and act.to_analysis_by_id == user.id)
     ):
@@ -314,7 +351,7 @@ def can_apply_ko_decision(act, user):
     (`decidable_defects()`), and the act moves on to ТО once every defect has
     this round's decision.
     """
-    if _status_code(act) != 'KO_REVIEW':
+    if workshops.uses_combined_to(act) or _status_code(act) != 'KO_REVIEW':
         return False
     if has_full_act_access(user):
         return True
@@ -322,15 +359,19 @@ def can_apply_ko_decision(act, user):
 
 
 def can_return_to_otk(act, user):
-    return can_apply_ko_decision(act, user)
+    return can_apply_ko_decision(act, user) or (
+        workshops.uses_combined_to(act) and can_apply_to_analysis(act, user)
+    )
 
 
 def can_apply_to_analysis(act, user):
-    return _status_code(act) == 'TO_ANALYSIS' and (is_to(user) or has_full_act_access(user))
+    return _status_code(act) == 'TO_ANALYSIS' and (
+        has_full_act_access(user) or (is_to(user) and _has_to_share(act, user))
+    )
 
 
 def can_return_to_ko(act, user):
-    return can_apply_to_analysis(act, user)
+    return not workshops.uses_combined_to(act) and can_apply_to_analysis(act, user)
 
 
 def can_review_otk(act, user):
@@ -360,7 +401,7 @@ def can_close_act(act, user):
         return False
     if has_full_act_access(user):
         return True
-    return is_to(user) and act.to_analysis_by_id == user.id
+    return is_to(user) and _has_to_share(act, user) and act.to_analysis_by_id == user.id
 
 
 def can_add_attachment(act, user):
@@ -422,22 +463,33 @@ def get_visible_acts_queryset(user):
             )
             condition |= Q(status__code='KO_REVIEW', pk__in=waiting)
     if is_to(user):
-        condition |= Q(status__code='TO_ANALYSIS') | Q(
+        to_condition = Q(status__code='TO_ANALYSIS') | Q(
             status__code='ACTIONS_ASSIGNED', to_analysis_by=user,
         )
+        allowed = to_workshops(user)
+        if allowed is not None:
+            to_condition &= Q(pk__in=ActDefect.objects.filter(workshop__in=allowed).values('act_id'))
+        condition |= to_condition
     return queryset.filter(condition)
 
 
 def get_archived_acts_queryset(user):
-    queryset = Act.objects.select_related('created_by', 'priority', 'status')
-    if getattr(user, 'is_authenticated', False):
-        return queryset.filter(status__code='ARCHIVED')
-    return queryset.none()
+    return get_all_visible_acts_queryset(user).select_related(
+        'created_by', 'priority', 'status'
+    ).filter(status__code='ARCHIVED')
 
 
 def get_visible_acts_filter(user):
     """Return a `Q` matching every act an authenticated user may read."""
     if getattr(user, 'is_authenticated', False):
+        roles = get_user_roles(user)
+        # A workshop technologist reads only their workshops in every registry
+        # and endpoint. A second, non-technological role keeps its own existing
+        # read access (substitutions add rights, never take them away).
+        if roles and roles <= set(WORKSHOP_TO_ROLES.values()) and not has_full_act_access(user):
+            return Q(pk__in=ActDefect.objects.filter(
+                workshop__in=to_workshops(user),
+            ).values('act_id'))
         return Q()
     return None
 

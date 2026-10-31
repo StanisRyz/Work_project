@@ -2089,6 +2089,47 @@
     display: none !important;
 }
 
+[data-add-defect-hint][hidden] { display: none; }
+
+/* The workshop profile opts into the six-field layout; controls, colours and
+   spacing stay those of the shared act editor. */
+.defect-form-block[data-defect-layout="grid"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 30px;
+}
+
+.defect-form-block[data-defect-layout="grid"] .defect-form-block__groups,
+.defect-form-block[data-defect-layout="grid"] .defect-field-group {
+    display: contents;
+}
+
+.defect-form-block[data-defect-layout="grid"] .defect-field-group legend {
+    display: none;
+}
+
+.defect-form-block[data-defect-layout="grid"] .defect-form-block__heading,
+.defect-form-block[data-defect-layout="grid"] [data-defect-field="workshop"] {
+    grid-column: 1 / -1;
+    order: -1;
+}
+
+.defect-form-block[data-defect-layout="grid"] label {
+    grid-template-columns: 1fr;
+    align-content: start;
+    gap: 5px;
+}
+
+.defect-form-block[data-defect-layout="grid"] [data-defect-field="znp_number"] { order: 1; }
+.defect-form-block[data-defect-layout="grid"] [data-defect-field="defect_type"] { order: 2; }
+.defect-form-block[data-defect-layout="grid"] [data-defect-field="detected_at"] { order: 3; }
+.defect-form-block[data-defect-layout="grid"] [data-defect-field="checked_quantity"] { order: 4; }
+.defect-form-block[data-defect-layout="grid"] [data-defect-field="nonconforming_quantity"] { order: 5; }
+.defect-form-block[data-defect-layout="grid"] [data-defect-field="description"] { order: 6; }
+
+@media (max-width: 950px) {
+    .defect-form-block[data-defect-layout="grid"] { grid-template-columns: 1fr; }
+}
+
 .add-defect-button .ui-icon {
     width: 20px;
     height: 20px;

@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import UserProfile
+from acts.forms import ActDefectForm
 from acts.models import Act, ActDefect
 from references.models import ActStatus, DefectType, Operation
 
@@ -68,11 +69,29 @@ class WorkshopAwareDefectTests(TestCase):
             'defects-1-detected_at': timezone.localdate().isoformat(),
         }
 
-    def test_a_mixed_act_keeps_each_defect_independent_and_summarises_none(self):
-        response = self.client.post(reverse('acts:create'), self._mixed_act_payload())
+    def _create_legacy_mixed_act(self):
+        """Existing mixed acts retain independent facts after the supplier rule."""
+        payload = self._mixed_act_payload()
+        act = Act.objects.create(
+            created_by=self.otk_user, order_number=payload['order_number'],
+            status=ActStatus.objects.get(code='CREATED_OTK'),
+        )
+        for index in range(2):
+            form = ActDefectForm(payload, prefix=f'defects-{index}')
+            self.assertTrue(form.is_valid(), form.errors)
+            defect = form.save(commit=False)
+            defect.act = act
+            defect.save()
+        return act
 
-        self.assertEqual(response.status_code, 302, response.context)
-        act = Act.objects.get(order_number='400-1')
+    def test_new_acts_refuse_mixed_workshops(self):
+        response = self.client.post(reverse('acts:create'), self._mixed_act_payload())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Цех/поставщик должен совпадать с первым дефектом.')
+        self.assertFalse(Act.objects.filter(order_number='400-1').exists())
+
+    def test_a_legacy_mixed_act_keeps_each_defect_independent_and_summarises_none(self):
+        act = self._create_legacy_mixed_act()
         pir_defect, mp_defect = act.defects.order_by('created_at', 'pk')
 
         self.assertEqual(pir_defect.workshop, ActDefect.Workshop.PIR_SHOP)
@@ -94,8 +113,7 @@ class WorkshopAwareDefectTests(TestCase):
             self.assertFalse(hasattr(act, field), field)
 
     def test_the_database_refuses_mp_only_data_on_a_pir_defect(self):
-        self.client.post(reverse('acts:create'), self._mixed_act_payload())
-        act = Act.objects.get(order_number='400-1')
+        act = self._create_legacy_mixed_act()
 
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
@@ -116,8 +134,7 @@ class WorkshopAwareDefectTests(TestCase):
         закрывает всё остальное — правку в админке, миграцию данных, ручной
         SQL. Проверяются обе пары «галочка → её поля».
         """
-        self.client.post(reverse('acts:create'), self._mixed_act_payload())
-        act = Act.objects.get(order_number='400-1')
+        act = self._create_legacy_mixed_act()
         base = {
             'act': act,
             'workshop': ActDefect.Workshop.MP_SHOP,
@@ -145,8 +162,7 @@ class WorkshopAwareDefectTests(TestCase):
         self.assertTrue(defect.quality_impact_em_parameters)
 
     def test_the_registry_and_detail_work_without_any_act_summary(self):
-        self.client.post(reverse('acts:create'), self._mixed_act_payload())
-        act = Act.objects.get(order_number='400-1')
+        act = self._create_legacy_mixed_act()
 
         by_party = self.client.get(reverse('acts:list'), {'search': '600-600'})
         by_second_znp = self.client.get(reverse('acts:list'), {'search': '500-2'})

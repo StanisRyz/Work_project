@@ -13,7 +13,8 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
 <section class="act-work-sequence">
 
     <article class="detail-section">
-        <h2>Дефекты и решение КО</h2>
+        <h2>{% if combined_to %}Проработка ТО{% else %}Дефекты и решение КО{% endif %}</h2>
+        {% if ko_decision_formset.non_form_errors %}{{ ko_decision_formset.non_form_errors }}{% endif %}
         {% comment %}
         Одна карточка на дефект, не строка таблицы. Таблица из двенадцати
         колонок скроллилась горизонтально уже с одним дефектом, а «Анализ
@@ -86,11 +87,11 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                         <div class="act-defect-card__decision">
                             {{ row.ko_form.id }}
                             <label class="act-defect-card__field">
-                                <span class="act-defect-card__label">Решение КО</span>
+                                <span class="act-defect-card__label">{{ decision_label }}</span>
                                 {{ row.ko_form.ko_decision }}{{ row.ko_form.ko_decision.errors }}
                             </label>
                             <label class="act-defect-card__field">
-                                <span class="act-defect-card__label">Комментарий КО</span>
+                                <span class="act-defect-card__label">{{ decision_comment_label }}</span>
                                 {{ row.ko_form.ko_comment }}{{ row.ko_form.ko_comment.errors }}
                             </label>
                         </div>
@@ -116,8 +117,8 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                         {% endif %}
                     {% else %}
                         <div class="act-defect-card__decision act-defect-card__decision--readonly">
-                            <p class="act-defect-card__line"><span class="act-defect-card__fact-label">Решение КО</span> {% if row.ko_pending_label %}<span>Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--decision act-badge--decision-{{ row.defect.ko_decision|lower }}">{{ row.defect.get_ko_decision_display }}</span>{% else %}<span>—</span>{% endif %}</p>
-                            {% if not row.ko_pending_label %}<p class="act-defect-card__line"><span class="act-defect-card__fact-label">Комментарий КО</span> <span class="user-text">{{ row.defect.ko_comment|default:'—' }}</span></p>{% endif %}
+                            <p class="act-defect-card__line"><span class="act-defect-card__fact-label">{{ decision_label }}</span> {% if row.ko_pending_label %}<span>Ожидает решения {{ row.ko_pending_label }}</span>{% elif row.defect.ko_decision %}<span class="act-badge act-badge--decision act-badge--decision-{{ row.defect.ko_decision|lower }}">{{ row.defect.get_ko_decision_display }}</span>{% else %}<span>—</span>{% endif %}</p>
+                            {% if not row.ko_pending_label %}<p class="act-defect-card__line"><span class="act-defect-card__fact-label">{{ decision_comment_label }}</span> <span class="user-text">{{ row.defect.ko_comment|default:'—' }}</span></p>{% endif %}
                         </div>
                         {% comment %}
                         Блок анализа в режиме чтения показывается только там,
@@ -147,10 +148,11 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
     </article>
 
     <article class="detail-section to-analysis-section">
-        <h2>Анализ ТО</h2>
+        <h2>{% if combined_to %}Причины и корректирующие мероприятия{% else %}Анализ ТО{% endif %}</h2>
         {% if available_actions.to_analysis %}
             <form id="to-analysis-form" method="post" action="{% url 'acts:to_analysis' act.pk %}" class="to-analysis-form">
                 {% csrf_token %}
+                {% if combined_to and ko_decision_formset %}{{ ko_decision_formset.management_form }}{% endif %}
                 {# Submitted through the confirmation modal, which has no submitter button of its own. #}
                 <input type="hidden" name="action" value="send_to_otk">
                 {% if to_analysis_form.non_field_errors %}<ul class="errorlist">{% for error in to_analysis_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
@@ -266,7 +268,7 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
                 <div class="act-inline-actions"><button class="link-button link-button--success link-button--compact" type="button" data-add-root-analysis>+ Корневая причина</button></div>
             </form>
         {% elif root_analyses %}
-            <section class="to-analysis-readonly-list" aria-label="Анализ ТО: причины и корректирующие действия">
+            <section class="to-analysis-readonly-list" aria-label="{{ analysis_label }}: причины и корректирующие действия">
                 {% for root in root_analyses %}
                     <section class="to-analysis-readonly">
                         <div class="to-analysis-readonly__rail" aria-label="Корневая причина {{ forloop.counter }}">{{ forloop.counter }}</div>
@@ -281,7 +283,7 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
             <dl><dt>Автор</dt><dd>{{ act.to_analysis_by|default:'-' }}</dd><dt>Дата</dt><dd>{{ act.to_analysis_at|date:'d.m.Y H:i'|default:'-' }}</dd></dl>
             <h3>Корневая причина</h3><p class="user-text">{{ act.to_root_cause|default:'Не заполнено.' }}</p>
             <h3>Предлагаемые мероприятия</h3><p class="user-text">{{ act.to_action_summary|default:'Не заполнено.' }}</p>
-        {% else %}<p class="placeholder-text">Анализ ТО ещё не внесён.</p>{% endif %}
+        {% else %}<p class="placeholder-text">{% if combined_to %}Проработка ТО ещё не внесена.{% else %}Анализ ТО ещё не внесён.{% endif %}</p>{% endif %}
         {% if available_actions.close_act %}<div class="act-inline-actions"><a class="link-button" href="{% url 'acts:close' act.pk %}">Закрыть акт</a></div>{% endif %}
     </article>
 
@@ -328,14 +330,14 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
             {% if available_actions.to_analysis %}<button class="link-button" type="button" data-workflow-submit
                 data-confirm
                 data-confirm-form="to-analysis-form"
-                data-confirm-title="Передать анализ на проверку ОТК"
-                data-confirm-text="Анализ ТО будет сохранён и станет доступен ОТК только для чтения."
+                data-confirm-title="Передать {{ analysis_label|lower }} на проверку ОТК"
+                data-confirm-text="{% if combined_to %}Решения по всем дефектам и анализ будут сохранены и переданы на проверку ОТК.{% else %}Анализ ТО будет сохранён и станет доступен ОТК только для чтения.{% endif %}"
                 data-confirm-label="Передать">На проверку ОТК</button>{% endif %}
             {% if available_actions.return_to_to %}<button class="link-button link-button--warning" type="button" data-workflow-submit
                 data-confirm
                 data-confirm-url="{% url 'acts:return_to_to' act.pk %}"
                 data-confirm-title="Вернуть акт в ТО на доработку"
-                data-confirm-text="Укажите, что необходимо уточнить в анализе ТО."
+                data-confirm-text="{% if combined_to %}Укажите, что необходимо уточнить в проработке ТО.{% else %}Укажите, что необходимо уточнить в анализе ТО.{% endif %}"
                 data-confirm-label="Вернуть на доработку"
                 data-confirm-variant="warning"
                 data-confirm-comment="required"
@@ -361,9 +363,9 @@ here: they stand in the side panel (`live_summary.html`), on every tab.
             {% if available_actions.send_to_ko %}<button class="link-button" type="button" data-workflow-submit
                 data-confirm
                 data-confirm-url="{% url 'acts:send_to_ko' act.pk %}"
-                data-confirm-title="Передать акт в КО"
+                data-confirm-title="{% if combined_to %}Передать акт на проработку ТО{% else %}Передать акт в КО{% endif %}"
                 data-confirm-text="После подтверждения акт исчезнет из вашей очереди ОТК и станет доступен только для чтения."
-                data-confirm-label="Передать в КО">Передать в КО</button>{% endif %}
+                data-confirm-label="{% if combined_to %}Передать в ТО{% else %}Передать в КО{% endif %}">{% if combined_to %}Передать в ТО{% else %}Передать в КО{% endif %}</button>{% endif %}
         </div>
     </div>
 </section>

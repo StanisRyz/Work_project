@@ -1045,7 +1045,11 @@ def create_act_workflow_task(act, stage, assignees, *, created_by, due_date=None
         source_type=Task.SourceType.ACT_WORKFLOW,
         act=act,
         workflow_stage=stage,
-        task_text=WORKFLOW_STAGE_TEXT[stage],
+        task_text=(
+            'Выполнить проработку ТО: внести решения по дефектам и анализ.'
+            if stage == Task.WorkflowStage.TO_ANALYSIS and _combined_to_act(act)
+            else WORKFLOW_STAGE_TEXT[stage]
+        ),
         department=_workflow_task_department(assignees),
         due_date=due_date or act.due_date or timezone.localdate(),
         created_by=created_by,
@@ -1063,6 +1067,9 @@ SUBSTITUTABLE_WORKFLOW_STAGES = {
     'ko_tr': (Task.WorkflowStage.KO_REVIEW,),
     'ko_pir': (Task.WorkflowStage.KO_REVIEW,),
     'to': (Task.WorkflowStage.TO_ANALYSIS,),
+    'to_mp': (Task.WorkflowStage.TO_ANALYSIS,),
+    'to_rl': (Task.WorkflowStage.TO_ANALYSIS,),
+    'to_tr': (Task.WorkflowStage.TO_ANALYSIS,),
 }
 
 
@@ -1090,7 +1097,7 @@ def add_substitute_to_open_act_workflow_tasks(user, role, *, actor=None):
         .exclude(assignees__user=user)
         .order_by('pk')
     )
-    from acts.permissions import ko_roles_for_act
+    from acts.permissions import ko_roles_for_act, to_roles_for_act
 
     added = 0
     for task in tasks.select_related('act'):
@@ -1099,6 +1106,8 @@ def add_substitute_to_open_act_workflow_tasks(user, role, *, actor=None):
             and role not in ko_roles_for_act(task.act)
         ):
             # A workshop КО joins only the acts that have defects of their цех.
+            continue
+        if task.workflow_stage == Task.WorkflowStage.TO_ANALYSIS and role not in to_roles_for_act(task.act):
             continue
         current = list(TaskAssignee.objects.filter(task=task).values_list('user_id', flat=True))
         replace_task_assignees(task, [*current, user.pk], actor=actor)
@@ -1115,6 +1124,12 @@ def add_substitute_to_open_act_workflow_tasks(user, role, *, actor=None):
             outcome='ok',
         )
     return added
+
+
+def _combined_to_act(act):
+    from acts.workshops import uses_combined_to
+
+    return uses_combined_to(act)
 
 
 def move_act_workflow_task(act, stage, assignees, *, created_by, reason='stage_changed'):
@@ -1338,6 +1353,7 @@ def act_print_recipient_roles(act):
 
     masters = {
         workshops.MP_SHOP: UserProfile.Role.MAS_MP_RL,
+        workshops.RL_SHOP: UserProfile.Role.MAS_MP_RL,
         workshops.PIR_SHOP: UserProfile.Role.MAS_PIR,
         workshops.TR_SHOP: UserProfile.Role.MAS_TR,
     }

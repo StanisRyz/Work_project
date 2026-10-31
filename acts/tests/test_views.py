@@ -110,7 +110,7 @@ class ActViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('pattern', response.context['form'].fields['nomenclature'].widget.attrs)
-        self.assertContains(response, 'js/act_create.js?v=20260924-1')
+        self.assertContains(response, 'js/act_create.js?v=20261031-1')
         self.assertContains(response, 'Создание акта')
         self.assertContains(response, 'Операционный контроль')
         self.assertContains(response, 'class="act-form-section act-defect-section"', html=False)
@@ -271,7 +271,7 @@ class ActViewTests(TestCase):
         self.assertFalse(Act.objects.filter(order_number='300-9').exists())
         self.assertContains(response, 'Обязательное поле.')
 
-    def test_create_saves_multiple_defects_with_independent_workshop_values(self):
+    def test_create_saves_multiple_defects_from_one_workshop(self):
         self.client.force_login(self.otk_user)
 
         response = self.client.post(
@@ -287,14 +287,14 @@ class ActViewTests(TestCase):
                 'defects-MIN_NUM_FORMS': '1',
                 'defects-MAX_NUM_FORMS': '1000',
                 **self._defect_post_fields(0, ActDefect.Workshop.MP_SHOP),
-                **self._defect_post_fields(1, ActDefect.Workshop.PIR_SHOP),
+                **self._defect_post_fields(1, ActDefect.Workshop.MP_SHOP),
             },
         )
 
         self.assertEqual(response.status_code, 302)
         act = Act.objects.get(order_number='300-10')
         workshops = set(act.defects.values_list('workshop', flat=True))
-        self.assertEqual(workshops, {ActDefect.Workshop.MP_SHOP, ActDefect.Workshop.PIR_SHOP})
+        self.assertEqual(workshops, {ActDefect.Workshop.MP_SHOP})
 
     def test_edit_updates_defect_workshop_and_preserves_other_validation(self):
         act = self._create_act(self.status_created, created_by=self.otk_user)
