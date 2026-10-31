@@ -39,13 +39,14 @@
             </div>
         </section>
 
-        <section class="act-form-section act-defect-section" data-defect-formset>
+        <section class="act-form-section act-defect-section" data-defect-formset data-legacy-workshops="{{ defect_formset.has_legacy_workshops|yesno:'true,false' }}">
             {% comment %}
             The one workshop configuration the browser gets, built by
             `acts.workshops.client_config()`. It is presentation metadata only:
             `ActDefectForm` validates against the same profiles server-side.
             {% endcomment %}
             {{ workshop_profiles|json_script:"defect-workshop-profiles" }}
+            {{ workshop_routes|json_script:"defect-workshop-routes" }}
             <div class="act-defect-section__heading">
                 <div>
                     <div class="act-defect-section__title-row">
@@ -71,24 +72,24 @@
                         <div class="defect-form-block__groups">
                             <fieldset class="defect-field-group">
                                 <legend data-defect-legend>Партия</legend>
-                                <label data-defect-field="workshop"><span>{{ defect_form.workshop.label }}</span>{{ defect_form.workshop }}{{ defect_form.workshop.errors }}</label>
-                                <label data-defect-collapsible data-defect-field="znp_number"><span>{{ defect_form.znp_number.label }}</span>{{ defect_form.znp_number }}{{ defect_form.znp_number.errors }}</label>
-                                <label data-defect-collapsible data-defect-field="party_number"><span>{{ defect_form.party_number.label }}</span>{{ defect_form.party_number }}{{ defect_form.party_number.errors }}</label>
+                                <label data-defect-field="workshop"{% if 'workshop' in defect_form.non_applicable_fields %} hidden{% endif %}><span>{{ defect_form.workshop.label }}</span>{{ defect_form.workshop }}{{ defect_form.workshop.errors }}</label>
+                                <label data-defect-collapsible data-defect-field="znp_number"{% if 'znp_number' in defect_form.non_applicable_fields %} hidden{% endif %}><span>{{ defect_form.znp_number.label }}</span>{{ defect_form.znp_number }}{{ defect_form.znp_number.errors }}</label>
+                                <label data-defect-collapsible data-defect-field="party_number"{% if 'party_number' in defect_form.non_applicable_fields %} hidden{% endif %}><span>{{ defect_form.party_number.label }}</span>{{ defect_form.party_number }}{{ defect_form.party_number.errors }}</label>
                             </fieldset>
                             <fieldset class="defect-field-group" data-defect-collapsible data-defect-group="control">
                                 <legend>Контроль</legend>
-                                <label data-defect-field="defect_type"><span>{{ defect_form.defect_type.label }}</span>{{ defect_form.defect_type }}{{ defect_form.defect_type.errors }}</label>
-                                <label data-defect-field="operation"><span>{{ defect_form.operation.label }}</span>{{ defect_form.operation }}{{ defect_form.operation.errors }}</label>
-                                <label data-defect-field="mp_type"><span>{{ defect_form.mp_type.label }}</span>{{ defect_form.mp_type }}{{ defect_form.mp_type.errors }}</label>
+                                <label data-defect-field="defect_type"{% if 'defect_type' in defect_form.non_applicable_fields %} hidden{% endif %}><span>{{ defect_form.defect_type.label }}</span>{{ defect_form.defect_type }}{{ defect_form.defect_type.errors }}</label>
+                                <label data-defect-field="operation"{% if 'operation' in defect_form.non_applicable_fields %} hidden{% endif %}><span>{{ defect_form.operation.label }}</span>{{ defect_form.operation }}{{ defect_form.operation.errors }}</label>
+                                <label data-defect-field="mp_type"{% if 'mp_type' in defect_form.non_applicable_fields %} hidden{% endif %}><span>{{ defect_form.mp_type.label }}</span>{{ defect_form.mp_type }}{{ defect_form.mp_type.errors }}</label>
                             </fieldset>
                             <fieldset class="defect-field-group" data-defect-collapsible data-defect-group="result">
                                 <legend>Результат контроля</legend>
-                                <label data-defect-field="detected_at"><span>Дата обнаружения</span>{{ defect_form.detected_at }}{{ defect_form.detected_at.errors }}</label>
-                                <label data-defect-field="checked_quantity"><span>{{ defect_form.checked_quantity.label }}</span>{{ defect_form.checked_quantity }}{{ defect_form.checked_quantity.errors }}</label>
-                                <label data-defect-field="nonconforming_quantity"><span>{{ defect_form.nonconforming_quantity.label }}</span>{{ defect_form.nonconforming_quantity }}{{ defect_form.nonconforming_quantity.errors }}</label>
+                                <label data-defect-field="detected_at"{% if 'detected_at' in defect_form.non_applicable_fields %} hidden{% endif %}><span>Дата обнаружения</span>{{ defect_form.detected_at }}{{ defect_form.detected_at.errors }}</label>
+                                <label data-defect-field="checked_quantity"{% if 'checked_quantity' in defect_form.non_applicable_fields %} hidden{% endif %}><span>{{ defect_form.checked_quantity.label }}</span>{{ defect_form.checked_quantity }}{{ defect_form.checked_quantity.errors }}</label>
+                                <label data-defect-field="nonconforming_quantity"{% if 'nonconforming_quantity' in defect_form.non_applicable_fields %} hidden{% endif %}><span>{{ defect_form.nonconforming_quantity.label }}</span>{{ defect_form.nonconforming_quantity }}{{ defect_form.nonconforming_quantity.errors }}</label>
                             </fieldset>
                         </div>
-                        <label class="defect-form-block__description" data-defect-collapsible data-defect-field="description"><span>{{ defect_form.description.label }}</span>{{ defect_form.description }}{{ defect_form.description.errors }}</label>
+                        <label class="defect-form-block__description" data-defect-collapsible data-defect-field="description"{% if 'description' in defect_form.non_applicable_fields %} hidden{% endif %}><span>{{ defect_form.description.label }}</span>{{ defect_form.description }}{{ defect_form.description.errors }}</label>
                     </section>
                 {% endfor %}
             </div>
@@ -124,10 +125,11 @@
                     <label class="defect-form-block__description" data-defect-collapsible data-defect-field="description"><span>{{ defect_formset.empty_form.description.label }}</span>{{ defect_formset.empty_form.description }}{{ defect_formset.empty_form.description.errors }}</label>
                 </section>
             </template>
-            <button class="link-button link-button--secondary add-defect-button" type="button" data-add-defect>
+            <button class="link-button link-button--secondary add-defect-button" type="button" data-add-defect{% if not defect_formset.forms.0.workshop_profile %} disabled{% endif %} aria-describedby="add-defect-hint">
                 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"/></svg>
                 Добавить ещё дефект
             </button>
+            <p class="field-hint" id="add-defect-hint" data-add-defect-hint>Сначала выберите цех/поставщика в первом дефекте.</p>
         </section>
 
         </div>
@@ -155,7 +157,7 @@
             </section>
             <section class="act-side__card">
                 <h2 class="act-side__title">Маршрут согласования</h2>
-                <ol class="act-route" aria-label="Маршрут согласования">
+                <ol class="act-route" aria-label="Маршрут согласования" data-form-route>
                     {% for name in route_names %}
                         <li class="act-route__step act-route__step--{% if forloop.first %}current{% else %}future{% endif %}"><span class="act-route__marker">{{ forloop.counter }}</span><span class="act-route__copy"><strong>{{ name }}</strong>{% if forloop.first %}<small>{% if is_edit %}Редактирование{% else %}Заполнение акта{% endif %}</small>{% endif %}</span></li>
                     {% endfor %}
@@ -167,5 +169,5 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="{% static 'js/act_create.js' %}?v=20260924-1"></script>
+    <script src="{% static 'js/act_create.js' %}?v=20261031-2"></script>
 {% endblock %}

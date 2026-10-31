@@ -16,7 +16,7 @@ from realtime.emitters import (
     emit_comment_created,
 )
 
-from . import quality_impact
+from . import quality_impact, workshops
 from .models import Act, ActAttachment, ActComment, ActCorrectiveAction, ActCorrectiveActionAssignee, ActDefect, ActHistoryEvent, ActRootAnalysis, get_act_status
 from .permissions import (
     can_apply_ko_decision,
@@ -39,6 +39,8 @@ from .permissions import (
     ko_roles_for_act,
     ko_workshops,
     pending_ko_roles,
+    to_roles_for_act,
+    to_workshops,
     get_user_role,
     get_visible_acts_queryset,
     is_ko,
@@ -235,6 +237,8 @@ def _move_act_workflow_task(act, stage_name, user, *, reason):
         # КО is per workshop: the entry goes to the КО of every цех the act
         # has defects in (and to the retired general КО, who decides all).
         assignees = active_users_for_roles(ko_roles_for_act(act))
+    elif stage == Task.WorkflowStage.TO_ANALYSIS:
+        assignees = active_users_for_roles(to_roles_for_act(act))
     else:
         assignees = active_users_for_role(role_for_stage[stage])
     return move_act_workflow_task(act, stage, assignees, created_by=user, reason=reason)
@@ -247,7 +251,8 @@ def send_to_ko(act, user):
             raise ActWorkflowError('Передача акта в КО недоступна для вашей роли или текущего статуса.')
         _require_status(act, 'CREATED_OTK')
         from_status = act.status
-        to_status = _get_required_status('KO_REVIEW')
+        combined = workshops.uses_combined_to(act)
+        to_status = _get_required_status('TO_ANALYSIS' if combined else 'KO_REVIEW')
         log_state['act_id'] = act.pk
         log_state['previous_status'] = _status_code_of(from_status)
         log_state['next_status'] = _status_code_of(to_status)
@@ -258,13 +263,13 @@ def send_to_ko(act, user):
         add_act_history_event(
             act,
             user,
-            ActHistoryEvent.EventType.SENT_TO_KO,
-            'Акт передан в КО для рассмотрения.',
+            ActHistoryEvent.EventType.SENT_TO_TO if combined else ActHistoryEvent.EventType.SENT_TO_KO,
+            'Акт передан на проработку ТО.' if combined else 'Акт передан в КО для рассмотрения.',
             from_status=from_status,
             to_status=to_status,
         )
         _move_act_workflow_task(
-            act, 'KO_REVIEW', user, reason='sent_to_ko'
+            act, 'TO_ANALYSIS' if combined else 'KO_REVIEW', user, reason='sent_to_ko'
         )
     return act
 
@@ -521,7 +526,7 @@ def return_to_otk(act, user, return_comment):
         act = lock_act_for_update(act)
         if not can_return_to_otk(act, user):
             raise ActWorkflowError('Возврат акта в ОТК недоступен для вашей роли или текущего статуса.')
-        _require_status(act, 'KO_REVIEW')
+        _require_status(act, 'TO_ANALYSIS' if workshops.uses_combined_to(act) else 'KO_REVIEW')
         add_act_comment(act, user, return_comment, notify=False)
         from_status = act.status
         to_status = _get_required_status('CREATED_OTK')
@@ -550,6 +555,8 @@ def apply_to_analysis(act, user, root_cause, action_summary):
         if not can_apply_to_analysis(act, user):
             raise ActWorkflowError('Анализ ТО недоступен для вашей роли или текущего статуса.')
         _require_status(act, 'TO_ANALYSIS')
+        if workshops.uses_combined_to(act):
+            raise ActWorkflowError('Проработка ТО требует решений по всем дефектам и корректирующих мероприятий.')
         from_status = act.status
         to_status = _get_required_status('OTK_REVIEW')
         log_state['act_id'] = act.pk
@@ -584,7 +591,7 @@ def apply_to_analysis(act, user, root_cause, action_summary):
     return act
 
 
-def apply_structured_to_analysis(act, user, analysis_data):
+def apply_structured_to_analysis(act, user, analysis_data, *, defect_decisions=None):
     with _workflow_logging(
         'apply_structured_to_analysis', act, user
     ) as log_state, transaction.atomic():
@@ -594,6 +601,9 @@ def apply_structured_to_analysis(act, user, analysis_data):
         _require_status(act, 'TO_ANALYSIS')
         if not analysis_data or any(not item['actions'] for item in analysis_data):
             raise ActWorkflowError('Добавьте корневую причину и корректирующее мероприятие.')
+        combined = workshops.uses_combined_to(act)
+        if combined:
+            _apply_combined_to_decisions(act, user, defect_decisions)
         from_status = act.status
         to_status = _get_required_status('OTK_REVIEW')
         log_state['act_id'] = act.pk
@@ -665,14 +675,56 @@ def apply_structured_to_analysis(act, user, analysis_data):
             act,
             user,
             ActHistoryEvent.EventType.TO_ANALYSIS_APPLIED,
-            'Анализ ТО внесён, мероприятия ожидают дальнейшей проработки.',
+            'Проработка ТО внесена: решения и анализ сохранены.' if combined
+            else 'Анализ ТО внесён, мероприятия ожидают дальнейшей проработки.',
             from_status=from_status,
             to_status=to_status,
         )
         _move_act_workflow_task(
             act, 'OTK_REVIEW', user, reason='to_analysis_applied'
         )
+        if combined:
+            _ensure_print_task(act, user)
     return act
+
+
+def _apply_combined_to_decisions(act, user, defect_decisions):
+    """Persist all РЛ decisions inside the analysis transaction, under its lock."""
+    current = {defect.pk: defect for defect in _lock_act_defects(act)}
+    decisions = list(defect_decisions or ())
+    received = [getattr(defect, 'pk', None) for defect, _d, _c, _i in decisions]
+    if not current or len(received) != len(set(received)) or set(received) != set(current):
+        raise ActWorkflowError('Необходимо внести решение ТО по каждому дефекту.')
+    if any(decision not in Act.KoDecision.new_values() for _defect, decision, _c, _i in decisions):
+        raise ActWorkflowError('Недопустимое решение ТО.')
+    decisions = _validated_quality_impacts([
+        (current[defect.pk], decision, comment, impact)
+        for defect, decision, comment, impact in decisions
+    ])
+    decided_at = timezone.now()
+    act.ko_round = act.ko_round or 1
+    for defect, decision, comment, impact in decisions:
+        defect.ko_decision = decision
+        defect.ko_comment = comment
+        defect.ko_decision_by = user
+        defect.ko_decision_at = decided_at
+        defect.ko_round = act.ko_round
+        for name, value in impact.items():
+            setattr(defect, name, value)
+        defect.save(update_fields=[
+            'ko_decision', 'ko_comment', 'ko_decision_by', 'ko_decision_at',
+            'ko_round', *quality_impact.FIELDS, 'updated_at',
+        ])
+        add_act_history_event(
+            act, user, ActHistoryEvent.EventType.KO_DECISION_APPLIED,
+            f'Решение ТО по дефекту «{defect.defect_type}»: {defect.get_ko_decision_display()}.',
+        )
+    _first, decision, comment, _impact = decisions[0]
+    act.ko_decision, act.ko_comment = decision, comment
+    act.ko_decision_by, act.ko_decision_at = user, decided_at
+    act.save(update_fields=[
+        'ko_decision', 'ko_comment', 'ko_decision_by', 'ko_decision_at', 'ko_round', 'updated_at',
+    ])
 
 
 def return_to_ko(act, user, return_comment):
@@ -724,7 +776,9 @@ def return_to_to(act, user, return_comment):
         log_state['next_status'] = _status_code_of(to_status)
         add_act_comment(act, user, return_comment, notify=False)
         act.status = to_status
-        act.save(update_fields=['status', 'updated_at'])
+        if workshops.uses_combined_to(act):
+            act.ko_round += 1
+        act.save(update_fields=['status', 'ko_round', 'updated_at'])
         add_act_history_event(
             act,
             user,
@@ -879,13 +933,25 @@ def describe_acting_substitution(act, user, event_type, from_status=None):
     if is_act_admin(user) or own_role == UserProfile.Role.MANAGER:
         return ''
     role = _EVENT_ROLES.get(event_type)
+    if (
+        event_type == ActHistoryEvent.EventType.SENT_TO_TO
+        and getattr(from_status, 'code', '') == 'CREATED_OTK'
+    ):
+        role = UserProfile.Role.OTK
     if role is None:
         status = from_status or getattr(act, 'status', None)
         role = _STATUS_ROLES.get(getattr(status, 'code', ''))
     if role is None:
         return ''
     # КО is any of the КО roles — the general one or a workshop one.
-    needed = KO_ROLES if role == UserProfile.Role.KO else (role,)
+    if role == UserProfile.Role.KO and workshops.uses_combined_to(act):
+        needed = to_roles_for_act(act)
+    elif role == UserProfile.Role.KO:
+        needed = KO_ROLES
+    elif role == UserProfile.Role.TO:
+        needed = to_roles_for_act(act)
+    else:
+        needed = (role,)
     if own_role in needed:
         return ''
     # The stage's own role first; a lent «Руководитель» opens every stage too.
@@ -1233,7 +1299,10 @@ def get_role_context_text(user):
             else 'только акты на рассмотрении КО с дефектами вашего цеха'
         )
     if is_to(user):
-        parts.append('только акты, находящиеся на анализе ТО')
+        parts.append(
+            'только акты, находящиеся на анализе ТО'
+            if to_workshops(user) is None else 'только акты вашего цеха, находящиеся на проработке ТО'
+        )
     if len(parts) == 1:
         return f'Показаны {parts[0]}.'
     if parts:

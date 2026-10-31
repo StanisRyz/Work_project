@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 MP_SHOP = 'MP_SHOP'
 PIR_SHOP = 'PIR_SHOP'
+RL_SHOP = 'RL_SHOP'
 # «Цех ТР» — planned, not yet in use. Its code, profile and КО role («КО ТР»)
 # exist so introducing it is one step (see `PLANNED_WORKSHOP_PROFILES`), but it
 # is not an `ActDefect.Workshop` choice and the defect form does not offer it.
@@ -53,6 +54,7 @@ class WorkshopProfile:
     # Presentation only — the browser mirrors it, the backend never reads it.
     legend: str
     detected_at_group: str
+    combined_to: bool = False
 
     @property
     def non_applicable_fields(self):
@@ -78,6 +80,7 @@ class WorkshopProfile:
             'defect_types': list(self.defect_type_codes),
             'legend': self.legend,
             'detected_at_group': self.detected_at_group,
+            'combined_to': self.combined_to,
         }
 
 
@@ -100,6 +103,18 @@ PIR_DEFECT_TYPE_CODES = (
     'DEFORMATION',
     'OTHER',
     'SIZE_NONCONFORMITY',
+)
+
+RL_DEFECT_TYPES = (
+    ('SIZE_NONCONFORMITY', 'Несоответствие размеров'),
+    ('BURRS', 'Заусенцы'),
+    ('MECHANICAL_DAMAGE', 'Механическое повреждение'),
+    ('ROD_YOKE_MISALIGNMENT', 'Перекос стержней и ярм'),
+    ('WAVE', 'Волна'),
+    ('COATING_DELAMINATION', 'Отслоение покрытия'),
+    ('RUST', 'Ржавчина'),
+    ('PAINT_DEFECT', 'Дефект покраски'),
+    ('MAGNETIC_PROPERTIES', 'Магнитные свойства'),
 )
 
 # ПиР collects neither a party number, nor an operation, nor a МП type, nor a
@@ -133,9 +148,21 @@ PIR_PROFILE = WorkshopProfile(
     detected_at_group='control',
 )
 
+RL_PROFILE = WorkshopProfile(
+    code=RL_SHOP,
+    label='Цех РЛ',
+    fields=(*PIR_DEFECT_FIELDS, 'description'),
+    required_fields=(*PIR_DEFECT_FIELDS, 'description'),
+    defect_type_codes=tuple(code for code, _label in RL_DEFECT_TYPES),
+    legend='Цех',
+    detected_at_group='control',
+    combined_to=True,
+)
+
 WORKSHOP_PROFILES = {
     MP_SHOP: MP_PROFILE,
     PIR_SHOP: PIR_PROFILE,
+    RL_SHOP: RL_PROFILE,
 }
 
 # A template for «Цех ТР», deliberately *not* in `WORKSHOP_PROFILES`: nothing
@@ -191,3 +218,13 @@ def get_profile(workshop):
 def client_config():
     """Compact presentation metadata for `static/js/act_create.js`."""
     return {code: profile.as_client_config() for code, profile in WORKSHOP_PROFILES.items()}
+
+
+def uses_combined_to(act):
+    """Only a homogeneous act can use the combined decision/analysis route.
+
+    Historical mixed acts retain their original route; no first-defect summary
+    is inferred and no stored data is rewritten.
+    """
+    profiles = [get_profile(defect.workshop) for defect in act.defects.all()]
+    return bool(profiles) and all(profile and profile.combined_to for profile in profiles)

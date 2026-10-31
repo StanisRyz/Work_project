@@ -12,6 +12,7 @@ const initialiseActDefectFormset = (root) => {
     const template = formset.querySelector('[data-empty-defect-form]');
     const addButton = formset.querySelector('[data-add-defect]');
     const totalForms = formset.querySelector('input[name$="-TOTAL_FORMS"]');
+    const firstRouteHint = actForm.querySelector('[data-form-route] li small')?.textContent;
 
     if (!list || !template || !addButton || !totalForms) {
         return;
@@ -170,7 +171,52 @@ const initialiseActDefectFormset = (root) => {
     };
 
     const syncAllWorkshopVisibility = () => {
-        list.querySelectorAll('.defect-form-block').forEach(syncWorkshopVisibility);
+        list.querySelectorAll('.defect-form-block:not([hidden])').forEach(syncWorkshopVisibility);
+    };
+
+    const syncWorkshopSelection = (force = false) => {
+        const blocks = [...list.querySelectorAll('.defect-form-block:not([hidden])')];
+        const first = getWorkshopSelect(blocks[0]);
+        const chosen = first?.value || '';
+        addButton.disabled = !workshopProfiles[chosen];
+        const hint = formset.querySelector('[data-add-defect-hint]');
+        if (hint) hint.hidden = !addButton.disabled;
+        blocks.slice(1).forEach((block) => {
+            const select = getWorkshopSelect(block);
+            if (!select) return;
+            const existingLegacy = formset.dataset.legacyWorkshops === 'true'
+                && block.querySelector('input[name$="-id"]')?.value;
+            if (existingLegacy && !force) return;
+            select.value = chosen;
+            select.setAttribute('aria-readonly', 'true');
+            [...select.options].forEach((option) => { option.disabled = option.value !== chosen; });
+        });
+        syncAllWorkshopVisibility();
+        const route = actForm.querySelector('[data-form-route]');
+        const routesConfig = formset.querySelector('#defect-workshop-routes');
+        const names = routesConfig ? JSON.parse(routesConfig.textContent)[chosen] : null;
+        if (route && names && (force || formset.dataset.legacyWorkshops !== 'true')) {
+            const steps = names.map((name, index) => {
+                const step = document.createElement('li');
+                step.className = `act-route__step act-route__step--${index ? 'future' : 'current'}`;
+                const marker = document.createElement('span');
+                marker.className = 'act-route__marker';
+                marker.textContent = index + 1;
+                const copy = document.createElement('span');
+                copy.className = 'act-route__copy';
+                const title = document.createElement('strong');
+                title.textContent = name;
+                copy.append(title);
+                if (index === 0 && firstRouteHint) {
+                    const hint = document.createElement('small');
+                    hint.textContent = firstRouteHint;
+                    copy.append(hint);
+                }
+                step.append(marker, copy);
+                return step;
+            });
+            route.replaceChildren(...steps);
+        }
     };
 
     const reindexForms = () => {
@@ -233,12 +279,13 @@ const initialiseActDefectFormset = (root) => {
     };
 
     addButton.addEventListener('click', () => {
+        if (addButton.disabled) return;
         const index = Number.parseInt(totalForms.value, 10);
         const html = template.innerHTML.replace(/__prefix__/g, index);
         list.insertAdjacentHTML('beforeend', html);
         totalForms.value = index + 1;
         syncDefectUi();
-        syncWorkshopVisibility(list.querySelector('.defect-form-block:last-child'));
+        syncWorkshopSelection();
     });
 
     actForm.addEventListener('input', (event) => {
@@ -252,7 +299,7 @@ const initialiseActDefectFormset = (root) => {
     actForm.addEventListener('change', (event) => {
         const field = event.target;
         if (field.matches('select[name$="-workshop"]')) {
-            syncWorkshopVisibility(field.closest('.defect-form-block'));
+            syncWorkshopSelection(true);
         }
         if (field.matches('select, input[type="date"]')) {
             validateField(field, false);
@@ -293,12 +340,14 @@ const initialiseActDefectFormset = (root) => {
             deleteField.checked = true;
             retireBlock(block);
             syncDefectUi();
+            syncWorkshopSelection();
             return;
         }
 
         block.remove();
         reindexForms();
         syncDefectUi();
+        syncWorkshopSelection();
     });
 
     // A page re-rendered after a rejected edit keeps the defects the user had
@@ -309,7 +358,7 @@ const initialiseActDefectFormset = (root) => {
         }
     });
     syncDefectUi();
-    syncAllWorkshopVisibility();
+    syncWorkshopSelection();
 };
 
 window.qualityFragments.register("actDefectFormset", initialiseActDefectFormset);

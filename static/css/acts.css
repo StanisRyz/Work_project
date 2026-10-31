@@ -2089,6 +2089,8 @@
     display: none !important;
 }
 
+[data-add-defect-hint][hidden] { display: none; }
+
 .add-defect-button .ui-icon {
     width: 20px;
     height: 20px;

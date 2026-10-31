@@ -235,6 +235,14 @@ class ActDefectForm(forms.ModelForm):
             )
         return detected_at
 
+    @property
+    def workshop_profile(self):
+        return get_profile(self['workshop'].value())
+
+    @property
+    def non_applicable_fields(self):
+        return self.workshop_profile.non_applicable_fields if self.workshop_profile else ()
+
     def clean(self):
         cleaned_data = super().clean()
         checked_quantity = cleaned_data.get('checked_quantity')
@@ -282,6 +290,16 @@ class ActDefectForm(forms.ModelForm):
 
 
 class BaseActDefectFormSet(BaseInlineFormSet):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Preserve old mixed acts while editing their existing rows; new acts
+        # and newly added defects always inherit the first live defect's цех.
+        self.original_workshops = dict(self.get_queryset().values_list('pk', 'workshop'))
+
+    @property
+    def has_legacy_workshops(self):
+        return len(set(self.original_workshops.values())) > 1
+
     def clean(self):
         super().clean()
         if any(self.errors):
@@ -293,6 +311,16 @@ class BaseActDefectFormSet(BaseInlineFormSet):
         ]
         if not completed_forms:
             raise ValidationError('Добавьте хотя бы один дефект.')
+        workshop = completed_forms[0].cleaned_data.get('workshop')
+        for form in completed_forms[1:]:
+            selected = form.cleaned_data.get('workshop')
+            unchanged_legacy = (
+                len(set(self.original_workshops.values())) > 1
+                and self.original_workshops.get(form.instance.pk) == selected
+                and self.original_workshops.get(completed_forms[0].instance.pk) == workshop
+            )
+            if selected != workshop and not unchanged_legacy:
+                form.add_error('workshop', 'Цех/поставщик должен совпадать с первым дефектом.')
 
 
 ActDefectFormSet = inlineformset_factory(

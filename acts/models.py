@@ -12,7 +12,7 @@ from ecosystem.workdays import add_working_days
 from references.models import ActStatus, DefectType, Operation, Priority
 from accounts.models import Department
 
-from .workshops import PIR_SHOP
+from .workshops import PIR_SHOP, RL_SHOP
 
 
 ACT_STATUS_CODES = {
@@ -235,6 +235,14 @@ class Act(models.Model):
     def __str__(self):
         return self.number
 
+    @property
+    def workflow_status_label(self):
+        from .workshops import uses_combined_to
+
+        if self.status.code == 'TO_ANALYSIS' and uses_combined_to(self):
+            return 'На проработке ТО'
+        return self.status.name
+
 
 class ActDefect(models.Model):
     """The canonical record of one defect, including its workshop-specific data.
@@ -247,6 +255,7 @@ class ActDefect(models.Model):
     class Workshop(models.TextChoices):
         MP_SHOP = 'MP_SHOP', 'Цех МП'
         PIR_SHOP = 'PIR_SHOP', 'Цех ПиР'
+        RL_SHOP = 'RL_SHOP', 'Цех РЛ'
 
     class MpType(models.TextChoices):
         OL = 'OL', 'ОЛ'
@@ -368,6 +377,13 @@ class ActDefect(models.Model):
                     )
                 ),
                 name='act_defect_pir_without_mp_only_data',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(workshop=RL_SHOP)
+                    | Q(operation__isnull=True, mp_type='', party_number='')
+                ),
+                name='act_defect_rl_without_mp_only_data',
             ),
             # Неотмеченный пункт анализа не несёт текста. `quality_impact.
             # normalize()` очищает его на единственном пути записи, поэтому

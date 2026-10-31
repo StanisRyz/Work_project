@@ -302,7 +302,12 @@ tasks never live inside `acts`.
 
 ## Domain invariants
 
-- Every authenticated user may read every act: `all` contains all non-archived
+- Workshop ТО (`TO_MP`, `TO_RL`, `TO_TR`) reads only acts with defects of its
+  workshops, including `all`, `archive`, direct detail, print, attachments and
+  live fragments. `get_visible_acts_filter()` is the shared read-side rule.
+  The head (`TO`, now «Начальник ТО») keeps the old scope. Substitutions add
+  workshop scopes; another non-technological role retains its existing read
+  access. Other authenticated users may read every act: `all` contains all non-archived
   acts, `archive` contains all archived acts, and their detail pages are
   read-only outside the user's working scope. `my` is the working queue: ОТК
   gets own `CREATED_OTK` acts **plus every `OTK_REVIEW` act**, КО gets
@@ -350,7 +355,11 @@ tasks never live inside `acts`.
   `workshops.TR_PROFILE` in `PLANNED_WORKSHOP_PROFILES`, not an
   `ActDefect.Workshop` choice and not offered by the form — introducing it is
   the choice plus moving the profile into `WORKSHOP_PROFILES`.
-- Every defect requires a workshop/supplier choice on the form, while the model
+- New acts have one workshop/supplier: chosen in the first defect, inherited
+  by every subsequent defect. Adding is disabled until that choice; the formset
+  rejects mismatches. Historical mixed acts keep their existing workshops when
+  edited; new defects still inherit the first workshop. Every defect requires
+  a workshop/supplier choice on the form, while the model
   field stays `blank=True` so existing rows keep no invented value. Revealing
   the remaining fields must never clear already-entered values.
 - **«Анализ влияния отклонений на качество изделия» is the КО decision's
@@ -435,7 +444,7 @@ tasks never live inside `acts`.
   operation, МП type, description, detected date, quantities and the per-defect
   КО decision exist only on the defect — the act carries no summary of them and
   no code may reconstruct one. Never assume the first defect represents the act:
-  an act may mix workshops, and reordering its defects changes nothing. An act
+  historical acts may mix workshops, and reordering their defects changes nothing. An act
   with no defects renders the neutral empty state; it never gets invented data.
 - **The printed act is the paper form ДП-СМК 07/04.5, one per defect.**
   `acts.print_form.build_act_print_form(act)` builds plain data — a form per
@@ -459,6 +468,19 @@ tasks never live inside `acts`.
   full field set; `PIR_SHOP` («Цех ПиР») collects only workshop, ЗНП, defect
   type, detected date and the two quantities, and two `ActDefect` check
   constraints guard the quantities and the absence of МП-only data on a ПиР row.
+- **РЛ combines decision and analysis.** `workshops.RL_PROFILE` collects ЗНП,
+  defect type, detected date, quantities and description. The editor uses its
+  usual three field groups, two rows each: workshop/ЗНП, type/date, quantities;
+  description spans the full width below them. Only its nine reference defect
+  types are offered. Its `combined_to` metadata means
+  `CREATED_OTK → TO_ANALYSIS → OTK_REVIEW`: «Проработка ТО». Only homogeneous
+  acts use it (`uses_combined_to()`); old mixed acts retain their route.
+  `apply_structured_to_analysis(..., defect_decisions=...)` checks and saves all
+  decisions, quality impact and analysis atomically under the act lock. No
+  standalone КО submission or return to КО is offered for РЛ. ТО can return it
+  to ОТК for correction; ОТК returns it to ТО with a fresh decision round.
+  `WORKSHOP_TO_ROLES`, `to_workshops()` and `to_roles_for_act()` define scope
+  and routing for permissions, tasks, notifications and substitutions.
 - **Frontend workshop behaviour is presentation only.** `static/js/act_create.js`
   reads the one `client_config()` JSON the form renders and never restates a
   rule; it shows/hides fields, sets `required`, filters the dropdown and moves
