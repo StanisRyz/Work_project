@@ -110,7 +110,7 @@ class ActViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('pattern', response.context['form'].fields['nomenclature'].widget.attrs)
-        self.assertContains(response, 'js/act_create.js?v=20261031-1')
+        self.assertContains(response, 'js/act_create.js?v=20261031-2')
         self.assertContains(response, 'Создание акта')
         self.assertContains(response, 'Операционный контроль')
         self.assertContains(response, 'class="act-form-section act-defect-section"', html=False)

@@ -137,7 +137,6 @@ const initialiseActDefectFormset = (root) => {
         }
         const profile = workshopProfiles[select.value] || null;
         const isChosen = Boolean(profile);
-        block.dataset.defectLayout = profile?.layout || 'groups';
         block.querySelectorAll('[data-defect-collapsible]').forEach((element) => {
             element.hidden = !isChosen;
         });

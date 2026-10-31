@@ -59,7 +59,7 @@
             {{ defect_formset.management_form }}
             <div class="defect-form-list" data-defect-form-list>
                 {% for defect_form in defect_formset %}
-                    <section class="defect-form-block" data-defect-layout="{{ defect_form.layout }}">
+                    <section class="defect-form-block">
                         <div class="defect-form-block__heading{% if forloop.first %} defect-form-block__heading--initial{% endif %}">
                             <h3 data-defect-title>Дефект {{ forloop.counter }}</h3>
                             {% if not forloop.first %}
@@ -94,7 +94,7 @@
                 {% endfor %}
             </div>
             <template data-empty-defect-form>
-                <section class="defect-form-block" data-defect-layout="groups">
+                <section class="defect-form-block">
                     <div class="defect-form-block__heading">
                         <h3 data-defect-title>Дефект</h3>
                         <button class="link-button link-button--danger remove-defect-button" type="button" data-remove-defect>Удалить дефект</button>
@@ -169,5 +169,5 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="{% static 'js/act_create.js' %}?v=20261031-1"></script>
+    <script src="{% static 'js/act_create.js' %}?v=20261031-2"></script>
 {% endblock %}

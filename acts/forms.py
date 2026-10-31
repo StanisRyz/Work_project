@@ -240,10 +240,6 @@ class ActDefectForm(forms.ModelForm):
         return get_profile(self['workshop'].value())
 
     @property
-    def layout(self):
-        return self.workshop_profile.layout if self.workshop_profile else 'groups'
-
-    @property
     def non_applicable_fields(self):
         return self.workshop_profile.non_applicable_fields if self.workshop_profile else ()
 

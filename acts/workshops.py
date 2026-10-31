@@ -55,7 +55,6 @@ class WorkshopProfile:
     legend: str
     detected_at_group: str
     combined_to: bool = False
-    layout: str = 'groups'
 
     @property
     def non_applicable_fields(self):
@@ -82,7 +81,6 @@ class WorkshopProfile:
             'legend': self.legend,
             'detected_at_group': self.detected_at_group,
             'combined_to': self.combined_to,
-            'layout': self.layout,
         }
 
 
@@ -159,7 +157,6 @@ RL_PROFILE = WorkshopProfile(
     legend='Цех',
     detected_at_group='control',
     combined_to=True,
-    layout='grid',
 )
 
 WORKSHOP_PROFILES = {

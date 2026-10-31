@@ -469,8 +469,10 @@ tasks never live inside `acts`.
   type, detected date and the two quantities, and two `ActDefect` check
   constraints guard the quantities and the absence of МП-only data on a ПиР row.
 - **РЛ combines decision and analysis.** `workshops.RL_PROFILE` collects ЗНП,
-  defect type, detected date, quantities and description (3 × 2 in the editor),
-  and exactly its nine reference defect types. Its `combined_to` metadata means
+  defect type, detected date, quantities and description. The editor uses its
+  usual three field groups, two rows each: workshop/ЗНП, type/date, quantities;
+  description spans the full width below them. Only its nine reference defect
+  types are offered. Its `combined_to` metadata means
   `CREATED_OTK → TO_ANALYSIS → OTK_REVIEW`: «Проработка ТО». Only homogeneous
   acts use it (`uses_combined_to()`); old mixed acts retain their route.
   `apply_structured_to_analysis(..., defect_decisions=...)` checks and saves all
