@@ -80,6 +80,7 @@ EXCLUDED_MODELS = (
 # and only for the exact codes listed here.
 MIGRATION_SEEDED_MODELS = (
     'accounts.Department',
+    'references.DefectType',
     'references.ActStatus',
     'references.TaskStatus',
 )
@@ -99,6 +100,12 @@ MIGRATION_SEEDED_ROWS = {
     # references.0002 / references.0003 / references.0004 create these three
     # task statuses.
     'references.TaskStatus': ('COMPLETED', 'IN_PROGRESS', 'CANCELLED'),
+    # references.0006 adds the eight new РЛ types. SIZE_NONCONFORMITY and
+    # OTHER predate that migration and are not owned by it.
+    'references.DefectType': (
+        'BURRS', 'MECHANICAL_DAMAGE', 'ROD_YOKE_MISALIGNMENT', 'WAVE',
+        'COATING_DELAMINATION', 'RUST', 'PAINT_DEFECT', 'MAGNETIC_PROPERTIES',
+    ),
 }
 
 SHA256_PATTERN = re.compile(r'^[0-9a-f]{64}$')

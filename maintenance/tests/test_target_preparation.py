@@ -7,7 +7,7 @@ from django.test import TestCase
 
 from maintenance import database_transfer as dt
 from maintenance import target_preparation as tp
-from references.models import ActStatus, TaskStatus
+from references.models import ActStatus, DefectType, TaskStatus
 
 
 class TargetPreparationTests(TestCase):
@@ -23,6 +23,8 @@ class TargetPreparationTests(TestCase):
             ActStatus.objects.update_or_create(code=code, defaults={'name': code})
         for code in dt.MIGRATION_SEEDED_ROWS['references.TaskStatus']:
             TaskStatus.objects.update_or_create(code=code, defaults={'name': code})
+        for code in dt.MIGRATION_SEEDED_ROWS['references.DefectType']:
+            DefectType.objects.get_or_create(code=code, defaults={'name': code})
 
     def _run(self, **kwargs):
         with mock.patch.object(connection, 'vendor', 'postgresql'):
@@ -59,6 +61,7 @@ class TargetPreparationTests(TestCase):
         self.assertTrue(result['ready'], result['blocking'])
         self.assertFalse(ActStatus.objects.exists())
         self.assertFalse(TaskStatus.objects.exists())
+        self.assertFalse(DefectType.objects.exists())
         deleted = {entry['model'] for entry in result['deleted']}
         self.assertEqual(deleted, set(dt.MIGRATION_SEEDED_MODELS))
 

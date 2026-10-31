@@ -471,8 +471,10 @@ tasks never live inside `acts`.
 - **РЛ combines decision and analysis.** `workshops.RL_PROFILE` collects ЗНП,
   defect type, detected date, quantities and description. The editor uses its
   usual three field groups, two rows each: workshop/ЗНП, type/date, quantities;
-  description spans the full width below them. Only its nine reference defect
-  types are offered. Its `combined_to` metadata means
+  description spans the full width below them. Only its ten reference defect
+  types, including OTHER, are offered. The eight new rows are installed by
+  references.0006 on upgrade; SIZE_NONCONFORMITY and OTHER are shared bootstrap
+  references. The migration preserves existing reference names and activation. Its `combined_to` metadata means
   `CREATED_OTK → TO_ANALYSIS → OTK_REVIEW`: «Проработка ТО». Only homogeneous
   acts use it (`uses_combined_to()`); old mixed acts retain their route.
   `apply_structured_to_analysis(..., defect_decisions=...)` checks and saves all

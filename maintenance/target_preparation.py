@@ -1,8 +1,8 @@
 """Safe preparation of an *empty* test PostgreSQL database.
 
-A freshly migrated database is not actually empty: two data migrations seed
-`references.ActStatus` and `references.TaskStatus`. The migration bundle
-carries its own copies of those rows, so they have to go before an import.
+A freshly migrated database contains migration-owned departments, statuses
+and the eight new РЛ defect types. The migration bundle carries its own
+copies of those rows, so they have to go before an import.
 
 This service is the only place allowed to delete them, and it is deliberately
 narrow:

@@ -102,7 +102,7 @@ class RlWorkshopTests(TestCase):
         task = act.tasks.get(source_type=Task.SourceType.ACT_WORKFLOW, status__code='IN_PROGRESS')
         return set(task.assignees.values_list('user_id', flat=True))
 
-    def test_profile_validates_exactly_nine_types_and_clears_mp_fields(self):
+    def test_profile_validates_all_ten_types_and_clears_mp_fields(self):
         data = {
             'workshop': workshops.RL_SHOP, 'znp_number': '123-4',
             'checked_quantity': 10, 'nonconforming_quantity': 2,
@@ -117,7 +117,7 @@ class RlWorkshopTests(TestCase):
                 self.assertEqual(form.cleaned_data['party_number'], '')
                 self.assertEqual(form.cleaned_data['mp_type'], '')
                 self.assertIsNone(form.cleaned_data['operation'])
-        form = ActDefectForm({**data, 'defect_type': DefectType.objects.get(code='OTHER').pk})
+        form = ActDefectForm({**data, 'defect_type': DefectType.objects.get(code='DEFORMATION').pk})
         self.assertFalse(form.is_valid())
         self.assertIn('defect_type', form.errors)
         self.assertNotIn(workshops.TR_SHOP, dict(ActDefect.Workshop.choices))

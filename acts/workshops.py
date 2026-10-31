@@ -115,6 +115,7 @@ RL_DEFECT_TYPES = (
     ('RUST', 'Ржавчина'),
     ('PAINT_DEFECT', 'Дефект покраски'),
     ('MAGNETIC_PROPERTIES', 'Магнитные свойства'),
+    ('OTHER', 'Другое'),
 )
 
 # ПиР collects neither a party number, nor an operation, nor a МП type, nor a
